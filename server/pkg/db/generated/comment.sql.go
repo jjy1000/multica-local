@@ -277,7 +277,6 @@ func (q *Queries) GetCommentInWorkspace(ctx context.Context, arg GetCommentInWor
 }
 
 const getLatestMemberCommentForIssueSince = `-- name: GetLatestMemberCommentForIssueSince :one
-
 SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, resolved_at, resolved_by_type, resolved_by_id, source_task_id FROM comment
 WHERE issue_id = $1
   AND author_type = 'member'
@@ -291,7 +290,6 @@ type GetLatestMemberCommentForIssueSinceParams struct {
 	Since   pgtype.Timestamptz `json:"since"`
 }
 
-// >>> MUL-4195 / MUL-4304 completion reconciliation helpers
 // MUL-4195 completion reconciliation: the newest MEMBER-authored comment on an
 // issue created strictly after @since (a run's started_at). Used when a task
 // completes to detect deliberate user input that landed while the agent was
@@ -413,13 +411,10 @@ func (q *Queries) HasAgentRepliedInThread(ctx context.Context, arg HasAgentRepli
 }
 
 const listCommentsForIssue = `-- name: ListCommentsForIssue :many
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, resolved_at, resolved_by_type, resolved_by_id, source_task_id FROM (
-    SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, resolved_at, resolved_by_type, resolved_by_id, source_task_id FROM comment
-    WHERE issue_id = $1 AND workspace_id = $2
-    ORDER BY created_at DESC, id DESC
-    LIMIT $3
-) AS recent
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, resolved_at, resolved_by_type, resolved_by_id, source_task_id FROM comment
+WHERE issue_id = $1 AND workspace_id = $2
 ORDER BY created_at ASC, id ASC
+LIMIT $3
 `
 
 type ListCommentsForIssueParams struct {
@@ -428,14 +423,9 @@ type ListCommentsForIssueParams struct {
 	Limit       int32       `json:"limit"`
 }
 
-// The NEWEST $3 comments for an issue, returned in chronological order.
-//
-// The inner query takes the window with the keyset ordering so the cap discards
-// the OLDEST rows, and the outer query restores the ascending contract callers
-// rely on. The ordering of the inner window is satisfied by
-// idx_comment_issue_keyset (migration 068). Cap is still defensive — issue p99
-// is ~30 comments, max ever observed is ~1.1k — but "defensive" is not a reason
-// to drop the newest rows when it does fire (MUL-5492).
+// All comments for an issue in chronological order, capped at $3 (DB safety
+// net). Issue p99 is ~30 comments, max ever observed in prod is ~1.1k, so
+// the handler-side cap of 2000 is purely defensive.
 func (q *Queries) ListCommentsForIssue(ctx context.Context, arg ListCommentsForIssueParams) ([]Comment, error) {
 	rows, err := q.db.Query(ctx, listCommentsForIssue, arg.IssueID, arg.WorkspaceID, arg.Limit)
 	if err != nil {
@@ -671,26 +661,21 @@ const listReconcilableCommentsForIssueSince = `-- name: ListReconcilableComments
 SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, resolved_at, resolved_by_type, resolved_by_id, source_task_id FROM comment
 WHERE issue_id = $1
   AND author_type IN ('member', 'agent')
-  AND (
-      created_at > $2
-      OR id = ANY($3::uuid[])
-  )
+  AND created_at > $2
 ORDER BY created_at ASC, id ASC
 `
 
 type ListReconcilableCommentsForIssueSinceParams struct {
-	IssueID           pgtype.UUID        `json:"issue_id"`
-	Since             pgtype.Timestamptz `json:"since"`
-	PlannedCommentIds []pgtype.UUID      `json:"planned_comment_ids"`
+	IssueID pgtype.UUID        `json:"issue_id"`
+	Since   pgtype.Timestamptz `json:"since"`
 }
 
 // MUL-4195 / MUL-4304 completion reconciliation: every MEMBER- or AGENT-authored
 // comment on an issue created strictly after @since (the completing run's
-// created_at anchor), plus every id in its planned trigger/coalesced batch.
-// Planned ids matter for retry children because their input comments predate
-// the child's created_at; if one could not be embedded at claim time it still
-// needs reconciliation. The handler excludes only delivered_comment_ids, then
-// replays the remainder through the normal trigger pipeline oldest first.
+// created_at anchor), oldest first. The reconcile pass replays each undelivered
+// one through the normal trigger pipeline so a single coalesced follow-up run
+// covers all of them, guaranteeing at-least-once processing for input that
+// landed after the completing run's claim response was built.
 //
 // Author-type scope (MUL-4304): originally restricted to author_type = 'member'.
 // That left a gap — an explicit agent→agent @mention (agent A comments
@@ -712,7 +697,7 @@ type ListReconcilableCommentsForIssueSinceParams struct {
 // replaying in order lets later comments coalesce onto the follow-up created by
 // the first.
 func (q *Queries) ListReconcilableCommentsForIssueSince(ctx context.Context, arg ListReconcilableCommentsForIssueSinceParams) ([]Comment, error) {
-	rows, err := q.db.Query(ctx, listReconcilableCommentsForIssueSince, arg.IssueID, arg.Since, arg.PlannedCommentIds)
+	rows, err := q.db.Query(ctx, listReconcilableCommentsForIssueSince, arg.IssueID, arg.Since)
 	if err != nil {
 		return nil, err
 	}

@@ -1018,6 +1018,13 @@ type commentAgentTrigger struct {
 
 type commentTriggerComputeOptions struct {
 	ExcludeTriggerCommentID pgtype.UUID
+	// OriginatorUserID is the top-of-chain human user id for this trigger
+	// (MUL-3963). Only consulted for AGENT actors — canInvokeAgent judges A2A
+	// by the originator, not the immediate agent principal. Members are their
+	// own originator. Fork-local minimal port (no full attribution snapshot
+	// plumbing); the full MUL-4525 series carries DispatchStatus +
+	// AttributionForMergedComment, which is out of scope here.
+	OriginatorUserID string
 }
 
 func commentAgentTriggerReason(trigger commentAgentTrigger) string {
@@ -1311,7 +1318,7 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	// must keep the resolved root in sync.
 	h.TaskService.AutoUnresolveThreadOnReply(r.Context(), rootComment, uuidToString(issue.WorkspaceID), authorType, authorID)
 
-	h.triggerTasksForComment(r.Context(), issue, comment, parentComment, authorType, authorID, suppressAgentIDs)
+	h.triggerTasksForComment(r.Context(), issue, comment, parentComment, authorType, authorID, "", suppressAgentIDs)
 
 	writeJSON(w, http.StatusCreated, resp)
 }
@@ -1334,11 +1341,21 @@ func isNoteComment(content string) bool {
 	return strings.EqualFold(firstToken, noteCommentPrefix)
 }
 
-func (h *Handler) triggerTasksForComment(ctx context.Context, issue db.Issue, comment db.Comment, parentComment *db.Comment, actorType, actorID string, suppressAgentIDs []pgtype.UUID) {
+func (h *Handler) triggerTasksForComment(ctx context.Context, issue db.Issue, comment db.Comment, parentComment *db.Comment, actorType, actorID string, originatorUserID string, suppressAgentIDs []pgtype.UUID) {
 	if isNoteComment(comment.Content) {
 		return
 	}
-	triggers := h.computeCommentAgentTriggers(ctx, issue, comment.Content, parentComment, actorType, actorID, commentTriggerComputeOptions{})
+	// MUL-3963 / MUL-4304: thread the top-of-chain originator through to
+	// the trigger compute options so an agent-authored comment can be
+	// evaluated under its source-task's human (the A2A authorizing
+	// principal) rather than the immediate agent principal. Members
+	// leave the originator empty; for member-authored comments the
+	// compute path uses actorID directly. Fork-local minimal port: callers
+	// not yet aware of MUL-4304 pass "" here, which preserves the
+	// historical behavior.
+	triggers := h.computeCommentAgentTriggers(ctx, issue, comment.Content, parentComment, actorType, actorID, commentTriggerComputeOptions{
+		OriginatorUserID: originatorUserID,
+	})
 	triggers = filterSuppressedCommentAgentTriggers(triggers, suppressAgentIDs)
 	h.enqueueCommentAgentTriggers(ctx, issue, comment.ID, triggers, actorType, actorID)
 }
@@ -1976,7 +1993,7 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.retriggerCancelledTaskSurvivors(r.Context(), *triggerIssue, cancelled, existing.ID)
-		h.triggerTasksForComment(r.Context(), *triggerIssue, comment, parentComment, actorType, actorID, suppressAgentIDs)
+		h.triggerTasksForComment(r.Context(), *triggerIssue, comment, parentComment, actorType, actorID, "", suppressAgentIDs)
 	}
 
 	writeJSON(w, http.StatusOK, resp)

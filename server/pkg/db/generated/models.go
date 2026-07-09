@@ -155,6 +155,8 @@ type AgentTaskQueue struct {
 	CoalescedCommentIds   []pgtype.UUID      `json:"coalesced_comment_ids"`
 	SessionRolloutMissing bool               `json:"session_rollout_missing"`
 	RetiredSessionID      pgtype.Text        `json:"retired_session_id"`
+	OriginatorUserID      pgtype.UUID        `json:"originator_user_id"`
+	AccountableUserID     pgtype.UUID        `json:"accountable_user_id"`
 }
 
 type AgentTrustEvent struct {

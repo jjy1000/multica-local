@@ -124,6 +124,39 @@ func (s *TaskService) BuildCommentTriggerSummary(ctx context.Context, commentID 
 	return s.buildCommentTriggerSummary(ctx, commentID)
 }
 
+// ResolveOriginatorFromTriggerComment is the MUL-4304 / MUL-3963 helper used
+// by reconcileCommentsOnCompletion (handler/daemon.go) to compute the
+// top-of-chain HUMAN user id for a comment that authored a reply.
+//
+// Chain (MUL-3869):
+//   - member author → return author_id (the member IS the top-of-chain human)
+//   - agent author → read comment.source_task_id and inherit that task's
+//     originator_user_id (the human at the top of the trigger chain that
+//     ultimately ran the authoring agent)
+//   - missing data → return an invalid UUID (caller treats as no originator)
+//
+// Fork-local minimal port (2-arg, no workspaceID scope). The full upstream
+// version is 3-arg with workspaceID (MUL-4252) plus the AttributionForMerged-
+// Comment snapshot plumbing (MUL-4302). That broader work lives in the
+// MUL-4525 series, deliberately not ported — see release notes 0.5.21.
+func (s *TaskService) ResolveOriginatorFromTriggerComment(ctx context.Context, commentID pgtype.UUID) pgtype.UUID {
+	comment, err := s.Queries.GetComment(ctx, commentID)
+	if err != nil {
+		return pgtype.UUID{}
+	}
+	if comment.AuthorType == "member" {
+		return comment.AuthorID
+	}
+	if !comment.SourceTaskID.Valid {
+		return pgtype.UUID{}
+	}
+	originator, err := s.Queries.GetAgentTaskOriginator(ctx, comment.SourceTaskID)
+	if err != nil {
+		return pgtype.UUID{}
+	}
+	return originator
+}
+
 func NewTaskService(q *db.Queries, tx TxStarter, hub *realtime.Hub, bus *events.Bus, wakeups ...TaskWakeupNotifier) *TaskService {
 	var wakeup TaskWakeupNotifier
 	if len(wakeups) > 0 {

@@ -329,6 +329,16 @@ RETURNING *;
 SELECT * FROM agent_task_queue
 WHERE id = $1;
 
+-- name: GetAgentTaskOriginator :one
+-- 0.5.21 (MUL-4304 fork-local minimal port): read just the top-of-chain
+-- originator_user_id for an agent_task_queue row. Used by
+-- service.TaskService.ResolveOriginatorFromTriggerComment to compute the
+-- A2A-authorizing human when a comment was authored by an agent. Returns
+-- the bare originator (may be invalid if not yet set); the caller treats
+-- invalid as "no originator".
+SELECT originator_user_id FROM agent_task_queue
+WHERE id = $1;
+
 -- name: GetAgentTaskInWorkspace :one
 -- Loads a task only when its owning agent lives in the given workspace.
 -- agent_id is NOT NULL on every task row (and ON DELETE CASCADE, so the agent
