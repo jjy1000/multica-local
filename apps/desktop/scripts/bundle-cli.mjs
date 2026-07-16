@@ -129,8 +129,15 @@ async function exists(p) {
   }
 }
 
+// 0.3.29 fix: this fork uses sparse git tracking (only ~7 files in
+// the index), so `git describe --tags` returns the pre-update marker
+// tag we wrote in the snapshot step, NOT a release tag. That makes
+// the bundle name render as "0.0.0-gpre-update-...-dirty" instead of
+// the version declared in apps/desktop/package.json. Trust
+// package.json (the canonical source per CLAUDE.md) and treat any
+// pre-update marker tag as "no release tag present".
 let version = sh("git describe --tags --always --dirty");
-if (!version) {
+if (!version || version.startsWith("pre-update-") || version.startsWith("gpre-update-")) {
   try {
     version = JSON.parse(readFileSync(join(repoRoot, "apps", "desktop", "package.json"), "utf-8")).version || "dev";
   } catch {

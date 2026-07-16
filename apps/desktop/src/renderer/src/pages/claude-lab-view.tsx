@@ -54,7 +54,7 @@ import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
 import { ExperimentalChatPane, ForecastStreamView } from "@multica/views/experimental";
 import { getCurrentWsId } from "@multica/core/platform";
-import { apiClient } from "@multica/core/api";
+import { api } from "@multica/core/api";
 import type { Agent } from "@multica/core/types/agent";
 
 import { ExperimentalArtifactView } from "@/components/experimental-artifact-view";
@@ -269,7 +269,7 @@ function LabAgentLockBar({
     enabled: enabled && !!wsId && !!selectedIssueId,
     staleTime: 60_000,
     queryFn: async () => {
-      const list = await apiClient.listAgents({ workspace_id: wsId ?? undefined });
+      const list = await api.listAgents({ workspace_id: wsId ?? undefined });
       return list ?? [];
     },
   });
