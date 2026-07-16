@@ -47,6 +47,7 @@
       "dismiss": "閉じる"
     },
     "experimental_mythos": "Mythos スウォーム",
+    "mythos_enabled_badge": "スウォーム有効",
     "experimental_llm_wiki": "LLM Wiki",
     "experimental_llm_wiki_bridge": "LLM Wiki ブリッジ",
     "experimental_claude_science_runtime": "Claude Science ランタイム",

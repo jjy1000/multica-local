@@ -172,6 +172,24 @@ export function resolveManager(flagKey: string): ResolvedManager | null {
         getStatus: () => m.status(),
         getUrl: () => m.url(),
         ensureUp: async () => {
+          // Idempotent. sharedManager outlives the IPC call (Electron
+          // session-wide), so a prior start() (proxy warm-up, another
+          // tab visit, a concurrent ensure-up) leaves status in
+          // "ready" — blind `await m.start()` then throws
+          // "already started" at manager-template.ts:134 and the
+          // renderer surfaces a bogus pythia_unavailable error.
+          const cur = m.status();
+          if (cur === "ready") return cur;
+          if (cur === "starting") {
+            // Poll briefly until status leaves starting. Generous cap
+            // (10s) because pythia-manager cold boot pulls a venv +
+            // uvicorn import. Exceeding it falls through to start().
+            const deadline = Date.now() + 10_000;
+            while (m.status() === "starting" && Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 100));
+            }
+            return m.status();
+          }
           await m.start();
           return m.status();
         },
@@ -193,6 +211,18 @@ export function resolveManager(flagKey: string): ResolvedManager | null {
         getStatus: () => m.status(),
         getUrl: () => m.url(),
         ensureUp: async () => {
+          // Idempotent — same pattern as pythia above. Without this
+          // guard, the same "already started" throw fires on the
+          // second llm-wiki-bridge tab visit within a session.
+          const cur = m.status();
+          if (cur === "ready") return cur;
+          if (cur === "starting") {
+            const deadline = Date.now() + 10_000;
+            while (m.status() === "starting" && Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 100));
+            }
+            return m.status();
+          }
           await m.start();
           return m.status();
         },

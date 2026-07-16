@@ -47,6 +47,7 @@
       "dismiss": "Dismiss"
     },
     "experimental_mythos": "Mythos Swarm",
+    "mythos_enabled_badge": "Swarm enabled",
     "experimental_llm_wiki": "LLM Wiki",
     "experimental_llm_wiki_bridge": "LLM Wiki Bridge",
     "experimental_claude_science_runtime": "Claude Science Runtime",

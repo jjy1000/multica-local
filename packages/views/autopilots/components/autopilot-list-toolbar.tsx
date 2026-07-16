@@ -42,7 +42,7 @@ export function actorFilterValue(actorType: string, actorId: string): string {
 export function AutopilotListToolbar(_props: {
   scope: AutopilotScope;
   onScopeChange: (next: AutopilotScope) => void;
-  scopeCounts: { all: number; mine: number; shared: number };
+  scopeCounts: Record<AutopilotScope, number>;
   filters: {
     modes: string[];
     assignees: string[];

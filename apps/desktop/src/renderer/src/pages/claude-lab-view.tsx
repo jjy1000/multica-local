@@ -107,11 +107,18 @@ interface RuntimeSessionsResponse {
 const CLAUDE_LAB_FLAG = "claude_science_lab";
 const CLAUDE_LAB_SOURCE = "claude_science_lab";
 
-export function ClaudeLabView() {
+export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: string | null } = {}) {
   const enabled = useExperimentalFlag(CLAUDE_LAB_FLAG, false);
   const [tab, setTab] = useState<LabTab>("plan");
   const [wsId, setWsId] = useState<string | null>(() => getCurrentWsId());
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  // When mounted inline from an issue detail (via renderLabInline on
+  // IssueDetailPage), the parent passes an `issueId` so Plan /
+  // Forecast / Code / Knowledge / Artifact tabs open already-scoped
+  // to that issue instead of the "no issue bound" empty state. The
+  // user can still re-pick from the picker inside each tab. Without
+  // this prop the view behaves as the workspace-scoped `/experimental/
+  // claude-lab` route does today (default null).
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(initialIssueId);
   // lockedAgentId is only meaningful while a lab is selected. Setting
   // it to a non-null value implies the agent is locked; clearing
   // selectedIssueId does NOT auto-clear the agent (the lab session
@@ -375,9 +382,8 @@ function PlanTab({
     enabled: enabled && !!wsId,
     staleTime: 30_000,
     queryFn: async () => {
-      const r = await fetch(
+      const r = await api.rawRequest(
         `/api/experimental/claude-science-lab/issues?workspace_id=${encodeURIComponent(wsId ?? "")}&lab=${encodeURIComponent(CLAUDE_LAB_SOURCE)}`,
-        { credentials: "include" },
       );
       if (!r.ok) throw new Error(`issues ${r.status}`);
       return (await r.json()) as LabIssuesResponse;
@@ -489,9 +495,8 @@ function ArtifactTab({
     enabled: enabled && !!wsId && !!selectedIssueId,
     staleTime: 15_000,
     queryFn: async () => {
-      const r = await fetch(
+      const r = await api.rawRequest(
         `/api/experimental/claude-science-runtime/sessions/by-issue?workspace_id=${encodeURIComponent(wsId ?? "")}&issue_id=${encodeURIComponent(selectedIssueId ?? "")}&limit=20`,
-        { credentials: "include" },
       );
       if (!r.ok) throw new Error(`by-issue ${r.status}`);
       return (await r.json()) as RuntimeSessionsResponse;
@@ -572,10 +577,7 @@ function ForecastTab({ selectedIssueId: _selectedIssueId }: { selectedIssueId: s
   // issue-scoped predictions without changing the call site. Today
   // the chart still reads the lab-level SSE stream; the per-issue
   // channel ships in 0.3.30 alongside issue-scoped oracle calls.
-  const forecastUrl =
-    typeof window !== "undefined"
-      ? `${window.location.origin}/api/experimental/claude-science-lab/forecast/stream`
-      : "";
+  const forecastUrl = "/api/experimental/claude-science-lab/forecast/stream";
   const { t } = useT("claude-lab");
   return (
     <div className="flex flex-col gap-4">
@@ -660,7 +662,7 @@ function useForecastFrames(url: string): { id: string; probability: number; crea
     let cancelled = false;
     (async () => {
       try {
-        const resp = await fetch(url, {
+        const resp = await api.rawRequest(url, {
           signal: controller.signal,
           cache: "no-store",
           headers: { Accept: "text/event-stream" },
@@ -720,9 +722,8 @@ function CodeTab({
     enabled: enabled && !!wsId && !!selectedIssueId,
     staleTime: 15_000,
     queryFn: async () => {
-      const r = await fetch(
+      const r = await api.rawRequest(
         `/api/experimental/claude-science-runtime/sessions/by-issue?workspace_id=${encodeURIComponent(wsId ?? "")}&issue_id=${encodeURIComponent(selectedIssueId ?? "")}&limit=20`,
-        { credentials: "include" },
       );
       if (!r.ok) throw new Error(`by-issue ${r.status}`);
       return (await r.json()) as RuntimeSessionsResponse;
@@ -744,9 +745,8 @@ function CodeTab({
     if (!lockedAgentId) return;
     setRunState("running");
     try {
-      const r = await fetch("/api/experimental/claude-science-runtime/execute", {
+      const r = await api.rawRequest("/api/experimental/claude-science-runtime/execute", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspace_id: wsId,
@@ -885,9 +885,7 @@ function KnowledgeTab({
     enabled: !!selectedIssueId,
     staleTime: 60_000,
     queryFn: async () => {
-      const r = await fetch("/api/experimental/claude-science/skills", {
-        credentials: "include",
-      });
+      const r = await api.rawRequest("/api/experimental/claude-science/skills");
       if (!r.ok) throw new Error(`skills ${r.status}`);
       const data = (await r.json()) as { skills: { name: string; description?: string }[] };
       return data.skills ?? [];

@@ -67,12 +67,42 @@ func RegisterPythiaIssueForecastRoutes(r chi.Router) {
 	r.Post("/api/experimental/pythia-oracle/forecast/issue", pythiaIssueForecast)
 }
 
+// defaultIssueForecastRounds is the default number of forecast
+// rounds a caller gets when they don't pass `rounds`. 0.3.30.3 raises
+// the default from 1 → 10 to honor the "issue creation triggers a
+// 10-round Pythia deliberation" contract.
+const defaultIssueForecastRounds = 10
+
+// maxIssueForecastRounds caps a single SSE call at 10 rounds. Each
+// round blocks on a /forecast/issue upstream POST (~3-5 s with a
+// live LLM); 10 rounds × 5 s = 50 s of work per call. Anything
+// longer would starve the LLM proxy budget (60 req/min global) and
+// keep SSE handlers pinned across multiple concurrent users.
+const maxIssueForecastRounds = 10
+
+// clampIssueForecastRounds normalises the caller-supplied round
+// count. Defaults to 10 when omitted; clamps at 10 so a single
+// request can't burn the proxy budget. Exported as a small pure
+// function so the round-count behaviour can be unit-tested without
+// touching SSE plumbing.
+func clampIssueForecastRounds(req int) int {
+	if req <= 0 {
+		return defaultIssueForecastRounds
+	}
+	if req > maxIssueForecastRounds {
+		return maxIssueForecastRounds
+	}
+	return req
+}
+
 // issueForecastRequest is the wire shape for the new endpoint.
 type issueForecastRequest struct {
 	IssueID string `json:"issue_id"`
 	// Rounds controls how many forecast envelopes to emit before
-	// closing the stream. Defaults to 1 to honor the 0.3.29
-	// "报告轮次默认最小" constraint.
+	// closing the stream. Defaults to 10 to honor the 0.3.30.3
+	// "Pythia 推演 10 轮" contract — issue creation auto-launches a
+	// 10-round deliberation loop. Capped at 10 so a single request
+	// can never starve the LLM proxy budget (60 req/min global).
 	Rounds int `json:"rounds,omitempty"`
 }
 
@@ -124,10 +154,13 @@ func pythiaIssueForecast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Rounds <= 0 {
-		req.Rounds = 1
+		// 0.3.30.3: 10 rounds is the issue-creation default per the
+		// "Pythia 推演 10 轮" contract. Callers can still override
+		// by passing `rounds: N`.
+		req.Rounds = defaultIssueForecastRounds
 	}
-	if req.Rounds > 3 {
-		req.Rounds = 3
+	if req.Rounds > maxIssueForecastRounds {
+		req.Rounds = maxIssueForecastRounds
 	}
 
 	// Use the standard issue loader so identifier (JIA-42) and
@@ -345,10 +378,13 @@ func syntheticIssueForecast(
 	}, nil
 }
 
-// queryOracleIssue posts a /predict call against the running
+// queryOracleIssue posts a /forecast/issue call against the running
 // pythia_oracle subprocess with the bound issue's title as
 // `question`. Mirrors queryOracle in claude_lab_forecast.go but
-// uses the issue context to derive the question + lab_source.
+// uses the issue context to derive the question + lab_source, and
+// hits the engine's issue-bound endpoint instead of the global
+// /predict (which only kicks off the prediction loop asynchronously
+// — it returns {"status": "started"} rather than an envelope).
 func queryOracleIssue(
 	ctx context.Context,
 	baseURL string,
@@ -370,7 +406,7 @@ func queryOracleIssue(
 		return forecastEnvelope{}, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		strings.TrimRight(baseURL, "/")+"/predict", bytes.NewReader(payload))
+		strings.TrimRight(baseURL, "/")+"/forecast/issue", bytes.NewReader(payload))
 	if err != nil {
 		return forecastEnvelope{}, err
 	}
@@ -390,6 +426,9 @@ func queryOracleIssue(
 		Narrative   string  `json:"narrative"`
 		Probability float64 `json:"probability"`
 		Confidence  float64 `json:"confidence"`
+		Horizon     string  `json:"horizon"`
+		Persona     string  `json:"persona"`
+		Round       int     `json:"round"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return forecastEnvelope{}, err
@@ -400,6 +439,14 @@ func queryOracleIssue(
 	if raw.Confidence == 0 {
 		raw.Confidence = 0.5
 	}
+	horizon := raw.Horizon
+	if horizon == "" {
+		horizon = "week"
+	}
+	persona := raw.Persona
+	if persona == "" {
+		persona = "strategist"
+	}
 	return forecastEnvelope{
 		ID:              fmt.Sprintf("p_issue_%d-ora_r%d", forecastSeq.Add(1), round),
 		IssueID:         ifc.IssueID,
@@ -407,8 +454,8 @@ func queryOracleIssue(
 		Narrative:       raw.Narrative,
 		Probability:     raw.Probability,
 		Confidence:      raw.Confidence,
-		Horizon:         "week",
-		Persona:         "strategist",
+		Horizon:         horizon,
+		Persona:         persona,
 		LabSource:       "oracle",
 		ScenarioContext: scenarioContextFor(ifc),
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),

@@ -28,9 +28,9 @@ const PythiaReportSurface = lazy(() =>
 );
 
 type Persona = "strategist" | "analyst" | "critic";
-type Horizon = "day" | "week" | "month";
+type Horizon = "day" | "week" | "month" | "year";
 
-export function PythiaView() {
+export function PythiaView({ issueId: initialIssueId = null }: { issueId?: string | null } = {}) {
   const pythiaOracleEnabled = useExperimentalFlag("pythia_oracle", false);
   const { t } = useT("pythia");
   const [url, setUrl] = useState<string | null>(null);
@@ -79,7 +79,12 @@ export function PythiaView() {
   // Interactive state — owned at the page level so the lazy-loaded
   // report surface receives stable props. The horizon + persona
   // choices feed into /forecast/issue and the synthetic generator.
-  const [issueId, setIssueId] = useState<string | null>(null);
+  // When mounted inline from an issue detail (via renderLabInline
+  // on IssueDetailPage), the parent passes an `issueId` so the
+  // report surface opens already-scoped to that issue instead of
+  // showing a "no issue bound" empty state. The user can still
+  // re-pick via the issue panel inside the surface.
+  const [issueId, setIssueId] = useState<string | null>(initialIssueId);
   const [horizon, setHorizon] = useState<Horizon>("week");
   const [persona, setPersona] = useState<Persona>("strategist");
   const [subscribed, setSubscribed] = useState(true);

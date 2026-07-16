@@ -22,6 +22,33 @@ import (
 	"time"
 )
 
+// TestClampIssueForecastRounds covers the 0.3.30.3 rounds contract:
+// caller omitting `rounds` gets the 10-round default; a caller
+// explicitly requesting N above the cap gets clamped down to 10.
+func TestClampIssueForecastRounds(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   int
+		want int
+	}{
+		{"zero defaults to 10", 0, 10},
+		{"negative defaults to 10", -3, 10},
+		{"1 keeps 1", 1, 1},
+		{"10 keeps 10", 10, 10},
+		{"11 clamps to 10", 11, 10},
+		{"1000 clamps to 10", 1000, 10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := clampIssueForecastRounds(tc.in)
+			if got != tc.want {
+				t.Errorf("clampIssueForecastRounds(%d) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestIssueForecastStreamEmitsEnvelopeWithIssueID confirms the SSE
 // handler emits at least one `prediction` event whose JSON envelope
 // carries `issue_id`, `scenario_context`, and `lab_source` fields.

@@ -39,7 +39,7 @@
     "configure_group": "配置",
     "experimental_group": "试验性功能",
     "experimental_claude_science": "Claude 科学工作台",
-    "experimental_pythia": "Pythia 预测神谕",
+    "experimental_pythia": "Pythia 多视角推演",
     "unread_overflow": "99+",
     "discord_card": {
       "title": "加入我们的 Discord",
@@ -47,6 +47,7 @@
       "dismiss": "关闭"
     },
     "experimental_mythos": "Mythos 蜂群",
+    "mythos_enabled_badge": "蜂群已启用",
     "experimental_llm_wiki": "LLM Wiki",
     "experimental_llm_wiki_bridge": "LLM Wiki 本地桥接",
     "experimental_claude_science_runtime": "Claude Science 运行时",

@@ -47,6 +47,7 @@
       "dismiss": "닫기"
     },
     "experimental_mythos": "Mythos 스웜",
+    "mythos_enabled_badge": "스웜 활성화됨",
     "experimental_llm_wiki": "LLM Wiki",
     "experimental_llm_wiki_bridge": "LLM Wiki 브리지",
     "experimental_claude_science_runtime": "Claude Science 런타임",
