@@ -1,0 +1,58 @@
+{
+  "nav": {
+    "inbox": "인박스",
+    "my_issues": "내 이슈",
+    "issues": "이슈",
+    "projects": "프로젝트",
+    "autopilots": "오토파일럿",
+    "agents": "에이전트",
+    "squads": "스쿼드",
+    "usage": "사용량",
+    "runtimes": "런타임",
+    "skills": "스킬",
+    "settings": "설정"
+  },
+  "help": {
+    "trigger": "도움말",
+    "docs": "문서",
+    "changelog": "변경 로그",
+    "discord": "Discord",
+    "feedback": "피드백"
+  },
+  "workspace_loader": {
+    "loading_workspace": "워크스페이스 로딩 중...",
+    "loading_named_prefix": "로딩 중"
+  },
+  "sidebar": {
+    "unpin_tooltip": "고정 해제",
+    "workspaces_label": "워크스페이스",
+    "create_workspace": "워크스페이스 만들기",
+    "pending_invitations_label": "대기 중인 초대",
+    "invitation_workspace_fallback": "워크스페이스",
+    "invitation_join": "참가",
+    "invitation_decline": "거절",
+    "log_out": "로그아웃",
+    "new_issue": "새 이슈",
+    "new_issue_shortcut": "C",
+    "pinned_label": "고정됨",
+    "workspace_group": "워크스페이스",
+    "configure_group": "설정",
+    "experimental_group": "실험적 기능",
+    "experimental_claude_science": "Claude 사이언스",
+    "experimental_pythia": "Pythia 오라클",
+    "unread_overflow": "99+",
+    "discord_card": {
+      "title": "Discord 참여하기",
+      "description": "팀과 다른 사용자들과 교류해 보세요.",
+      "dismiss": "닫기"
+    },
+    "experimental_mythos": "Mythos 스웜",
+    "experimental_llm_wiki": "LLM Wiki",
+    "experimental_llm_wiki_bridge": "LLM Wiki 브리지",
+    "experimental_claude_science_runtime": "Claude Science 런타임",
+    "experimental_claude_science_lab": "Claude 연구실",
+    "experimental_code_canvas": "코드 캔버스",
+    "experimental_agent_self_optimization": "에이전트 자체 최적화",
+    "experimental_constitution_agent": "헌법 에이전트"
+  }
+}

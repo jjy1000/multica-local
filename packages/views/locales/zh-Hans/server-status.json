@@ -1,0 +1,7 @@
+{
+  "title": "PostgreSQL 未就绪",
+  "body": "Docker 与本地 PostgreSQL 都不可用。Multica 需要 PostgreSQL 17 来存储数据。",
+  "copy_command": "复制 brew 命令",
+  "open_brew": "打开 brew.sh",
+  "later": "稍后"
+}

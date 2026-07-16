@@ -1,0 +1,58 @@
+{
+  "nav": {
+    "inbox": "Inbox",
+    "my_issues": "My Issues",
+    "issues": "Issues",
+    "projects": "Projects",
+    "autopilots": "Autopilot",
+    "agents": "Agents",
+    "squads": "Squads",
+    "usage": "Usage",
+    "runtimes": "Runtimes",
+    "skills": "Skills",
+    "settings": "Settings"
+  },
+  "help": {
+    "trigger": "Help",
+    "docs": "Docs",
+    "changelog": "Change log",
+    "discord": "Discord",
+    "feedback": "Feedback"
+  },
+  "workspace_loader": {
+    "loading_workspace": "Loading workspace…",
+    "loading_named_prefix": "Loading"
+  },
+  "sidebar": {
+    "unpin_tooltip": "Unpin",
+    "workspaces_label": "Workspaces",
+    "create_workspace": "Create workspace",
+    "pending_invitations_label": "Pending invitations",
+    "invitation_workspace_fallback": "Workspace",
+    "invitation_join": "Join",
+    "invitation_decline": "Decline",
+    "log_out": "Log out",
+    "new_issue": "New Issue",
+    "new_issue_shortcut": "C",
+    "pinned_label": "Pinned",
+    "workspace_group": "Workspace",
+    "configure_group": "Configure",
+    "experimental_group": "Experimental",
+    "experimental_claude_science": "Claude Science",
+    "experimental_pythia": "Pythia Oracle",
+    "unread_overflow": "99+",
+    "discord_card": {
+      "title": "Join our Discord",
+      "description": "Chat with the team and other builders.",
+      "dismiss": "Dismiss"
+    },
+    "experimental_mythos": "Mythos Swarm",
+    "experimental_llm_wiki": "LLM Wiki",
+    "experimental_llm_wiki_bridge": "LLM Wiki Bridge",
+    "experimental_claude_science_runtime": "Claude Science Runtime",
+    "experimental_claude_science_lab": "Claude Research Lab",
+    "experimental_code_canvas": "Code Canvas",
+    "experimental_agent_self_optimization": "Agent Self-Optimization",
+    "experimental_constitution_agent": "Constitution Agent"
+  }
+}

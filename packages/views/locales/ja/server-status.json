@@ -1,0 +1,7 @@
+{
+  "title": "PostgreSQL not ready",
+  "body": "Docker and local PostgreSQL are both unavailable. Multica needs PostgreSQL 17 to store data.",
+  "copy_command": "Copy brew command",
+  "open_brew": "Open brew.sh",
+  "later": "Later"
+}
