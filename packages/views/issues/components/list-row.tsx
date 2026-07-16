@@ -21,7 +21,7 @@ import { ProgressRing } from "./progress-ring";
 import { IssueActionsContextMenu } from "../actions";
 import { LabelChip } from "../../labels/label-chip";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
-import { MythosBoostBadge } from "./mythos-boost-badge";
+import { LabBadge } from "./lab-badge";
 
 export interface ChildProgress {
   done: number;
@@ -103,7 +103,7 @@ function ListRowContent({
             {issue.identifier}
           </span>
           <IssueAgentActivityIndicator issueId={issue.id} />
-          <MythosBoostBadge issueLabSource={issue.lab_source} />
+          <LabBadge labSource={issue.lab_source} />
 
           <span className="flex min-w-0 flex-1 items-center gap-1.5">
             <span className="truncate">{issue.title}</span>

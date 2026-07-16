@@ -26,7 +26,7 @@ import type { ChildProgress } from "./list-row";
 import { IssueActionsContextMenu } from "../actions";
 import { LabelChip } from "../../labels/label-chip";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
-import { MythosBoostBadge } from "./mythos-boost-badge";
+import { LabBadge } from "./lab-badge";
 import { useT } from "../../i18n";
 
 function formatDate(date: string): string {
@@ -188,7 +188,7 @@ export const BoardCardContent = memo(function BoardCardContent({
           <p className="text-xs text-muted-foreground truncate">{issue.identifier}</p>
         </div>
         <IssueAgentActivityIndicator issueId={issue.id} />
-        <MythosBoostBadge issueLabSource={issue.lab_source} />
+        <LabBadge labSource={issue.lab_source} />
       </div>
 
       {/* Row 2: Title */}
