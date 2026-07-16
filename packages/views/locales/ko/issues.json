@@ -464,8 +464,41 @@
     "lab": {
       "tag_only_hint": "태그 전용 · 자동 디스패치 없음",
       "dispatcher_hint": "랩 에이전트가 자동으로 처리합니다",
-      "placeholder": "랩"
+      "placeholder": "랩",
+      "picker_none": "없음",
+      "mode_group_label": "군체 모드",
+      "mode_sole": "독립 실행",
+      "mode_enhancer": "강화",
+      "mode_sole_hint": "Mythos 가 완결 처리 · 담당자 초기화",
+      "mode_enhancer_hint": "Mythos 가 계획 · 담당자 에이전트에 위임"
     }
+  },
+  "lab_section": {
+    "section_title": "이 이슈에서 실행 중인 랩",
+    "open_panel": "랩 패널 열기",
+    "running_indicator": "실행 중",
+    "running_tooltip": "랩 에이전트가 이 이슈에서 작업 중입니다",
+    "queued_indicator": "대기 중",
+    "queued_tooltip": "랩 에이전트 대기열에 있음 — 워커가 비면 시작합니다",
+    "no_flag_title": "랩이 꺼져 있음",
+    "no_flag_hint": "설정 → 실험 기능 에서 랩 플래그를 켜면 이 이슈에서 에이전트를 디스패치할 수 있습니다.",
+    "clear_lab_first_tooltip": "먼저 랩을 해제하세요",
+    "lab_visualization_title": "랩 워크스페이스",
+    "lab_visualization_hint": "이 랩의 결과는 여기에 표시됩니다. 탭을 전환해 현재 실행 라운드를 확인하세요.",
+    "lab_visualization_loading": "랩 워크스페이스 불러오는 중",
+    "mythos_enhancer_section_title": "군체 감독",
+    "mythos_enhancer_phase_preparing": "준비 중",
+    "mythos_enhancer_phase_planning": "군체 계획 중",
+    "mythos_enhancer_phase_supervising": "감독 실행 중",
+    "mythos_enhancer_phase_done": "완료",
+    "mythos_enhancer_phase_aborted": "중단됨",
+    "mythos_enhancer_phase_degraded": "감독 저하",
+    "mythos_enhancer_phase_unknown": "알 수 없음",
+    "mythos_enhancer_check_now": "지금 확인",
+    "mythos_enhancer_subtask_progress": "하위 작업 {{done}}/{{total}}",
+    "mythos_enhancer_latest_reflection": "최근 회고",
+    "mythos_enhancer_latest_reflection_none": "회고 없음",
+    "mythos_enhancer_ticks": "tick {{count}} 회 · 최근 {{ms}}ms"
   },
   "labels_panel": {
     "intro": "워크스페이스의 이슈를 분류할 라벨을 만들고 관리하세요.",

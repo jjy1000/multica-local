@@ -62,7 +62,8 @@ import { CommentInput } from "./comment-input";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies, deriveThreadResolution } from "./thread-utils";
 import { IssueAgentHeaderChip } from "./issue-agent-header-chip";
-import { IssueLabsSection } from "./issue-labs-section";
+import { IssueLabsSection, labSourceRouteSuffix } from "./issue-labs-section";
+import { LabWorkspacePanel } from "./lab-workspace-panel";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -187,26 +188,10 @@ function shortDate(date: string | null): string {
   return formatDateOnly(date, { month: "short", day: "numeric" }, "en-US");
 }
 
-// 0.3.29: lab flag key → experimental view route suffix. Mirrors the
-// FLAG_ROUTE_SUFFIX map in ./issue-labs-section.tsx (kept here so the
-// inline PropRow next to the picker can route into the lab surface
-// without re-importing the section helper). Update both maps when
-// adding a new lab view.
-const LAB_SOURCE_ROUTE_SUFFIX: Record<string, string> = {
-  claude_science_lab: "claude-lab",
-  pythia_oracle: "pythia",
-  mythos_swarm: "mythos",
-  llm_wiki_bridge: "llm-wiki",
-  code_canvas: "code-canvas",
-  agent_self_optimization: "agent-self-optimization",
-  constitution_agent: "constitution-agent",
-  chat_pin_ui: "chat-pin",
-};
-
-function labSourceRouteSuffix(labSource: string | null | undefined): string | undefined {
-  if (!labSource) return undefined;
-  return LAB_SOURCE_ROUTE_SUFFIX[labSource];
-}
+// `labSourceRouteSuffix` is imported from ./issue-labs-section.tsx
+// (single source of truth for the flag → route-suffix map). The
+// inline PropRow below uses it to link into the lab's workspace-
+// scoped view from the issue detail header.
 
 type ActivityT = ReturnType<typeof useT<"issues">>["t"];
 
@@ -755,13 +740,26 @@ interface IssueDetailProps {
   layoutId?: string;
   /** When set, the issue detail will auto-scroll to this comment and briefly highlight it. */
   highlightCommentId?: string;
+  /**
+   * Render-prop the platform calls to produce a per-issue lab
+   * visualization (e.g. Claude Lab tabs scoped to this issue,
+   * Pythia forecast bound to this issue). Lives in views because
+   * the issue-detail sidebar surface is shared with web, but the
+   * concrete lab view modules are desktop-only (pull IPC +
+   * loopback listeners); views cannot import them without
+   * breaking the `views → core/ui` package boundary. Callers wrap
+   * their lab view in a `React.lazy()` boundary to keep the issue
+   * detail bundle slim. Optional — web leaves this undefined and
+   * the sidebar just shows the "Open lab panel" link.
+   */
+  renderLabInline?: (issueId: string) => React.ReactNode;
 }
 
 // ---------------------------------------------------------------------------
 // IssueDetail
 // ---------------------------------------------------------------------------
 
-export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId }: IssueDetailProps) {
+export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId, renderLabInline }: IssueDetailProps) {
   const { t } = useT("issues");
   const timeAgo = useTimeAgo();
   const id = issueId;
@@ -1508,7 +1506,17 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             <StatusPicker status={issue.status} onUpdate={handleUpdateField} align="start" />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_assignee)}>
-            <AssigneePicker assigneeType={issue.assignee_type} assigneeId={issue.assignee_id} onUpdate={handleUpdateField} align="start" />
+            <AssigneePicker
+              assigneeType={issue.assignee_type}
+              assigneeId={issue.assignee_id}
+              onUpdate={handleUpdateField}
+              align="start"
+              lockedReason={
+                issue.lab_source
+                  ? t(($) => $.lab_section.clear_lab_first_tooltip)
+                  : undefined
+              }
+            />
           </PropRow>
           <PropRow label={t(($) => $.detail.prop_project)}>
             <ProjectPicker
@@ -1523,7 +1531,19 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               <span className="flex items-center gap-1.5 min-w-0">
                 <LabPicker
                   labSource={issue.lab_source}
-                  onUpdate={(u) => handleUpdateField({ lab_source: u.lab_source ?? null } as any)}
+                  labMode={issue.lab_mode ?? null}
+                  onUpdate={(u) =>
+                    handleUpdateField({
+                      lab_source: u.lab_source ?? null,
+                      lab_mode: u.lab_mode ?? null,
+                    })
+                  }
+                  onClearAssignee={() =>
+                    handleUpdateField({
+                      assignee_type: null,
+                      assignee_id: null,
+                    })
+                  }
                   align="start"
                 />
                 {labSourceRouteSuffix(issue.lab_source) && (
@@ -1694,9 +1714,21 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       {/* Labs — only renders when the issue is tagged with a lab
           source. Sits below Pull Requests and above Details so the
           sidebar order stays Properties → Parent → PRs → Labs →
-          Details. */}
+          Details. The status section (IssueLabsSection) is always
+          shown so users on web (no renderLabInline) still see
+          running/queued indicators. The inline visualization
+          (LabWorkspacePanel) is opt-in via the renderLabInline
+          prop — desktop wires it to the lazy-loaded lab view
+          modules, web leaves it undefined. */}
       {issue.lab_source && (
         <IssueLabsSection issueId={id} labSource={issue.lab_source} />
+      )}
+      {issue.lab_source && renderLabInline && (
+        <LabWorkspacePanel
+          issueId={id}
+          labSource={issue.lab_source}
+          renderInline={renderLabInline}
+        />
       )}
 
       {/* Details */}

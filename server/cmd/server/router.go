@@ -31,6 +31,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
+	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
@@ -550,6 +551,42 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			})
 	}
 
+	// 0.3.31: wire the Mythos supervise service so the HTTP tick /
+	// get-state handlers can drive a synchronous tick. The supervise
+	// goroutines themselves are launched lazily by Service.Run when
+	// an enhancer-mode mythos_run is created; ResumeSupervision picks
+	// up any orphaned runs from a previous daemon process.
+	{
+		svc := mythossvc.NewService(h.Queries)
+		h.MythosService = svc
+		// Best-effort recovery: scan every workspace for runs in
+		// 'supervising' state. The 0.3.31 SQL query scopes by
+		// workspace; we walk the workspace id list to cover all of
+		// them. Logged but non-fatal — a transient DB failure on
+		// boot should not block startup.
+		bootCtx, bootCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer bootCancel()
+		if ids, err := h.Queries.ListAllWorkspaceIDs(bootCtx); err == nil {
+			var totalResumed int
+			for _, id := range ids {
+				if n, err := svc.ResumeSupervision(bootCtx, id); err != nil {
+					slog.Warn("mythos supervise resume failed",
+						"workspace_id", util.UUIDToString(id),
+						"err", err)
+				} else {
+					totalResumed += n
+				}
+			}
+			if totalResumed > 0 {
+				slog.Info("mythos supervise resumed",
+					"total", totalResumed)
+			}
+		} else {
+			slog.Warn("mythos supervise resume: list workspace ids failed",
+				"err", err)
+		}
+	}
+
 	// Realtime subsystem metrics — connection counts, slow-client evictions,
 	// and per-event-type send QPS counters. Exposed as JSON so it can be
 	// scraped by ops or surfaced in the admin UI without adding a Prometheus
@@ -610,43 +647,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// handler.claude_science_skills.go for the visibility filter.
 	r.Get("/api/experimental/claude-science/skills", h.ClaudeScienceSkills)
 
-	// 0.3.19+ Labs runtime + LLM Wiki bridge. Both backends are
-	// gated behind their own Labs flag and registered ONLY when the
-	// flag is on, so flag-off users cannot enumerate the surface.
-	// The experimental.DefaultFor(chokepoint) call enforces the
-	// 0.3.18 Labs safety contract: blacklisted flags count as off
-	// even if the catalog default is true.
-	// 0.3.22 lab consolidation: claude_science_lab replaces the 0.3.20
-	// `claude_science_runtime` flag. The runtime handler keeps its
-	// route prefix /api/experimental/claude-science-runtime/* for
-	// wire-compat with the existing Skill adapter; only the flag gate
-	// changes.
-	if experimental.DefaultFor("claude_science_lab") {
-		handler.RegisterClaudeScienceRuntimeRoutes(r, h)
-		// 0.3.24+: forecast SSE stream for the Claude Lab
-		// `<ForecastTab />`. Same flag gate as the runtime routes.
-		// 0.3.27 B2: pass `h` so the handler can pick the oracle
-		// data source when the running pythia_oracle subprocess has
-		// registered its loopback URL; otherwise fall through to the
-		// in-process synthetic generator.
-		handler.RegisterClaudeLabForecastRoutes(r, h)
-		// 0.3.29: Claude Lab tab data source — issue listing by
-		// `lab_source`. Same flag gate; returns empty list for an
-		// unregistered lab to keep the Plan tab quiet during the
-		// install toggle.
-		handler.RegisterClaudeLabIssuesRoute(r, h)
-	}
-	if experimental.DefaultFor("llm_wiki_bridge") {
-		handler.RegisterLLMWikiBridgeRoutes(r, h)
-	}
-
-	// 0.3.27 B3: Mythos Swarm direct invocation endpoint. Unlike the
-	// install handler (which provisions the lab), this is the path
-	// that actually runs the RDT loop and posts the coda summary as
-	// an issue comment. Gated by the same flag as the install path.
-	if experimental.DefaultFor("mythos_swarm") {
-		r.Post("/api/experimental/mythos-swarm/run", h.RunMythosSwarm)
-	}
+	// 0.3.30: Labs runtime + LLM Wiki bridge + Mythos Swarm + Pythia
+	// per-issue forecast are now registered UNCONDITIONALLY inside the
+	// authenticated group, each wrapped in a per-request
+	// RequireExperimentalFlag guard. See the auth group below and
+	// handler/experimental_guard.go for why the old boot-time
+	// `if experimental.DefaultFor(key)` gate could never observe a
+	// per-user runtime toggle.
 
 	// Public API
 	r.Get("/api/config", h.GetConfig)
@@ -708,6 +715,58 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(queries, patCache))
 		// middleware.RefreshCloudFrontCookies removed with cloud-billing.
+
+		// --- Experimental Labs surfaces (per-request, per-user gated) ---
+		// Registered unconditionally but each wrapped in
+		// RequireExperimentalFlag so the route is admitted only when the
+		// caller has the flag on (per-user experimental_pref, with the
+		// 0.3.18 blacklist forcing off). An off-flag caller gets 404 —
+		// indistinguishable from a nonexistent route, so the surface
+		// stays unenumerable. These live inside the auth group because
+		// both the guard decision and the handlers depend on the
+		// X-User-ID header that middleware.Auth injects.
+		// 0.3.22 lab consolidation: claude_science_lab replaces the
+		// 0.3.20 `claude_science_runtime` flag. The runtime handler keeps
+		// its route prefix /api/experimental/claude-science-runtime/* for
+		// wire-compat with the existing Skill adapter; only the gate moved.
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("claude_science_lab"))
+			handler.RegisterClaudeScienceRuntimeRoutes(r, h)
+			// 0.3.24+: forecast SSE stream for the Claude Lab
+			// `<ForecastTab />`.
+			handler.RegisterClaudeLabForecastRoutes(r, h)
+			// 0.3.29: Claude Lab tab data source — issue listing by
+			// `lab_source`.
+			handler.RegisterClaudeLabIssuesRoute(r, h)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("llm_wiki_bridge"))
+			handler.RegisterLLMWikiBridgeRoutes(r, h)
+		})
+		// 0.3.27 B3: Mythos Swarm direct invocation endpoint. Unlike the
+		// install handler (which provisions the lab), this is the path
+		// that actually runs the RDT loop and posts the coda summary as
+		// an issue comment.
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("mythos_swarm"))
+			r.Post("/api/experimental/mythos-swarm/run", h.RunMythosSwarm)
+			// 0.3.31: enhancer-mode supervise HTTP surface.
+			// GET returns the current supervision_state JSONB for a
+			// given run id; POST .../tick triggers an immediate
+			// synchronous tick (used by the IssueLabsSection "立即
+			// 检查" button).
+			r.Get("/api/experimental/mythos-swarm/supervise/{runID}", h.GetMythosSuperviseState)
+			r.Post("/api/experimental/mythos-swarm/supervise/{runID}/tick", h.PostMythosSuperviseTick)
+		})
+		// 0.3.29 Pythia Oracle per-issue forecast. Previously dead code:
+		// RegisterPythiaIssueForecastRoutes / AttachPythiaIssueForecastMiddleware
+		// had zero call sites, so the flagship 0.3.29 per-issue forecast
+		// always 404'd. Now wired behind the pythia_oracle guard.
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("pythia_oracle"))
+			handler.AttachPythiaIssueForecastMiddleware(r, h)
+			handler.RegisterPythiaIssueForecastRoutes(r)
+		})
 
 		// --- User-scoped routes (no workspace context required) ---
 		r.Get("/api/me", h.GetMe)
@@ -899,6 +958,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Delete("/reactions", h.RemoveIssueReaction)
 					r.Get("/attachments", h.ListAttachments)
 					r.Get("/children", h.ListChildIssues)
+						// 0.3.31: returns recent mythos runs for this
+						// issue. The IssueLabsSection supervise panel
+						// reads this to discover the run id for a
+						// given enhancer-mode issue.
+						r.Get("/mythos-runs", h.GetMythosRunsByIssue)
 					r.Get("/labels", h.ListLabelsForIssue)
 					r.Post("/labels", h.AttachLabel)
 					r.Delete("/labels/{labelId}", h.DetachLabel)

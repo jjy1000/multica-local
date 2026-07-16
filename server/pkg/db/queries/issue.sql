@@ -7,7 +7,7 @@
 -- "Assigned to me"), and the two filters must produce disjoint result sets.
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.metadata, i.stage, i.lab_source
+       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.metadata, i.stage, i.lab_source, i.lab_mode
 FROM issue i
 WHERE i.workspace_id = $1
   AND (sqlc.narg('status')::text IS NULL OR i.status = sqlc.narg('status'))
@@ -128,15 +128,26 @@ UPDATE issue SET
 WHERE id = $1 AND workspace_id = $3
 RETURNING *;
 
+-- name: UpdateIssueLabMode :exec
+-- 0.3.31: LabPicker flips lab_source and lab_mode as a pair; this
+-- query is the dedicated writer for the mode column so the issue
+-- mutation handler does not need to know the SQL column name.
+-- Pass NULL to clear. The workspace_id predicate keeps it tenant-
+-- safe (mirrors UpdateIssueStatus above).
+UPDATE issue SET
+    lab_mode = $2,
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $3;
+
 -- name: CreateIssueWithOrigin :one
 INSERT INTO issue (
     workspace_id, title, description, status, priority,
     assignee_type, assignee_id, creator_type, creator_id,
     parent_issue_id, position, start_date, due_date, number, project_id,
-    origin_type, origin_id, stage, lab_source
+    origin_type, origin_id, stage, lab_source, lab_mode
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-    sqlc.narg('origin_type'), sqlc.narg('origin_id'), sqlc.narg('stage'), sqlc.narg('lab_source')
+    sqlc.narg('origin_type'), sqlc.narg('origin_id'), sqlc.narg('stage'), sqlc.narg('lab_source'), sqlc.narg('lab_mode')
 ) RETURNING *;
 
 -- name: LockIssueDuplicateKey :exec
@@ -165,7 +176,7 @@ DELETE FROM issue WHERE id = $1 AND workspace_id = $2;
 -- filter; member-direct assignment is intentionally excluded).
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
-       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.metadata, i.stage, i.lab_source
+       i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.metadata, i.stage, i.lab_source, i.lab_mode
 FROM issue i
 WHERE i.workspace_id = $1
   AND i.status NOT IN ('done', 'cancelled')

@@ -5,6 +5,7 @@ import { useT } from "@multica/views/i18n";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { agentListOptions, skillListOptions } from "@multica/core/workspace/queries";
+import { api } from "@multica/core/api";
 
 // MythosView surfaces the Mythos Swarm surface.
 //
@@ -38,7 +39,7 @@ import { agentListOptions, skillListOptions } from "@multica/core/workspace/quer
 //   - coda_conclusions JSONB is rendered alongside the free-text
 //     summary so the structured takeaways are visible.
 
-export function MythosView() {
+export function MythosView({ issueId: initialIssueId = null }: { issueId?: string | null } = {}) {
   const flagEnabled = useExperimentalFlag("mythos_swarm", false);
 
   return (
@@ -49,7 +50,7 @@ export function MythosView() {
         {!flagEnabled && <FlagOffNotice />}
         {flagEnabled && <EnabledStateCard />}
         <RosterCard />
-        {flagEnabled && <RunForm />}
+        {flagEnabled && <RunForm initialIssueId={initialIssueId} />}
       </main>
     </div>
   );
@@ -171,11 +172,22 @@ type MythosRunResult = {
   final_issue_id?: string;
 };
 
-function RunForm() {
+function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } = {}) {
   const { t } = useT("mythos");
   const workspace = useCurrentWorkspace();
   const wsId = workspace?.id ?? "";
   const [problem, setProblem] = useState("");
+  // When the parent supplies an issueId (renderLabInline on
+  // IssueDetailPage), pre-bind the run to that issue by sending
+  // it as `root_issue_id`. The server pins the run's planning
+  // artifacts to that issue and the results land on the
+  // issue's lab workspace instead of getting lost in the
+  // workspace-wide swarm. The user can clear the binding by
+  // re-running without an issueId (the picker would let them
+  // pick a different one), but for the inline-from-issue case
+  // the binding is the whole point of having a lab-tagged
+  // issue.
+  const [rootIssueId] = useState<string | null>(initialIssueId);
   const [maxLoop, setMaxLoop] = useState(3);
   const [extensionAgentIDs, setExtensionAgentIDs] = useState<string[]>([]);
   const [selfOptimization, setSelfOptimization] = useState(true);
@@ -225,11 +237,11 @@ function RunForm() {
     extension_agent_ids: string[];
     self_optimization_enabled: boolean;
     skills_to_encourage: string[];
+    root_issue_id: string | null;
   }>({
     mutationFn: async (body) => {
-      const resp = await fetch(`/api/experimental/mythos-swarm/run`, {
+      const resp = await api.rawRequest(`/api/experimental/mythos-swarm/run`, {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
@@ -252,6 +264,7 @@ function RunForm() {
       extension_agent_ids: extensionAgentIDs,
       self_optimization_enabled: selfOptimization,
       skills_to_encourage: skillsToEncourage,
+      root_issue_id: rootIssueId,
     });
   };
 

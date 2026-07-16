@@ -1,22 +1,26 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, ExternalLink, FlaskConical, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronRight, ExternalLink, FlaskConical, Loader2, RefreshCw, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { useExperimentalFlags } from "@multica/core/experimental";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { api } from "@multica/core/api";
 import { AppLink } from "../../navigation";
 import { useT } from "../../i18n";
 
-// Hard-coded mapping from experimental flag key to its experimental view
-// route suffix. Mirrors the `path: "experimental/<suffix>"` entries in
-// apps/desktop/src/renderer/src/routes.tsx. Kept local because the wire
-// shape (`ExperimentalFlag`) intentionally doesn't carry the route —
-// sidebar entries already hold it, but the flag object's surface is
-// trimmed for the LabPicker / settings surface. Update this map when
-// adding a new lab view.
-const FLAG_ROUTE_SUFFIX: Record<string, string> = {
+// Hard-coded mapping from experimental flag key to its experimental
+// view route suffix. Mirrors the `path: "experimental/<suffix>"`
+// entries in apps/desktop/src/renderer/src/routes.tsx. Kept local
+// because the wire shape (`ExperimentalFlag`) intentionally
+// doesn't carry the route — sidebar entries already hold it, but
+// the flag object's surface is trimmed for the LabPicker /
+// settings surface. This is the single source of truth for both
+// the sidebar status section (this file) and the inline PropRow
+// in issue-detail.tsx (which imports `labSourceRouteSuffix`
+// from here). Update this map when adding a new lab view.
+export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   claude_science_lab: "claude-lab",
   pythia_oracle: "pythia",
   mythos_swarm: "mythos",
@@ -28,24 +32,29 @@ const FLAG_ROUTE_SUFFIX: Record<string, string> = {
 };
 
 /**
+ * Public helper consumed by issue-detail.tsx. Returns the route
+ * suffix (`/experimental/<suffix>`) for a given `lab_source`,
+ * or `undefined` if the lab has no dedicated view.
+ */
+export function labSourceRouteSuffix(
+  labSource: string | null | undefined,
+): string | undefined {
+  if (!labSource) return undefined;
+  return FLAG_ROUTE_SUFFIX[labSource];
+}
+
+const VIEW_LAB_SOURCES: ReadonlySet<string> = new Set([
+  "claude_science_lab",
+  "pythia_oracle",
+  "mythos_swarm",
+  "llm_wiki_bridge",
+  "code_canvas",
+  "agent_self_optimization",
+  "constitution_agent",
+]);
+
+/**
  * Sidebar "Labs" section for issues that were tagged with a lab source.
- *
- * 0.3.29 — gives a tagged issue its own affordance to surface what
- * experimental surface it is associated with and a one-click route into
- * that lab's experimental view. Renders nothing when the issue has no
- * `lab_source` (the existing `Lab` PropRow in Properties already covers
- * the picker flow in that case).
- *
- * Three observable states:
- *
- * 1. Flag still enabled + an agent task is running on this issue:
- *    renders a "Running" dot + the flag's localized title + an
- *    `Open lab panel` AppLink.
- * 2. Flag still enabled + queued but not running:
- *    same chrome, dot downgrades to "Queued".
- * 3. Flag was disabled after tagging (the issue is keeping a leftover
- *    lab source): swaps the link for a "Lab no longer enabled"
- *    hint and an explanatory note to enable from Settings → Labs.
  */
 export function IssueLabsSection({ issueId, labSource }: { issueId: string; labSource: string }) {
   const { t } = useT("issues");
@@ -55,8 +64,6 @@ export function IssueLabsSection({ issueId, labSource }: { issueId: string; labS
 
   const [open, setOpen] = useState(true);
 
-  // Look up the flag title once. The picker already does this dance but
-  // the layout here is dense — keep it inline.
   const flagTitle = useMemo(() => {
     const f = (flags ?? []).find((flag) => flag.key === labSource);
     if (!f) return null;
@@ -65,11 +72,8 @@ export function IssueLabsSection({ issueId, labSource }: { issueId: string; labS
 
   const suffix = FLAG_ROUTE_SUFFIX[labSource];
   const labEnabled = (flags ?? []).some((f) => f.key === labSource && f.enabled);
+  const hasWorkspaceView = VIEW_LAB_SOURCES.has(labSource);
 
-  // Drive the running indicator off the same agent-task snapshot the
-  // header chip + IssueAgentActivityIndicator use. This is the live
-  // workspace-wide stream, so opening a different issue does not need
-  // any extra wiring — WS invalidation handles refresh transparently.
   const live = useMemo(() => {
     let running = false;
     let queued = false;
@@ -133,7 +137,7 @@ export function IssueLabsSection({ issueId, labSource }: { issueId: string; labS
               </span>
             )}
           </div>
-          {suffix && labEnabled ? (
+          {suffix && labEnabled && hasWorkspaceView ? (
             <AppLink
               href={`/experimental/${suffix}`}
               className="inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
@@ -149,8 +153,178 @@ export function IssueLabsSection({ issueId, labSource }: { issueId: string; labS
               <p className="mt-0.5 leading-snug">{t(($) => $.lab_section.no_flag_hint)}</p>
             </div>
           )}
+
+          {/* 0.3.31: enhancer-mode supervise panel */}
+          {labSource === "mythos_swarm" && (
+            <MythosEnhancerSupervisePanel issueId={issueId} enhancerMode />
+          )}
         </div>
       )}
     </div>
   );
+}
+
+// ── 0.3.31 enhancer supervise panel ────────────────────────────────────────
+
+interface SuperviseStateSnapshot {
+  run_id: string;
+  phase: string;
+  sub_tasks_total: number;
+  sub_tasks_done: number;
+  total_ticks: number;
+  last_tick_duration_ms: number;
+  latest_reflection?: string;
+  latest_reflection_iter?: number;
+  abort_reason?: string;
+}
+
+function MythosEnhancerSupervisePanel({
+  issueId,
+  enhancerMode,
+}: {
+  issueId: string;
+  enhancerMode: boolean;
+}) {
+  const { t } = useT("issues");
+  const qc = useQueryClient();
+  const [pollMs, setPollMs] = useState(30_000);
+
+  const wsId = useWorkspaceId();
+
+  const runsQuery = useQuery({
+    queryKey: ["mythos-runs-for-issue", issueId, wsId] as const,
+    queryFn: async () => {
+      const res = await api.rawRequest(
+        `/api/issues/${issueId}/mythos-runs?workspace_id=${encodeURIComponent(wsId)}`,
+        { method: "GET" },
+      );
+      if (!res.ok) {
+        if (res.status === 404) return [];
+        throw new Error(`mythos runs fetch failed: ${res.status}`);
+      }
+      return res.json() as Promise<{ run_id: string }[]>;
+    },
+    enabled: enhancerMode,
+    refetchInterval: pollMs,
+    staleTime: 10_000,
+  });
+
+  const runID = runsQuery.data?.[0]?.run_id;
+
+  const stateQuery = useQuery({
+    queryKey: ["mythos-supervise-state", runID] as const,
+    queryFn: async () => {
+      if (!runID) return null;
+      const res = await api.rawRequest(
+        `/api/experimental/mythos-swarm/supervise/${runID}`,
+        { method: "GET" },
+      );
+      if (!res.ok) {
+        if (res.status === 404) return null;
+        throw new Error(`supervise state fetch failed: ${res.status}`);
+      }
+      return res.json() as Promise<SuperviseStateSnapshot>;
+    },
+    enabled: !!runID,
+    refetchInterval: pollMs,
+    staleTime: 5_000,
+  });
+
+  const tick = useMutation({
+    mutationFn: async () => {
+      if (!runID) throw new Error("no run id");
+      const res = await api.rawRequest(
+        `/api/experimental/mythos-swarm/supervise/${runID}/tick`,
+        { method: "POST" },
+      );
+      if (!res.ok) throw new Error(`tick failed: ${res.status}`);
+      return res.json() as Promise<SuperviseStateSnapshot>;
+    },
+    onSuccess: (snapshot) => {
+      qc.setQueryData(["mythos-supervise-state", runID], snapshot);
+    },
+  });
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const phaseDummy = stateQuery.data?.phase ?? (runID ? "preparing" : "preparing");
+  const phase: string = phaseDummy;
+
+  useEffect(() => {
+    if (tick.isSuccess) {
+      setPollMs(10_000);
+      const timer = setTimeout(() => setPollMs(30_000), 10_000);
+      return () => clearTimeout(timer);
+    }
+    // Return undefined for the non-isSuccess branch (TS7030)
+    return undefined;
+  }, [tick.isSuccess]);
+
+  if (!enhancerMode) return null;
+  if (!runID) {
+    return (
+      <div className="mt-1.5 rounded-md border border-dashed border-purple-500/30 bg-purple-500/5 px-2 py-1.5 text-[11px] text-muted-foreground">
+        <p className="text-foreground/80">
+          {t(($) => $.lab_section.mythos_enhancer_phase_preparing)}
+        </p>
+      </div>
+    );
+  }
+  // both enhancerMode === true and runID is non-null here
+  return (
+    <div className="mt-1.5 space-y-1 rounded-md border border-purple-500/30 bg-purple-500/5 px-2 py-1.5 text-[11px]">
+      <div className="flex items-center justify-between gap-2">
+        <PhaseIcon phase={phase} />
+        <span className="truncate font-medium text-foreground/90">{phase}</span>
+      </div>
+
+      {stateQuery.data && (
+        <div className="space-y-0.5 text-muted-foreground">
+          {stateQuery.data.sub_tasks_total > 0 && (
+            <div>
+              {`${stateQuery.data.sub_tasks_done}/${stateQuery.data.sub_tasks_total}`}
+            </div>
+          )}
+          {stateQuery.data.total_ticks > 0 && (
+            <div className="text-[10px]">
+              {`${stateQuery.data.total_ticks} ticks · ${stateQuery.data.last_tick_duration_ms}ms`}
+            </div>
+          )}
+          {stateQuery.data.latest_reflection && (
+            <div className="mt-1 line-clamp-2 text-foreground/70 italic">
+              {stateQuery.data.latest_reflection}
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => tick.mutate()}
+        disabled={tick.isPending}
+        className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background/80 px-2 py-0.5 text-[10px] font-medium text-foreground/80 transition-colors hover:bg-accent disabled:opacity-50"
+      >
+        <RefreshCw className={`size-2.5 ${tick.isPending ? "animate-spin" : ""}`} aria-hidden />
+        {t(($) => $.lab_section.mythos_enhancer_check_now) ?? "立即检查"}
+      </button>
+    </div>
+  );
+}
+
+function PhaseIcon({ phase }: { phase: string }) {
+  const cls = "size-3 shrink-0";
+  switch (phase) {
+    case "preparing":
+    case "planning":
+      return <Loader2 className={`${cls} animate-spin text-purple-500`} aria-hidden />;
+    case "supervising":
+      return <Loader2 className={`${cls} animate-spin text-emerald-500`} aria-hidden />;
+    case "done":
+      return <CheckCircle2 className={`${cls} text-emerald-500`} aria-hidden />;
+    case "aborted":
+      return <XCircle className={`${cls} text-red-500`} aria-hidden />;
+    case "degraded":
+      return <AlertTriangle className={`${cls} text-amber-500`} aria-hidden />;
+    default:
+      return <FlaskConical className={`${cls} text-purple-500`} aria-hidden />;
+  }
 }

@@ -293,12 +293,19 @@ if (await exists(pythiaSrc)) {
   // can tell the user exactly what to pip install when deps are missing.
   // The runtime contract is "no Ollama / no MiroFish / no Osiris" — only
   // the libraries PYTHIA needs to expose its FastAPI surface.
+  // 0.3.30.3: full reference engine now ships, so we add `mcp`
+  // (server.py / engine.mcp.py uses it for the optional MCP gateway)
+  // and `pydantic-settings` (engine.config.py reads from env via
+  // pydantic-settings). Both are tiny but otherwise the engine
+  // crashes on first import.
   const requirements = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "httpx>=0.27",
     "python-dotenv>=1.0",
     "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "mcp>=1.2",
   ].join("\n") + "\n";
   await writeFile(pythiaRequirementsDest, requirements);
   // 0.3.30: read the wrapper straight from the vendor source-of-record

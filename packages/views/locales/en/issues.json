@@ -465,8 +465,41 @@
     "lab": {
       "tag_only_hint": "Tag only · no auto-dispatch",
       "dispatcher_hint": "Will be picked up by a lab agent",
-      "placeholder": "Lab"
+      "placeholder": "Lab",
+      "picker_none": "None",
+      "mode_group_label": "Swarm mode",
+      "mode_sole": "Standalone",
+      "mode_enhancer": "Enhancer",
+      "mode_sole_hint": "Mythos owns the issue end-to-end · clears the assignee",
+      "mode_enhancer_hint": "Mythos plans first · hands off to your agent/squad"
     }
+  },
+  "lab_section": {
+    "section_title": "Labs running on this issue",
+    "open_panel": "Open labs panel",
+    "running_indicator": "Running",
+    "running_tooltip": "An experimental agent is currently working on this issue",
+    "queued_indicator": "Queued",
+    "queued_tooltip": "Queued for an experimental agent — will start when a worker is free",
+    "no_flag_title": "Labs are off",
+    "clear_lab_first_tooltip": "Clear the lab first to enable actor picks",
+    "lab_visualization_title": "Lab workspace",
+    "lab_visualization_hint": "Results produced by this lab land below. Switch tabs to inspect the active run.",
+    "lab_visualization_loading": "Loading lab workspace",
+    "no_flag_hint": "Turn on an experimental flag in Settings → Labs to dispatch agents from this issue.",
+    "mythos_enhancer_section_title": "Swarm supervision",
+    "mythos_enhancer_phase_preparing": "Preparing",
+    "mythos_enhancer_phase_planning": "Swarm planning",
+    "mythos_enhancer_phase_supervising": "Supervising",
+    "mythos_enhancer_phase_done": "Done",
+    "mythos_enhancer_phase_aborted": "Aborted",
+    "mythos_enhancer_phase_degraded": "Degraded",
+    "mythos_enhancer_phase_unknown": "Unknown",
+    "mythos_enhancer_check_now": "Check now",
+    "mythos_enhancer_subtask_progress": "Sub-tasks {{done}}/{{total}}",
+    "mythos_enhancer_latest_reflection": "Latest reflection",
+    "mythos_enhancer_latest_reflection_none": "No reflection yet",
+    "mythos_enhancer_ticks": "{{count}} ticks · last {{ms}}ms"
   },
   "labels_panel": {
     "intro": "Create and manage labels to categorize issues across your workspace.",

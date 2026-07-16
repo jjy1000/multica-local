@@ -446,8 +446,41 @@
     "lab": {
       "tag_only_hint": "タグのみ · 自動ディスパッチなし",
       "dispatcher_hint": "ラボエージェントが自動で対応します",
-      "placeholder": "ラボ"
+      "placeholder": "ラボ",
+      "picker_none": "なし",
+      "mode_group_label": "群れモード",
+      "mode_sole": "単独実行",
+      "mode_enhancer": "拡張",
+      "mode_sole_hint": "Mythos が完結 · 担当者をクリア",
+      "mode_enhancer_hint": "Mythos が計画 · 担当者エージェントに委譲"
     }
+  },
+  "lab_section": {
+    "section_title": "このイシューで稼働中のラボ",
+    "open_panel": "ラボパネルを開く",
+    "running_indicator": "実行中",
+    "running_tooltip": "ラボエージェントがこのイシューで作業中です",
+    "queued_indicator": "キュー待ち",
+    "queued_tooltip": "ラボエージェントのキューにあります — ワーカーが空けば開始します",
+    "no_flag_title": "ラボは無効",
+    "no_flag_hint": "設定 → 試験的機能 でラボフラグを有効にすると、このイシューからエージェントをディスパッチできます。",
+    "clear_lab_first_tooltip": "まずラボを解除してください",
+    "lab_visualization_title": "ラボワークスペース",
+    "lab_visualization_hint": "このラボの成果物はここに表示されます。タブを切り替えて現在の実行状況を確認できます。",
+    "lab_visualization_loading": "ラボワークスペースを読み込み中",
+    "mythos_enhancer_section_title": "群れ監督",
+    "mythos_enhancer_phase_preparing": "準備中",
+    "mythos_enhancer_phase_planning": "群れ計画中",
+    "mythos_enhancer_phase_supervising": "監督実行中",
+    "mythos_enhancer_phase_done": "完了",
+    "mythos_enhancer_phase_aborted": "停止",
+    "mythos_enhancer_phase_degraded": "監督低下",
+    "mythos_enhancer_phase_unknown": "不明",
+    "mythos_enhancer_check_now": "今すぐ確認",
+    "mythos_enhancer_subtask_progress": "サブタスク {{done}}/{{total}}",
+    "mythos_enhancer_latest_reflection": "最新の振り返り",
+    "mythos_enhancer_latest_reflection_none": "振り返りなし",
+    "mythos_enhancer_ticks": "{{count}} 回 tick · 直近 {{ms}}ms"
   },
   "labels_panel": {
     "intro": "ワークスペース全体でイシューを分類するラベルを作成・管理します。",

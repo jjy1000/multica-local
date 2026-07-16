@@ -23,8 +23,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,11 +68,22 @@ const (
 // Config captures the user-facing knobs a `multica mythos run` call
 // accepts. Defaults live in the dispatcher (cmd_mythos.go) before the
 // package sees them.
+//
+// 0.3.31 dual-mode: Mode drives the runner's terminal behaviour.
+//   - ModeSole (default): mythos runs end-to-end and returns. The
+//     issue's lab_source/lab_mode pair is 'mythos_swarm'/'sole' and
+//     no supervise goroutine is launched.
+//   - ModeEnhancer: after the coda stage, the issue's assignee (any
+//     agent or squad the user picked in LabPicker) takes over. The
+//     runner still completes the mythos_run row but flips status to
+//     'supervising' instead of 'completed' and hands control to
+//     superviseLoop. TargetAssignee identifies what supervise
+//     watches.
 type Config struct {
-	WorkspaceID         pgtype.UUID
-	CreatorUserID       pgtype.UUID
-	Problem             string
-	MaxLoopIters        int
+	WorkspaceID          pgtype.UUID
+	CreatorUserID        pgtype.UUID
+	Problem              string
+	MaxLoopIters         int
 	ConvergenceThreshold float64
 	// Prefab agents provisioned by the install handler. The runner
 	// reads these as the "prelude" leader and the "coda" synthesizer;
@@ -83,6 +96,58 @@ type Config struct {
 	// work is visually distinct from user-authored issues in the
 	// sidebar.
 	SubIssuePrefix string
+	// Mode selects sole vs enhancer behaviour (0.3.31). Default
+	// ModeSole preserves 0.3.30 runner semantics.
+	Mode RunMode
+	// TargetAssignee is the user-picked agent or squad that the
+	// enhancer-mode runner hands the work to after the coda stage.
+	// Only consulted when Mode == ModeEnhancer; nil for sole runs.
+	TargetAssignee *TargetAssignee
+	// ExtensionAgentIDs (0.3.31): user-picked extra agents that
+	// participate in loop iterations alongside the canonical
+	// 3-mythos_loop_* roster. Migration 156 reserved the column;
+	// 0.3.31 is the first release that actually reads it. Empty
+	// slice / nil means "no extensions, use canonical roster only".
+	ExtensionAgentIDs []pgtype.UUID
+	// SelfOptimizationEnabled (0.3.31) flips on per-iteration
+	// reflection writes via SetMythosMemberReflection. Stored on
+	// mythos_run.self_optimization_enabled in the same migration.
+	SelfOptimizationEnabled bool
+}
+
+// RunMode is the dual-mode enum (0.3.31).
+type RunMode string
+
+const (
+	// ModeSole is the legacy 0.3.16-patch.1 behaviour: mythos owns the
+	// issue end-to-end. Status ends at 'completed'.
+	ModeSole RunMode = "sole"
+	// ModeEnhancer (0.3.31): mythos preludes + supervises; the
+	// issue's user-picked assignee executes. Status transitions
+	// 'running' -> 'supervising' -> 'completed'.
+	ModeEnhancer RunMode = "enhancer"
+)
+
+// TargetAssignee is the {type,id} envelope persisted in
+// mythos_run.target_assignee (0.3.31). The Type matches the
+// issue.assignee_type vocabulary ('agent'|'squad'); the Id is the
+// row id of the target resource.
+type TargetAssignee struct {
+	Type string      `json:"type"`
+	ID   pgtype.UUID `json:"id"`
+}
+
+// MarshalJSONB returns the JSONB byte form for sqlc params that take
+// jsonb columns. The caller passes the result to e.g.
+// SetMythosRunTargetAssignee. Empty TargetAssignee{} marshals to
+// `{"type":"","id":"00000000-0000-0000-0000-000000000000"}` which
+// the table CHECK rejects as NOT NULL; callers should pass nil
+// instead when there's no target.
+func (t *TargetAssignee) MarshalJSONB() ([]byte, error) {
+	if t == nil {
+		return nil, nil
+	}
+	return json.Marshal(t)
 }
 
 // Result is the snapshot returned to the HTTP/CLI caller once the
@@ -100,12 +165,64 @@ type Result struct {
 
 // Service is the entry point. Construct via NewService with the
 // generated sqlc Queries handle.
+//
+// superviseSet (0.3.31) tracks in-flight supervise goroutines for
+// enhancer-mode runs. The map is keyed by run id; the value is the
+// cancel func returned by superviseLoop's context.WithCancel. The
+// daemon bootstrap path (called once at server start) calls
+// ResumeSupervision to recover any 'supervising' runs that the
+// previous process left behind.
 type Service struct {
-	queries *db.Queries
+	queries      *db.Queries
+	superviseMu  sync.Mutex
+	superviseSet map[pgtype.UUID]context.CancelFunc
 }
 
 func NewService(queries *db.Queries) *Service {
-	return &Service{queries: queries}
+	return &Service{
+		queries:      queries,
+		superviseSet: make(map[pgtype.UUID]context.CancelFunc),
+	}
+}
+
+// startSupervise launches the supervise goroutine and registers its
+// cancel func. Idempotent: re-launching for a run that's already
+// supervised cancels the previous one first. This should never
+// happen in practice (the runner only calls startSupervise after
+// marking the run 'supervising' for the first time) but the guard
+// keeps daemon bootstrap recovery safe.
+func (s *Service) startSupervise(parentCtx context.Context, runID pgtype.UUID, cfg Config, rootIssueID pgtype.UUID) {
+	s.superviseMu.Lock()
+	if cancel, ok := s.superviseSet[runID]; ok {
+		cancel()
+		delete(s.superviseSet, runID)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.superviseSet[runID] = cancel
+	s.superviseMu.Unlock()
+
+	go s.superviseLoop(ctx, runID, cfg, rootIssueID)
+}
+
+// Stop cancels every in-flight supervise goroutine. Called from the
+// daemon shutdown hook alongside other service stops.
+func (s *Service) Stop() {
+	s.superviseMu.Lock()
+	defer s.superviseMu.Unlock()
+	for runID, cancel := range s.superviseSet {
+		cancel()
+		delete(s.superviseSet, runID)
+	}
+}
+
+// superviseLoop is the per-run supervision goroutine. Defined in
+// supervise.go (same package) — declared as an interface here so
+// runner.go does not have to import the supervise.go file's helpers.
+//
+// The actual implementation lives in supervise.go so the runner can
+// stay focused on the synchronous prelude/loop/coda flow.
+func (s *Service) superviseLoop(ctx context.Context, runID pgtype.UUID, cfg Config, rootIssueID pgtype.UUID) {
+	runSuperviseLoop(ctx, s, runID, cfg, rootIssueID)
 }
 
 // Run executes the full RDT pipeline synchronously. Returns the
@@ -130,6 +247,15 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 	if cfg.ConvergenceThreshold <= 0 {
 		cfg.ConvergenceThreshold = 0.95
 	}
+	if cfg.Mode == "" {
+		cfg.Mode = ModeSole
+	}
+	if cfg.Mode == ModeEnhancer && cfg.TargetAssignee == nil {
+		// Defensive: enhancer mode without a target is a programmer
+		// error. Surface it loudly so the HTTP handler doesn't have
+		// to special-case nil. Sole mode happily accepts nil.
+		return nil, fmt.Errorf("mythos enhancer mode: TargetAssignee is required")
+	}
 
 	run, err := s.queries.CreateMythosRun(ctx, db.CreateMythosRunParams{
 		WorkspaceID:          cfg.WorkspaceID,
@@ -142,7 +268,68 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 		return nil, fmt.Errorf("mythos: create run: %w", err)
 	}
 
+	// 0.3.31: write mode + target_assignee after the row exists so
+	// the partial-failure window between INSERT and these UPDATEs
+	// does not leave a target-less enhancer run in the table. The
+	// rows are write-once per run; the runner never updates them.
+	if err := s.queries.SetMythosRunMode(ctx, db.SetMythosRunModeParams{
+		ID:   run.ID,
+		Mode: string(cfg.Mode),
+	}); err != nil {
+		return nil, fmt.Errorf("mythos: set mode: %w", err)
+	}
+	if cfg.TargetAssignee != nil {
+		raw, mErr := cfg.TargetAssignee.MarshalJSONB()
+		if mErr != nil {
+			return nil, fmt.Errorf("mythos: marshal target: %w", mErr)
+		}
+		if err := s.queries.SetMythosRunTargetAssignee(ctx, db.SetMythosRunTargetAssigneeParams{
+			ID:            run.ID,
+			TargetAssignee: raw,
+		}); err != nil {
+			return nil, fmt.Errorf("mythos: set target: %w", err)
+		}
+	}
+	if cfg.SelfOptimizationEnabled {
+		// 0.3.31 finally writes the mig 156 column that was added
+		// without a reader. The reflection writer is the coda stage
+		// (see writeCodaReflections).
+		if err := s.queries.SetMythosRunSelfOptimization(ctx, db.SetMythosRunSelfOptimizationParams{
+			ID:                      run.ID,
+			SelfOptimizationEnabled: true,
+		}); err != nil {
+			return nil, fmt.Errorf("mythos: set self-opt: %w", err)
+		}
+	}
+	if len(cfg.ExtensionAgentIDs) > 0 {
+		// 0.3.31: persist the user-picked extra loop participants
+		// before the loop stage reads them. JSONB array of UUIDs.
+		// Empty slice clears the column; we only call when non-empty.
+		raw, mErr := json.Marshal(extensionUUIDsToStrings(cfg.ExtensionAgentIDs))
+		if mErr != nil {
+			return nil, fmt.Errorf("mythos: marshal extension: %w", mErr)
+		}
+		if err := s.queries.SetMythosRunExtensionAgents(ctx, db.SetMythosRunExtensionAgentsParams{
+			ID:                run.ID,
+			ExtensionAgentIds: raw,
+		}); err != nil {
+			return nil, fmt.Errorf("mythos: set extension: %w", err)
+		}
+	}
+
 	result := &Result{RunID: uuid.UUID(run.ID.Bytes), Status: run.Status}
+
+	// effectiveLoopPool = canonical mythos_loop_* agents + user-
+	// picked extensions. Round-robin pool over the combined set so
+	// the coda sees the same convergence surface as 0.3.30; the only
+	// difference is a larger pool to iterate over.
+	effectiveLoopPool := cfg.LoopAgentIDs
+	for _, ext := range cfg.ExtensionAgentIDs {
+		if !ext.Valid {
+			continue
+		}
+		effectiveLoopPool = append(effectiveLoopPool, ext)
+	}
 
 	// ── Prelude ──────────────────────────────────────────────────────
 	if err := s.runPrelude(ctx, cfg, run.ID); err != nil {
@@ -154,7 +341,7 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 	var prevTokens map[string]int
 	converged := false
 	for iter := 1; iter <= cfg.MaxLoopIters; iter++ {
-		body, iterIssueID, err := s.runLoopIteration(ctx, cfg, run.ID, iter, waitFn)
+		body, iterIssueID, err := s.runLoopIteration(ctx, cfg, run.ID, iter, effectiveLoopPool, waitFn)
 		if err != nil {
 			s.markFailed(ctx, run.ID, err)
 			return nil, fmt.Errorf("mythos loop %d: %w", iter, err)
@@ -178,6 +365,21 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 		if iterIssueID.Valid {
 			if err := s.recordLoopResult(ctx, run.ID, iter, iterIssueID); err != nil {
 				return nil, fmt.Errorf("mythos loop record: %w", err)
+			}
+			// 0.3.31: per-iteration reflection. Writes only when the
+			// user enabled self_optimization at run creation; we
+			// piggy-back the loop comment body as the reflection
+			// text so the coda column has something to render
+			// without a second LLM call.
+			if cfg.SelfOptimizationEnabled {
+				if err := s.writeLoopReflection(ctx, run.ID, iter, body); err != nil {
+					// Reflection failures are non-fatal; log and
+					// continue. The run still completes; the
+					// supervise panel just shows "no reflection
+					// yet" until the next successful tick.
+					slog.Warn("mythos: write reflection failed",
+						"run", run.ID, "iter", iter, "err", err)
+				}
 			}
 		}
 
@@ -205,15 +407,72 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 		}
 	}
 
+	// Terminal status branch (0.3.31 dual-mode).
+	//
+	// Sole: 'completed' as in 0.3.30. Enhancer: 'supervising' — the
+	// supervise goroutine takes over and writes 'completed' when the
+	// user's assignee finishes its work.
+	terminalStatus := "completed"
+	if cfg.Mode == ModeEnhancer {
+		terminalStatus = "supervising"
+	}
 	final, err := s.queries.SetMythosRunStatus(ctx, db.SetMythosRunStatusParams{
 		ID:     run.ID,
-		Status: "completed",
+		Status: terminalStatus,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("mythos status: %w", err)
 	}
 	result.Status = final.Status
+
+	// 0.3.31: launch the supervise goroutine for enhancer runs. The
+	// call is fire-and-forget; supervise tracks its own lifecycle and
+	// self-terminates when supervision_state.phase hits a terminal
+	// value (done/aborted). Daemon bootstrap recovers from a restart
+	// via ListMythosRunsAwaitingSupervision.
+	if cfg.Mode == ModeEnhancer {
+		s.startSupervise(ctx, run.ID, cfg, final.RootIssueID)
+	}
 	return result, nil
+}
+
+// extensionUUIDsToStrings converts pgtype.UUIDs to the JSON string
+// form expected by the extension_agent_ids JSONB column. The pgx
+// codec for pgtype.UUID renders as {"Bytes":"...","Valid":true}
+// which is not what SetMythosRunExtensionAgents' ::jsonb cast wants;
+// we marshal the bare UUID strings instead so the column reads back
+// as a clean ["...uuid..."] array.
+func extensionUUIDsToStrings(in []pgtype.UUID) []string {
+	out := make([]string, 0, len(in))
+	for _, u := range in {
+		if !u.Valid {
+			continue
+		}
+		out = append(out, uuid.UUID(u.Bytes).String())
+	}
+	return out
+}
+
+// writeLoopReflection persists one reflection row per loop iteration
+// when self_optimization_enabled=true (0.3.31). It looks up the
+// matching loop member row and writes the body as both reflection
+// text and a reflection_iter counter so supervise can pick the
+// latest one deterministically.
+func (s *Service) writeLoopReflection(ctx context.Context, runID pgtype.UUID, iter int, body string) error {
+	members, err := s.queries.ListMythosMembersByRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	for _, m := range members {
+		if m.Role == string(RoleLoop) && m.Iteration == int32(iter) {
+			return s.queries.SetMythosMemberReflection(ctx, db.SetMythosMemberReflectionParams{
+				ID:            m.ID,
+				Reflection:    pgtype.Text{String: body, Valid: body != ""},
+				ReflectionIter: pgtype.Int4{Int32: int32(iter), Valid: true},
+			})
+		}
+	}
+	return nil
 }
 
 // runPrelude creates the root issue and waits for the prelude agent's
@@ -252,11 +511,18 @@ func (s *Service) runPrelude(ctx context.Context, cfg Config, runID pgtype.UUID)
 // waitFn may be nil (e.g. a test-only caller that doesn't care about
 // the agent's output). When nil we skip the block and return a
 // placeholder body so the convergence signal is non-degenerate.
-func (s *Service) runLoopIteration(ctx context.Context, cfg Config, runID pgtype.UUID, iter int, waitFn func(context.Context, pgtype.UUID) (string, error)) (string, pgtype.UUID, error) {
-	if len(cfg.LoopAgentIDs) == 0 {
+func (s *Service) runLoopIteration(
+	ctx context.Context,
+	cfg Config,
+	runID pgtype.UUID,
+	iter int,
+	loopPool []pgtype.UUID,
+	waitFn func(context.Context, pgtype.UUID) (string, error),
+) (string, pgtype.UUID, error) {
+	if len(loopPool) == 0 {
 		return "", pgtype.UUID{}, fmt.Errorf("no loop agents configured")
 	}
-	agentID := cfg.LoopAgentIDs[(iter-1)%len(cfg.LoopAgentIDs)]
+	agentID := loopPool[(iter-1)%len(loopPool)]
 	_, err := s.queries.CreateMythosMember(ctx, db.CreateMythosMemberParams{
 		RunID:     runID,
 		AgentID:   agentID,
