@@ -301,40 +301,16 @@ if (await exists(pythiaSrc)) {
     "pydantic>=2.7",
   ].join("\n") + "\n";
   await writeFile(pythiaRequirementsDest, requirements);
-  const wrapper = `#!/usr/bin/env bash
-# Pythia starter invoked by pythia-manager.ts. The desktop picks a
-# free loopback port and passes it as $1; we exec uvicorn with it.
-#
-# 0.3.29.2: BaseExperimentalManager now spawns this script with
-# cwd = dirname(bin), so $PWD IS this script's directory. We build
-# PYTHONPATH off $PWD/engine directly — no BASH_SOURCE discovery,
-# which under macOS's "bash run.sh PORT" leaves $0=BASH and
-# BASH_SOURCE[0] unset under \`set -u\`.
-#
-# Prefer the venv at ~/.multica/pythia-venv/bin/python3 (Python 3.12
-# — the engine source is not 3.14-compatible yet). Boot the venv
-# once with:
-#   uv venv --python 3.12 ~/.multica/pythia-venv
-#   VIRTUAL_ENV=~/.multica/pythia-venv uv pip install -r '\$HERE/requirements.txt'
-# Falls back to system python3 if the venv is missing.
-set -eo pipefail
-HERE="\$PWD"
-export PYTHONPATH="\$HERE/engine\${PYTHONPATH:+:\$PYTHONPATH}"
-if [ -x "\${HOME}/.multica/pythia-venv/bin/python3" ]; then
-  PY="\${HOME}/.multica/pythia-venv/bin/python3"
-elif command -v python3 >/dev/null 2>&1; then
-  PY="\$(command -v python3)"
-else
-  echo "[pythia] no python interpreter found" >&2
-  exit 127
-fi
-if ! "\$PY" -c "import fastapi, uvicorn, httpx, dotenv, pydantic" 2>/dev/null; then
-  echo "[pythia] missing Python deps (deps path: \$PY). Run:" >&2
-  echo "    uv venv --python 3.12 ~/.multica/pythia-venv && \\\\ VIRTUAL_ENV=~/.multica/pythia-venv uv pip install -r '\$HERE/requirements.txt'" >&2
-  exit 127
-fi
-exec "\$PY" -m uvicorn engine.server:app --host 127.0.0.1 --port "\$1"
-`;
+  // 0.3.30: read the wrapper straight from the vendor source-of-record
+  // (apps/desktop/vendor/pythia-src/run.sh) instead of embedding it
+  // as a JS template literal. Editing the vendor file is the single
+  // supported way to update run.sh; the bundle step copies it
+  // byte-for-byte into resources/pythia/run.sh on every run. This
+  // avoids JS template-escape pitfalls (`${...}`, backticks, etc.)
+  // and keeps both copies in lockstep.
+  const { readFile } = await import("node:fs/promises");
+  const vendorWrapperPath = join(repoRoot, "apps", "desktop", "vendor", "pythia-src", "run.sh");
+  const wrapper = await readFile(vendorWrapperPath, "utf-8");
   await writeFile(pythiaWrapperDest, wrapper);
   await chmod(pythiaWrapperDest, 0o755);
   console.log(`[bundle-cli] bundled Pythia source → ${pythiaDest} (+ run.sh + requirements.txt)`);
