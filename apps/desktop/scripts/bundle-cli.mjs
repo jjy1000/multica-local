@@ -302,28 +302,38 @@ if (await exists(pythiaSrc)) {
   ].join("\n") + "\n";
   await writeFile(pythiaRequirementsDest, requirements);
   const wrapper = `#!/usr/bin/env bash
-# Pythia starter invoked by pythia-manager.ts. The desktop picks a free
-# loopback port and passes it as $1; we exec uvicorn with it. PYTHONPATH
-# is set so the staged engine source next to us resolves as 'engine.server'.
-# Backslash-escape the bash variable so the JS template literal does not
-# try to evaluate \${PYTHONPATH:-} as a JS expression.
+# Pythia starter invoked by pythia-manager.ts. The desktop picks a
+# free loopback port and passes it as $1; we exec uvicorn with it.
 #
-# 0.3.16+: PYTHIA no longer depends on Ollama / MiroFish / Osiris. The
-# bundled engine only requires fastapi + uvicorn + httpx + dotenv +
-# pydantic. If any of these are missing we exit 127 with a clear message
-# (not a Python traceback); pythia-manager catches that and surfaces a
-# structured "BINARY_NOT_BUNDLED" / "deps missing" error to the renderer
-# instead of an NSAlert. See 0.3.10 prevention contract.
-set -euo pipefail
-HERE="\${BASH_SOURCE%/*}"
-HERE="$(cd "$HERE" && pwd)"
-export PYTHONPATH="$HERE/engine:\${PYTHONPATH:-}"
-if ! python3 -c "import fastapi, uvicorn, httpx, dotenv, pydantic" 2>/dev/null; then
-  echo "[pythia] missing Python deps. Run:" >&2
-  echo "    python3 -m pip install --user -r '$HERE/requirements.txt'" >&2
+# 0.3.29.2: BaseExperimentalManager now spawns this script with
+# cwd = dirname(bin), so $PWD IS this script's directory. We build
+# PYTHONPATH off $PWD/engine directly — no BASH_SOURCE discovery,
+# which under macOS's "bash run.sh PORT" leaves $0=BASH and
+# BASH_SOURCE[0] unset under \`set -u\`.
+#
+# Prefer the venv at ~/.multica/pythia-venv/bin/python3 (Python 3.12
+# — the engine source is not 3.14-compatible yet). Boot the venv
+# once with:
+#   uv venv --python 3.12 ~/.multica/pythia-venv
+#   VIRTUAL_ENV=~/.multica/pythia-venv uv pip install -r '\$HERE/requirements.txt'
+# Falls back to system python3 if the venv is missing.
+set -eo pipefail
+HERE="\$PWD"
+export PYTHONPATH="\$HERE/engine\${PYTHONPATH:+:\$PYTHONPATH}"
+if [ -x "\${HOME}/.multica/pythia-venv/bin/python3" ]; then
+  PY="\${HOME}/.multica/pythia-venv/bin/python3"
+elif command -v python3 >/dev/null 2>&1; then
+  PY="\$(command -v python3)"
+else
+  echo "[pythia] no python interpreter found" >&2
   exit 127
 fi
-exec python3 -m uvicorn engine.server:app --host 127.0.0.1 --port "$1"
+if ! "\$PY" -c "import fastapi, uvicorn, httpx, dotenv, pydantic" 2>/dev/null; then
+  echo "[pythia] missing Python deps (deps path: \$PY). Run:" >&2
+  echo "    uv venv --python 3.12 ~/.multica/pythia-venv && \\\\ VIRTUAL_ENV=~/.multica/pythia-venv uv pip install -r '\$HERE/requirements.txt'" >&2
+  exit 127
+fi
+exec "\$PY" -m uvicorn engine.server:app --host 127.0.0.1 --port "\$1"
 `;
   await writeFile(pythiaWrapperDest, wrapper);
   await chmod(pythiaWrapperDest, 0o755);
@@ -470,6 +480,47 @@ if (await exists(llmWikiBridgeSrc)) {
       "apps/desktop/vendor/llm-wiki-bridge — llm_wiki_bridge flag will show " +
       "'resources not packaged' when enabled. Drop run.sh into " +
       "apps/desktop/vendor/llm-wiki-bridge/ before bundle-cli if you want " +
+      "the bundled fallback shipped in the DMG.",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 0.3.29.2: code_canvas stub binary (P9 internal pilot).
+//
+// code_canvas is the only subprocess-kind experiment left without its
+// vendor copy in this fork — pythia / llm-wiki-bridge / claude-science all
+// ship, but code_canvas's 30-line /health Python stub was never committed
+// to apps/desktop/vendor/code-canvas/. catalog.go and the desktop
+// manager-factory both reference `code-canvas/run.sh` under
+// resources/; without this cp the enable-time spawn falls through to
+// "BINARY_NOT_BUNDLED" (memory labs-flag-enable-breaks-2026-07-14).
+//
+// Mirror the llm-wiki-bridge pattern: source is apps/desktop/vendor/
+// (NOT resources/, because bundle-cli wipes resources/ on each run).
+// ---------------------------------------------------------------------------
+const codeCanvasSrc = join(
+  repoRoot,
+  "apps",
+  "desktop",
+  "vendor",
+  "code-canvas",
+);
+const codeCanvasDest = join(destDir, "..", "code-canvas");
+if (await exists(codeCanvasSrc)) {
+  try {
+    await rm(codeCanvasDest, { recursive: true, force: true });
+  } catch {
+    // dest missing — fine.
+  }
+  await mkdir(codeCanvasDest, { recursive: true });
+  await cp(codeCanvasSrc, codeCanvasDest, { recursive: true });
+  console.log(`[bundle-cli] bundled code-canvas stub → ${codeCanvasDest}`);
+} else {
+  console.warn(
+    "[bundle-cli] code-canvas stub not vendored at " +
+      "apps/desktop/vendor/code-canvas — code_canvas flag will show " +
+      "'resources not packaged' when enabled. Drop run.sh into " +
+      "apps/desktop/vendor/code-canvas/ before bundle-cli if you want " +
       "the bundled fallback shipped in the DMG.",
   );
 }
