@@ -298,7 +298,12 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 	if issue.LabSource.Valid {
 		labSourceKey = issue.LabSource.String
 	}
-	if labSourceKey != "" && issue.AssigneeType.String == "" {
+	// mythos_swarm is intentionally skipped — its 5-agent RDT runner
+	// owns the roster and the sole-mode mutex above already cleared
+	// AssigneeType. Auto-dispatching `mythos_prelude` here would
+	// race the runner and confuse the IssueLabsSection supervision
+	// panel (which reads issue.assignee_id).
+	if labSourceKey != "" && labSourceKey != "mythos_swarm" && issue.AssigneeType.String == "" {
 		s.assignDefaultLabAgent(ctx, &issue, labSourceKey)
 	}
 

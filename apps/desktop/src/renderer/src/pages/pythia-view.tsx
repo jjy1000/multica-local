@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
 
@@ -84,7 +85,9 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
   // report surface opens already-scoped to that issue instead of
   // showing a "no issue bound" empty state. The user can still
   // re-pick via the issue panel inside the surface.
-  const [issueId, setIssueId] = useState<string | null>(initialIssueId);
+  const [searchParams] = useSearchParams();
+  const urlIssueId = searchParams.get("issue");
+  const [issueId, setIssueId] = useState<string | null>(initialIssueId ?? urlIssueId);
   const [horizon, setHorizon] = useState<Horizon>("week");
   const [persona, setPersona] = useState<Persona>("strategist");
   const [subscribed, setSubscribed] = useState(true);

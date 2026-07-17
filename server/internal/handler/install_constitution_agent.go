@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -72,6 +73,10 @@ func (h *Handler) InstallConstitutionAgent(ctx context.Context, userID, workspac
 		// pilots are governed by the experimental_resource_visibility
 		// rows in migration 153.
 	}
+	// 0.3.35: heal existing leader agent's runtime_id (was empty
+	// pre-0.3.35) so the issue-creation auto-dispatch path actually
+	// enqueues. Best-effort; offline workspaces leave the row alone.
+	rebindLabAgentsToOnlineRuntime(ctx, h, workspaceUUID)
 	return nil
 }
 
@@ -121,6 +126,16 @@ func upsertConstitutionAgent(ctx context.Context, h *Handler, workspaceID pgtype
 		// workspaceID is not a user — leave owner empty.
 		ownerID = pgtype.UUID{}
 	}
+	// 0.3.35: bind the leader agent to a real daemon when one is
+	// online. The previous empty RuntimeID meant
+	// isAgentAssigneeReady returned false and the auto-dispatch path
+	// (issue.lab_source='constitution_agent') silently skipped enqueue.
+	runtimeID := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID)
+	if !runtimeID.Valid {
+		slog.Info("upsertConstitutionAgent: no online local runtime; "+
+			"agent created without runtime — autopilot cron will skip dispatch until daemon is online",
+			"workspace_id", util.UUIDToString(workspaceID))
+	}
 	created, err := h.Queries.CreateAgent(ctx, db.CreateAgentParams{
 		WorkspaceID:        workspaceID,
 		Name:               name,
@@ -128,7 +143,7 @@ func upsertConstitutionAgent(ctx context.Context, h *Handler, workspaceID pgtype
 		AvatarUrl:          pgtype.Text{},
 		RuntimeMode:        "local",
 		RuntimeConfig:      []byte(`{}`),
-		RuntimeID:          pgtype.UUID{},
+		RuntimeID:          runtimeID,
 		Visibility:         "workspace",
 		MaxConcurrentTasks: 1,
 		OwnerID:            ownerID,

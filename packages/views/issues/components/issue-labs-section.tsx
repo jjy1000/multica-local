@@ -139,8 +139,13 @@ export function IssueLabsSection({ issueId, labSource }: { issueId: string; labS
             )}
           </div>
           {suffix && labEnabled && hasWorkspaceView ? (
+            // 0.3.35: include ?issue=<id> so the lab panel opens
+            // pre-scoped to this issue (ClaudeLabView / PythiaView /
+            // MythosView all read the search param). Without it the
+            // user lands on the workspace-scoped empty state and has
+            // to re-pick the issue in the picker.
             <AppLink
-              href={`/experimental/${suffix}`}
+              href={`/experimental/${suffix}?issue=${encodeURIComponent(issueId)}`}
               className="inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
             >
               <ExternalLink className="size-3" />

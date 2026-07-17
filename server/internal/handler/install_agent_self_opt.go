@@ -11,11 +11,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -49,6 +51,8 @@ func (h *Handler) InstallAgentSelfOptimization(ctx context.Context, userID, work
 			return fmt.Errorf("autopilot %s: %w", aut.title, err)
 		}
 	}
+	// 0.3.35: heal leader agent runtime_id (was empty pre-0.3.35).
+	rebindLabAgentsToOnlineRuntime(ctx, h, workspaceUUID)
 	return nil
 }
 
@@ -81,6 +85,15 @@ func upsertAgentSelfOptAgent(ctx context.Context, h *Handler, workspaceID pgtype
 	}); err == nil {
 		return existing.ID, nil
 	}
+	// 0.3.35: bind the leader agent to a real daemon when one is
+	// online. Without this the autopilot cron dispatches land on an
+	// agent with RuntimeID invalid → daemon never picks it up.
+	runtimeID := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID)
+	if !runtimeID.Valid {
+		slog.Info("upsertAgentSelfOptAgent: no online local runtime; "+
+			"agent created without runtime — autopilot cron will skip dispatch until daemon is online",
+			"workspace_id", util.UUIDToString(workspaceID))
+	}
 	created, err := h.Queries.CreateAgent(ctx, db.CreateAgentParams{
 		WorkspaceID:        workspaceID,
 		Name:               name,
@@ -88,7 +101,7 @@ func upsertAgentSelfOptAgent(ctx context.Context, h *Handler, workspaceID pgtype
 		AvatarUrl:          pgtype.Text{},
 		RuntimeMode:        "local",
 		RuntimeConfig:      []byte(`{}`),
-		RuntimeID:          pgtype.UUID{},
+		RuntimeID:          runtimeID,
 		Visibility:         "workspace",
 		MaxConcurrentTasks: 1,
 		OwnerID:            pgtype.UUID{},

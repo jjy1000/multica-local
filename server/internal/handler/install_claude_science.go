@@ -39,6 +39,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/experimental"
+	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -240,6 +242,13 @@ func (h *Handler) InstallClaudeScience(ctx context.Context, src experimental.Sou
 	if _, err := experimental.Hide(ctx, h.Queries, src); err != nil {
 		return fmt.Errorf("hide lab resources: %w", err)
 	}
+
+	// 0.3.35: heal agent.runtime_id for agents installed by earlier
+	// versions that pointed at the synthetic offline stub. The
+	// upsert* helpers above short-circuit on existing rows, so this
+	// is the only place that repairs the FK without an uninstall +
+	// reinstall round-trip.
+	rebindLabAgentsToOnlineRuntime(ctx, h, workspaceUUID)
 
 	return nil
 }
@@ -509,6 +518,94 @@ func ensureWorkspaceOwner(
 	return nil
 }
 
+// rebindLabAgentsToOnlineRuntime walks the workspace's lab-installed
+// leader agents (`research`, `宪法智能体`, `智能体优化专家`) and
+// rewrites their runtime_id to the workspace's online local runtime
+// when (a) the agent currently points at a synthetic offline stub,
+// or (b) the runtime_id is invalid and a daemon is now online.
+//
+// This is the 0.3.35 post-install healing step: existing lab
+// installs from earlier versions ship the synthetic offline
+// runtime baked into agent.runtime_id, which silently blocks the
+// auto-dispatch path. Reinstalling the lab hits the upsert
+// short-circuit (agent row already exists, returns early) and
+// would never repair the FK, so we run this explicitly.
+//
+// Called at the end of every install_*_lab handler. Best-effort:
+// errors are logged and swallowed so an offline workspace (no
+// daemon) still leaves the agents at their existing runtime_id
+// rather than corrupting it.
+func rebindLabAgentsToOnlineRuntime(
+	ctx context.Context, h *Handler, workspaceID pgtype.UUID,
+) {
+	runtimeID := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID)
+	if !runtimeID.Valid {
+		return
+	}
+	for _, name := range labLeaderAgentNames {
+		agent, err := h.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
+			WorkspaceID: workspaceID,
+			Name:        name,
+		})
+		if err != nil {
+			continue
+		}
+		if agent.RuntimeID == runtimeID {
+			continue
+		}
+		if _, err := h.Queries.UpdateAgent(ctx, db.UpdateAgentParams{
+			ID:        agent.ID,
+			RuntimeID: runtimeID,
+		}); err != nil {
+			slog.Warn("rebindLabAgentsToOnlineRuntime: update failed",
+				"agent_name", name,
+				"workspace_id", util.UUIDToString(workspaceID),
+				"error", err)
+			continue
+		}
+		slog.Info("rebindLabAgentsToOnlineRuntime: agent rebound to online runtime",
+			"agent_name", name,
+			"workspace_id", util.UUIDToString(workspaceID))
+	}
+}
+
+// labLeaderAgentNames lists every lab-installed agent whose
+// runtime_id is auto-rebound to the workspace's online local
+// runtime by rebindLabAgentsToOnlineRuntime. Keep this in sync
+// with defaultLeaderAgentForLab in service/issue.go.
+var labLeaderAgentNames = []string{
+	"research",
+	"宪法智能体",
+	"智能体优化专家",
+}
+
+// resolveWorkspaceOnlineRuntime returns the workspace's primary
+// online local agent_runtime row, or pgtype.UUID{} when no daemon
+// is currently online. Lab installs use this to bind leader agents
+// (`research`, `宪法智能体`, `智能体优化专家`) to a real daemon
+// instead of a synthetic offline runtime — without it, the
+// issue-creation auto-dispatch path silently enqueues into a
+// runtime the daemon never polls (CLAUDE.md Known Stability
+// Surface #2; see 0.3.35 audit). Returns the FIRST online local
+// runtime ordered by created_at; agents share that daemon.
+func resolveWorkspaceOnlineRuntime(
+	ctx context.Context, h *Handler, workspaceID pgtype.UUID,
+) pgtype.UUID {
+	runtimes, err := h.Queries.ListAgentRuntimes(ctx, workspaceID)
+	if err != nil {
+		slog.Info("resolveWorkspaceOnlineRuntime: list runtimes failed",
+			"workspace_id", util.UUIDToString(workspaceID),
+			"error", err)
+		return pgtype.UUID{}
+	}
+	for _, rt := range runtimes {
+		if rt.Status == "online" && rt.RuntimeMode == "local" {
+			return rt.ID
+		}
+	}
+	return pgtype.UUID{}
+}
+
 // upsertClaudeScienceRuntime provisions one synthetic agent_runtime
 // row per claude_science lab install. The runtime exists to satisfy
 // the agent.runtime_id NOT NULL FK (migration 004) without an actual
@@ -516,12 +613,29 @@ func ensureWorkspaceOwner(
 // and provider ('claude_science') so re-install / re-toggle hits the
 // unique constraint and reuses the row instead of inserting duplicates.
 //
-// Status 'offline' is honest: the lab runtime has no live daemon. The
-// renderer surfaces this in the sidebar as "实验室 runtime (无 daemon)"
-// so users do not expect agents to auto-process tasks.
+// 0.3.35: when the workspace already has an online local daemon,
+// reuse its runtime id instead of inserting the synthetic offline
+// stub. The synthetic stub was correct for the 0.3.15 install path
+// (no daemon lived at runtime_id, so isAgentAssigneeReady had to
+// refuse enqueue) but the 0.3.30 auto-dispatch contract requires
+// the leader agent to be enqueueable, which means a real daemon
+// must be polling the runtime's queue. The fallback path
+// (no online daemon) keeps the synthetic offline stub so the
+// install still succeeds — agents sit in the table but never
+// run until a daemon comes online, which is the right behaviour
+// for an offline workspace.
+//
+// On re-install of an existing lab the agent rows already point
+// at the synthetic stub from a previous install; we still upsert
+// the stub (idempotent) so existing rows keep their FK, but the
+// leader assignment path below will fall through to the existing
+// runtime id the agent already has.
 func upsertClaudeScienceRuntime(
 	ctx context.Context, h *Handler, workspaceID pgtype.UUID,
 ) (pgtype.UUID, error) {
+	if online := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID); online.Valid {
+		return online, nil
+	}
 	row, err := h.Queries.UpsertAgentRuntime(ctx, db.UpsertAgentRuntimeParams{
 		WorkspaceID: workspaceID,
 		DaemonID:    pgtype.Text{String: "claude-science", Valid: true},

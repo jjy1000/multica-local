@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { FlaskConical, Network, Sparkles, Users, BookOpen, AlertTriangle, Loader2 } from "lucide-react";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
@@ -187,7 +188,9 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
   // pick a different one), but for the inline-from-issue case
   // the binding is the whole point of having a lab-tagged
   // issue.
-  const [rootIssueId] = useState<string | null>(initialIssueId);
+  const [searchParams] = useSearchParams();
+  const urlIssueId = searchParams.get("issue");
+  const [rootIssueId] = useState<string | null>(initialIssueId ?? urlIssueId);
   const [maxLoop, setMaxLoop] = useState(3);
   const [extensionAgentIDs, setExtensionAgentIDs] = useState<string[]>([]);
   const [selfOptimization, setSelfOptimization] = useState(true);

@@ -273,8 +273,39 @@ const LAB_DISPLAY_LABELS: Record<string, string> = {
   constitution_agent: "宪法智能体",
   chat_pin_ui: "聊天置顶",
 };
+
 function labDisplayLabel(key: string): string | undefined {
   return LAB_DISPLAY_LABELS[key];
+}
+
+// experimentalLabRouteFor returns the desktop `/experimental/<flag>`
+// route that should receive a freshly-created lab issue, or null
+// for labs without a dedicated view (chat_pin_ui has no surface;
+// agent_self_optimization / constitution_agent / code_canvas /
+// llm_wiki_bridge are workspace-scoped surfaces with no per-issue
+// binding yet). The caller appends `?issue=<id>` to pre-select the
+// issue inside the panel — see ClaudeLabView / PythiaView /
+// MythosView's useSearchParams hooks.
+function experimentalLabRouteFor(labSource: string | undefined): string | null {
+  if (!labSource) return null;
+  switch (labSource) {
+    case "claude_science_lab":
+      return "/experimental/claude-lab";
+    case "pythia_oracle":
+      return "/experimental/pythia";
+    case "mythos_swarm":
+      return "/experimental/mythos";
+    case "llm_wiki_bridge":
+      return "/experimental/llm-wiki";
+    case "code_canvas":
+      return "/experimental/code-canvas";
+    case "agent_self_optimization":
+      return "/experimental/agent-self-optimization";
+    case "constitution_agent":
+      return "/experimental/constitution-agent";
+    default:
+      return null;
+  }
 }
 
 export function ManualCreatePanel({
@@ -551,7 +582,20 @@ export function ManualCreatePanel({
               type="button"
               className="ml-7 mt-2 text-sm text-primary hover:underline cursor-pointer"
               onClick={() => {
-                router.push(p.issueDetail(issue.id));
+                // 0.3.35: lab-tagged issues should land in the lab
+                // panel, not the issue detail page. The "view issue"
+                // button now doubles as "open in lab" so the user
+                // sees the lab surface (Claude Lab Plan/Forecast/
+                // Code/Knowledge, Pythia report, Mythos swarm form)
+                // already pre-scoped to the just-created issue via
+                // the `?issue=<id>` URL param (parsed in each view's
+                // useSearchParams).
+                const labRoute = experimentalLabRouteFor(labSource);
+                if (labRoute) {
+                  router.push(`${labRoute}?issue=${encodeURIComponent(issue.id)}`);
+                } else {
+                  router.push(p.issueDetail(issue.id));
+                }
                 toast.dismiss(toastId);
               }}
             >
@@ -591,7 +635,16 @@ export function ManualCreatePanel({
                   type="button"
                   className="ml-7 mt-2 text-sm text-primary hover:underline cursor-pointer"
                   onClick={() => {
-                    router.push(p.issueDetail(dup.issue.id));
+                    // Mirror the create-success path: a duplicate
+                    // lab-tagged issue should also land in the lab
+                    // panel. Falls back to issue detail for non-lab
+                    // issues (unchanged from 0.3.30).
+                    const labRoute = experimentalLabRouteFor(labSource);
+                    if (labRoute) {
+                      router.push(`${labRoute}?issue=${encodeURIComponent(dup.issue.id)}`);
+                    } else {
+                      router.push(p.issueDetail(dup.issue.id));
+                    }
                     toast.dismiss(toastId);
                   }}
                 >

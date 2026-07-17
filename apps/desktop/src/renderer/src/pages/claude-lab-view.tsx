@@ -41,6 +41,7 @@
 //     narrows Artifact / Code / Knowledge in one click.
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   ArrowRight,
   FlaskConical,
@@ -111,14 +112,17 @@ export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: st
   const enabled = useExperimentalFlag(CLAUDE_LAB_FLAG, false);
   const [tab, setTab] = useState<LabTab>("plan");
   const [wsId, setWsId] = useState<string | null>(() => getCurrentWsId());
-  // When mounted inline from an issue detail (via renderLabInline on
-  // IssueDetailPage), the parent passes an `issueId` so Plan /
-  // Forecast / Code / Knowledge / Artifact tabs open already-scoped
-  // to that issue instead of the "no issue bound" empty state. The
-  // user can still re-pick from the picker inside each tab. Without
-  // this prop the view behaves as the workspace-scoped `/experimental/
-  // claude-lab` route does today (default null).
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(initialIssueId);
+  // URL `?issue=<id>` lets CreateIssueDialog land the user back in the
+  // lab panel pre-scoped to the just-created issue, instead of jumping
+  // to the issue detail page. The prop wins when both are set
+  // (inline-render from IssueDetailPage). Without `?issue=` the view
+  // behaves like the workspace-scoped `/experimental/claude-lab` route
+  // did before 0.3.35 (selectedIssueId starts null).
+  const [searchParams] = useSearchParams();
+  const urlIssueId = searchParams.get("issue");
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(
+    initialIssueId ?? urlIssueId,
+  );
   // lockedAgentId is only meaningful while a lab is selected. Setting
   // it to a non-null value implies the agent is locked; clearing
   // selectedIssueId does NOT auto-clear the agent (the lab session
