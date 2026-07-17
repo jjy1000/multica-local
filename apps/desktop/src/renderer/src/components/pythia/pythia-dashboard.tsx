@@ -139,7 +139,7 @@ export function PythiaDashboard({
           {selected ? (
             <PredictionCard prediction={selected} />
           ) : (
-            <p className="text-sm text-muted-foreground">{t(($) => $.pythia.no_predictions_yet)}</p>
+            <p className="text-sm text-muted-foreground">{t(($) => $.no_predictions_yet)}</p>
           )}
         </aside>
       </div>
@@ -269,21 +269,21 @@ function DashboardHeader({
 }: DashboardHeaderProps) {
   const { t } = useT("pythia");
   let badge: { label: string; tone: "neutral" | "warn" | "ok" } = {
-    label: t(($) => $.pythia.badge_sample),
+    label: t(($) => $.badge_sample),
     tone: "neutral",
   };
   if (!usingSample) {
     if (connection === "open") {
-      badge = { label: t(($) => $.pythia.badge_live), tone: "ok" };
+      badge = { label: t(($) => $.badge_live), tone: "ok" };
     } else if (connection === "connecting" || connection === "idle") {
-      badge = { label: `${t(($) => $.pythia.badge_connecting)} (${connection})`, tone: "neutral" };
+      badge = { label: `${t(($) => $.badge_connecting)} (${connection})`, tone: "neutral" };
     } else if (connection === "error") {
-      badge = { label: t(($) => $.pythia.badge_stream_error), tone: "warn" };
+      badge = { label: t(($) => $.badge_stream_error), tone: "warn" };
     } else if (connection === "closed") {
-      badge = { label: t(($) => $.pythia.badge_stream_closed), tone: "warn" };
+      badge = { label: t(($) => $.badge_stream_closed), tone: "warn" };
     }
   } else if (managerReady && connection !== "open") {
-    badge = { label: t(($) => $.pythia.manager_up_no_runs), tone: "neutral" };
+    badge = { label: t(($) => $.manager_up_no_runs), tone: "neutral" };
   }
 
   const badgeClass =

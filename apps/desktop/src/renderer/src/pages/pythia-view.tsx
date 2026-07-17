@@ -111,7 +111,7 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground">
         <h2 className="text-lg font-semibold text-foreground">
-          {t(($) => $.pythia.pythia_unavailable)}
+          {t(($) => $.pythia_unavailable)}
         </h2>
         <p className="max-w-md text-sm">{error}</p>
       </div>
@@ -125,7 +125,7 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
           fallback={
             <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
               <span>
-                {t(($) => $.pythia.loading_dashboard)} (manager: {status})…
+                {t(($) => $.loading_dashboard)} (manager: {status})…
               </span>
             </div>
           }
@@ -153,7 +153,7 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
     return (
       <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
         <span>
-          {t(($) => $.pythia.starting_pythia)} (status: {status})…
+          {t(($) => $.starting_pythia)} (status: {status})…
         </span>
       </div>
     );
@@ -176,14 +176,14 @@ function PythiaStatusPanel({ url }: { url: string }) {
       </header>
 
       <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
-        <dt className="text-muted-foreground">{t(($) => $.pythia.loopback_url)}</dt>
+        <dt className="text-muted-foreground">{t(($) => $.loopback_url)}</dt>
         <dd className="font-mono">{url}</dd>
-        <dt className="text-muted-foreground">{t(($) => $.pythia.health_probe)}</dt>
+        <dt className="text-muted-foreground">{t(($) => $.health_probe)}</dt>
         <dd className="font-mono">{`${url}/health`}</dd>
       </dl>
 
       <section className="flex flex-col gap-2">
-        <h3 className="font-semibold">{t(($) => $.pythia.try_from_agent)}</h3>
+        <h3 className="font-semibold">{t(($) => $.try_from_agent)}</h3>
         <pre className="overflow-auto rounded border bg-muted p-3 text-xs leading-relaxed">
 {`multica --json pythia status
 multica pythia brief --url ${url}

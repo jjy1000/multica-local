@@ -48,7 +48,7 @@ export function PythiaChatBox() {
   const [msgs, setMsgs] = useState<Msg[]>([
     {
       role: "assistant",
-      content: t(($) => $.pythia.chat_intro),
+      content: t(($) => $.chat_intro),
     },
   ]);
   const [input, setInput] = useState("");
@@ -108,9 +108,9 @@ export function PythiaChatBox() {
           {
             role: "assistant",
             content:
-              `${t(($) => $.pythia.chat_whatif_prefix)}: ${r.scenario ?? scenario}\n\n${r.narrative ?? ""}${predLines ? `\n\n${predLines}` : ""}`.trim() ||
+              `${t(($) => $.chat_whatif_prefix)}: ${r.scenario ?? scenario}\n\n${r.narrative ?? ""}${predLines ? `\n\n${predLines}` : ""}`.trim() ||
               r.error ||
-              t(($) => $.pythia.chat_no_response),
+              t(($) => $.chat_no_response),
             predictions: r.predictions,
           },
         ]);
@@ -131,7 +131,7 @@ export function PythiaChatBox() {
           ...prev,
           {
             role: "assistant",
-            content: r.answer ?? r.error ?? t(($) => $.pythia.chat_no_response),
+            content: r.answer ?? r.error ?? t(($) => $.chat_no_response),
             by: r.persona ?? undefined,
           },
         ]);
@@ -139,7 +139,7 @@ export function PythiaChatBox() {
     } catch {
       setMsgs((prev) => [
         ...prev,
-        { role: "assistant", content: t(($) => $.pythia.chat_engine_offline) },
+        { role: "assistant", content: t(($) => $.chat_engine_offline) },
       ]);
     } finally {
       setBusy(false);
@@ -156,10 +156,10 @@ export function PythiaChatBox() {
       <header className="flex items-baseline justify-between border-b border-border/60 px-4 py-2.5">
         <div className="flex flex-col gap-0.5">
           <h3 className="text-sm font-semibold text-foreground">
-            {t(($) => $.pythia.chat_title)}
+            {t(($) => $.chat_title)}
           </h3>
           <p className="text-[11px] text-muted-foreground">
-            {t(($) => $.pythia.chat_subtitle)}
+            {t(($) => $.chat_subtitle)}
           </p>
         </div>
         <PersonaPicker
@@ -182,8 +182,8 @@ export function PythiaChatBox() {
             <div className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin" />
               {speaker
-                ? t(($) => $.pythia.chat_thinking_persona).replace("{{persona}}", speaker)
-                : t(($) => $.pythia.chat_consulting)}
+                ? t(($) => $.chat_thinking_persona).replace("{{persona}}", speaker)
+                : t(($) => $.chat_consulting)}
             </div>
           )}
           <div ref={endRef} />
@@ -208,7 +208,7 @@ export function PythiaChatBox() {
               void send();
             }
           }}
-          placeholder={t(($) => $.pythia.chat_input_placeholder)}
+          placeholder={t(($) => $.chat_input_placeholder)}
           className="min-h-[36px] max-h-32 flex-1 resize-none rounded-md border border-input bg-background px-3 py-1.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/60"
         />
         <button
@@ -217,11 +217,11 @@ export function PythiaChatBox() {
           className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Send className="size-3.5" />
-          {t(($) => $.pythia.chat_send)}
+          {t(($) => $.chat_send)}
         </button>
       </form>
       <p className="px-4 pb-2 text-[10px] text-muted-foreground/80">
-        {t(($) => $.pythia.chat_hint_whatif)}
+        {t(($) => $.chat_hint_whatif)}
       </p>
     </section>
   );
@@ -246,13 +246,13 @@ function Bubble({ msg }: { msg: Msg }) {
             {msg.by}
           </span>
           <span className="text-[10px] text-muted-foreground/70">
-            {t(($) => $.pythia.chat_persona_label)}
+            {t(($) => $.chat_persona_label)}
           </span>
         </div>
       )}
       {isUser && msg.whatif && (
         <div className="mb-0.5 self-end px-1 text-[10px] font-medium text-fuchsia-400">
-          {t(($) => $.pythia.chat_whatif_badge)}
+          {t(($) => $.chat_whatif_badge)}
         </div>
       )}
       <div
@@ -309,7 +309,7 @@ function PersonaPicker({
         className="inline-flex items-center gap-1.5 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground hover:bg-muted"
       >
         <span className="size-2 rounded-full" style={{ background: color }} />
-        <span>{speaker || t(($) => $.pythia.chat_speaker_oracle)}</span>
+        <span>{speaker || t(($) => $.chat_speaker_oracle)}</span>
         {speakerLens && (
           <span className="text-muted-foreground/80">· {speakerLens}</span>
         )}
@@ -328,16 +328,16 @@ function PersonaPicker({
             }`}
           >
             <span className="font-medium text-foreground">
-              {t(($) => $.pythia.chat_speaker_oracle)}
+              {t(($) => $.chat_speaker_oracle)}
             </span>
             <span className="text-[10px] text-muted-foreground">
-              {t(($) => $.pythia.chat_speaker_oracle_hint)}
+              {t(($) => $.chat_speaker_oracle_hint)}
             </span>
           </button>
           <div className="border-t border-border" />
           {roster.length === 0 ? (
             <p className="px-3 py-2 text-[10px] text-muted-foreground">
-              {t(($) => $.pythia.chat_personas_unavailable)}
+              {t(($) => $.chat_personas_unavailable)}
             </p>
           ) : (
             roster.map((p) => (

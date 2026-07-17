@@ -393,10 +393,10 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div className="flex flex-col gap-0.5">
             <h2 className="text-xl font-semibold text-foreground">
-              {t(($) => $.pythia.report_title)}
+              {t(($) => $.report_title)}
             </h2>
             <p className="text-xs text-muted-foreground">
-              {t(($) => $.pythia.report_subtitle)}
+              {t(($) => $.report_subtitle)}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -415,8 +415,8 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
                 }
               />
               {snapshot?.generating
-                ? t(($) => $.pythia.running)
-                : t(($) => $.pythia.idle)}
+                ? t(($) => $.running)
+                : t(($) => $.idle)}
             </span>
             <button
               type="button"
@@ -424,8 +424,8 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
               className="rounded bg-muted px-2 py-1 text-foreground hover:bg-muted/70"
             >
               {props.subscribed
-                ? t(($) => $.pythia.unsubscribe)
-                : t(($) => $.pythia.subscribe)}
+                ? t(($) => $.unsubscribe)
+                : t(($) => $.subscribe)}
             </button>
             <button
               type="button"
@@ -434,8 +434,8 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
               className="rounded bg-primary px-2 py-1 text-primary-foreground disabled:opacity-50"
             >
               {generating
-                ? t(($) => $.pythia.running)
-                : t(($) => $.pythia.run_oracle)}
+                ? t(($) => $.running)
+                : t(($) => $.run_oracle)}
             </button>
           </div>
         </div>
@@ -443,7 +443,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
         {/* Interactive controls — horizon + persona + regenerate */}
         <div className="flex flex-wrap items-center gap-3 pt-2 text-xs">
           <span className="text-muted-foreground">
-            {t(($) => $.pythia.horizon_label)}:
+            {t(($) => $.horizon_label)}:
           </span>
           {(["day", "week", "month", "year"] as const).map((h) => (
             <button
@@ -456,15 +456,15 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
                   : "rounded bg-muted px-2 py-0.5 text-muted-foreground hover:text-foreground"
               }
             >
-              {h === "day" && t(($) => $.pythia.horizon_day)}
-              {h === "week" && t(($) => $.pythia.horizon_week)}
-              {h === "month" && t(($) => $.pythia.horizon_month)}
-              {h === "year" && t(($) => $.pythia.horizon_year)}
+              {h === "day" && t(($) => $.horizon_day)}
+              {h === "week" && t(($) => $.horizon_week)}
+              {h === "month" && t(($) => $.horizon_month)}
+              {h === "year" && t(($) => $.horizon_year)}
             </button>
           ))}
 
           <span className="ml-2 text-muted-foreground">
-            {t(($) => $.pythia.persona_label)}:
+            {t(($) => $.persona_label)}:
           </span>
           {(["strategist", "analyst", "critic"] as const).map((p) => (
             <button
@@ -477,9 +477,9 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
                   : "rounded bg-muted px-2 py-0.5 text-muted-foreground hover:text-foreground"
               }
             >
-              {p === "strategist" && t(($) => $.pythia.persona_strategist_short)}
-              {p === "analyst" && t(($) => $.pythia.persona_analyst_short)}
-              {p === "critic" && t(($) => $.pythia.persona_critic_short)}
+              {p === "strategist" && t(($) => $.persona_strategist_short)}
+              {p === "analyst" && t(($) => $.persona_analyst_short)}
+              {p === "critic" && t(($) => $.persona_critic_short)}
             </button>
           ))}
 
@@ -490,8 +490,8 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
             className="ml-auto rounded bg-primary px-3 py-1 font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
             {regenerating
-              ? t(($) => $.pythia.regenerate_running)
-              : t(($) => $.pythia.regenerate)}
+              ? t(($) => $.regenerate_running)
+              : t(($) => $.regenerate)}
           </button>
         </div>
       </header>
@@ -500,7 +500,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="rounded-lg border border-border bg-card/40 p-4">
           <h3 className="mb-2 text-sm font-semibold text-foreground">
-            {t(($) => $.pythia.world_brief_title)}
+            {t(($) => $.world_brief_title)}
           </h3>
           {world ? (
             <>
@@ -511,13 +511,13 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
               />
               <div className="flex flex-col gap-1 text-xs text-muted-foreground">
                 <span>
-                  {t(($) => $.pythia.world_event_count).replace(
+                  {t(($) => $.world_event_count).replace(
                     "{{count}}",
                     String(world.event_count ?? 0),
                   )}
                 </span>
                 <span>
-                  {t(($) => $.pythia.world_domains)
+                  {t(($) => $.world_domains)
                     .replace(
                       "{{count}}",
                       String(Object.keys(world.domains ?? {}).length),
@@ -542,7 +542,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
             </>
           ) : (
             <p className="text-xs text-muted-foreground">
-              {t(($) => $.pythia.world_loading)}
+              {t(($) => $.world_loading)}
             </p>
           )}
         </div>
@@ -550,14 +550,14 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
         {/* Scorecard */}
         <div className="rounded-lg border border-border bg-card/40 p-4">
           <h3 className="mb-2 text-sm font-semibold text-foreground">
-            {t(($) => $.pythia.scorecard_title)}
+            {t(($) => $.scorecard_title)}
           </h3>
           {scorecard ? (
             <div className="flex flex-col gap-2 text-xs text-muted-foreground">
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded border border-border/60 bg-card/30 p-2">
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">
-                    {t(($) => $.pythia.scorecard_brier)}
+                    {t(($) => $.scorecard_brier)}
                   </div>
                   <div className="font-mono text-lg text-foreground">
                     {scorecard.overall_brier?.toFixed(3) ?? "—"}
@@ -565,7 +565,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
                 </div>
                 <div className="rounded border border-border/60 bg-card/30 p-2">
                   <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">
-                    {t(($) => $.pythia.scorecard_hit_rate)}
+                    {t(($) => $.scorecard_hit_rate)}
                   </div>
                   <div className="font-mono text-lg text-foreground">
                     {scorecard.hit_rate !== undefined
@@ -578,7 +578,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
                 Object.keys(scorecard.per_persona).length > 0 && (
                   <div>
                     <div className="text-[10px] uppercase tracking-wide text-muted-foreground/80">
-                      {t(($) => $.pythia.scorecard_per_persona)}
+                      {t(($) => $.scorecard_per_persona)}
                     </div>
                     <ul className="mt-1 flex flex-col gap-0.5">
                       {Object.entries(scorecard.per_persona).map(
@@ -600,7 +600,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">
-              {t(($) => $.pythia.scorecard_empty)}
+              {t(($) => $.scorecard_empty)}
             </p>
           )}
         </div>
@@ -618,12 +618,12 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
             key={h}
             title={
               h === "day"
-                ? t(($) => $.pythia.horizon_day)
+                ? t(($) => $.horizon_day)
                 : h === "week"
-                  ? t(($) => $.pythia.horizon_week)
+                  ? t(($) => $.horizon_week)
                   : h === "month"
-                    ? t(($) => $.pythia.horizon_month)
-                    : t(($) => $.pythia.horizon_year)
+                    ? t(($) => $.horizon_month)
+                    : t(($) => $.horizon_year)
             }
             predictions={byHorizon[h]}
             selectedId={selectedPredictionId}
@@ -635,7 +635,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
       {/* Council chamber + deliberation */}
       <section className="rounded-lg border border-border bg-card/40 p-4">
         <h3 className="mb-2 text-sm font-semibold text-foreground">
-          {t(($) => $.pythia.council_chamber_title)}
+          {t(($) => $.council_chamber_title)}
         </h3>
         {selectedPrediction ? (
           <div className="flex flex-col gap-3">
@@ -661,7 +661,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
           </div>
         ) : (
           <p className="text-xs text-muted-foreground">
-            {t(($) => $.pythia.council_chamber_empty)}
+            {t(($) => $.council_chamber_empty)}
           </p>
         )}
       </section>
@@ -669,17 +669,17 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
       {/* Issue-bound 10-round report */}
       <section className="rounded-lg border border-border bg-card/30 p-4">
         <h3 className="mb-2 text-sm font-semibold text-foreground">
-          {t(($) => $.pythia.issue_panel_title)}
+          {t(($) => $.issue_panel_title)}
         </h3>
         <div className="text-xs text-muted-foreground">
           {props.issueId
             ? `${props.issueId}`
-            : t(($) => $.pythia.report_no_issue)}
+            : t(($) => $.report_no_issue)}
         </div>
         <div className="mt-3 flex flex-col gap-3">
           {envelopes.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              {t(($) => $.pythia.no_predictions_yet)}
+              {t(($) => $.no_predictions_yet)}
             </p>
           ) : (
             envelopes.map((env) => (
@@ -689,7 +689,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
               >
                 <div className="flex items-baseline gap-3 text-xs text-muted-foreground">
                   <span className="font-mono">
-                    {t(($) => $.pythia.report_round).replace(
+                    {t(($) => $.report_round).replace(
                       "{{round}}",
                       String(env.round),
                     )}
@@ -731,14 +731,14 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
       <section className="rounded-lg border border-border bg-card/40 p-4">
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="text-sm font-semibold text-foreground">
-            {t(($) => $.pythia.brief_title)}
+            {t(($) => $.brief_title)}
           </h3>
           <button
             type="button"
             onClick={handleRunBrief}
             className="rounded bg-muted px-2 py-0.5 text-xs text-foreground hover:bg-muted/70"
           >
-            {t(($) => $.pythia.brief_run_now)}
+            {t(($) => $.brief_run_now)}
           </button>
         </div>
         {brief?.latest ? (
@@ -750,7 +750,7 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
           </div>
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">
-            {t(($) => $.pythia.brief_empty)}
+            {t(($) => $.brief_empty)}
           </p>
         )}
       </section>
@@ -781,7 +781,7 @@ function ForecastColumn({
       <h3 className="mb-2 flex items-baseline justify-between text-sm font-semibold text-foreground">
         <span>{title}</span>
         <span className="text-xs text-muted-foreground">
-          {t(($) => $.pythia.forecast_count).replace(
+          {t(($) => $.forecast_count).replace(
             "{{count}}",
             String(predictions.length),
           )}
@@ -789,7 +789,7 @@ function ForecastColumn({
       </h3>
       {predictions.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          {t(($) => $.pythia.forecast_empty)}
+          {t(($) => $.forecast_empty)}
         </p>
       ) : (
         <ul className="flex flex-col gap-2">
@@ -809,7 +809,7 @@ function ForecastColumn({
                 </span>
                 {p.split && (
                   <span className="rounded bg-fuchsia-500/20 px-1.5 text-[10px] text-fuchsia-300">
-                    {t(($) => $.pythia.split_flag)}
+                    {t(($) => $.split_flag)}
                   </span>
                 )}
               </div>
@@ -846,13 +846,13 @@ function WhatifPanel(props: WhatifPanelProps) {
       className="flex flex-col gap-2 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 p-3"
     >
       <h3 className="text-xs font-semibold uppercase tracking-wide text-fuchsia-300">
-        {t(($) => $.pythia.submit_new_scenario)}
+        {t(($) => $.submit_new_scenario)}
       </h3>
       <textarea
         rows={2}
         value={props.scenario}
         onChange={(e) => props.setScenario(e.target.value)}
-        placeholder={t(($) => $.pythia.scenario_placeholder)}
+        placeholder={t(($) => $.scenario_placeholder)}
         className="w-full resize-none rounded border border-input bg-background px-2 py-1.5 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground"
       />
       <div className="flex justify-end">
@@ -861,13 +861,13 @@ function WhatifPanel(props: WhatifPanelProps) {
           disabled={props.running}
           className="rounded bg-fuchsia-500 px-3 py-1 text-xs font-medium text-fuchsia-50 hover:bg-fuchsia-500/90 disabled:opacity-50"
         >
-          {props.running ? "推演中…" : t(($) => $.pythia.scenario_send)}
+          {props.running ? "推演中…" : t(($) => $.scenario_send)}
         </button>
       </div>
       {props.result && (
         <div className="mt-2 rounded border border-fuchsia-500/20 bg-fuchsia-500/5 p-3 text-xs text-foreground">
           <div className="text-[10px] uppercase tracking-wide text-fuchsia-300/80">
-            {t(($) => $.pythia.whatif_narrative)}
+            {t(($) => $.whatif_narrative)}
           </div>
           <p className="mt-1 whitespace-pre-wrap leading-relaxed">
             {props.result.narrative}

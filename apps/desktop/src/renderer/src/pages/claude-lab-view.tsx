@@ -206,7 +206,7 @@ function Header({
             }
             aria-pressed={active === key}
           >
-            {tLab(($) => $.claude_lab[`tab_${key}`])}
+            {(tLab as unknown as (k: string) => string)(`tab_${key}`)}
           </button>
         ))}
       </nav>
@@ -219,10 +219,10 @@ function Intro() {
   return (
     <section className="flex flex-col gap-3">
       <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-        {t(($) => $.claude_lab.title)}
+        {t(($) => $.title)}
       </h1>
       <p className="text-sm leading-relaxed text-muted-foreground">
-        {t(($) => $.claude_lab.subtitle)}
+        {t(($) => $.subtitle)}
       </p>
     </section>
   );
@@ -233,10 +233,10 @@ function FlagOffNotice() {
   return (
     <section className="rounded-xl border border-amber-200 bg-amber-50/40 p-5 dark:border-amber-800 dark:bg-amber-950/30">
       <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-        {t(($) => $.claude_lab.flag_off_title)}
+        {t(($) => $.flag_off_title)}
       </p>
       <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-        {t(($) => $.claude_lab.flag_off_body)}
+        {t(($) => $.flag_off_body)}
       </p>
     </section>
   );
@@ -287,7 +287,7 @@ function LabAgentLockBar({
     // function for the invariant.
     return (
       <section className="rounded-xl border border-dashed border-border bg-card/40 p-3 text-xs text-muted-foreground">
-        {t(($) => $.claude_lab.agent_lock_unlocked_hint)}
+        {t(($) => $.agent_lock_unlocked_hint)}
       </section>
     );
   }
@@ -297,15 +297,15 @@ function LabAgentLockBar({
       <div className="flex items-center gap-3">
         <Lock className="size-3.5 text-amber-600" aria-hidden />
         <span className="text-xs font-medium text-foreground">
-          {t(($) => $.claude_lab.agent_lock_header)}
+          {t(($) => $.agent_lock_header)}
         </span>
         <select
-          aria-label={t(($) => $.claude_lab.agent_lock_pick)}
+          aria-label={t(($) => $.agent_lock_pick)}
           className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
           value={lockedAgentId ?? ""}
           onChange={(e) => onLockedAgentChange(e.target.value || null)}
         >
-          <option value="">{t(($) => $.claude_lab.agent_lock_pick)}…</option>
+          <option value="">{t(($) => $.agent_lock_pick)}…</option>
           {(agents.data ?? []).map((a: Agent) => (
             <option key={a.id} value={a.id}>
               {a.name || a.id.slice(0, 8)}
@@ -318,11 +318,11 @@ function LabAgentLockBar({
             onClick={() => onLockedAgentChange(null)}
             className="rounded-md border border-border bg-background px-2 py-1 text-xs hover:bg-muted"
           >
-            {t(($) => $.claude_lab.agent_lock_clear)}
+            {t(($) => $.agent_lock_clear)}
           </button>
         ) : null}
         <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
-          {t(($) => $.claude_lab.agent_lock_locked)}
+          {t(($) => $.agent_lock_locked)}
         </span>
       </div>
     </section>
@@ -393,19 +393,19 @@ function PlanTab({
   if (!wsId) {
     return (
       <EmptyHint
-        title={t(($) => $.claude_lab.title_plan)}
-        body={t(($) => $.claude_lab.no_workspace)}
+        title={t(($) => $.title_plan)}
+        body={t(($) => $.no_workspace)}
       />
     );
   }
   if (issues.isLoading) {
-    return <LoadingHint title={t(($) => $.claude_lab.title_plan)} />;
+    return <LoadingHint title={t(($) => $.title_plan)} />;
   }
   if (issues.isError) {
     return (
       <ErrorHint
-        title={t(($) => $.claude_lab.title_plan)}
-        body={`${t(($) => $.claude_lab.loading_failed)}: ${(issues.error as Error).message}`}
+        title={t(($) => $.title_plan)}
+        body={`${t(($) => $.loading_failed)}: ${(issues.error as Error).message}`}
       />
     );
   }
@@ -413,8 +413,8 @@ function PlanTab({
   if (rows.length === 0) {
     return (
       <EmptyHint
-        title={t(($) => $.claude_lab.title_plan)}
-        body={t(($) => $.claude_lab.plan_empty_body)}
+        title={t(($) => $.title_plan)}
+        body={t(($) => $.plan_empty_body)}
       />
     );
   }
@@ -423,7 +423,7 @@ function PlanTab({
       <header className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
         <div className="inline-flex items-center gap-2">
           <Sparkles className="size-4" aria-hidden />
-          <span className="font-medium text-foreground">{t(($) => $.claude_lab.title_plan)}</span>
+          <span className="font-medium text-foreground">{t(($) => $.title_plan)}</span>
           <span>· {rows.length} 条</span>
         </div>
       </header>
@@ -455,8 +455,8 @@ function PlanTab({
                 }
               >
                 {selectedIssueId === it.id
-                  ? t(($) => $.claude_lab.selected)
-                  : t(($) => $.claude_lab.select_issue)}
+                  ? t(($) => $.selected)
+                  : t(($) => $.select_issue)}
               </button>
             </div>
             {it.description ? (
@@ -506,16 +506,16 @@ function ArtifactTab({
   if (!wsId) {
     return (
       <EmptyHint
-        title={t(($) => $.claude_lab.title_artifact)}
-        body={t(($) => $.claude_lab.no_workspace)}
+        title={t(($) => $.title_artifact)}
+        body={t(($) => $.no_workspace)}
       />
     );
   }
   if (!selectedIssueId) {
     return (
       <EmptyHint
-        title={t(($) => $.claude_lab.title_artifact)}
-        body={t(($) => $.claude_lab.agent_lock_issue_required)}
+        title={t(($) => $.title_artifact)}
+        body={t(($) => $.agent_lock_issue_required)}
       />
     );
   }
@@ -526,7 +526,7 @@ function ArtifactTab({
         <header className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
           <FlaskConical className="size-4" aria-hidden />
           <span className="font-medium text-foreground">
-            {t(($) => $.claude_lab.artifact_sessions_header)}
+            {t(($) => $.artifact_sessions_header)}
           </span>
           <span>· {sessions.data?.total ?? 0} 条</span>
         </header>
@@ -535,11 +535,11 @@ function ArtifactTab({
         ) : sessions.isError ? (
           <ErrorHint
             title=""
-            body={`${t(($) => $.claude_lab.artifact_load_error)}: ${(sessions.error as Error).message}`}
+            body={`${t(($) => $.artifact_load_error)}: ${(sessions.error as Error).message}`}
           />
         ) : (sessions.data?.sessions ?? []).length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            {t(($) => $.claude_lab.artifact_empty_body)}
+            {t(($) => $.artifact_empty_body)}
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -583,7 +583,7 @@ function ForecastTab({ selectedIssueId: _selectedIssueId }: { selectedIssueId: s
     <div className="flex flex-col gap-4">
       <section className="rounded-xl border border-border bg-card overflow-hidden">
         <header className="border-b border-border bg-background/40 px-4 py-2 text-xs text-muted-foreground">
-          {t(($) => $.claude_lab.forecast_chart_header)}
+          {t(($) => $.forecast_chart_header)}
         </header>
         <div className="h-[180px] p-3">
           <ForecastProbabilityChart url={forecastUrl} />
@@ -610,7 +610,7 @@ function ForecastProbabilityChart({ url }: { url: string }) {
   if (data.length < 2) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        {t(($) => $.claude_lab.forecast_chart_waiting)}
+        {t(($) => $.forecast_chart_waiting)}
       </div>
     );
   }
@@ -627,7 +627,7 @@ function ForecastProbabilityChart({ url }: { url: string }) {
       viewBox={`0 0 ${W} ${H}`}
       className="h-full w-full"
       role="img"
-      aria-label={t(($) => $.claude_lab.forecast_chart_aria)}
+      aria-label={t(($) => $.forecast_chart_aria)}
     >
       <rect x={0} y={0} width={W} height={H} fill="transparent" />
       <line x1={padX} y1={H - padY} x2={W - padX} y2={H - padY} stroke="var(--border)" strokeDasharray="3 3" />
@@ -733,8 +733,8 @@ function CodeTab({
   if (!wsId || !selectedIssueId) {
     return (
       <EmptyHint
-        title={t(($) => $.claude_lab.title_code)}
-        body={t(($) => $.claude_lab.agent_lock_issue_required)}
+        title={t(($) => $.title_code)}
+        body={t(($) => $.agent_lock_issue_required)}
       />
     );
   }
@@ -783,7 +783,7 @@ function CodeTab({
       <section className="rounded-xl border border-border bg-card p-4">
         <header className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
           <span className="font-medium text-foreground">
-            {t(($) => $.claude_lab.title_code)}
+            {t(($) => $.title_code)}
           </span>
           <button
             type="button"
@@ -792,10 +792,10 @@ function CodeTab({
             aria-busy={runState === "running"}
             title={
               !lockedAgentId
-                ? t(($) => $.claude_lab.agent_lock_pick)
+                ? t(($) => $.agent_lock_pick)
                 : runState === "running"
-                  ? t(($) => $.claude_lab.code_run_running)
-                  : t(($) => $.claude_lab.code_run_button)
+                  ? t(($) => $.code_run_running)
+                  : t(($) => $.code_run_button)
             }
             className={
               "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs " +
@@ -810,26 +810,26 @@ function CodeTab({
               <Play className="size-3" aria-hidden />
             )}
             {runState === "running"
-              ? t(($) => $.claude_lab.code_run_running)
-              : t(($) => $.claude_lab.code_run_button)}
+              ? t(($) => $.code_run_running)
+              : t(($) => $.code_run_button)}
           </button>
         </header>
         <p className="text-xs text-muted-foreground">
-          {t(($) => $.claude_lab.code_intro_with_count, { count: sessions.data?.total ?? 0 })}
+          {t(($) => $.code_intro_with_count, { count: sessions.data?.total ?? 0 })}
         </p>
         {!lockedAgentId ? (
           <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">
-            {t(($) => $.claude_lab.agent_lock_pick)}
+            {t(($) => $.agent_lock_pick)}
           </p>
         ) : null}
         {runState === "done" ? (
           <p className="mt-2 text-[10px] text-emerald-700 dark:text-emerald-300">
-            {t(($) => $.claude_lab.code_run_done)}
+            {t(($) => $.code_run_done)}
           </p>
         ) : null}
         {runState === "error" ? (
           <p className="mt-2 text-[10px] text-destructive">
-            {t(($) => $.claude_lab.code_run_error)}
+            {t(($) => $.code_run_error)}
           </p>
         ) : null}
       </section>
@@ -861,7 +861,7 @@ function CodeTab({
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-muted-foreground">{t(($) => $.claude_lab.code_sessions_empty)}</p>
+        <p className="text-xs text-muted-foreground">{t(($) => $.code_sessions_empty)}</p>
       )}
     </div>
   );
@@ -895,8 +895,8 @@ function KnowledgeTab({
   if (!wsId || !selectedIssueId) {
     return (
       <EmptyHint
-        title={t(($) => $.claude_lab.title_knowledge)}
-        body={t(($) => $.claude_lab.agent_lock_issue_required)}
+        title={t(($) => $.title_knowledge)}
+        body={t(($) => $.agent_lock_issue_required)}
       />
     );
   }
@@ -904,15 +904,15 @@ function KnowledgeTab({
     <section className="rounded-xl border border-border bg-card p-4">
       <header className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
         <Sparkles className="size-4" aria-hidden />
-        <span className="font-medium text-foreground">{t(($) => $.claude_lab.title_knowledge)}</span>
-        <span>· {t(($) => $.claude_lab.knowledge_header)}</span>
+        <span className="font-medium text-foreground">{t(($) => $.title_knowledge)}</span>
+        <span>· {t(($) => $.knowledge_header)}</span>
       </header>
       {skills.isLoading ? (
         <LoadingHint title="" />
       ) : skills.isError ? (
-        <ErrorHint title="" body={`${t(($) => $.claude_lab.knowledge_load_error)}: ${(skills.error as Error).message}`} />
+        <ErrorHint title="" body={`${t(($) => $.knowledge_load_error)}: ${(skills.error as Error).message}`} />
       ) : (skills.data ?? []).length === 0 ? (
-        <p className="text-xs text-muted-foreground">{t(($) => $.claude_lab.knowledge_empty)}</p>
+        <p className="text-xs text-muted-foreground">{t(($) => $.knowledge_empty)}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {(skills.data ?? []).slice(0, 10).map((s) => (
@@ -940,7 +940,7 @@ function LoadingHint({ title }: { title: string }) {
         <Loader2 className="size-5 animate-spin" aria-hidden />
         {title ? <h2 className="text-base font-semibold">{title}</h2> : null}
       </div>
-      <p className="mt-3 text-sm text-muted-foreground">{t(($) => $.claude_lab.loading)}</p>
+      <p className="mt-3 text-sm text-muted-foreground">{t(($) => $.loading)}</p>
     </section>
   );
 }

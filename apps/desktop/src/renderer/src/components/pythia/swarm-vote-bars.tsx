@@ -47,14 +47,14 @@ export function SwarmVoteBars({ agents, consensus, split }: SwarmVoteBarsProps) 
   function personaLabel(name: string): string {
     const key = PERSONA_LABEL_KEY[name as PersonaId];
     if (!key) return name;
-    return t(($) => $.pythia[key]) || name;
+    return (t as unknown as (k: string) => string)(key) || name;
   }
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between text-xs">
         <span className="font-medium text-foreground">
-          {t(($) => $.pythia.swarm_consensus)}
+          {t(($) => $.swarm_consensus)}
           <span
             className={
               split
@@ -62,7 +62,7 @@ export function SwarmVoteBars({ agents, consensus, split }: SwarmVoteBarsProps) 
                 : "ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-emerald-300"
             }
           >
-            {split ? t(($) => $.pythia.swarm_split) : t(($) => $.pythia.swarm_aligned)}
+            {split ? t(($) => $.swarm_split) : t(($) => $.swarm_aligned)}
           </span>
         </span>
         <span className="font-mono text-muted-foreground">

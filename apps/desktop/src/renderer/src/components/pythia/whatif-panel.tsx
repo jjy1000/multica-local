@@ -50,7 +50,7 @@ export function WhatIfPanel({ onResult, disabled = false }: WhatIfPanelProps) {
             | "persona_economist"
             | "persona_naturalist"
             | "persona_skeptic";
-          acc[id] = t(($) => $.pythia[key]) || id;
+          acc[id] = (t as unknown as (k: string) => string)(key) || id;
           return acc;
         },
         {} as Record<PersonaId, string>,
@@ -140,10 +140,10 @@ export function WhatIfPanel({ onResult, disabled = false }: WhatIfPanelProps) {
     >
       <header className="flex items-baseline justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          {t(($) => $.pythia.what_if)}
+          {t(($) => $.what_if)}
         </h3>
         <span className="text-[10px] text-muted-foreground">
-          {t(($) => $.pythia.counterfactual_ephemeral)}
+          {t(($) => $.counterfactual_ephemeral)}
         </span>
       </header>
 
@@ -190,7 +190,7 @@ export function WhatIfPanel({ onResult, disabled = false }: WhatIfPanelProps) {
             disabled={disabled}
             className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
           >
-            {t(($) => $.pythia.all)}
+            {t(($) => $.all)}
           </button>
           <span className="text-muted-foreground/50">·</span>
           <button
@@ -199,7 +199,7 @@ export function WhatIfPanel({ onResult, disabled = false }: WhatIfPanelProps) {
             disabled={disabled}
             className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:opacity-50"
           >
-            {t(($) => $.pythia.none)}
+            {t(($) => $.none)}
           </button>
         </div>
       </div>
@@ -217,7 +217,7 @@ export function WhatIfPanel({ onResult, disabled = false }: WhatIfPanelProps) {
               aria-hidden
             />
           )}
-          {busy ? t(($) => $.pythia.running_council) : t(($) => $.pythia.run_what_if)}
+          {busy ? t(($) => $.running_council) : t(($) => $.run_what_if)}
         </button>
         {error && (
           <span

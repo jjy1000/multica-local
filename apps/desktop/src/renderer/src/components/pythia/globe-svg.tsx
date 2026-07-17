@@ -181,7 +181,7 @@ export function GlobeSVG({
       viewBox={`0 0 ${W} ${H}`}
       className="h-full w-full rounded-lg border border-border bg-slate-950"
       role="img"
-      aria-label={t(($) => $.pythia.pythia_forecast_globe_aria)}
+      aria-label={t(($) => $.pythia_forecast_globe_aria)}
     >
       <defs>
         <radialGradient id="globe-vignette" cx="50%" cy="50%" r="65%">
