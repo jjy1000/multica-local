@@ -70,6 +70,22 @@
     "brief_title": "每日简报",
     "brief_run_now": "立即生成",
     "brief_empty": "尚未生成简报。",
-    "whatif_narrative": "情景推演"
+    "whatif_narrative": "情景推演",
+    "chat_title": "对话推演",
+    "chat_subtitle": "向 Council 提问,或选择一位视角专家代答",
+    "chat_intro": "向 Pythia 提问:它会浏览实时世界快照 + 当前的预测,或者通过右上角的下拉选择某位 Council 专家以其视角回答。",
+    "chat_send": "发送",
+    "chat_input_placeholder": "向 Council 描述情境(回车发送,Shift+回车换行)",
+    "chat_speaker_oracle": "Pythia 自己",
+    "chat_speaker_oracle_hint": "默认 · 多视角综合",
+    "chat_persona_label": "视角专家",
+    "chat_consulting": "正在检索世界快照…",
+    "chat_thinking_persona": "{{persona}} 正在思考…",
+    "chat_engine_offline": "⚠ 引擎离线 — 确认 Pythia 已在运行。",
+    "chat_no_response": "暂无响应",
+    "chat_whatif_prefix": "情景推演",
+    "chat_whatif_badge": "情景推演",
+    "chat_hint_whatif": "提示:以 `/whatif ` 开头即可发起情景反事实推演。",
+    "chat_personas_unavailable": "未获取到视角列表 — 检查引擎是否运行。"
   }
 }

@@ -70,6 +70,22 @@
     "brief_title": "모닝 브리프",
     "brief_run_now": "지금 생성",
     "brief_empty": "아직 브리프가 생성되지 않았습니다.",
-    "whatif_narrative": "What-if 서술"
+    "whatif_narrative": "What-if 서술",
+    "chat_title": "카운슬 채팅",
+    "chat_subtitle": "카운슬에 질문하거나 한 명의 시각 전문가를 선택해 답변받기",
+    "chat_intro": "무엇이든 물어보세요 — 모든 실시간 소스와 제 예측을 주시하고 있습니다. 드롭다운으로 카운슬 전문가 한 명을 골라 그 관점의 답변을 들을 수도 있습니다.",
+    "chat_send": "전송",
+    "chat_input_placeholder": "카운슬에 상황을 설명(Enter 전송, Shift+Enter 줄바꿈)",
+    "chat_speaker_oracle": "Pythia 자신",
+    "chat_speaker_oracle_hint": "기본 · 다관점",
+    "chat_persona_label": "카운슬 전문가",
+    "chat_consulting": "피드 조회 중…",
+    "chat_thinking_persona": "{{persona}} 가 생각 중…",
+    "chat_engine_offline": "⚠ 엔진에 연결할 수 없습니다 — PYTHIA 가 실행 중인지 확인하세요.",
+    "chat_no_response": "응답 없음",
+    "chat_whatif_prefix": "WHAT IF",
+    "chat_whatif_badge": "what-if",
+    "chat_hint_whatif": "팁: `/whatif ` 로 시작하면 반사실 시나리오를 분기할 수 있습니다.",
+    "chat_personas_unavailable": "시각 목록을 가져올 수 없음 — 엔진 가동 상태를 확인하세요."
   }
 }

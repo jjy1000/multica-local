@@ -70,6 +70,22 @@
     "brief_title": "モーニングブリーフ",
     "brief_run_now": "今すぐ生成",
     "brief_empty": "まだブリーフは生成されていません。",
-    "whatif_narrative": "What-if ナラティブ"
+    "whatif_narrative": "What-if ナラティブ",
+    "chat_title": "カウンシルチャット",
+    "chat_subtitle": "カウンシルに質問、または 1 人の視点専門家を選んで回答させる",
+    "chat_intro": "何でも聞いてください — 私はすべてのライブソースと自分の予測を見ています。ドロップダウンでカウンシルの専門家を 1 人選んで、その視点での回答に切り替えることもできます。",
+    "chat_send": "送信",
+    "chat_input_placeholder": "カウンシルに状況を伝える(Enter で送信、Shift+Enter で改行)",
+    "chat_speaker_oracle": "Pythia 自身",
+    "chat_speaker_oracle_hint": "デフォルト · 多視点",
+    "chat_persona_label": "カウンシル専門家",
+    "chat_consulting": "フィードを検索中…",
+    "chat_thinking_persona": "{{persona}} が考え中…",
+    "chat_engine_offline": "⚠ エンジンに到達できません — PYTHIA が起動中か確認してください。",
+    "chat_no_response": "応答なし",
+    "chat_whatif_prefix": "WHAT IF",
+    "chat_whatif_badge": "what-if",
+    "chat_hint_whatif": "ヒント: `/whatif ` で始めると反事実シナリオを分岐できます。",
+    "chat_personas_unavailable": "視点リスト取得失敗 — エンジンの稼働を確認してください。"
   }
 }

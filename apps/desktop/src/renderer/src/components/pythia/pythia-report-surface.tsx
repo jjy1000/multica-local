@@ -26,6 +26,7 @@ import { useT } from "@multica/views/i18n";
 import type { PythiaPrediction } from "./types";
 import { GlobeSVG } from "./globe-svg";
 import { SwarmVoteBars } from "./swarm-vote-bars";
+import { PythiaChatBox } from "./pythia-chat-box";
 
 // ---------------------------------------------------------------------------
 // Wire types — mirror the Python engine (engine/models.py) + Go-side envelope.
@@ -604,6 +605,11 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
           )}
         </div>
       </section>
+
+      {/* Live chat with the oracle — input box + bubble history.
+          Mounted above the forecast panels so the user can chat and
+          branch what-if scenarios without leaving the dashboard. */}
+      <PythiaChatBox />
 
       {/* Forecasts by horizon */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">

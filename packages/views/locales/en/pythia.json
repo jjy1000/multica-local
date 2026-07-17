@@ -70,6 +70,22 @@
     "brief_title": "Morning brief",
     "brief_run_now": "Run now",
     "brief_empty": "No brief generated yet.",
-    "whatif_narrative": "What-if narrative"
+    "whatif_narrative": "What-if narrative",
+    "chat_title": "Council chat",
+    "chat_subtitle": "Ask the council, or pick a single persona to answer in its voice",
+    "chat_intro": "Ask me anything — I'm watching every live source and my own forecasts. Use the dropdown to put one council specialist on the line.",
+    "chat_send": "Send",
+    "chat_input_placeholder": "Describe the situation for the council (Enter to send, Shift+Enter for newline)",
+    "chat_speaker_oracle": "Pythia itself",
+    "chat_speaker_oracle_hint": "default · multi-perspective",
+    "chat_persona_label": "council persona",
+    "chat_consulting": "consulting the feeds…",
+    "chat_thinking_persona": "the {{persona}} is thinking…",
+    "chat_engine_offline": "⚠ engine unreachable — is PYTHIA running?",
+    "chat_no_response": "no response",
+    "chat_whatif_prefix": "WHAT IF",
+    "chat_whatif_badge": "what-if",
+    "chat_hint_whatif": "Tip: prefix with `/whatif ` to branch a counterfactual scenario.",
+    "chat_personas_unavailable": "persona roster unavailable — verify engine is up."
   }
 }
