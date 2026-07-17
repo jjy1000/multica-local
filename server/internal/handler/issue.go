@@ -2781,6 +2781,20 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		h.linkAttachmentsByIssueIDs(r.Context(), issue.ID, issue.WorkspaceID, attachmentIDs)
 	}
 
+	// 0.3.34 lab auto-dispatch: when the caller flips lab_source onto
+	// a value with a known leader agent (claude_science_lab → research,
+	// constitution_agent → constitution_leader, …) and the issue has no
+	// assignee, write the leader as the assignee. The auto-pickup path
+	// then runs through enqueueAgentTask downstream of the WS update
+	// broadcast. We do this only when the caller actually changed
+	// lab_source, to avoid clobbering a deliberate assignee chosen via
+	// the picker on a pre-existing lab issue.
+	if _, touchedLabSource := rawFields["lab_source"]; touchedLabSource &&
+		req.LabSource != nil && *req.LabSource != "" &&
+		!issue.AssigneeType.Valid {
+		h.assignDefaultLabAgentOnUpdate(r.Context(), &issue, *req.LabSource)
+	}
+
 	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
 	resp := issueToResponse(issue, prefix)
 	slog.Info("issue updated", append(logger.RequestAttrs(r), "issue_id", id, "workspace_id", workspaceID)...)
@@ -2871,6 +2885,70 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 // to an existing entity in the workspace. For agent assignees it also rejects
 // archived agents and runs the private-agent gate via canAccessPrivateAgent
 // — assigning an issue is a task-producing surface, so it must use the same
+// assignDefaultLabAgentOnUpdate mirrors IssueService.assignDefaultLabAgent
+// for the Update path. Called when a PATCH flips lab_source onto a
+// value with a known leader agent (claude_science_lab → research,
+// constitution_agent → constitution_leader, …) and the issue has no
+// assignee yet. We do not have an IssueService handle here, so the
+// helper goes directly through h.Queries. Errors are logged and
+// swallowed — a stale experimental agent row must not 500 an issue
+// update.
+func (h *Handler) assignDefaultLabAgentOnUpdate(ctx context.Context, issue *db.Issue, labSource string) {
+	leaderName, ok := defaultLabLeaderForKey(labSource)
+	if !ok {
+		return
+	}
+	leader, err := h.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
+		WorkspaceID: issue.WorkspaceID,
+		Name:        leaderName,
+	})
+	if err != nil {
+		slog.Info("assignDefaultLabAgentOnUpdate: leader agent not installed",
+			"issue_id", util.UUIDToString(issue.ID),
+			"lab_source", labSource,
+			"expected_agent_name", leaderName,
+			"error", err)
+		return
+	}
+	if err := h.Queries.UpdateIssueAssignee(ctx, db.UpdateIssueAssigneeParams{
+		ID:           issue.ID,
+		AssigneeType: pgtype.Text{String: "agent", Valid: true},
+		AssigneeID:   leader.ID,
+		WorkspaceID:  issue.WorkspaceID,
+	}); err != nil {
+		slog.Warn("assignDefaultLabAgentOnUpdate: write failed",
+			"issue_id", util.UUIDToString(issue.ID),
+			"agent_name", leaderName,
+			"error", err)
+		return
+	}
+	issue.AssigneeType = pgtype.Text{String: "agent", Valid: true}
+	issue.AssigneeID = leader.ID
+	slog.Info("assignDefaultLabAgentOnUpdate: assigned default",
+		"issue_id", util.UUIDToString(issue.ID),
+		"lab_source", labSource,
+		"agent_name", leaderName)
+}
+
+// defaultLabLeaderForKey is the handler-side mirror of
+// service.IssueService.defaultLeaderAgentForLab. Kept in sync so the
+// handler doesn't pull the IssueService just for this lookup.
+func defaultLabLeaderForKey(labSource string) (string, bool) {
+	switch labSource {
+	case "claude_science_lab":
+		return "research", true
+	case "constitution_agent":
+		return "constitution_leader", true
+	case "mythos_swarm":
+		// Mythos owns the roster via its own runner; auto-assign is
+		// intentionally suppressed (the sole-mutex gate above keeps
+		// AssigneeType empty).
+		return "", false
+	default:
+		return "", false
+	}
+}
+
 // predicate as chat / @-mention / history. Agent callers (X-Agent-ID) bypass
 // the gate so A2A flows can still hand work off to private agents.
 //

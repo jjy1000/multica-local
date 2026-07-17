@@ -91,12 +91,14 @@ func TestCreateIssueAcceptsKnownLabSource(t *testing.T) {
 }
 
 // 0.3.31: a `lab_source` reserves the agent roster for the lab. A POST
-// that supplies BOTH lab_source AND a manual assignee is a contract
-// violation — the lab's leader would either override the manual pick
-// (silent) or sit idle while the assignee waits (also silent). The
-// frontend LabPicker locks the AssigneePicker, but curl / scripted
-// clients can still bypass the UI. Reject on the server so every entry
-// point converges.
+// that supplies BOTH `mythos_swarm` lab_source AND a manual assignee
+// is a contract violation — mythos's 5-agent RDT roster is meaningful
+// enough that the user might want to override the default assignment,
+// *or* in enhancer mode MUST pair with a target assignee (mythos
+// preludes + supervises while the chosen actor executes). Other labs
+// (claude_science_lab, pythia_oracle, …) ship their own runtime
+// agents and the user is free to tag the issue + keep a manual
+// assignee — the gate only enforces for mythos_swarm. Pinned here.
 func TestCreateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -105,39 +107,35 @@ func TestCreateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 		t.Skip("workspace fixture not initialized")
 	}
 
-	const known = "chat_pin_ui"
-	if !experimental.IsKnownKey(known) {
-		t.Fatalf("expected %q in catalog", known)
+	const mythos = "mythos_swarm"
+	if !experimental.IsKnownKey(mythos) {
+		t.Fatalf("expected %q in catalog", mythos)
 	}
 
-	// The handler accepts assignee_type / assignee_id from the body
-	// without resolving them in the create path (the pair is validated
-	// later in the service). We don't need a real member/agent row —
-	// a typed string is enough to trip the mutex gate.
 	cases := []struct {
 		name        string
 		body        map[string]any
 		wantContain string
 	}{
 		{
-			name: "lab + assignee_type member",
+			name: "mythos sole + assignee_type member",
 			body: map[string]any{
 				"title":         "lab-mutex-member",
-				"lab_source":    known,
+				"lab_source":    mythos,
 				"assignee_type": "member",
 				"assignee_id":   "11111111-1111-1111-1111-111111111111",
 			},
-			wantContain: "mutually exclusive",
+			wantContain: "lab to own the assignee",
 		},
 		{
-			name: "lab + assignee_type agent",
+			name: "mythos sole + assignee_type agent",
 			body: map[string]any{
 				"title":         "lab-mutex-agent",
-				"lab_source":    known,
+				"lab_source":    mythos,
 				"assignee_type": "agent",
 				"assignee_id":   "22222222-2222-2222-2222-222222222222",
 			},
-			wantContain: "mutually exclusive",
+			wantContain: "lab to own the assignee",
 		},
 	}
 
@@ -174,7 +172,11 @@ func TestCreateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 //      branch was treated as untouched. (LABEL: "atomic set lab
 //      + clear assignee")
 //
-// All three are pinned here.
+// 0.3.33 narrow: only `mythos_swarm` enforces the mutex on PATCH
+// (its 5-agent RDT roster is meaningful + the enhancer-mode
+// requirement is the only place that needs a target assignee). Other
+// labs (claude_science_lab, pythia_oracle, …) ship their own
+// runtime and accept manual assignees, so the test pins mythos only.
 func TestUpdateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -183,9 +185,9 @@ func TestUpdateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 		t.Skip("workspace fixture not initialized")
 	}
 
-	const known = "chat_pin_ui"
-	if !experimental.IsKnownKey(known) {
-		t.Fatalf("expected %q in catalog", known)
+	const mythos = "mythos_swarm"
+	if !experimental.IsKnownKey(mythos) {
+		t.Fatalf("expected %q in catalog", mythos)
 	}
 
 	// PATCH a real member UUID for the "with assignee" cases so
@@ -196,25 +198,16 @@ func TestUpdateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 	realMemberID := testUserID
 	fakeAgentID := "33333333-3333-3333-3333-333333333333"
 
-	t.Run("set lab on existing assigned issue", func(t *testing.T) {
-		// Create an assigned issue first.
+	t.Run("set mythos lab on existing assigned issue", func(t *testing.T) {
 		created := createIssueForTest(t, map[string]any{
 			"title":         "upd-mutex-1",
 			"assignee_type": "member",
 			"assignee_id":   realMemberID,
 		})
 		w := httptest.NewRecorder()
-		// PATCH only the lab; assignee left alone. Pre-fix: rawFields
-		// didn't include "lab_source"... wait, it DOES, the body has
-		// lab_source. The bug was the OPPOSITE: with lab_source in
-		// rawFields, post-state computation was OK. But the issue is
-		// that the gate fired only when rawFields["lab_source"] was
-		// present — so a PATCH like this WOULD fire correctly. The
-		// actual gap is the next test below. We still pin this case
-		// to anchor behavior.
 		req := withURLParam(
 			newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
-				"lab_source": known,
+				"lab_source": mythos,
 			}),
 			"id", created.ID,
 		)
@@ -222,24 +215,17 @@ func TestUpdateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 		}
-		if !strings.Contains(w.Body.String(), "mutually exclusive") {
+		if !strings.Contains(w.Body.String(), "lab to own the assignee") {
 			t.Errorf("expected mutex error, got: %s", w.Body.String())
 		}
 	})
 
-	t.Run("patch assignee on existing lab issue", func(t *testing.T) {
-		// Create a lab-tagged issue (no assignee).
+	t.Run("patch assignee on existing mythos lab issue", func(t *testing.T) {
 		created := createIssueForTest(t, map[string]any{
 			"title":      "upd-mutex-2",
-			"lab_source": known,
+			"lab_source": mythos,
 		})
 		w := httptest.NewRecorder()
-		// PATCH only the assignee. Pre-fix: rawFields["lab_source"]
-		// was NOT in the body, so the mutex block never ran even
-		// though post-state would have both lab and assignee. The
-		// update succeeded and the issue ended up with both. The
-		// 0.3.31 fix uses prevIssue.LabSource to decide whether the
-		// gate fires, so this PATCH is now correctly rejected.
 		req := withURLParam(
 			newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
 				"assignee_type": "member",
@@ -251,7 +237,7 @@ func TestUpdateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 		}
-		if !strings.Contains(w.Body.String(), "mutually exclusive") {
+		if !strings.Contains(w.Body.String(), "lab to own the assignee") {
 			t.Errorf("expected mutex error, got: %s", w.Body.String())
 		}
 	})
@@ -260,11 +246,14 @@ func TestUpdateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 	// (lab_source non-empty, no assignee) must pass. This is
 	// the canonical "user did nothing wrong" case the gate must
 	// NOT reject — the post-state is compatible, only the
-	// status field is changing.
+	// status field is changing. Uses chat_pin_ui (the simplest
+	// catalog key) so this case does not depend on mythos
+	// being installed.
 	t.Run("status-only PATCH on a lab-only issue is allowed", func(t *testing.T) {
+		const chatPinUI = "chat_pin_ui"
 		created := createIssueForTest(t, map[string]any{
 			"title":      "upd-mutex-3",
-			"lab_source": known,
+			"lab_source": chatPinUI,
 		})
 		w := httptest.NewRecorder()
 		req := withURLParam(
@@ -279,18 +268,18 @@ func TestUpdateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 		}
 	})
 
-	// Defensive pin: lab + INVALID assignee must still produce the
-	// mutex error (not the misleading "does not refer to a
+	// Defensive pin: mythos lab + INVALID assignee must still produce
+	// the mutex error (not the misleading "does not refer to a
 	// member"). The 0.3.31 fix moves the mutex gate BEFORE
 	// validateAssigneePair; this case pins that ordering.
-	t.Run("lab + invalid assignee still fires mutex first", func(t *testing.T) {
+	t.Run("mythos lab + invalid assignee still fires mutex first", func(t *testing.T) {
 		created := createIssueForTest(t, map[string]any{
 			"title": "upd-mutex-5",
 		})
 		w := httptest.NewRecorder()
 		req := withURLParam(
 			newRequest("PUT", "/api/issues/"+created.ID, map[string]any{
-				"lab_source":    known,
+				"lab_source":    mythos,
 				"assignee_type": "agent",
 				"assignee_id":   fakeAgentID,
 			}),
@@ -300,7 +289,7 @@ func TestUpdateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 		}
-		if !strings.Contains(w.Body.String(), "mutually exclusive") {
+		if !strings.Contains(w.Body.String(), "lab to own the assignee") {
 			t.Errorf("expected mutex error, got: %s", w.Body.String())
 		}
 	})
