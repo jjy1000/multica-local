@@ -38,14 +38,6 @@ import {
   Code2,
   Sparkles,
   ScrollText,
-  Hexagon,
-  Octagon,
-  Pentagon,
-  Diamond,
-  Triangle,
-  Star,
-  Circle as CircleShape,
-  Square as SquareShape,
   TestTubes,
   ClipboardList,
   Wrench,
@@ -195,64 +187,25 @@ const experimentalIconByKey: Record<string, typeof FlaskConical> = {
 };
 
 /**
- * Per-lab sidebar badge — glyph (geometric shape) + tonality. Gives
- * every active lab a row-end cue that is visually distinctive: even
- * if two labs shared a colour the shapes alone would keep them apart.
+ * Per-lab sidebar badge — 0.3.33.1 simplification.
  *
- * The glyph echoes the lab's semantic:
+ * Every lab row gets the same FlaskConical glyph + muted tone so the
+ * sidebar cue reads as one visual family ("experimental") rather than 8
+ * coloured shapes. Per-flag distinction lives in the tooltip label
+ * (`mythos_enabled_badge` / `pythia_oracle_enabled_badge` / ...),
+ * which surfaces on hover. The legacy per-lab shape dispatch was
+ * overly busy and conflicted with the "experimental feature" semantics
+ * (every row is an experiment — they don't need to look unique to each
+ * other).
  *
- *   mythos_swarm            Hexagon  → hive cluster (existing 0.3.29 cue)
- *   pythia_oracle           Star     → oracle / constellation
- *   claude_science_lab      Octagon  → sterile lab (isolation)
- *   llm_wiki_bridge         Pentagon → library / five-fold knowledge
- *   code_canvas             Square   → canvas frame
- *   agent_self_optimization Triangle → tuning / balance
- *   constitution_agent      Diamond  → governance / seal
- *   chat_pin_ui             Circle   → pin dot
- *
- * Tonality stays in lockstep with `LabBadge` (issues row pill) so
- * the sidebar cue and the issue-row cue read as one design system.
- *
- * Tailwind utility names only — the tree-shaker drops unused
- * classes, so the dispatcher must reach every variant statically.
+ * Tailwind utility names only — the tree-shaker drops unused classes,
+ * so the dispatcher must reach every variant statically.
  */
-const experimentalOnBadgeTone: Record<
-  string,
-  { shape: typeof Hexagon; classes: string }
-> = {
-  mythos_swarm: {
-    shape: Hexagon,
-    classes: "text-emerald-600 dark:text-emerald-400",
-  },
-  pythia_oracle: {
-    shape: Star,
-    classes: "text-violet-600 dark:text-violet-400",
-  },
-  claude_science_lab: {
-    shape: Octagon,
-    classes: "text-sky-600 dark:text-sky-400",
-  },
-  llm_wiki_bridge: {
-    shape: Pentagon,
-    classes: "text-amber-600 dark:text-amber-400",
-  },
-  code_canvas: {
-    shape: SquareShape,
-    classes: "text-rose-600 dark:text-rose-400",
-  },
-  agent_self_optimization: {
-    shape: Triangle,
-    classes: "text-teal-600 dark:text-teal-400",
-  },
-  constitution_agent: {
-    shape: Diamond,
-    classes: "text-indigo-600 dark:text-indigo-400",
-  },
-  chat_pin_ui: {
-    shape: CircleShape,
-    classes: "text-slate-600 dark:text-slate-400",
-  },
-};
+// 0.3.33.1 — user feedback: 8 个 lab 行末徽标全部统一为 FlaskConical
+// (烧瓶 = 实验语义) 单形状,outline-only,不填色。原 0.3.33 的 8 形状
+// + 8 颜色 dispatch 区分度过强,与"试验性功能"语义对齐后所有 lab
+// 都收敛到同一个 "experimental" 视觉 cue。tonality 留给 flag 标题和
+// tooltip (badgeLabel) 区分。
 
 function DraftDot() {
   const hasDraft = useIssueDraftStore((s) => !!(s.draft.title || s.draft.description));
@@ -938,12 +891,11 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                       item.flagKey === "mythos_swarm"
                         ? "mythos_enabled_badge"
                         : `${item.flagKey}_enabled_badge`;
-                    const badgeSpec =
-                      experimentalOnBadgeTone[item.flagKey] ?? {
-                        shape: Hexagon,
-                        classes:
-                          "text-emerald-600 dark:text-emerald-400",
-                      };
+                    // 0.3.33.1: 全部 8 个 lab 统一用 FlaskConical +
+                    // text-muted-foreground(无填充色),与"试验性功能"
+                    // 语义对齐。per-flag 区分只剩 tooltip 文案。
+                    const BadgeShape = FlaskConical;
+                    const badgeClasses = "text-muted-foreground";
                     const badgeLabel = (() => {
                       const s = t(
                         ($) =>
@@ -964,7 +916,6 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                         "Enabled"
                       );
                     })();
-                    const BadgeShape = badgeSpec.shape;
                     return (
                       <SidebarMenuItem key={item.key}>
                         <SidebarMenuButton
@@ -980,7 +931,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                                 render={<span aria-hidden className="ml-auto" />}
                               >
                                 <BadgeShape
-                                  className={`size-3.5 ${badgeSpec.classes}`}
+                                  className={`size-3.5 ${badgeClasses}`}
                                   aria-label={badgeLabel}
                                 />
                               </TooltipTrigger>
