@@ -1,0 +1,55 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "llm_wiki_bridge",
+    "flag": "llm_wiki_bridge",
+    "title": { "en": "LLM Wiki Local Bridge", "zh": "LLM Wiki 本地桥接" },
+    "description": {
+      "en": "Bridges Multica agents to the local LLM Wiki app over its MCP server for search, graph queries, and file access. Off by default.",
+      "zh": "通过本地 LLM Wiki 应用的 MCP server 将 Multica 智能体接入知识库搜索、图查询和文件访问。默认关闭。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "capabilities": {
+      "skills": ["multica-llm-wiki"],
+      "agents": [],
+      "squads": [],
+      "mcp_servers": ["llm-wiki"],
+      "permissions": ["issue:read", "issue:write", "agent:invoke"]
+    },
+    "entry_points": {
+      "sidebar": [
+        {
+          "key": "llm_wiki_bridge",
+          "label_key": "experimental_llm_wiki_bridge",
+          "route": "/experimental/llm-wiki"
+        }
+      ],
+      "settings": { "route": "/experimental/llm-wiki" }
+    },
+    "runtime": {
+      "kind": "subprocess",
+      "binary": "experiments/llm_wiki_bridge/run.sh",
+      "args": [],
+      "transport": "stdio",
+      "ready_timeout_ms": 10000,
+      "stop_grace_ms": 3000,
+      "on_ready": "registerMCPUpstream",
+      "on_stop": "unregisterMCPUpstream",
+      "on_missing": "service not bundled — re-run bundle-cli or install LLM Wiki.app"
+    },
+    "resources": {
+      "installable": false,
+      "lockable_resources": [],
+      "install_handler": ""
+    },
+    "safety": {
+      "init_timeout_ms": 10000,
+      "burst": { "threshold": 3, "window_seconds": 60 },
+      "panic_recover": true,
+      "ip_allowlist": ["127.0.0.0/8"]
+    }
+  }
+}

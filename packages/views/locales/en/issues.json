@@ -482,6 +482,7 @@
     "queued_indicator": "Queued",
     "queued_tooltip": "Queued for an experimental agent — will start when a worker is free",
     "no_flag_title": "Labs are off",
+    "bound_for_issue": "bound",
     "clear_lab_first_tooltip": "Clear the lab first to enable actor picks",
     "lab_visualization_title": "Lab workspace",
     "lab_visualization_hint": "Results produced by this lab land below. Switch tabs to inspect the active run.",

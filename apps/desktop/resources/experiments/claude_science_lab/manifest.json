@@ -1,0 +1,55 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "claude_science_lab",
+    "flag": "claude_science_lab",
+    "title": { "en": "Claude Research Lab", "zh": "Claude 科研实验室" },
+    "description": {
+      "en": "Single-pane research workbench — chat with multi-agent squads, run isolated Python, inspect generated artifacts, and visualize forecasts in one window. No separate workspace; everything happens inline. Replaces the 0.3.20 `claude_science` + `claude_science_runtime` flags.",
+      "zh": "单窗口科研工作台 — 在一处与多智能体 Squad 对话、运行隔离 Python、查看生成的产物并可视化预测结果。不再创建独立工作区,所有操作原地完成。取代 0.3.20 的 `claude_science` + `claude_science_runtime` 两个 flag。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "capabilities": {
+      "skills": [
+        "multica-claude-science",
+        "multica-claude-science-runtime",
+        "multica-claude-literature",
+        "multica-claude-reviewer"
+      ],
+      "agents": [],
+      "squads": [],
+      "mcp_servers": [],
+      "permissions": [
+        "issue:read",
+        "issue:write",
+        "agent:invoke",
+        "runtime:execute"
+      ]
+    },
+    "entry_points": {
+      "sidebar": [
+        {
+          "key": "claude_science_lab",
+          "label_key": "experimental_claude_science_lab",
+          "route": "/experimental/claude-lab"
+        }
+      ],
+      "settings": { "route": "/experimental/claude-lab" }
+    },
+    "runtime": { "kind": "inline" },
+    "resources": {
+      "installable": true,
+      "lockable_resources": ["skill", "agent", "squad", "member"],
+      "install_handler": "claude_lab_install"
+    },
+    "safety": {
+      "init_timeout_ms": 30000,
+      "burst": { "threshold": 3, "window_seconds": 60 },
+      "panic_recover": true,
+      "ip_allowlist": ["127.0.0.0/8"]
+    }
+  }
+}

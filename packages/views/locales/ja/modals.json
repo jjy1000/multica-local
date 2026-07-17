@@ -150,6 +150,8 @@
     "title_placeholder": "イシューのタイトル",
     "description_placeholder": "説明を追加...",
     "more_options_aria": "その他のオプション",
+    "lab_menu_pick_aria": "実験プラグインを選択",
+    "lab_menu_pick_label": "実験プラグイン",
     "title_required": "作成するにはタイトルを入力してください",
     "submit": "イシューを作成",
     "submitting": "作成中...",

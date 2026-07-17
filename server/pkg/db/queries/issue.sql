@@ -5,6 +5,13 @@
 -- member assignment (`assignee_type='member' AND assignee_id=involves_user_id`)
 -- because that is already the meaning of the `assignee_id` filter (tab 1
 -- "Assigned to me"), and the two filters must produce disjoint result sets.
+--
+-- 0.3.33: exclude_lab (bool, optional). When true, rows with
+-- non-NULL lab_source are filtered out so the main workspace task
+-- lists never surface lab-bound issues (the user dispatches them
+-- through `/experimental/<suffix>` instead). Front-ends pass it
+-- by default; the user can flip a "show experimental tasks" toggle
+-- in the list toolbar to opt back in.
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.assignee_type, i.assignee_id, i.creator_type, i.creator_id,
        i.parent_issue_id, i.position, i.start_date, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.metadata, i.stage, i.lab_source, i.lab_mode
@@ -17,7 +24,13 @@ WHERE i.workspace_id = $1
   AND (sqlc.narg('creator_id')::uuid IS NULL OR i.creator_id = sqlc.narg('creator_id'))
   AND (sqlc.narg('project_id')::uuid IS NULL OR i.project_id = sqlc.narg('project_id'))
   AND (sqlc.narg('scheduled')::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
+  AND (sqlc.narg('exclude_lab')::bool IS NULL
+       OR sqlc.narg('exclude_lab')::bool = FALSE
+       OR i.lab_source IS NULL)
   AND (sqlc.narg('metadata_filter')::jsonb IS NULL OR i.metadata @> sqlc.narg('metadata_filter')::jsonb)
+  AND (sqlc.narg('exclude_lab')::bool IS NULL
+       OR sqlc.narg('exclude_lab')::bool = FALSE
+       OR i.lab_source IS NULL)
   AND (
     sqlc.narg('involves_user_id')::uuid IS NULL
     -- (1) assignee is an agent owned by the user
@@ -139,6 +152,19 @@ UPDATE issue SET
     updated_at = now()
 WHERE id = $1 AND workspace_id = $3;
 
+-- name: UpdateIssueAssignee :exec
+-- 0.3.33: dedicated writer for the (assignee_type, assignee_id)
+-- pair so post-commit auto-assign after a lab-bound create
+-- (IssueService.assignDefaultLabAgent) doesn't have to round-trip
+-- through the full UpdateIssue payload. Pass NULLs to clear. The
+-- workspace_id predicate keeps it tenant-safe (mirrors the other
+-- Update*Issue helpers above).
+UPDATE issue SET
+    assignee_type = $2,
+    assignee_id = $3,
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $4;
+
 -- name: CreateIssueWithOrigin :one
 INSERT INTO issue (
     workspace_id, title, description, status, priority,
@@ -185,6 +211,9 @@ WHERE i.workspace_id = $1
   AND (sqlc.narg('assignee_ids')::uuid[] IS NULL OR i.assignee_id = ANY(sqlc.narg('assignee_ids')::uuid[]))
   AND (sqlc.narg('creator_id')::uuid IS NULL OR i.creator_id = sqlc.narg('creator_id'))
   AND (sqlc.narg('project_id')::uuid IS NULL OR i.project_id = sqlc.narg('project_id'))
+  AND (sqlc.narg('exclude_lab')::bool IS NULL
+       OR sqlc.narg('exclude_lab')::bool = FALSE
+       OR i.lab_source IS NULL)
   AND (sqlc.narg('metadata_filter')::jsonb IS NULL OR i.metadata @> sqlc.narg('metadata_filter')::jsonb)
   AND (
     sqlc.narg('involves_user_id')::uuid IS NULL
@@ -231,6 +260,9 @@ WHERE i.workspace_id = $1
   AND (sqlc.narg('creator_id')::uuid IS NULL OR i.creator_id = sqlc.narg('creator_id'))
   AND (sqlc.narg('project_id')::uuid IS NULL OR i.project_id = sqlc.narg('project_id'))
   AND (sqlc.narg('scheduled')::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
+  AND (sqlc.narg('exclude_lab')::bool IS NULL
+       OR sqlc.narg('exclude_lab')::bool = FALSE
+       OR i.lab_source IS NULL)
   AND (sqlc.narg('metadata_filter')::jsonb IS NULL OR i.metadata @> sqlc.narg('metadata_filter')::jsonb)
   AND (
     sqlc.narg('involves_user_id')::uuid IS NULL

@@ -283,6 +283,23 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 
 	attachments := s.linkAttachments(ctx, issue, p.AttachmentIDs)
 
+	// 0.3.33 (revised): the lab ↔ assignee mutex is now narrow
+	// enough that no auto-assign is needed — every non-mythos lab
+	// (claude_science_lab, pythia_oracle, …) ships its own runtime
+	// agents / skills and the issue stays unassigned; the lab's own
+	// dispatcher picks the lead agent when it picks up the issue.
+	// Only `mythos_swarm`+sole needs a leader, and Mythos's own
+	// runner handles it (we never reach this path with
+	// lab_source="mythos_swarm" because the assignee mutex above
+	// kept AssigneeType empty).
+	labSourceKey := ""
+	if issue.LabSource.Valid {
+		labSourceKey = issue.LabSource.String
+	}
+	// Reserved for future narrow flags that need a workspace-
+	// resident default agent. Currently a no-op.
+	_ = labSourceKey
+
 	actorID := opts.ActorID
 	if actorID == "" {
 		actorID = util.UUIDToString(issue.CreatorID)
@@ -325,6 +342,77 @@ func (s *IssueService) linkAttachments(ctx context.Context, issue db.Issue, ids 
 		return nil
 	}
 	return list
+}
+
+// defaultLeaderAgentForLab returns the catalog-driven lookup table that
+// maps a `lab_source` value to the workspace's "leader" agent for that
+// lab. Only labs with a meaningful default agent are listed; everything
+// else (pythia_oracle is skill-driven, llm_wiki_bridge / code_canvas
+// need a human pick, chat_pin_ui has no agent) falls through to nil.
+//
+// The agent name comes from the upstream install handler so the same
+// string appears in `manage_claude_science` / `manage_mythos` etc.
+// Adding a new lab with a default agent means adding one entry here +
+// the matching install handler — both live in this package.
+var defaultLeaderAgentForLab = map[string]string{
+	"claude_science_lab": "research", // claude_science SKILL helper leader
+	"mythos_swarm":       "mythos_prelude",
+	"constitution_agent": "constitution_leader",
+}
+
+// assignDefaultLabAgent writes a workspace-resident default agent
+// onto a freshly-created issue when the user picked no assignee.
+//
+// 0.3.33 (revised): the gate is now dormant — the IssueService.Create
+// call site is a no-op for every flag we expose today (claude_science_lab,
+// pythia_oracle, …). Mythos_swarm has its own runner, the others
+// have their own runtime agents or are skill-driven. The function
+// stays here so a future narrow flag (e.g. a "default_workspace_agent"
+// catalog field) can opt in without re-shaping the issue service.
+//
+// Errors are logged and swallowed — leaving the assignee unset is
+// strictly better than failing the whole create over a stale
+// experimental agent row.
+func (s *IssueService) assignDefaultLabAgent(ctx context.Context, issue *db.Issue, labSource string) {
+	leaderName, ok := defaultLeaderAgentForLab[labSource]
+	if !ok {
+		return
+	}
+	agents, err := s.Queries.ListVisibleAgentsByWorkspace(ctx, issue.WorkspaceID)
+	if err != nil {
+		slog.Warn("assignDefaultLabAgent: list agents failed",
+			"issue_id", util.UUIDToString(issue.ID),
+			"lab_source", labSource,
+			"error", err)
+		return
+	}
+	for _, a := range agents {
+		if a.Name == leaderName {
+			if err := s.Queries.UpdateIssueAssignee(ctx, db.UpdateIssueAssigneeParams{
+				ID:           issue.ID,
+				AssigneeType: pgtype.Text{String: "agent", Valid: true},
+				AssigneeID:   a.ID,
+				WorkspaceID:  issue.WorkspaceID,
+			}); err != nil {
+				slog.Warn("assignDefaultLabAgent: write failed",
+					"issue_id", util.UUIDToString(issue.ID),
+					"agent_name", leaderName,
+					"error", err)
+			} else {
+				issue.AssigneeType = pgtype.Text{String: "agent", Valid: true}
+				issue.AssigneeID = a.ID
+				slog.Info("assignDefaultLabAgent: assigned default",
+					"issue_id", util.UUIDToString(issue.ID),
+					"lab_source", labSource,
+					"agent_name", leaderName)
+			}
+			return
+		}
+	}
+	slog.Info("assignDefaultLabAgent: no matching leader agent installed",
+		"issue_id", util.UUIDToString(issue.ID),
+		"lab_source", labSource,
+		"expected_agent_name", leaderName)
 }
 
 func (s *IssueService) publishIssueCreated(issue db.Issue, attachments []db.Attachment, creatorType, actorID string, opts IssueCreateOpts) {

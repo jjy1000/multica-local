@@ -1,0 +1,19 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "chat_pin_ui",
+    "flag": "chat_pin_ui",
+    "title": { "en": "Chat pin button", "zh": "聊天置顶按钮" },
+    "description": {
+      "en": "Show the pin button in the chat session list. Pinned sessions stay at the top. Off by default — enable to try.",
+      "zh": "在聊天会话列表显示置顶按钮。置顶的会话会排在最上方。默认关闭,开启后即可试用。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "entry_points": {
+      "sidebar": []
+    }
+  }
+}

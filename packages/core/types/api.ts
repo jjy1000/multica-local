@@ -117,6 +117,14 @@ export interface ListIssuesParams {
   date_end?: string;
   sort_by?: "position" | "priority" | "title" | "created_at" | "start_date" | "due_date";
   sort_direction?: "asc" | "desc";
+  /**
+   * 0.3.33: when true (the default the API client sends), lab-bound
+   * issues (lab_source IS NOT NULL) are hidden from the result.
+   * Pass false to show experimental-lab issues alongside normal
+   * work. The list toolbar's "show experimental lab tasks" toggle
+   * wires into this parameter.
+   */
+  exclude_lab?: boolean;
 }
 
 export interface IssueActorRef {

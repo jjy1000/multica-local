@@ -1,0 +1,1548 @@
+{
+  "schema_version": 1,
+  "experimental_source": "claude_science_lab",
+  "workspace": {
+    "name": "Claude 科研实验室",
+    "slug": "claude-science",
+    "description": "科研工作台，Skills / Agents / Squads 全部由 claude_science_lab flag 装载。"
+  },
+  "skills": [
+    {
+      "category": "biology",
+      "name": "anndata",
+      "body_path": "skills/biology/anndata/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "benchling-integration",
+      "body_path": "skills/biology/benchling-integration/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "bioimage-analysis",
+      "body_path": "skills/biology/bioimage-analysis/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "biopython",
+      "body_path": "skills/biology/biopython/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "bioservices",
+      "body_path": "skills/biology/bioservices/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "cancer-genomics-analysis",
+      "body_path": "skills/biology/cancer-genomics-analysis/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "clinical-decision-support",
+      "body_path": "skills/biology/clinical-decision-support/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "clinical-imaging",
+      "body_path": "skills/biology/clinical-imaging/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "clinical-reports",
+      "body_path": "skills/biology/clinical-reports/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "cobrapy",
+      "body_path": "skills/biology/cobrapy/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "curated-bio-datasets",
+      "body_path": "skills/biology/curated-bio-datasets/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "deeptools",
+      "body_path": "skills/biology/deeptools/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "dnanexus-integration",
+      "body_path": "skills/biology/dnanexus-integration/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "esm",
+      "body_path": "skills/biology/esm/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "etetoolkit",
+      "body_path": "skills/biology/etetoolkit/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "flow-cytometry-analysis",
+      "body_path": "skills/biology/flow-cytometry-analysis/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "flowio",
+      "body_path": "skills/biology/flowio/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "gget",
+      "body_path": "skills/biology/gget/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "glycobiology",
+      "body_path": "skills/biology/glycobiology/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "histolab",
+      "body_path": "skills/biology/histolab/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "immunology-assays",
+      "body_path": "skills/biology/immunology-assays/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "lamindb",
+      "body_path": "skills/biology/lamindb/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "latchbio-integration",
+      "body_path": "skills/biology/latchbio-integration/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "microbial-dynamics",
+      "body_path": "skills/biology/microbial-dynamics/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "molecular-cloning",
+      "body_path": "skills/biology/molecular-cloning/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "neurokit2",
+      "body_path": "skills/biology/neurokit2/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "neuropixels-analysis",
+      "body_path": "skills/biology/neuropixels-analysis/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "omero-integration",
+      "body_path": "skills/biology/omero-integration/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "opentrons-integration",
+      "body_path": "skills/biology/opentrons-integration/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "pathml",
+      "body_path": "skills/biology/pathml/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "pharmacology-wetlab",
+      "body_path": "skills/biology/pharmacology-wetlab/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "protocolsio-integration",
+      "body_path": "skills/biology/protocolsio-integration/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "pydeseq2",
+      "body_path": "skills/biology/pydeseq2/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "pydicom",
+      "body_path": "skills/biology/pydicom/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "pyhealth",
+      "body_path": "skills/biology/pyhealth/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "pylabrobot",
+      "body_path": "skills/biology/pylabrobot/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "pysam",
+      "body_path": "skills/biology/pysam/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "scanpy",
+      "body_path": "skills/biology/scanpy/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "scikit-bio",
+      "body_path": "skills/biology/scikit-bio/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "scikit-survival",
+      "body_path": "skills/biology/scikit-survival/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "scvi-tools",
+      "body_path": "skills/biology/scvi-tools/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "synthetic-biology",
+      "body_path": "skills/biology/synthetic-biology/SKILL.md"
+    },
+    {
+      "category": "biology",
+      "name": "treatment-plans",
+      "body_path": "skills/biology/treatment-plans/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "admet-prediction",
+      "body_path": "skills/chemistry/admet-prediction/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "admet-reasoning",
+      "body_path": "skills/chemistry/admet-reasoning/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "binding-affinity",
+      "body_path": "skills/chemistry/binding-affinity/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "datamol",
+      "body_path": "skills/chemistry/datamol/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "deepchem",
+      "body_path": "skills/chemistry/deepchem/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "denovo-design",
+      "body_path": "skills/chemistry/denovo-design/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "diffdock",
+      "body_path": "skills/chemistry/diffdock/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "drug-design",
+      "body_path": "skills/chemistry/drug-design/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "hypogenic",
+      "body_path": "skills/chemistry/hypogenic/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "matchms",
+      "body_path": "skills/chemistry/matchms/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "medchem",
+      "body_path": "skills/chemistry/medchem/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "molecular-docking",
+      "body_path": "skills/chemistry/molecular-docking/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "molecular-optimization",
+      "body_path": "skills/chemistry/molecular-optimization/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "molecular-rag",
+      "body_path": "skills/chemistry/molecular-rag/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "molecule-visualization",
+      "body_path": "skills/chemistry/molecule-visualization/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "molfeat",
+      "body_path": "skills/chemistry/molfeat/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "pocket-detection",
+      "body_path": "skills/chemistry/pocket-detection/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "pyopenms",
+      "body_path": "skills/chemistry/pyopenms/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "pytdc",
+      "body_path": "skills/chemistry/pytdc/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "rdkit",
+      "body_path": "skills/chemistry/rdkit/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "smiles-validation",
+      "body_path": "skills/chemistry/smiles-validation/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "structure-prediction",
+      "body_path": "skills/chemistry/structure-prediction/SKILL.md"
+    },
+    {
+      "category": "chemistry",
+      "name": "torchdrug",
+      "body_path": "skills/chemistry/torchdrug/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "fireworks-ai",
+      "body_path": "skills/cloud-compute/fireworks-ai/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "lambda-labs",
+      "body_path": "skills/cloud-compute/lambda-labs/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "modal",
+      "body_path": "skills/cloud-compute/modal/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "modal-ml-training",
+      "body_path": "skills/cloud-compute/modal-ml-training/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "modal-research-gpu",
+      "body_path": "skills/cloud-compute/modal-research-gpu/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "skypilot",
+      "body_path": "skills/cloud-compute/skypilot/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "tensorpool",
+      "body_path": "skills/cloud-compute/tensorpool/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "tinker",
+      "body_path": "skills/cloud-compute/tinker/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "tinker-training-cost",
+      "body_path": "skills/cloud-compute/tinker-training-cost/SKILL.md"
+    },
+    {
+      "category": "cloud-compute",
+      "name": "together-ai",
+      "body_path": "skills/cloud-compute/together-ai/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "arboreto",
+      "body_path": "skills/coding/arboreto/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "audiocraft",
+      "body_path": "skills/coding/audiocraft/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "denario",
+      "body_path": "skills/coding/denario/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "exploratory-data-analysis",
+      "body_path": "skills/coding/exploratory-data-analysis/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "gtars",
+      "body_path": "skills/coding/gtars/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "matlab",
+      "body_path": "skills/coding/matlab/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "multi-objective-optimization",
+      "body_path": "skills/coding/multi-objective-optimization/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "networkx",
+      "body_path": "skills/coding/networkx/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "pymc",
+      "body_path": "skills/coding/pymc/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "pymoo",
+      "body_path": "skills/coding/pymoo/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "rowan",
+      "body_path": "skills/coding/rowan/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "scikit-learn",
+      "body_path": "skills/coding/scikit-learn/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "shap",
+      "body_path": "skills/coding/shap/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "simpy",
+      "body_path": "skills/coding/simpy/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "slime",
+      "body_path": "skills/coding/slime/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "statistical-analysis",
+      "body_path": "skills/coding/statistical-analysis/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "statsmodels",
+      "body_path": "skills/coding/statsmodels/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "sympy",
+      "body_path": "skills/coding/sympy/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "torch_geometric",
+      "body_path": "skills/coding/torch_geometric/SKILL.md"
+    },
+    {
+      "category": "coding",
+      "name": "umap-learn",
+      "body_path": "skills/coding/umap-learn/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "aeon",
+      "body_path": "skills/data-engineering/aeon/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "dask",
+      "body_path": "skills/data-engineering/dask/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "geopandas",
+      "body_path": "skills/data-engineering/geopandas/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "hdf5-pde-data-loading",
+      "body_path": "skills/data-engineering/hdf5-pde-data-loading/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "hugging-face-datasets",
+      "body_path": "skills/data-engineering/hugging-face-datasets/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "markitdown",
+      "body_path": "skills/data-engineering/markitdown/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "polars",
+      "body_path": "skills/data-engineering/polars/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "ray-data",
+      "body_path": "skills/data-engineering/ray-data/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "vaex",
+      "body_path": "skills/data-engineering/vaex/SKILL.md"
+    },
+    {
+      "category": "data-engineering",
+      "name": "zarr-python",
+      "body_path": "skills/data-engineering/zarr-python/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "alphafold-database",
+      "body_path": "skills/databases/alphafold-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "biorxiv-database",
+      "body_path": "skills/databases/biorxiv-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "brenda-database",
+      "body_path": "skills/databases/brenda-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "cellxgene-census",
+      "body_path": "skills/databases/cellxgene-census/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "chembl-database",
+      "body_path": "skills/databases/chembl-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "clinicaltrials-database",
+      "body_path": "skills/databases/clinicaltrials-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "clinpgx-database",
+      "body_path": "skills/databases/clinpgx-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "clinvar-database",
+      "body_path": "skills/databases/clinvar-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "cosmic-database",
+      "body_path": "skills/databases/cosmic-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "datacommons-client",
+      "body_path": "skills/databases/datacommons-client/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "drugbank-database",
+      "body_path": "skills/databases/drugbank-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "ena-database",
+      "body_path": "skills/databases/ena-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "ensembl-database",
+      "body_path": "skills/databases/ensembl-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "fda-database",
+      "body_path": "skills/databases/fda-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "fred-economic-data",
+      "body_path": "skills/databases/fred-economic-data/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "gene-database",
+      "body_path": "skills/databases/gene-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "geo-database",
+      "body_path": "skills/databases/geo-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "gwas-database",
+      "body_path": "skills/databases/gwas-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "hmdb-database",
+      "body_path": "skills/databases/hmdb-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "imaging-data-commons",
+      "body_path": "skills/databases/imaging-data-commons/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "kegg-database",
+      "body_path": "skills/databases/kegg-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "metabolomics-workbench-database",
+      "body_path": "skills/databases/metabolomics-workbench-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "openalex-database",
+      "body_path": "skills/databases/openalex-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "opentargets-database",
+      "body_path": "skills/databases/opentargets-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "pdb-database",
+      "body_path": "skills/databases/pdb-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "pubchem-database",
+      "body_path": "skills/databases/pubchem-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "pubmed-database",
+      "body_path": "skills/databases/pubmed-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "reactome-database",
+      "body_path": "skills/databases/reactome-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "string-database",
+      "body_path": "skills/databases/string-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "uniprot-database",
+      "body_path": "skills/databases/uniprot-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "uspto-database",
+      "body_path": "skills/databases/uspto-database/SKILL.md"
+    },
+    {
+      "category": "databases",
+      "name": "zinc-database",
+      "body_path": "skills/databases/zinc-database/SKILL.md"
+    },
+    {
+      "category": "document-parsing",
+      "name": "liteparse",
+      "body_path": "skills/document-parsing/liteparse/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "autogpt",
+      "body_path": "skills/llm-tools/autogpt/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "blip-2",
+      "body_path": "skills/llm-tools/blip-2/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "chroma",
+      "body_path": "skills/llm-tools/chroma/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "clip",
+      "body_path": "skills/llm-tools/clip/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "constitutional-ai",
+      "body_path": "skills/llm-tools/constitutional-ai/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "crewai",
+      "body_path": "skills/llm-tools/crewai/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "dspy",
+      "body_path": "skills/llm-tools/dspy/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "faiss",
+      "body_path": "skills/llm-tools/faiss/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "generate-image",
+      "body_path": "skills/llm-tools/generate-image/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "guidance",
+      "body_path": "skills/llm-tools/guidance/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "hugging-face-cli",
+      "body_path": "skills/llm-tools/hugging-face-cli/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "hugging-face-tool-builder",
+      "body_path": "skills/llm-tools/hugging-face-tool-builder/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "huggingface-tokenizers",
+      "body_path": "skills/llm-tools/huggingface-tokenizers/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "instructor",
+      "body_path": "skills/llm-tools/instructor/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "langchain",
+      "body_path": "skills/llm-tools/langchain/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "langsmith",
+      "body_path": "skills/llm-tools/langsmith/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "llamaguard",
+      "body_path": "skills/llm-tools/llamaguard/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "llamaindex",
+      "body_path": "skills/llm-tools/llamaindex/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "llava",
+      "body_path": "skills/llm-tools/llava/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "llm-as-judge-evaluation",
+      "body_path": "skills/llm-tools/llm-as-judge-evaluation/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "long-context",
+      "body_path": "skills/llm-tools/long-context/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "nemo-guardrails",
+      "body_path": "skills/llm-tools/nemo-guardrails/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "outlines",
+      "body_path": "skills/llm-tools/outlines/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "pinecone",
+      "body_path": "skills/llm-tools/pinecone/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "qdrant",
+      "body_path": "skills/llm-tools/qdrant/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "segment-anything",
+      "body_path": "skills/llm-tools/segment-anything/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "sentence-transformers",
+      "body_path": "skills/llm-tools/sentence-transformers/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "sentencepiece",
+      "body_path": "skills/llm-tools/sentencepiece/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "stable-diffusion",
+      "body_path": "skills/llm-tools/stable-diffusion/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "transformers",
+      "body_path": "skills/llm-tools/transformers/SKILL.md"
+    },
+    {
+      "category": "llm-tools",
+      "name": "whisper",
+      "body_path": "skills/llm-tools/whisper/SKILL.md"
+    },
+    {
+      "category": "ml-inference",
+      "name": "gguf",
+      "body_path": "skills/ml-inference/gguf/SKILL.md"
+    },
+    {
+      "category": "ml-inference",
+      "name": "groq",
+      "body_path": "skills/ml-inference/groq/SKILL.md"
+    },
+    {
+      "category": "ml-inference",
+      "name": "llama-cpp",
+      "body_path": "skills/ml-inference/llama-cpp/SKILL.md"
+    },
+    {
+      "category": "ml-inference",
+      "name": "miles",
+      "body_path": "skills/ml-inference/miles/SKILL.md"
+    },
+    {
+      "category": "ml-inference",
+      "name": "phoenix",
+      "body_path": "skills/ml-inference/phoenix/SKILL.md"
+    },
+    {
+      "category": "ml-inference",
+      "name": "sglang",
+      "body_path": "skills/ml-inference/sglang/SKILL.md"
+    },
+    {
+      "category": "ml-inference",
+      "name": "speculative-decoding",
+      "body_path": "skills/ml-inference/speculative-decoding/SKILL.md"
+    },
+    {
+      "category": "ml-inference",
+      "name": "tensorrt-llm",
+      "body_path": "skills/ml-inference/tensorrt-llm/SKILL.md"
+    },
+    {
+      "category": "ml-inference",
+      "name": "vllm",
+      "body_path": "skills/ml-inference/vllm/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "accelerate",
+      "body_path": "skills/ml-training/accelerate/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "adaptyv",
+      "body_path": "skills/ml-training/adaptyv/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "awq",
+      "body_path": "skills/ml-training/awq/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "axolotl",
+      "body_path": "skills/ml-training/axolotl/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "bigcode-evaluation-harness",
+      "body_path": "skills/ml-training/bigcode-evaluation-harness/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "bitsandbytes",
+      "body_path": "skills/ml-training/bitsandbytes/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "colab-finetuning",
+      "body_path": "skills/ml-training/colab-finetuning/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "deepspeed",
+      "body_path": "skills/ml-training/deepspeed/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "flash-attention",
+      "body_path": "skills/ml-training/flash-attention/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "geniml",
+      "body_path": "skills/ml-training/geniml/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "gptq",
+      "body_path": "skills/ml-training/gptq/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "grpo-rl-training",
+      "body_path": "skills/ml-training/grpo-rl-training/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "hqq",
+      "body_path": "skills/ml-training/hqq/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "hugging-face-evaluation",
+      "body_path": "skills/ml-training/hugging-face-evaluation/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "hugging-face-model-trainer",
+      "body_path": "skills/ml-training/hugging-face-model-trainer/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "knowledge-distillation",
+      "body_path": "skills/ml-training/knowledge-distillation/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "litgpt",
+      "body_path": "skills/ml-training/litgpt/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "llama-factory",
+      "body_path": "skills/ml-training/llama-factory/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "lm-evaluation-harness",
+      "body_path": "skills/ml-training/lm-evaluation-harness/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "mamba",
+      "body_path": "skills/ml-training/mamba/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "megatron-core",
+      "body_path": "skills/ml-training/megatron-core/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "ml-benchmark-evaluation",
+      "body_path": "skills/ml-training/ml-benchmark-evaluation/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "mlflow",
+      "body_path": "skills/ml-training/mlflow/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "model-economics",
+      "body_path": "skills/ml-training/model-economics/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "model-merging",
+      "body_path": "skills/ml-training/model-merging/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "model-pruning",
+      "body_path": "skills/ml-training/model-pruning/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "moe-training",
+      "body_path": "skills/ml-training/moe-training/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "nanogpt",
+      "body_path": "skills/ml-training/nanogpt/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "nemo-curator",
+      "body_path": "skills/ml-training/nemo-curator/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "nemo-evaluator",
+      "body_path": "skills/ml-training/nemo-evaluator/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "nnsight",
+      "body_path": "skills/ml-training/nnsight/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "openrlhf",
+      "body_path": "skills/ml-training/openrlhf/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "peft",
+      "body_path": "skills/ml-training/peft/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "prime-intellect-lab",
+      "body_path": "skills/ml-training/prime-intellect-lab/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "pufferlib",
+      "body_path": "skills/ml-training/pufferlib/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "pytorch-fsdp",
+      "body_path": "skills/ml-training/pytorch-fsdp/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "pytorch-lightning",
+      "body_path": "skills/ml-training/pytorch-lightning/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "pyvene",
+      "body_path": "skills/ml-training/pyvene/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "ray-train",
+      "body_path": "skills/ml-training/ray-train/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "rwkv",
+      "body_path": "skills/ml-training/rwkv/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "saelens",
+      "body_path": "skills/ml-training/saelens/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "simpo",
+      "body_path": "skills/ml-training/simpo/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "stable-baselines3",
+      "body_path": "skills/ml-training/stable-baselines3/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "tensorboard",
+      "body_path": "skills/ml-training/tensorboard/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "torchforge",
+      "body_path": "skills/ml-training/torchforge/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "torchtitan",
+      "body_path": "skills/ml-training/torchtitan/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "training-data-pipeline",
+      "body_path": "skills/ml-training/training-data-pipeline/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "transformer-lens",
+      "body_path": "skills/ml-training/transformer-lens/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "trl-fine-tuning",
+      "body_path": "skills/ml-training/trl-fine-tuning/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "unsloth",
+      "body_path": "skills/ml-training/unsloth/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "verl",
+      "body_path": "skills/ml-training/verl/SKILL.md"
+    },
+    {
+      "category": "ml-training",
+      "name": "weights-and-biases",
+      "body_path": "skills/ml-training/weights-and-biases/SKILL.md"
+    },
+    {
+      "category": "other",
+      "name": "get-available-resources",
+      "body_path": "skills/other/get-available-resources/SKILL.md"
+    },
+    {
+      "category": "other",
+      "name": "hugging-face-jobs",
+      "body_path": "skills/other/hugging-face-jobs/SKILL.md"
+    },
+    {
+      "category": "other",
+      "name": "hugging-face-trackio",
+      "body_path": "skills/other/hugging-face-trackio/SKILL.md"
+    },
+    {
+      "category": "other",
+      "name": "iso-13485-certification",
+      "body_path": "skills/other/iso-13485-certification/SKILL.md"
+    },
+    {
+      "category": "other",
+      "name": "labarchive-integration",
+      "body_path": "skills/other/labarchive-integration/SKILL.md"
+    },
+    {
+      "category": "other",
+      "name": "skill-installer",
+      "body_path": "skills/other/skill-installer/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "astropy",
+      "body_path": "skills/physics/astropy/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "autoregressive-neural-pde-solver",
+      "body_path": "skills/physics/autoregressive-neural-pde-solver/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "bayesian-inference",
+      "body_path": "skills/physics/bayesian-inference/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "conservation-law-discovery",
+      "body_path": "skills/physics/conservation-law-discovery/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "dimensional-analysis",
+      "body_path": "skills/physics/dimensional-analysis/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "dynamical-systems",
+      "body_path": "skills/physics/dynamical-systems/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "fluid-dynamics",
+      "body_path": "skills/physics/fluid-dynamics/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "fluidsim",
+      "body_path": "skills/physics/fluidsim/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "hamiltonian-mechanics",
+      "body_path": "skills/physics/hamiltonian-mechanics/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "neural-operator",
+      "body_path": "skills/physics/neural-operator/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "ode-solver",
+      "body_path": "skills/physics/ode-solver/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "pde-solver",
+      "body_path": "skills/physics/pde-solver/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "physics-databases",
+      "body_path": "skills/physics/physics-databases/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "physics-fitting",
+      "body_path": "skills/physics/physics-fitting/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "physics-visualization",
+      "body_path": "skills/physics/physics-visualization/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "pinn-training",
+      "body_path": "skills/physics/pinn-training/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "pymatgen",
+      "body_path": "skills/physics/pymatgen/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "shock-capturing-neural-operators",
+      "body_path": "skills/physics/shock-capturing-neural-operators/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "sindy-identification",
+      "body_path": "skills/physics/sindy-identification/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "spectral-analysis",
+      "body_path": "skills/physics/spectral-analysis/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "statistical-mechanics",
+      "body_path": "skills/physics/statistical-mechanics/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "symbolic-regression",
+      "body_path": "skills/physics/symbolic-regression/SKILL.md"
+    },
+    {
+      "category": "physics",
+      "name": "wave-propagation",
+      "body_path": "skills/physics/wave-propagation/SKILL.md"
+    },
+    {
+      "category": "quantum",
+      "name": "cirq",
+      "body_path": "skills/quantum/cirq/SKILL.md"
+    },
+    {
+      "category": "quantum",
+      "name": "pennylane",
+      "body_path": "skills/quantum/pennylane/SKILL.md"
+    },
+    {
+      "category": "quantum",
+      "name": "qiskit",
+      "body_path": "skills/quantum/qiskit/SKILL.md"
+    },
+    {
+      "category": "quantum",
+      "name": "qutip",
+      "body_path": "skills/quantum/qutip/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "hypothesis-generation",
+      "body_path": "skills/research/hypothesis-generation/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "initialize-atlas-graph",
+      "body_path": "skills/research/initialize-atlas-graph/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "market-research-reports",
+      "body_path": "skills/research/market-research-reports/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "peer-review",
+      "body_path": "skills/research/peer-review/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "perplexity-search",
+      "body_path": "skills/research/perplexity-search/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "research-grants",
+      "body_path": "skills/research/research-grants/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "research-lookup",
+      "body_path": "skills/research/research-lookup/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "scientific-brainstorming",
+      "body_path": "skills/research/scientific-brainstorming/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "scientific-critical-thinking",
+      "body_path": "skills/research/scientific-critical-thinking/SKILL.md"
+    },
+    {
+      "category": "visualization",
+      "name": "dna-visualization",
+      "body_path": "skills/visualization/dna-visualization/SKILL.md"
+    },
+    {
+      "category": "visualization",
+      "name": "infographics",
+      "body_path": "skills/visualization/infographics/SKILL.md"
+    },
+    {
+      "category": "visualization",
+      "name": "matplotlib",
+      "body_path": "skills/visualization/matplotlib/SKILL.md"
+    },
+    {
+      "category": "visualization",
+      "name": "plotly",
+      "body_path": "skills/visualization/plotly/SKILL.md"
+    },
+    {
+      "category": "visualization",
+      "name": "protein-diagram",
+      "body_path": "skills/visualization/protein-diagram/SKILL.md"
+    },
+    {
+      "category": "visualization",
+      "name": "scientific-schematics",
+      "body_path": "skills/visualization/scientific-schematics/SKILL.md"
+    },
+    {
+      "category": "visualization",
+      "name": "scientific-visualization",
+      "body_path": "skills/visualization/scientific-visualization/SKILL.md"
+    },
+    {
+      "category": "visualization",
+      "name": "seaborn",
+      "body_path": "skills/visualization/seaborn/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "citation-management",
+      "body_path": "skills/writing/citation-management/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "hugging-face-paper-publisher",
+      "body_path": "skills/writing/hugging-face-paper-publisher/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "latex-posters",
+      "body_path": "skills/writing/latex-posters/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "literature-review",
+      "body_path": "skills/writing/literature-review/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "ml-paper-writing",
+      "body_path": "skills/writing/ml-paper-writing/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "paper-2-web",
+      "body_path": "skills/writing/paper-2-web/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "pptx-posters",
+      "body_path": "skills/writing/pptx-posters/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "scientific-slides",
+      "body_path": "skills/writing/scientific-slides/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "scientific-writing",
+      "body_path": "skills/writing/scientific-writing/SKILL.md"
+    },
+    {
+      "category": "writing",
+      "name": "venue-templates",
+      "body_path": "skills/writing/venue-templates/SKILL.md"
+    }
+  ],
+  "agents": [
+    {
+      "name": "biology",
+      "prompt_path": "agents/biology.txt",
+      "category": "domain"
+    },
+    {
+      "name": "ml",
+      "prompt_path": "agents/ml.txt",
+      "category": "domain"
+    },
+    {
+      "name": "physics",
+      "prompt_path": "agents/physics.txt",
+      "category": "domain"
+    },
+    {
+      "name": "research",
+      "prompt_path": "agents/research.txt",
+      "category": "primary"
+    },
+    {
+      "name": "write",
+      "prompt_path": "agents/write.txt",
+      "category": "subagent"
+    }
+  ],
+  "squads": [
+    {
+      "name": "Claude Science 生物",
+      "description": "生物 / 化学领域的研究 squad,带头人 biology agent。",
+      "members": [
+        "biology",
+        "plan"
+      ],
+      "leader_agent": "biology"
+    },
+    {
+      "name": "Claude Science 物理",
+      "description": "物理 / 仿真 / 量子 / 数据分析领域的研究 squad,带头人 physics agent。",
+      "members": [
+        "physics",
+        "plan"
+      ],
+      "leader_agent": "physics"
+    },
+    {
+      "name": "Claude Science 机器学习",
+      "description": "机器学习 / 训练 / 推理领域的研究 squad,带头人 ml agent。",
+      "members": [
+        "ml",
+        "plan"
+      ],
+      "leader_agent": "ml"
+    },
+    {
+      "name": "Claude Science 科研",
+      "description": "通用科研 / 文献综述 / 假设生成 / 同行评审 squad,带头人 research agent。",
+      "members": [
+        "research",
+        "write"
+      ],
+      "leader_agent": "research"
+    },
+    {
+      "name": "Claude Science 联合体",
+      "description": "用户交互入口：用户在这里提出问题，由 research 委托到对应学科的 squad。",
+      "members": [
+        "research",
+        "write",
+        "plan"
+      ],
+      "leader_agent": "research"
+    }
+  ],
+  "installed_at_build": true,
+  "built_from": "../关于试验性功能开发参考/openscience-main",
+  "counts": {
+    "skills": 291,
+    "agents": 5,
+    "squads": 5
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "version": "17",
+  "versionFull": "17.4",
+  "source": "https://github.com/PostgresApp/PostgresApp/releases/download/v2.9.5/Postgres-2.9.5-17.dmg",
+  "sizeBytes": 119557094,
+  "sha256": "9189567e943edfa2441c4bc72751bcfb9b417fb3f7cc32d2252991e92b22d2d0",
+  "license": "PostgreSQL BSD with attribution clause",
+  "attribution": "PostgreSQL is released under the PostgreSQL License, a BSD-style license. Postgres.app bundles PostgreSQL and is distributed under the same license. See https://www.postgresql.org/about/licence/ and https://postgresapp.com/ for details.",
+  "extractedSubpath": "Postgres.app/Contents/Versions/17",
+  "extractedFiles": ["bin/postgres", "bin/initdb", "bin/pg_ctl", "bin/pg_dump", "bin/pg_restore"]
+}

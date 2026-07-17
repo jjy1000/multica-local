@@ -103,13 +103,16 @@ WHERE i.workspace_id = $1
   AND ($6::uuid IS NULL OR i.creator_id = $6)
   AND ($7::uuid IS NULL OR i.project_id = $7)
   AND ($8::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
-  AND ($9::jsonb IS NULL OR i.metadata @> $9::jsonb)
+  AND ($9::bool IS NULL
+       OR $9::bool = FALSE
+       OR i.lab_source IS NULL)
+  AND ($10::jsonb IS NULL OR i.metadata @> $10::jsonb)
   AND (
-    $10::uuid IS NULL
+    $11::uuid IS NULL
     OR (i.assignee_type = 'agent' AND i.assignee_id IN (
           SELECT a.id FROM agent a
            WHERE a.workspace_id = $1
-             AND a.owner_id     = $10::uuid
+             AND a.owner_id     = $11::uuid
     ))
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
           SELECT sm.squad_id
@@ -117,14 +120,14 @@ WHERE i.workspace_id = $1
             JOIN squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
              AND sm.member_type = 'member'
-             AND sm.member_id   = $10::uuid
+             AND sm.member_id   = $11::uuid
           UNION
           SELECT s.id
             FROM squad s
             JOIN agent a ON a.id = s.leader_id
            WHERE s.workspace_id = $1
              AND a.workspace_id = $1
-             AND a.owner_id     = $10::uuid
+             AND a.owner_id     = $11::uuid
           UNION
           SELECT sm.squad_id
             FROM squad_member sm
@@ -133,7 +136,7 @@ WHERE i.workspace_id = $1
            WHERE s.workspace_id = $1
              AND sm.member_type = 'agent'
              AND a.workspace_id = $1
-             AND a.owner_id     = $10::uuid
+             AND a.owner_id     = $11::uuid
     ))
   )
 `
@@ -147,6 +150,7 @@ type CountIssuesParams struct {
 	CreatorID      pgtype.UUID   `json:"creator_id"`
 	ProjectID      pgtype.UUID   `json:"project_id"`
 	Scheduled      pgtype.Bool   `json:"scheduled"`
+	ExcludeLab     pgtype.Bool   `json:"exclude_lab"`
 	MetadataFilter []byte        `json:"metadata_filter"`
 	InvolvesUserID pgtype.UUID   `json:"involves_user_id"`
 }
@@ -162,6 +166,7 @@ func (q *Queries) CountIssues(ctx context.Context, arg CountIssuesParams) (int64
 		arg.CreatorID,
 		arg.ProjectID,
 		arg.Scheduled,
+		arg.ExcludeLab,
 		arg.MetadataFilter,
 		arg.InvolvesUserID,
 	)
@@ -798,14 +803,20 @@ WHERE i.workspace_id = $1
   AND ($8::uuid IS NULL OR i.creator_id = $8)
   AND ($9::uuid IS NULL OR i.project_id = $9)
   AND ($10::bool IS NULL OR (i.start_date IS NOT NULL OR i.due_date IS NOT NULL))
-  AND ($11::jsonb IS NULL OR i.metadata @> $11::jsonb)
+  AND ($11::bool IS NULL
+       OR $11::bool = FALSE
+       OR i.lab_source IS NULL)
+  AND ($12::jsonb IS NULL OR i.metadata @> $12::jsonb)
+  AND ($11::bool IS NULL
+       OR $11::bool = FALSE
+       OR i.lab_source IS NULL)
   AND (
-    $12::uuid IS NULL
+    $13::uuid IS NULL
     -- (1) assignee is an agent owned by the user
     OR (i.assignee_type = 'agent' AND i.assignee_id IN (
           SELECT a.id FROM agent a
            WHERE a.workspace_id = $1
-             AND a.owner_id     = $12::uuid
+             AND a.owner_id     = $13::uuid
     ))
     -- (2)(3)(4) assignee is a squad related to the user — three relations
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
@@ -815,7 +826,7 @@ WHERE i.workspace_id = $1
             JOIN squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
              AND sm.member_type = 'member'
-             AND sm.member_id   = $12::uuid
+             AND sm.member_id   = $13::uuid
           UNION
           -- (3) the squad's canonical leader is an agent owned by the user.
           -- We read squad.leader_id directly rather than relying on a
@@ -826,7 +837,7 @@ WHERE i.workspace_id = $1
             JOIN agent a ON a.id = s.leader_id
            WHERE s.workspace_id = $1
              AND a.workspace_id = $1
-             AND a.owner_id     = $12::uuid
+             AND a.owner_id     = $13::uuid
           UNION
           -- (4) the squad has an agent member owned by the user
           SELECT sm.squad_id
@@ -836,7 +847,7 @@ WHERE i.workspace_id = $1
            WHERE s.workspace_id = $1
              AND sm.member_type = 'agent'
              AND a.workspace_id = $1
-             AND a.owner_id     = $12::uuid
+             AND a.owner_id     = $13::uuid
     ))
   )
 ORDER BY i.position ASC, i.created_at DESC
@@ -854,6 +865,7 @@ type ListIssuesParams struct {
 	CreatorID      pgtype.UUID   `json:"creator_id"`
 	ProjectID      pgtype.UUID   `json:"project_id"`
 	Scheduled      pgtype.Bool   `json:"scheduled"`
+	ExcludeLab     pgtype.Bool   `json:"exclude_lab"`
 	MetadataFilter []byte        `json:"metadata_filter"`
 	InvolvesUserID pgtype.UUID   `json:"involves_user_id"`
 }
@@ -889,6 +901,13 @@ type ListIssuesRow struct {
 // member assignment (`assignee_type='member' AND assignee_id=involves_user_id`)
 // because that is already the meaning of the `assignee_id` filter (tab 1
 // "Assigned to me"), and the two filters must produce disjoint result sets.
+//
+// 0.3.33: exclude_lab (bool, optional). When true, rows with
+// non-NULL lab_source are filtered out so the main workspace task
+// lists never surface lab-bound issues (the user dispatches them
+// through `/experimental/<suffix>` instead). Front-ends pass it
+// by default; the user can flip a "show experimental tasks" toggle
+// in the list toolbar to opt back in.
 func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListIssuesRow, error) {
 	rows, err := q.db.Query(ctx, listIssues,
 		arg.WorkspaceID,
@@ -901,6 +920,7 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]ListI
 		arg.CreatorID,
 		arg.ProjectID,
 		arg.Scheduled,
+		arg.ExcludeLab,
 		arg.MetadataFilter,
 		arg.InvolvesUserID,
 	)
@@ -1104,13 +1124,16 @@ WHERE i.workspace_id = $1
   AND ($4::uuid[] IS NULL OR i.assignee_id = ANY($4::uuid[]))
   AND ($5::uuid IS NULL OR i.creator_id = $5)
   AND ($6::uuid IS NULL OR i.project_id = $6)
-  AND ($7::jsonb IS NULL OR i.metadata @> $7::jsonb)
+  AND ($7::bool IS NULL
+       OR $7::bool = FALSE
+       OR i.lab_source IS NULL)
+  AND ($8::jsonb IS NULL OR i.metadata @> $8::jsonb)
   AND (
-    $8::uuid IS NULL
+    $9::uuid IS NULL
     OR (i.assignee_type = 'agent' AND i.assignee_id IN (
           SELECT a.id FROM agent a
            WHERE a.workspace_id = $1
-             AND a.owner_id     = $8::uuid
+             AND a.owner_id     = $9::uuid
     ))
     OR (i.assignee_type = 'squad' AND i.assignee_id IN (
           SELECT sm.squad_id
@@ -1118,14 +1141,14 @@ WHERE i.workspace_id = $1
             JOIN squad s ON s.id = sm.squad_id
            WHERE s.workspace_id = $1
              AND sm.member_type = 'member'
-             AND sm.member_id   = $8::uuid
+             AND sm.member_id   = $9::uuid
           UNION
           SELECT s.id
             FROM squad s
             JOIN agent a ON a.id = s.leader_id
            WHERE s.workspace_id = $1
              AND a.workspace_id = $1
-             AND a.owner_id     = $8::uuid
+             AND a.owner_id     = $9::uuid
           UNION
           SELECT sm.squad_id
             FROM squad_member sm
@@ -1134,7 +1157,7 @@ WHERE i.workspace_id = $1
            WHERE s.workspace_id = $1
              AND sm.member_type = 'agent'
              AND a.workspace_id = $1
-             AND a.owner_id     = $8::uuid
+             AND a.owner_id     = $9::uuid
     ))
   )
 ORDER BY i.position ASC, i.created_at DESC
@@ -1147,6 +1170,7 @@ type ListOpenIssuesParams struct {
 	AssigneeIds    []pgtype.UUID `json:"assignee_ids"`
 	CreatorID      pgtype.UUID   `json:"creator_id"`
 	ProjectID      pgtype.UUID   `json:"project_id"`
+	ExcludeLab     pgtype.Bool   `json:"exclude_lab"`
 	MetadataFilter []byte        `json:"metadata_filter"`
 	InvolvesUserID pgtype.UUID   `json:"involves_user_id"`
 }
@@ -1186,6 +1210,7 @@ func (q *Queries) ListOpenIssues(ctx context.Context, arg ListOpenIssuesParams) 
 		arg.AssigneeIds,
 		arg.CreatorID,
 		arg.ProjectID,
+		arg.ExcludeLab,
 		arg.MetadataFilter,
 		arg.InvolvesUserID,
 	)
@@ -1416,6 +1441,37 @@ func (q *Queries) UpdateIssue(ctx context.Context, arg UpdateIssueParams) (Issue
 		&i.LabMode,
 	)
 	return i, err
+}
+
+const updateIssueAssignee = `-- name: UpdateIssueAssignee :exec
+UPDATE issue SET
+    assignee_type = $2,
+    assignee_id = $3,
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $4
+`
+
+type UpdateIssueAssigneeParams struct {
+	ID           pgtype.UUID `json:"id"`
+	AssigneeType pgtype.Text `json:"assignee_type"`
+	AssigneeID   pgtype.UUID `json:"assignee_id"`
+	WorkspaceID  pgtype.UUID `json:"workspace_id"`
+}
+
+// 0.3.33: dedicated writer for the (assignee_type, assignee_id)
+// pair so post-commit auto-assign after a lab-bound create
+// (IssueService.assignDefaultLabAgent) doesn't have to round-trip
+// through the full UpdateIssue payload. Pass NULLs to clear. The
+// workspace_id predicate keeps it tenant-safe (mirrors the other
+// Update*Issue helpers above).
+func (q *Queries) UpdateIssueAssignee(ctx context.Context, arg UpdateIssueAssigneeParams) error {
+	_, err := q.db.Exec(ctx, updateIssueAssignee,
+		arg.ID,
+		arg.AssigneeType,
+		arg.AssigneeID,
+		arg.WorkspaceID,
+	)
+	return err
 }
 
 const updateIssueLabMode = `-- name: UpdateIssueLabMode :exec

@@ -752,14 +752,27 @@ interface IssueDetailProps {
    * detail bundle slim. Optional — web leaves this undefined and
    * the sidebar just shows the "Open lab panel" link.
    */
-  renderLabInline?: (issueId: string) => React.ReactNode;
+  /**
+   * Workspace-scoped lab route suffix (e.g. "claude-lab") used by
+   * LabWorkspacePanel to surface a single "打开实验室面板 →" jump
+   * link in the right column. The detailed lab view lives at
+   * `/experimental/<suffix>` and is *not* mounted inline on the
+   * issue page — inline visualization crowded the issue detail
+   * chrome (~600px height) and hid the description / activity
+   * flows.
+   *
+   * Web (no renderLabInline wiring) leaves this undefined and the
+   * panel renders its compact status + bound-for-issue chrome only,
+   * which is enough for users who came in from the issue list.
+   */
+  labRouteSuffix?: string;
 }
 
 // ---------------------------------------------------------------------------
 // IssueDetail
 // ---------------------------------------------------------------------------
 
-export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId, renderLabInline }: IssueDetailProps) {
+export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId, labRouteSuffix }: IssueDetailProps) {
   const { t } = useT("issues");
   const timeAgo = useTimeAgo();
   const id = issueId;
@@ -1512,7 +1525,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               onUpdate={handleUpdateField}
               align="start"
               lockedReason={
-                issue.lab_source
+                // 0.3.33: only mythos_swarm still requires the
+                // assignee to be cleared before re-picking. Other
+                // labs ship their own runtime agents and the
+                // user is free to keep a manual assignee on top.
+                issue.lab_source === "mythos_swarm"
                   ? t(($) => $.lab_section.clear_lab_first_tooltip)
                   : undefined
               }
@@ -1723,11 +1740,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       {issue.lab_source && (
         <IssueLabsSection issueId={id} labSource={issue.lab_source} />
       )}
-      {issue.lab_source && renderLabInline && (
+      {issue.lab_source && (
         <LabWorkspacePanel
           issueId={id}
           labSource={issue.lab_source}
-          renderInline={renderLabInline}
+          routeSuffix={labRouteSuffix}
         />
       )}
 

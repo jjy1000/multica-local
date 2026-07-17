@@ -1,0 +1,64 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "code_canvas",
+    "flag": "code_canvas",
+    "title": { "en": "Code Canvas (internal lab)", "zh": "代码画布（内部实验）" },
+    "description": {
+      "en": "Internal P9 pilot: a stub subprocess wired through every Labs platform layer. Off by default. Used to verify the manifest → catalog → registry → IPC pipeline end-to-end before real labs are added.",
+      "zh": "内部 P9 试点：通过 Labs 平台所有层的 stub 子进程。默认关闭。在真实实验加入前用于端到端验证 manifest → catalog → registry → IPC 链路。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "workspace": {
+      "reserved_slug": "code-canvas",
+      "name": "Code Canvas 实验室",
+      "description": "Internal P9 pilot workspace. Stub subprocess only."
+    },
+    "capabilities": {
+      "skills": [],
+      "agents": [],
+      "squads": [],
+      "mcp_servers": [],
+      "permissions": ["agent:invoke"]
+    },
+    "entry_points": {
+      "sidebar": [
+        { "key": "code_canvas", "label_key": "experimental_code_canvas", "route": "/experimental/code-canvas" }
+      ],
+      "settings": { "route": "/experimental/code-canvas" }
+    },
+    "runtime": {
+      "kind": "subprocess",
+      "binary": "code-canvas/run.sh",
+      "args": [],
+      "health_path": "/health",
+      "ready_timeout_ms": 10000,
+      "stop_grace_ms": 5000,
+      "on_ready": "registerUpstream",
+      "on_stop": "unregisterUpstream",
+      "on_missing": "service not bundled — drop the binary into apps/desktop/vendor/code-canvas/ and re-run bundle-cli"
+    },
+    "surface": {
+      "proxy_prefix": "/experimental/code-canvas",
+      "loopback_service": "code_canvas"
+    },
+    "resources": {
+      "installable": false,
+      "lockable_resources": [],
+      "install_handler": ""
+    },
+    "safety": {
+      "init_timeout_ms": 10000,
+      "burst": { "threshold": 3, "window_seconds": 60 },
+      "panic_recover": true,
+      "ip_allowlist": ["127.0.0.0/8"]
+    },
+    "graduation": {
+      "promote_to": "features/code_canvas",
+      "auto_disable_after": 0
+    }
+  }
+}

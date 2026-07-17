@@ -1,0 +1,128 @@
+appId: ai.multica.desktop
+productName: Multica
+directories:
+  buildResources: build
+files:
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.*"
+  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}"
+  - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+protocols:
+  - name: Multica
+    schemes:
+      - multica
+asarUnpack:
+  - resources/**
+  # 0.3.0 standalone ships native Postgres.app under resources/pg/ + the
+  # embedded-postgres JS wrapper + @embedded-postgres/darwin-arm64 native
+  # binaries. child_process APIs do not resolve asar paths, so anything the
+  # bundled `migrate` / `server` / `multica daemon` binaries reach into at
+  # runtime has to live under app.asar.unpacked. Without these entries the
+  # packaged .app fails with `Cannot find package 'embedded-postgres'` the
+  # moment server-manager tries to spawn the bundled `migrate` binary
+  # (memory 0.2.89.5.1 asar unpack failure).
+  - resources/pg/**
+  - resources/bin/**
+  # 0.3.8 ships two experimental services under apps/desktop/resources:
+  # - pythia/    — staged Python source + a thin bash wrapper, spawned by
+  #                pythia-manager.ts at runtime when the pythia_oracle Labs
+  #                flag is on
+  # - openscience/ — the Bun-built Claude Science single binary, spawned
+  #                by claude-science-manager.ts when the claude_science
+  #                Labs flag is on. The bundled binary is invoked headlessly
+  #                (no model keys inherited from Multica's provider chain)
+  #                and serves its workspace UI back over loopback for the
+  #                Electron iframe.
+  # 0.3.16 adds openscience-prompts/ — the raw OpenScience agent prompt
+  # templates (research/biology/physics/ml/...) that the Multica-native
+  # skills-browser at /experimental/claude-science reads verbatim. We
+  # ship only the .txt files (not the binary), so the unpack pattern is
+  # exact and electron-vite never accidentally bundles them.
+  # child_process does not get asar redirects; both unpack rules are
+  # required to keep manager spawn ENOENT-free.
+  - resources/pythia/**
+  - resources/openscience/**
+  - resources/openscience-prompts/**
+  - node_modules/embedded-postgres/**
+  - node_modules/@embedded-postgres/darwin-arm64/**
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - dmg
+    - zip
+  # Hardcoded name avoids the `@multica/desktop-*` subdirectory that
+  # `${name}` produces for scoped package names.
+  # Naming scheme: multica-desktop-<version>-<platform>-<arch>.<ext>
+  # so the filename alone surfaces kind, version, platform, and CPU arch.
+  artifactName: multica-desktop-${version}-mac-${arch}.${ext}
+  # Notarize via notarytool. Requires APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD
+  # + APPLE_TEAM_ID env vars at package time. Non-mac contributors are
+  # unaffected because `pnpm package` already requires the Developer ID
+  # signing cert — notarization is a strict superset.
+  notarize: true
+dmg:
+  artifactName: multica-desktop-${version}-mac-${arch}.${ext}
+linux:
+  # Override the Linux executable name to avoid leaking the scoped npm
+  # package name (`@multica/desktop`) into the installed binary, the
+  # `.desktop` file, and the hicolor icon filename. Without this override
+  # electron-builder defaults `executableName` to the package `name`,
+  # which after slash-stripping becomes `@multicadesktop` — producing
+  # `/usr/share/applications/@multicadesktop.desktop`,
+  # `Icon=@multicadesktop`, and
+  # `/usr/share/icons/hicolor/*/apps/@multicadesktop.png`. The leading `@`
+  # violates the freedesktop desktop-entry naming guidance, so GNOME /
+  # Ubuntu fail to associate the running window with the `.desktop` entry
+  # and fall back to the theme's default app icon (the Settings gear on
+  # Yaru). Forcing `multica` makes every Linux identity slot agree and
+  # matches `StartupWMClass=Multica` (productName-derived).
+  executableName: multica
+  # Pin StartupWMClass to the WM_CLASS Electron emits on X11. Electron
+  # derives WM_CLASS from `app.getName()`, which reads the *packaged*
+  # ASAR's `package.json` — `productName` if present, otherwise `name`.
+  # PR #2437 assumed electron-builder.yml's productName fed app.getName()
+  # directly; it does not. With our source package.json carrying only
+  # `name: "@multica/desktop"`, packaged Electron emitted
+  # `WM_CLASS=@multica/desktop`, which broke association with this entry
+  # and reproduced #2515 on Ubuntu 0.2.31. The fix lives in two places
+  # outside this file — `productName: "Multica"` on the source
+  # package.json (so the ASAR carries it) and `app.setName("Multica")`
+  # in the production branch of `src/main/index.ts` (belt-and-braces).
+  # Keep `StartupWMClass: Multica` pinned here so any future drift in
+  # those two anchors shows up as a diff against this declaration.
+  # Verification on a real Ubuntu install: `xprop WM_CLASS` on a running
+  # window prints `Multica` for both fields.
+  desktop:
+    entry:
+      StartupWMClass: Multica
+  # Point at pre-rendered hicolor sizes. electron-builder *can* generate
+  # 16/24/32/48/64/128/256/512 from a single build/icon.png, but the
+  # auto-generation silently shipped only the 1024×1024 source in our
+  # v0.2.31 .deb (#2515 reproduces this) — leaving GNOME's hicolor lookup
+  # with no usable size and falling back to the theme default. Shipping
+  # the sizes from source removes the toolchain dependency entirely.
+  icon: build/icons
+  target:
+    - AppImage
+    - deb
+    - rpm
+  artifactName: multica-desktop-${version}-linux-${arch}.${ext}
+rpm:
+  # Disable RPM build-id symlinks. Electron apps embed the upstream Electron
+  # binary, whose GNU build-id is identical across every app shipping the same
+  # Electron version (Slack, VS Code, Discord, ...). Without this, our RPM
+  # would own /usr/lib/.build-id/<hash> paths and collide with any other
+  # Electron RPM already installed, breaking `dnf install` on Fedora/RHEL.
+  fpm:
+    - "--rpm-rpmbuild-define=_build_id_links none"
+win:
+  target:
+    - nsis
+  artifactName: multica-desktop-${version}-windows-${arch}.${ext}
+# Localized build: no `publish:` block. electron-builder will skip generating
+# latest.yml / latest-mac.yml / blockmaps, and electron-updater has no
+# release channel to query. To re-enable upstream publishing, restore the
+# github provider block and the releaseType: release line that aligns with
+# the CLI's `gh release create` flow.
+npmRebuild: false

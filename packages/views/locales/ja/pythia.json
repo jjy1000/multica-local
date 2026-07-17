@@ -52,7 +52,7 @@
     "scenario_send": "送信",
     "running": "推演中…",
     "idle": "アイドル",
-    "run_oracle": "今すぐ推演",
+    "run_oracle": "今すぐ予測",
     "world_brief_title": "ワールドビュー",
     "world_event_count": "{{count}} 件のイベント",
     "world_domains": "{{count}} ドメイン",

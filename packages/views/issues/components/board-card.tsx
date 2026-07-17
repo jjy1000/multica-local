@@ -8,7 +8,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { toast } from "sonner";
 import type { Issue, UpdateIssueRequest } from "@multica/core/types";
 import { formatDateOnly, isPastDateOnly } from "@multica/core/issues/date";
-import { CalendarClock, CalendarDays, FlaskConical } from "lucide-react";
+import { CalendarClock, CalendarDays } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
@@ -206,8 +206,11 @@ export const BoardCardContent = memo(function BoardCardContent({
         );
       })()}
 
-      {/* Chip row: project + labels + lab badge */}
-      {(showProject || showLabels || issue.lab_source) && (
+      {/* Chip row: project + labels. Lab badge already shows next to
+          the priority/identifier row above (LabBadge), so we don't
+          also render a generic "Lab" pill here — that would double
+          the chrome for every issue with a lab_source. */}
+      {(showProject || showLabels) && (
         <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
           {showProject && (
             <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground max-w-[160px]">
@@ -218,12 +221,6 @@ export const BoardCardContent = memo(function BoardCardContent({
           {showLabels && labels.map((label) => (
             <LabelChip key={label.id} label={label} />
           ))}
-          {issue.lab_source && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-1.5 py-0.5 text-[10px] text-purple-600 dark:text-purple-400">
-              <FlaskConical className="size-2.5" />
-              Lab
-            </span>
-          )}
         </div>
       )}
 

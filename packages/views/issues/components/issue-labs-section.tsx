@@ -8,6 +8,7 @@ import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { api } from "@multica/core/api";
 import { AppLink } from "../../navigation";
+import { LabBadge } from "./lab-badge";
 import { useT } from "../../i18n";
 
 // Hard-coded mapping from experimental flag key to its experimental
@@ -113,7 +114,7 @@ export function IssueLabsSection({ issueId, labSource }: { issueId: string; labS
         className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors mb-2 hover:bg-accent/70 ${open ? "" : "text-muted-foreground hover:text-foreground"}`}
         onClick={() => setOpen((v) => !v)}
       >
-        <FlaskConical className="h-3 w-3 shrink-0 text-purple-500" />
+        <LabBadge labSource={labSource} />
         <span>{t(($) => $.lab_section.section_title)}</span>
         <ChevronRight className={`!size-3 shrink-0 stroke-[2.5] text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
       </button>

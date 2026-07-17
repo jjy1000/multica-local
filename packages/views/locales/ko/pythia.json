@@ -52,7 +52,7 @@
     "scenario_send": "보내기",
     "running": "추론 중…",
     "idle": "유휴",
-    "run_oracle": "지금 추론",
+    "run_oracle": "지금 예측",
     "world_brief_title": "월드 뷰",
     "world_event_count": "이벤트 {{count}}건",
     "world_domains": "{{count}}개 도메인",

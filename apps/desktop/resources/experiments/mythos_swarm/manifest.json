@@ -1,0 +1,45 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "mythos_swarm",
+    "flag": "mythos_swarm",
+    "title": { "en": "Mythos Swarm Topology", "zh": "Mythos 蜂群拓扑" },
+    "description": {
+      "en": "Multi-agent RDT topology: a prelude agent plans, parallel loop agents iterate until spectral convergence, and a coda agent synthesizes. Off by default — enable to decompose unknown problems through the multica-mythos Skill.",
+      "zh": "多智能体 RDT 拓扑:prelude 智能体规划,并行 loop 智能体迭代至谱收敛,coda 智能体汇总。默认关闭 — 通过 multica-mythos 技能将未知问题解耦为子任务。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "workspace": {
+      "reserved_slug": "mythos-swarm",
+      "name": "Mythos Swarm 实验室",
+      "description": "Mythos Swarm topology workspace."
+    },
+    "capabilities": {
+      "skills": ["multica-mythos"],
+      "agents": ["mythos_prelude", "mythos_loop_researcher", "mythos_loop_coder", "mythos_loop_analyst", "mythos_coda"],
+      "squads": ["mythos-swarm"],
+      "mcp_servers": [],
+      "permissions": ["issue:read", "issue:write", "agent:invoke"]
+    },
+    "entry_points": {
+      "sidebar": [
+        { "key": "mythos_swarm", "label_key": "experimental_mythos", "route": "/experimental/mythos" }
+      ]
+    },
+    "runtime": { "kind": "headless" },
+    "resources": {
+      "installable": true,
+      "lockable_resources": ["workspace", "skill", "agent", "squad", "member"],
+      "install_handler": "mythos_install"
+    },
+    "safety": {
+      "init_timeout_ms": 30000,
+      "burst": { "threshold": 3, "window_seconds": 60 },
+      "panic_recover": true,
+      "ip_allowlist": ["127.0.0.0/8"]
+    }
+  }
+}

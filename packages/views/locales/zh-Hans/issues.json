@@ -468,6 +468,7 @@
     "queued_indicator": "排队中",
     "queued_tooltip": "已排队等待实验智能体 — 资源空闲即启动",
     "no_flag_title": "实验室未启用",
+    "bound_for_issue": "已绑定",
     "no_flag_hint": "到 设置 → 试验性功能 打开某个实验标签后,本 issue 即可派单。",
     "clear_lab_first_tooltip": "请先清空实验室,再选择执行人",
     "lab_visualization_title": "实验室工作台",

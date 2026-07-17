@@ -463,6 +463,7 @@
     "queued_indicator": "キュー待ち",
     "queued_tooltip": "ラボエージェントのキューにあります — ワーカーが空けば開始します",
     "no_flag_title": "ラボは無効",
+    "bound_for_issue": "バインド済み",
     "no_flag_hint": "設定 → 試験的機能 でラボフラグを有効にすると、このイシューからエージェントをディスパッチできます。",
     "clear_lab_first_tooltip": "まずラボを解除してください",
     "lab_visualization_title": "ラボワークスペース",

@@ -1,0 +1,11 @@
+-- 138_chat_session_is_agent_intro
+-- ----------------------------------------------------------------------------
+-- Flags a chat_session auto-created when its agent was created, so its first
+-- turn is a proactive self-introduction from the agent. Such a session carries
+-- NO visible user message: the intro run is driven server-side
+-- (`server/internal/daemon/prompt.go` ChatIntro prefix) so the thread reads as
+-- the agent messaging its creator first, not the creator prompting the agent.
+--
+-- Renumbered from upstream 154 to 138.
+-- ----------------------------------------------------------------------------
+ALTER TABLE chat_session ADD COLUMN IF NOT EXISTS is_agent_intro BOOLEAN NOT NULL DEFAULT FALSE;

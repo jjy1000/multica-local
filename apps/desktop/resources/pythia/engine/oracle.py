@@ -1,0 +1,395 @@
+"""The Forecasting Engine — feeds a world snapshot to the LLM via the
+Multica runtime bridge and gets back predictions.
+
+When driven by the Multica desktop (``MULTICA_REQUIRED=1``, see
+``.omc/decisions/pythia-multica-only.md``) every external LLM
+touchpoint here — ``_complete``, ``health``, ``list_models`` — is
+forced through the Multica provider chain at
+``<MULTICA_AGENT_RUNTIME_URL>/api/runtime/llm-call`` using the
+user's JWT. The Ollama / local-LLM fallback below is unreachable
+from the desktop build but stays available to developers running
+the engine standalone (without ``MULTICA_REQUIRED=1``).
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+from typing import Awaitable, Callable, Optional
+
+import httpx
+
+from .config import CONFIG, HTTPX_VERIFY
+from .models import Prediction, WorldBrief
+
+log = logging.getLogger("pythia.oracle")
+StageCB = Optional[Callable[[str, str], Awaitable[None]]]
+
+
+def _multica_required_blocking() -> bool:
+    """True iff the runtime is being driven by the Multica desktop and
+    forbids direct calls to local LLMs. See
+    `.omc/decisions/pythia-multica-only.md` for the contract.
+    """
+    return os.environ.get("MULTICA_REQUIRED", "").strip() == "1"
+
+
+SYSTEM = (
+    "You are PYTHIA, a forecasting expert. You watch a live snapshot "
+    "of world activity (conflicts, disasters, seismic events, "
+    "geopolitics, news) and predict concrete future events. Be "
+    "specific, plausible, and grounded in the snapshot. Output "
+    "strictly JSON."
+)
+
+_HORIZON_LABEL = {"24h": "the next 24 hours", "week": "the next week",
+                  "month": "the next month", "year": "the next year"}
+
+
+def _norm_horizon(h: str) -> str:
+    h = (h or "").lower()
+    if "24" in h or "day" in h or "tomorrow" in h or "hour" in h:
+        return "24h"
+    if "week" in h:
+        return "week"
+    if "month" in h:
+        return "month"
+    if "year" in h:
+        return "year"
+    return "week"
+
+
+class Oracle:
+    def __init__(self) -> None:
+        self.base = CONFIG.llm_base_url.rstrip("/")
+        self.key = CONFIG.llm_api_key
+        self.model = CONFIG.llm_model
+
+    async def health(self) -> bool:
+        # 0.3.32 desktop Multica-only contract: when bound by the
+        # desktop manager we never probe a local LLM and report
+        # "down" so any caller depending on oracle.health() learns
+        # to fetch Multica runtime liveness from the proxy instead.
+        # This oracle.health() is a vestigial signal kept for the
+        # standalone dev path.
+        if _multica_required_blocking():
+            log.debug("oracle.health: MULTICA_REQUIRED=1, skipping Ollama probe")
+            return False
+        try:
+            async with httpx.AsyncClient(verify=HTTPX_VERIFY, timeout=5) as c:
+                r = await c.get(f"{self.base}/models", headers={"Authorization": f"Bearer {self.key}"})
+                return r.status_code < 500
+        except Exception:  # noqa: BLE001 — health is a status dot; never raise
+            return False
+
+    async def list_models(self) -> list[str]:
+        """List chat-capable models available to the active LLM backend.
+
+        0.3.32 desktop contract: when ``MULTICA_REQUIRED=1`` the
+        Multica runtime governs the model catalog (see
+        ``/api/runtime/models``); this method returns ``[]`` and the
+        UI reads the live list from the proxy. The Ollama probe is
+        retained for standalone dev runs.
+        """
+        if _multica_required_blocking():
+            log.debug("oracle.list_models: MULTICA_REQUIRED=1, skipping Ollama probe")
+            return []
+        try:
+            async with httpx.AsyncClient(verify=HTTPX_VERIFY, timeout=8) as c:
+                r = await c.get(f"{self.base}/models", headers={"Authorization": f"Bearer {self.key}"})
+                r.raise_for_status()
+                data = r.json().get("data", [])
+                names = sorted({m.get("id", "") for m in data if m.get("id")})
+                # drop embedding-only models — they can't do chat completions
+                return [n for n in names if n and "embed" not in n.lower()]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _prompt(self, brief: WorldBrief) -> str:
+        horizons = ", ".join(f'"{h}"' for h in CONFIG.horizons)
+        spans = "; ".join(f"{h} = {_HORIZON_LABEL.get(h, h)}" for h in CONFIG.horizons)
+        return (
+            f"=== LIVE WORLD SNAPSHOT ({brief.event_count} signals) ===\n{brief.text}\n\n"
+            f"Note: any [MARKET-ODDS] signals are real-money crowd probabilities from Polymarket — "
+            f"treat them as strong anchors; you may sharpen or disagree with them, but stay calibrated.\n"
+            f"Any [FUTURES] signals are forward-looking prices: a curve in backwardation means the market "
+            f"is paying a premium for delivery now (physical tightness / supply stress); a VIX jump means "
+            f"equity markets are pricing near-term turmoil. Read them as the market's own forecast.\n"
+            f"Give {CONFIG.predictions_per_horizon} concrete predictions for EACH horizon ({spans}).\n"
+            f"Return ONLY a JSON array. Each element exactly:\n"
+            f'{{"statement": "<specific predicted event>", "horizon": <one of {horizons}>, '
+            f'"probability": <integer 0-100>, "reasoning": "<one sentence grounded in the snapshot>", '
+            f'"location": "<the place this is about, e.g. Strait of Hormuz>", '
+            f'"lat": <approx latitude or null>, "lng": <approx longitude or null>}}\n'
+            f"JSON array only — no markdown, no commentary."
+        )
+
+    async def predict(self, brief: WorldBrief, on_stage: StageCB = None) -> list[Prediction]:
+        if on_stage:
+            await on_stage("thinking", f"asking {self.model}")
+        text = await self._chat(self._prompt(brief))
+        preds = self._parse(text, brief.id)
+        log.info("oracle produced %d predictions", len(preds))
+        return preds
+
+    async def _chat(self, user: str) -> str:
+        return await self._complete([{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}], 1400)
+
+    async def _complete(self, messages: list[dict], max_tokens: int = 900, model: str | None = None) -> str:
+        """Call the LLM via the Multica runtime bridge.
+
+        0.3.16+: PYTHIA no longer spawns Ollama or MiroFish locally. The desktop
+        pythia-manager injects ``MULTICA_AGENT_RUNTIME_URL`` (e.g. ``http://127.0.0.1:8090``)
+        and ``MULTICA_API_TOKEN`` (the active user's JWT). We POST an OpenAI-compatible
+        ``/chat/completions`` request to ``<runtime>/api/runtime/llm-call``, which the
+        Multica server fulfills through the user's configured provider chain
+        (Settings → 模型). Multica is the single source of truth for which model
+        runs; PYTHIA just composes prompts.
+
+        0.3.32 desktop contract: when ``MULTICA_REQUIRED=1`` is set (by the
+        Multica manager), this method MUST go through the Multica bridge. If
+        we somehow slip past that branch with the env still set, we fail fast
+        rather than silently contacting an external LLM — the desktop build
+        has no license to talk to anyone besides the user's Multica provider
+        chain. The legacy Ollama fallback stays reachable only for developers
+        running the engine standalone (without ``MULTICA_REQUIRED=1``) so
+        upstream test fixtures keep working.
+        """
+        runtime_url = os.environ.get("MULTICA_AGENT_RUNTIME_URL", "").rstrip("/")
+        multica_required = _multica_required_blocking()
+        if not runtime_url and not multica_required:
+            # Dev-mode standalone: drive the engine against an arbitrary
+            # OpenAI-compatible endpoint declared in CONFIG.llm_base_url.
+            body = {"model": model or self.model, "messages": messages,
+                    "temperature": CONFIG.temperature, "max_tokens": max_tokens}
+            async with httpx.AsyncClient(verify=HTTPX_VERIFY, timeout=CONFIG.request_timeout) as c:
+                r = await c.post(f"{self.base}/chat/completions", json=body,
+                                 headers={"Authorization": f"Bearer {self.key}"})
+                r.raise_for_status()
+                msg = r.json()["choices"][0]["message"]
+                # Reasoning models (gemma4, qwen3, …) put their answer in `content` but
+                # stream chain-of-thought into a separate `reasoning` field. If the token
+                # budget was spent on CoT, `content` comes back empty — fall back to
+                # `reasoning` so JSON extraction still has something to parse.
+                return (msg.get("content") or "").strip() or (msg.get("reasoning") or "")
+        if not runtime_url:
+            # MULTICA_REQUIRED=1 but no runtime URL was injected → fail loud.
+            raise RuntimeError(
+                "pythia: MULTICA_REQUIRED=1 but MULTICA_AGENT_RUNTIME_URL is unset; "
+                "the desktop Multica runtime is unreachable. Refusing to contact "
+                "external LLM backends."
+            )
+        if multica_required and not os.environ.get("MULTICA_API_TOKEN", "").strip():
+            raise RuntimeError(
+                "pythia: MULTICA_REQUIRED=1 but MULTICA_API_TOKEN is empty; "
+                "cannot authenticate with the Multica runtime."
+            )
+        body: dict = {
+            "model": model or self.model,
+            "messages": messages,
+            "temperature": CONFIG.temperature,
+            "max_tokens": max_tokens,
+        }
+        token = os.environ.get("MULTICA_API_TOKEN", "")
+        headers = {"Authorization": f"Bearer {token}", "X-Pythia-Source": "pythia-oracle"}
+        async with httpx.AsyncClient(verify=HTTPX_VERIFY, timeout=CONFIG.request_timeout) as c:
+            r = await c.post(f"{runtime_url}/api/runtime/llm-call", json=body, headers=headers)
+            r.raise_for_status()
+            payload = r.json()
+            if "choices" in payload:
+                msg = payload["choices"][0]["message"]
+                return (msg.get("content") or "").strip() or (msg.get("reasoning") or "")
+            return (payload.get("text") or "").strip()
+
+    async def chat(self, question: str, brief, predictions, history=None,
+                   persona: tuple[str, str] | None = None, model: str | None = None) -> str:
+        """Answer a free-form question grounded in EVERY live source + current predictions.
+        `persona` = (name, lens) puts one council specialist on the line instead of the
+        oracle itself, answered by that persona's own model when `model` is set."""
+        parts = []
+        if brief:
+            parts.append(f"=== LIVE WORLD DATA — {brief.event_count} signals across {len(brief.domains)} domains ===\n{brief.text}")
+        if predictions:
+            parts.append("=== YOUR CURRENT PREDICTIONS ===\n" + "\n".join(
+                f"- [{p.horizon}] {int(p.probability * 100)}% {p.statement}" + (f" — {p.reasoning}" if p.reasoning else "")
+                for p in predictions[:24]))
+        context = "\n\n".join(parts) or "(no live data loaded yet — tell the user to run a forecast)"
+        if persona:
+            name, lens = persona
+            sys = (f"You are the {name}, one specialist on PYTHIA's forecasting council. Your expertise is "
+                   f"{lens} — answer in your own voice, through that lens, while staying grounded in the live "
+                   f"data below. Be specific and concise, cite concrete signals, give probabilities when it "
+                   f"helps, and say plainly when something is outside your lane or not covered by the data.")
+        else:
+            sys = ("You are PYTHIA, an expert watching the world through live global feeds (news, conflict, "
+                   "weather/disasters, seismic, cyber, infrastructure, and Polymarket crowd odds). Answer the "
+                   "user's question using the live data below and sound reasoning. Be specific and concise, cite "
+                   "concrete signals, and give probabilities when it helps. If the data doesn't cover something, say so.")
+        messages: list[dict] = [{"role": "system", "content": sys}]
+        for h in (history or [])[-6:]:
+            role = "assistant" if h.get("role") == "assistant" else "user"
+            messages.append({"role": role, "content": str(h.get("content", ""))[:2000]})
+        messages.append({"role": "user", "content": f"{context}\n\n— USER QUESTION —\n{question}"})
+        return await self._complete(messages, 800, model=model)
+
+    async def judge(self, forecast: dict, evidence: list[str], current_brief: str) -> tuple[str, str]:
+        """Grade one expired forecast against what actually happened.
+        Returns (verdict yes|no|unclear, one-sentence evidence)."""
+        import time as _t
+        made = _t.strftime("%Y-%m-%d", _t.gmtime(forecast["ts"] / 1000))
+        due = _t.strftime("%Y-%m-%d", _t.gmtime(forecast["resolve_after"] / 1000))
+        lines = "\n".join(f"- {t}" for t in evidence) or "(no archived signals for this window)"
+        prompt = (
+            f'FORECAST (made {made}, horizon "{forecast["horizon"]}", window closed {due}):\n'
+            f'"{forecast["statement"]}"'
+            + (f' — location: {forecast["location"]}' if forecast.get("location") else "") + "\n\n"
+            f"WORLD SIGNALS ARCHIVED DURING THE WINDOW:\n{lines}\n\n"
+            f"CURRENT WORLD SNAPSHOT (aftermath evidence):\n{current_brief[:2500]}\n\n"
+            "Did the forecast come true within its window? Judge strictly from the evidence above.\n"
+            'Return ONLY JSON: {"verdict": "yes" | "no" | "unclear", '
+            '"evidence": "<one sentence citing the deciding signal>"}\n'
+            '"yes" only if the evidence clearly shows it happened; "no" if the window closed and the '
+            "evidence shows it did not (or an event that big would surely appear above and does not); "
+            '"unclear" only if the evidence genuinely cannot decide.'
+        )
+        sys = "You are a strict, impartial resolution judge for a forecasting system. Output strictly JSON."
+        text = await self._complete([{"role": "system", "content": sys},
+                                     {"role": "user", "content": prompt}], CONFIG.judge_max_tokens)
+        for chunk in self._extract_objects(text):
+            try:
+                d = json.loads(chunk)
+            except (ValueError, TypeError):
+                continue
+            v = str(d.get("verdict", "")).lower().strip()
+            if v in ("yes", "no", "unclear"):
+                return v, str(d.get("evidence", ""))[:400]
+        return "unclear", ""
+
+    @staticmethod
+    def _extract_objects(text: str) -> list[str]:
+        """Pull every balanced top-level {...} object out of arbitrary model output.
+
+        Robust to ```fences```, multiple JSON arrays, trailing prose, etc.
+        """
+        objs: list[str] = []
+        depth, start, in_str, esc = 0, None, False, False
+        for i, ch in enumerate(text):
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and start is not None:
+                    objs.append(text[start:i + 1])
+                    start = None
+        return objs
+
+    @staticmethod
+    def _clean_pred(it: dict, brief_id: str) -> Prediction | None:
+        """Normalize one raw prediction dict from model output (or None if unusable)."""
+        if not isinstance(it, dict) or not it.get("statement"):
+            return None
+        p = it.get("probability", 50)
+        try:
+            p = float(p)
+        except (TypeError, ValueError):
+            p = 50.0
+        p = max(0.0, min(1.0, p / 100.0 if p > 1 else p))
+
+        def _num(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+        lat, lng = _num(it.get("lat")), _num(it.get("lng"))
+        if lat is not None and not (-90 <= lat <= 90):
+            lat = None
+        if lng is not None and not (-180 <= lng <= 180):
+            lng = None
+        return Prediction(
+            statement=str(it["statement"]).strip()[:300],
+            horizon=_norm_horizon(str(it.get("horizon", "week"))),
+            probability=round(p, 2),
+            reasoning=str(it.get("reasoning", "")).strip()[:400],
+            location=str(it.get("location", "")).strip()[:80],
+            lat=lat, lng=lng,
+            brief_id=brief_id,
+        )
+
+    @classmethod
+    def _parse(cls, text: str, brief_id: str) -> list[Prediction]:
+        preds: list[Prediction] = []
+        for chunk in cls._extract_objects(text):
+            try:
+                it = json.loads(chunk)
+            except (ValueError, TypeError):
+                continue
+            pred = cls._clean_pred(it, brief_id)
+            if pred:
+                preds.append(pred)
+        if not preds:
+            log.warning("oracle: no predictions parsed from: %s", text[:200])
+        return preds
+
+    async def what_if(self, scenario: str, brief) -> tuple[str, str, list[Prediction]]:
+        """Counterfactual mode: inject a hypothetical event into the live world and
+        forecast the knock-on effects. Ephemeral — nothing is stored or ledgered.
+        Returns (cleaned scenario, narrative, knock-on Predictions) so the caller can
+        optionally hand the predictions to the swarm for deliberation."""
+        base = (brief.text if brief else "(no live world data loaded)")[:4000]
+        prompt = (
+            f"=== LIVE WORLD SNAPSHOT ===\n{base}\n\n"
+            f"=== HYPOTHETICAL EVENT (assume it just happened) ===\n{scenario.strip()[:400]}\n\n"
+            "Reason through the knock-on consequences, grounded in the real snapshot above.\n"
+            "Return ONLY JSON:\n"
+            '{"narrative": "<3-4 sentences tracing the chain of consequences>", "predictions": ['
+            '{"statement": "<concrete knock-on event>", "horizon": "24h"|"week"|"month", '
+            '"probability": <integer 0-100, conditional on the hypothetical>, '
+            '"reasoning": "<one sentence>", "location": "<place>", "lat": <or null>, "lng": <or null>}'
+            ", ... 4 to 6 predictions]}\nJSON only — no markdown, no commentary."
+        )
+        text = await self._complete([{"role": "system", "content": SYSTEM},
+                                     {"role": "user", "content": prompt}], CONFIG.whatif_max_tokens)
+        narrative, preds = "", []
+        for chunk in self._extract_objects(text):
+            try:
+                d = json.loads(chunk)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(d, dict) and isinstance(d.get("predictions"), list):
+                narrative = str(d.get("narrative", "")).strip()[:900]
+                preds = [p for p in (self._clean_pred(it, "") for it in d["predictions"]) if p]
+                break
+        # Salvage a truncated response (reasoning models can cut the JSON off before the
+        # wrapper's closing brace — then _extract_objects sees no balanced top-level object
+        # and the nested prediction objects are hidden). Parse from the predictions array
+        # onward, where each {...} is top-level again, and lift the narrative by regex.
+        if not preds:
+            lb = text.find("[")
+            for chunk in self._extract_objects(text[lb:] if lb != -1 else text):
+                try:
+                    o = json.loads(chunk)
+                except (ValueError, TypeError):
+                    continue
+                p = self._clean_pred(o, "")
+                if p:
+                    preds.append(p)
+        if not preds:   # model skipped the wrapper and emitted bare prediction objects
+            preds = self._parse(text, "")
+        if not narrative:
+            m = re.search(r'"narrative"\s*:\s*"(.*?)"\s*,\s*"predictions"', text, re.S)
+            if m:
+                narrative = m.group(1).replace('\\"', '"').strip()[:900]
+        return scenario.strip()[:400], narrative, preds

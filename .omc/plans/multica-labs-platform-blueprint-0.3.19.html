@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Multica Labs 平台蓝图 v0.3.19</title>
+<style>
+:root{
+  --bg:#0b0d12;
+  --bg-1:#11141b;
+  --bg-2:#171b24;
+  --line:#232936;
+  --line-2:#2d3340;
+  --text:#e6e9ef;
+  --muted:#9aa3b2;
+  --dim:#6b7383;
+  --brand:#7cf2c4;
+  --brand-2:#5cc2ff;
+  --accent:#f9c87a;
+  --warn:#ffb86b;
+  --bad:#ff6b8a;
+  --good:#7cf2c4;
+  --code:#0f1218;
+  --shadow:0 1px 0 rgba(255,255,255,.04), 0 24px 60px -30px rgba(0,0,0,.6);
+  --radius:14px;
+  --mono:ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "JetBrains Mono", "Source Code Pro", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, Roboto, system-ui, sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+a{color:var(--brand-2);text-decoration:none}
+a:hover{text-decoration:underline}
+code{font-family:var(--mono);font-size:.92em;background:rgba(255,255,255,.04);padding:.1em .4em;border-radius:6px}
+pre{font-family:var(--mono);font-size:12.5px;background:var(--code);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow:auto;line-height:1.6}
+pre code{background:none;padding:0;font-size:inherit}
+h1,h2,h3,h4{font-weight:650;letter-spacing:-.01em;margin:0}
+h1{font-size:34px;line-height:1.2;margin:8px 0 6px}
+h2{font-size:24px;line-height:1.3;margin:48px 0 12px;padding-top:24px;border-top:1px solid var(--line)}
+h3{font-size:18px;line-height:1.4;margin:24px 0 8px}
+h4{font-size:14.5px;line-height:1.4;margin:16px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+p,li{font-size:14.5px}
+li{margin:3px 0}
+.lead{color:var(--muted);font-size:15.5px;max-width:780px;margin-top:6px}
+.eyebrow{color:var(--brand);font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:600}
+.layout{display:grid;grid-template-columns:240px minmax(0,1fr) 260px;gap:36px;max-width:1440px;margin:0 auto;padding:32px 36px 96px}
+.toc-side, .toc-end{position:sticky;top:24px;align-self:start;max-height:calc(100vh - 48px);overflow:auto;padding-right:6px}
+.toc-side h4, .toc-end h4{color:var(--muted);font-size:11px;letter-spacing:.18em;text-transform:uppercase;margin:0 0 10px}
+.toc-side a, .toc-end a{display:block;color:var(--muted);font-size:13px;padding:5px 0;border-left:2px solid transparent;padding-left:8px;margin-left:-8px}
+.toc-side a:hover, .toc-end a:hover{color:var(--text);text-decoration:none}
+.toc-side a.active, .toc-end a.active{color:var(--brand);border-left-color:var(--brand);background:linear-gradient(90deg, rgba(124,242,196,.06), transparent)}
+.toc-end{font-size:12.5px}
+.hero{background:linear-gradient(180deg, rgba(124,242,196,.06), transparent 60%);border:1px solid var(--line);border-radius:18px;padding:24px 28px;margin-bottom:32px;box-shadow:var(--shadow)}
+.meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:18px}
+.meta div{background:var(--bg-1);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.meta .k{color:var(--dim);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.meta .v{color:var(--text);font-size:13.5px;margin-top:2px;font-family:var(--mono)}
+.callout{border:1px solid var(--line);border-left:3px solid var(--brand-2);background:var(--bg-1);border-radius:10px;padding:12px 14px;margin:14px 0;color:var(--text);font-size:13.5px}
+.callout.warn{border-left-color:var(--warn)}
+.callout.bad{border-left-color:var(--bad)}
+.callout.tip{border-left-color:var(--brand)}
+.callout strong{color:var(--text);display:block;margin-bottom:4px;letter-spacing:.02em}
+table{width:100%;border-collapse:separate;border-spacing:0;margin:10px 0 18px;font-size:13.5px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;background:var(--bg-1)}
+tr:hover td{background:rgba(255,255,255,.02)}
+.tag{display:inline-block;padding:2px 7px;border-radius:999px;background:rgba(124,242,196,.12);color:var(--brand);font-size:11px;letter-spacing:.05em;text-transform:uppercase;font-weight:600;border:1px solid rgba(124,242,196,.2)}
+.tag.warn{background:rgba(255,184,107,.1);color:var(--warn);border-color:rgba(255,184,107,.25)}
+.tag.bad{background:rgba(255,107,138,.1);color:var(--bad);border-color:rgba(255,107,138,.25)}
+.tag.muted{background:rgba(154,163,178,.1);color:var(--muted);border-color:rgba(154,163,178,.18)}
+.tag.accent{background:rgba(92,194,255,.1);color:var(--brand-2);border-color:rgba(92,194,255,.25)}
+.kv{display:grid;grid-template-columns:170px 1fr;gap:6px 14px;margin:8px 0 18px}
+.kv dt{color:var(--dim);font-size:12.5px}
+.kv dd{margin:0;color:var(--text);font-size:13.5px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:14px 0}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:14px 0}
+.card{background:var(--bg-1);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow)}
+.card h4{margin:0 0 6px;color:var(--text);font-size:13.5px;letter-spacing:0;text-transform:none}
+.card p{margin:4px 0;font-size:13px;color:var(--muted)}
+.arrow{display:inline-block;color:var(--dim);margin:0 4px}
+.diagram{background:var(--code);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.7;color:var(--text);white-space:pre}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--brand);margin-right:6px;vertical-align:middle}
+.dot.warn{background:var(--warn)}
+.dot.bad{background:var(--bad)}
+.dot.dim{background:var(--dim)}
+.checklist{padding-left:0;list-style:none;margin:8px 0}
+.checklist li{position:relative;padding:6px 0 6px 22px;font-size:13.5px}
+.checklist li::before{content:"";position:absolute;left:4px;top:14px;width:10px;height:10px;border:1.5px solid var(--brand);border-radius:2px}
+.checklist li::after{content:"";position:absolute;left:7px;top:15px;width:4px;height:7px;border-right:1.5px solid var(--brand);border-bottom:1.5px solid var(--brand);transform:rotate(45deg)}
+ul.tight li{margin:2px 0}
+.muted{color:var(--muted)}
+.dim{color:var(--dim)}
+hr{border:0;border-top:1px solid var(--line);margin:36px 0}
+.crumbs{font-size:12px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase;margin-bottom:12px}
+.crumbs span{color:var(--muted)}
+.pr{display:grid;grid-template-columns:54px 1fr 90px;gap:10px 14px;padding:14px 0;border-top:1px solid var(--line);align-items:start}
+.pr .id{color:var(--brand);font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:.04em}
+.pr .ttl{font-size:14.5px;font-weight:600}
+.pr .desc{color:var(--muted);font-size:13px;margin-top:3px}
+.pr .meta{color:var(--dim);font-size:11.5px;font-family:var(--mono);text-align:right;display:block;background:transparent;border:0;padding:0}
+.pr .pill{display:inline-block;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.05);color:var(--muted);font-size:11px;border:1px solid var(--line);margin-right:4px}
+.foot{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:var(--dim);font-size:12px}
+@media (max-width:1180px){.layout{grid-template-columns:200px minmax(0,1fr);}.toc-end{display:none}}
+@media (max-width:860px){.layout{grid-template-columns:1fr;padding:18px}.toc-side{display:none}.meta{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<aside class="toc-side">
+  <h4>导航</h4>
+  <a href="#top">概览</a>
+  <a href="#state">现状地图</a>
+  <a href="#intent">意图与边界</a>
+  <a href="#contract">统一契约</a>
+  <a href="#platform">平台骨架</a>
+  <a href="#phases">分阶段实施</a>
+  <a href="#pr-1">P1：catalog 扩展</a>
+  <a href="#pr-2">P2：registry 抽取</a>
+  <a href="#pr-3">P3：实验室 UI</a>
+  <a href="#pr-4">P4：runtime 沙箱</a>
+  <a href="#pr-5">P5：Skill 适配器</a>
+  <a href="#pr-6">P6：资源生命周期</a>
+  <a href="#pr-7">P7：安全网整合</a>
+  <a href="#pr-8">P8：CLI & 观察</a>
+  <a href="#pr-9">P9：内部 Lab 试点</a>
+  <a href="#pr-10">P10：毕业通道</a>
+  <a href="#graph">依赖与并行</a>
+  <a href="#risks">风险与防护</a>
+  <a href="#verify">验证清单</a>
+  <a href="#outof">非目标与延后</a>
+  <a href="#rollout">落地策略</a>
+  <a href="#appendix">附录 A：契约速查</a>
+</aside>
+
+<main>
+
+<section id="top">
+  <div class="crumbs">.omc/plans · <span>labs-platform-blueprint</span> · v0.3.19</div>
+  <span class="eyebrow">Multica Labs 平台蓝图</span>
+  <h1>把 Labs 升级为与 Multica 强集成的实验环境</h1>
+  <p class="lead">当前 Labs 是五个 flag 的集合：每个 flag 都要触碰 catalog、handler、manifest、IPC、sidebar、CLI、技能、安装器、运行时与安全网。<b>本蓝图</b>把分散的"私有舞台"收敛到一份开发者可声明、平台自动装配的<mark>统一实验契约</mark>。所有实验功能都通过 workspace、agent runtime、Skill、权限、资源、UI 渲染、生命周期与安全网进入 Multica；不允许独立长成应用、也不允许拥有"私有入口"。</p>
+  <div class="meta">
+    <div><div class="k">起点版本</div><div class="v">0.3.18</div></div>
+    <div><div class="k">目标版本</div><div class="v">0.4.0 实验室 1.0</div></div>
+    <div><div class="k">PR 数</div><div class="v">10（5 串 + 5 并行）</div></div>
+    <div><div class="k">模型</div><div class="v">Opus（契约与首要 PR）</div></div>
+  </div>
+  <div class="callout tip">
+    <strong>核心命题</strong>
+    实验功能要进入 Multica，必须以 <code>experiments/&lt;name&gt;/manifest.yaml</code>（dev） / 编译后 bundle（packaged）的形式声明：所属 flag、命名空间、所需权限、所需 agent / Skill、UI 入口、运行时进程、生命周期钩子、安全上下文。其它一律由平台装配。
+  </div>
+</section>
+
+<h2 id="state">1. 现状地图（0.3.18）</h2>
+<p>五条 flag 在多个独立坐标系中拼出来，每次新增都要重写每个坐标系：</p>
+<table>
+  <thead><tr><th>Flag</th><th>Catalog 字段</th><th>UI 入口</th><th>运行时</th><th>资源/数据</th><th>Skill 适配</th><th>安全网</th></tr></thead>
+  <tbody>
+    <tr><td><code>chat_pin_ui</code></td><td>开/关</td><td>chat-window 三元</td><td>—</td><td>—</td><td>—</td><td>通用</td></tr>
+    <tr><td><code>claude_science</code></td><td>开/关 + title/desc</td><td>sidebar 入口 + 页面</td><td>无（Multica-native）</td><td>专属 workspace + 291 skill + 5 agent + 5 squad + 5 MCP（manifest 安装）</td><td><code>multica-claude-science</code></td><td>通用</td></tr>
+    <tr><td><code>pythia_oracle</code></td><td>开/关 + title/desc</td><td>sidebar 入口 + 页面</td><td>Python FastAPI（pythia-manager + 同源代理）</td><td>—</td><td><code>multica-pythia</code> 调 <code>multica pythia status</code></td><td>通用</td></tr>
+    <tr><td><code>mythos_swarm</code></td><td>开/关 + title/desc</td><td>sidebar 入口预留</td><td>无独立进程（走 agent runtime）</td><td>专属 workspace + 5 agent + 1 squad（RDT runner）</td><td><code>multica-mythos</code> 计划</td><td>通用</td></tr>
+    <tr><td><code>agent_self_optimization</code></td><td>开/关 + title/desc</td><td>—</td><td>—</td><td>隐藏 agent + 2 autopilot + 1 skill</td><td>—</td><td>通用</td></tr>
+  </tbody>
+</table>
+<p>由此可见，<b>Catalog 只携带开/关和文案</b>，真正决定"实验能不能跑"的是另外五套分散的注册表：</p>
+<ul class="tight">
+  <li><b>安装器分发表</b> <code>installableSources</code>（<code>experimental_resources.go:25</code>）+ 每个 source 一个独立 install handler（<code>install_claude_science.go</code> / <code>install_mythos.go</code>）。</li>
+  <li><b>运行时管理器分发表</b>：<code>apps/desktop/src/main/</code> 下 <code>claude-science-manager.ts</code>（已空壳）+ <code>pythia-manager.ts</code>（仍在用）。</li>
+  <li><b>同源代理分发表</b>：<code>experimental_proxy.go:140</code> 手写 <code>r.HandleFunc("/experimental/claude-science/*", …)</code> 等。Loopback 走 <code>__experimental/upstream</code>（<code>experimental_proxy.go:152-153</code>）。</li>
+  <li><b>侧栏入口三元组</b>：<code>app-sidebar.tsx:374-375</code> 两个 <code>useExperimentalFlag</code> + 三元 if/else 链（<code>app-sidebar.tsx:760-790</code> 段）。</li>
+  <li><b>技能落地</b>：<code>server/internal/service/builtin_skills.go</code> 走 <code>go:embed builtin_skills</code> 把 SKILL.md 编进二进制；为实验扩展 loader 意味着 <b>把 embed 源替换为磁盘 + flag 钩子</b>，风险较高（见 §3 风险 R11）。</li>
+</ul>
+<p class="muted">安全侧较新，<code>safety.go</code>（345 行）+ <code>experimental_burst.go</code>（173 行）+ <code>init_watchdog.go</code>（87 行）已形成兜底链；本蓝图只补<em>如何让实验自身在声明阶段就接入它</em>，不重做安全网。</p>
+
+<h2 id="intent">2. 意图与边界</h2>
+<div class="callout">
+  <strong>用户原话（2026-07-14）</strong>
+  "把实验室作为开发者环境+基础。我可以在其中部署和开发其他实验功能……这些功能都不允许独立开发，必须适配 Multica 的环境。"
+</div>
+<h3>2.1 实验室的定位</h3>
+<ul>
+  <li><b>实验室是基础设施</b>，不是应用集合。开发者声明实验，平台装配实验。</li>
+  <li><b>实验寄生在 Multica 内</b>：workspace、agent runtime、Skill、权限模型、UI 框架、安全网都是宿主；实验不能自己带一套。</li>
+  <li><b>实验在实验室中可自由渲染、自由运行</b>，但渲染走 <code>packages/views/&lt;name&gt;-view</code>，运行走 <code>multica experimental run &lt;name&gt;</code>；两者都不能脱离 Multica 入口被发现。</li>
+  <li><b>成熟后才考虑集成到主产品</b>：蓝图终点是"毕业通道"，主产品路径不复用实验代码，只接受 catlog <code>DefaultVal=true</code> 的迁移。</li>
+</ul>
+<h3>2.2 非目标（明确不做）</h3>
+<ul>
+  <li>不做动态插件加载、不做用户上传 manifest、不做"插件商店"。</li>
+  <li>不做新 IPC 总线；实验在 <code>/__experimental/upstream</code> + <code>/experimental/&lt;name&gt;/*</code> + <code>useExperimentalFlag("&lt;name&gt;", false)</code> 三条已有管道内复用。</li>
+  <li>不引入新的 feature-flag 框架；继续在 <code>server/pkg/featureflag</code> 框架 + <code>experimental.Catalog</code> 单一权威源内扩展。</li>
+  <li>不放开 namespace；所有实验命名挂在 <code>experimental.</code> 之下，禁止污染主产品路径。</li>
+</ul>
+
+<h2 id="contract">3. 统一实验契约（核心）</h2>
+<p>每个实验是一个 <b>Manifest 描述的命名单元</b>，由 <code>experiments/&lt;name&gt;/manifest.yaml</code>（dev 路径）与 <code>apps/desktop/resources/experiments/&lt;name&gt;/manifest.json</code>（打包路径）共同提供。下面是<mark>必须</mark>字段，可选字段在 <a href="#appendix">附录 A</a>。</p>
+<pre><code># experiments/&lt;name&gt;/manifest.yaml（dev）→ manifest.json（packaged）
+apiVersion: multica.dev/experiment/v1
+kind: Experiment
+metadata:
+  name: code_canvas             # 唯一，kebab-case，禁止与主产品 namespace 重名
+  flag: code_canvas             # 与 server/internal/experimental/catalog.go 里的 Key 一致
+  title: { en: "Code Canvas", zh: "代码画布" }
+  description: { en: "...", zh: "..." }
+  # 默认 off。新增实验一律 false。开启后才需要以下字段被实际读取。
+  default_enabled: false
+  # 开发者拥有；用户不能建/改 flag。
+spec:
+  # —— 工作区：所有实验都寄生在专有 workspace（reserved slug）里
+  workspace:
+    reserved_slug: code-canvas        # 必须加入 reserved_slugs.json
+    name: "Code Canvas 实验室"
+    description: "..."
+  # —— 能力：实验需要 Multica 提供什么
+  capabilities:
+    skills: [code-canvas-tools]       # 挂载的 Skill key（见下 5.5）
+    agents: [code_canvas_mentor]      # 实验专属 agent（runner 内创建）
+    squads: [code-canvas-squad]       # 实验专属 squad
+    mcp_servers: []                   # 0 起步，未来按需扩展
+    permissions:                      # 复用 platform-level 权限枚举
+      - "issue:read"
+      - "issue:write"
+      - "agent:invoke"
+  # —— 入口：实验在宿主内的可见位置（只有这些位置允许出现实验 UI）
+  entry_points:
+    sidebar:
+      - { key: code_canvas, label_key: sidebar.code_canvas, route: /experimental/code-canvas }
+    settings:                         # 可选：直接进 Labs 卡片里的"打开"按钮
+      route: /experimental/code-canvas
+    command_palette: []               # 0 起步
+  # —— 运行时：实验如果需要本地进程，声明它
+  runtime:
+    kind: subprocess                  # enum: subprocess | inline | headless
+    binary: code-canvas/run.sh        # 相对 resources/ 子目录
+    args: []                          # 启动参数；平台追加 free port
+    health_path: /health
+    env:                              # 注入到子进程；平台自动追加 MULTICA_API_URL+MULTICA_API_TOKEN
+      CODE_CANVAS_MODE: multica
+    ready_timeout_ms: 30000
+    stop_grace_ms: 5000
+    on_ready:   registerUpstream      # platform 调用 experimental_proxy.SetLoopbackURL
+    on_stop:    unregisterUpstream
+    on_missing: "service not bundled — drop the binary into apps/desktop/vendor/code-canvas/ and re-run bundle-cli"
+  # —— 资源：实验的领域数据如何生成/隐藏/锁
+  resources:
+    installable: true
+    lockable_resources: [workspace, skill, agent, squad, member, mcp_server]
+    install_handler: code_canvas_install    # 命名 handler，平台按名字 dispatch
+    rollback_handler: code_canvas_rollback
+    visibility_table: experimental_resource_lock   # 复用 0.3.15 lock 表
+  # —— 安全：实验自带安全上下文
+  safety:
+    init_timeout_ms: 30000             # 平台 RunWithTimeout 包裹 init
+    burst: { threshold: 3, window: 60s }   # 平台 ExperimentalFlagBurst 包裹子路由
+    panic_recover: true                # 平台顶层 defer 捕获并 MarkBroken
+    ip_allowlist: [127.0.0.0/8]        # 实验注册 loopback 端点时强制
+  # —— 观察：实验的所有可观察信号走同一组端点
+  observability:
+    logs: ~/.multica/logs/experiments/&lt;name&gt;.log
+    metrics: registered_under("labs.<name>")
+    health_ipc: experimental.<name>.status
+  # —— 出口：实验向哪几个 host 协议暴露
+  surface:
+    proxy_prefix: /experimental/code-canvas
+    loopback_service: code_canvas
+  # —— 毕业通道
+  graduation:
+    # 把这个实验从 Labs 移到主产品的入口：
+    # 1. catalog.DefaultVal = true
+    # 2. 删除本 manifest（features/&lt;name&gt;.go 接管）
+    # 3. schema_migrations 注册 row
+    promote_to: features/code_canvas
+    auto_disable_after: 0    # 毕业不主动关停，由开发者删 manifest
+</code></pre>
+<div class="callout warn">
+  <strong>契约的硬约束（用户决定于 2026-07-12，仍适用于 0.3.19）</strong>
+  <ol>
+    <li><b>flag=off 完全 bypass</b>：实现里的每一行新代码必须被 <code>if useExperimentalFlag(...) || catalog.DefaultFor(...)</code> 包裹；旧路径不能 import 实验代码。</li>
+    <li><b>用户不能建 flag</b>：Labs UI 只渲染 catalog 数组，contract 不暴露 create/edit。</li>
+    <li><b>仅 Labs tab 入口</b>：sidebar 入口的可见性完全由 <code>entry_points.sidebar[*].flag</code> 驱动，<b>禁止</b>在 nav 顶栏、command palette 之外出现实验。</li>
+    <li><b>不是插件系统</b>：不暴露动态加载、不暴露用户上传 manifest；manifest 是开发者 commit 进仓库的资源。</li>
+  </ol>
+</div>
+
+<h2 id="platform">4. 平台骨架</h2>
+<p>下表给出契约<mark>每条字段</mark>落到现有哪个组件、由哪个组件装配，避免新引入平行注册表：</p>
+<table>
+  <thead><tr><th>Manifest 字段</th><th>汇编器（owner）</th><th>既有落地</th></tr></thead>
+  <tbody>
+    <tr><td><code>metadata.flag</code></td><td><code>server/internal/experimental/catalog.go</code></td><td><code>Catalog</code> 数组 + <code>DefaultFor</code></td></tr>
+    <tr><td><code>spec.workspace.reserved_slug</code></td><td><code>server/internal/handler/reserved_slugs.json</code> + <code>packages/core/paths/reserved-slugs.ts</code>（当前已含 <code>claude-science</code> + <code>pythia-oracle</code>）</td><td>0.3.15+ reserved-slugs 链；<code>pnpm generate:reserved-slugs</code> 同步</td></tr>
+    <tr><td><code>spec.capabilities.skills</code></td><td><code>server/internal/service/builtin_skills.go</code>（<code>go:embed builtin_skills</code> 编译期固化）</td><td>当前 <code>embed</code> 路径与"按 flag 动态加 Skill"互斥，见 §3 风险 R11 + PR-5 修订</td></tr>
+    <tr><td><code>spec.entry_points.sidebar[*]</code></td><td><code>packages/views/layout/app-sidebar.tsx</code></td><td>0.3.16 硬编码 → 改为 manifest 驱动</td></tr>
+    <tr><td><code>spec.runtime</code></td><td><code>apps/desktop/src/main/experimental/manager-template.ts</code></td><td><code>BaseExperimentalManager</code> 已具备所有 hooks</td></tr>
+    <tr><td><code>spec.surface.proxy_prefix</code> + <code>loopback_service</code></td><td><code>server/internal/handler/experimental_proxy.go</code></td><td>已有 <code>MountExperimentalProxies</code> 与 <code>__experimental/upstream</code></td></tr>
+    <tr><td><code>spec.resources.install_handler</code> / <code>rollback_handler</code></td><td><code>server/internal/handler/experimental_resources.go</code></td><td><code>installableSources</code> map → 改为 dispatcher table</td></tr>
+    <tr><td><code>spec.safety.*</code></td><td><code>server/internal/experimental/safety.go</code> + <code>middleware/experimental_burst.go</code>（默认 3 错误 / 60 秒，<code>experimental_burst.go:39-46</code>）+ <code>init_watchdog.go</code>（默认 30 s，<code>init_watchdog.go:30-32</code>）+ <code>panic_context.go</code></td><td>0.3.18 已有三道安全网，平台用 manifest 字段自动开</td></tr>
+    <tr><td><code>spec.observability.logs</code></td><td><code>~/.multica/logs/experiments/&lt;name&gt;.log</code>（manager-template 已落）</td><td><code>BaseExperimentalManager.start()</code> 已 redirect stdout/stderr</td></tr>
+    <tr><td><code>spec.capabilities.agents</code> + <code>squads</code></td><td>0.3.15 <code>install_&lt;name&gt;.go</code> + 实验专属 workspace + <code>experimental.Claim</code></td><td>已有 Claude Science / Mythos Swarm 模板</td></tr>
+  </tbody>
+</table>
+<p>这意味着：<b>唯一需要新增的"装配器"是 <code>ExperimentRegistry</code></b>，其它都从契约字段读。装配器本身是开发者内部的 Go 单例，不暴露 HTTP、不暴露给用户。</p>
+
+<h2 id="phases">5. 分阶段实施（10 个 PR）</h2>
+<p class="muted">每个 PR 都是 single-feature、self-contained、可独立 ship。PR 之间的依赖在 <a href="#graph">依赖图</a> 一节集中说明。</p>
+
+<h3 id="pr-1">P1 · Catalog 扩展（Opus，1 PR）</h3>
+<p>扩展 <code>Flag</code> 结构体加入 manifest 引用 + capability 列表，让 <code>Catalog</code> 成为契约的 server-side 真源。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li><code>server/internal/experimental/catalog.go</code>：<code>Flag</code> 增加 <code>ManifestPath string</code>、<code>Capabilities []Capability</code>、<code>RuntimeKind string</code>、<code>ProxyPrefix string</code>、<code>LoopbackService string</code> 字段；保持 <code>Key/DefaultVal/Title/Description</code> 不变。</li>
+  <li>新增 <code>server/internal/experimental/manifest.go</code>：<code>LoadManifest(flagKey string) (*Manifest, error)</code>，在 <code>MULTICA_RESOURCES_DIR/experiments/&lt;flagKey&gt;/manifest.json</code> 与 dev 的 <code>apps/desktop/resources/experiments/&lt;flagKey&gt;/manifest.json</code> 之间回退。</li>
+  <li>5 个 catalog 条目逐一在源里加 <code>ManifestPath</code> + <code>RuntimeKind</code> + <code>ProxyPrefix</code>。Claude Science = <code>inline</code>（无子进程），Pythia = <code>subprocess</code>，Mythos = <code>headless</code>，其它 = <code>none</code>。</li>
+  <li>新增 <code>manifest_test.go</code> 5 个 case：catalog 每条 flag 必须有 manifest；manifest 必须经过 json schema 校验；<code>ReservedSlugs</code> 中的 <code>claude-science</code>/<code>pythia-oracle</code>/<code>mythos-swarm</code> 必须在 manifest 出现且 manifest slug 一致。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li><code>go test ./internal/experimental/...</code> PASS；typecheck 0 错。</li>
+  <li>5 个 flag 全部带 manifest，<code>LoadManifest</code> 在 dev / packaged 都能 resolve。</li>
+  <li>API 行为不变（<code>GET /api/experimental-flags</code> 仍 200，shape 仍 <code>{flags: [...]}</code>，见 <a href="#verify">验证</a>）。</li>
+</ul>
+<h4>回滚</h4>
+<p>只动 <code>Flag</code> 结构体的 JSON 字段（omitempty），对外 wire 形态不变；回滚 = <code>git revert</code> + 重跑 <code>go test</code>。</p>
+
+<h3 id="pr-2">P2 · ExperimentRegistry 抽取（Opus，1 PR）</h3>
+<p>把 4 个分散的注册表（<code>installableSources</code>、代理 <code>MountExperimentalProxies</code>、sidebar 入口三元、<code>ipcMain.handle</code>）改为 <code>ExperimentRegistry</code> 单例在启动时从 manifest 装配。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li>新增 <code>server/internal/experimental/registry.go</code>：<code>type Registry struct{ ... }</code>，方法 <code>ByFlag(key) *Experiment</code>、<code>All() []*Experiment</code>、<code>MountProxies(r chi.Router)</code>、<code>InstallHandlers() map[string]InstallHandler</code>。在 <code>cmd/server/main.go</code> boot 阶段调 <code>experimental.NewRegistry(catalog)</code> 一次性装配。</li>
+  <li>改 <code>experimental_resources.go</code>：<code>installableSources</code> map 删；<code>PostExperimentalResourcesInstall</code> 改为 <code>registry.InstallHandlers()[src](ctx, userID)</code>。Claude Science / Mythos 各自的 <code>InstallClaudeScience</code> 改名 <code>InstallCodeCanvas</code>、<code>InstallMythos</code> 不变（行为不变，但通过 dispatcher 调）。</li>
+  <li>改 <code>experimental_proxy.go</code>：<code>experimentalLoopback</code> 结构体从固定两字段改为 <code>map[string]string</code>，由 <code>registry.MountProxies</code> 在启动时按 manifest 注册路由。</li>
+  <li>改 <code>apps/desktop/src/main/index.ts</code>：<code>setupClaudeScienceIPC</code> + <code>setupPythiaIPC</code> 改为 <code>setupExperimentalIPC(registry)</code>，按 manifest 注册 IPC 通道。Manager 也用 <code>registry.Spawn(key)</code> 而非硬编码的 <code>new PythiaManager(...)</code>。</li>
+  <li>测试：<code>registry_test.go</code> 验证 5 个 flag 都能解析 manifest + dispatcher 路由全对；<code>mount_proxies_test.go</code> 验证 <code>/experimental/&lt;flag&gt;/*</code> 都能 502-when-no-loopback、200-when-loopback-registered。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li>硬编码字符串 <code>claude_science</code> / <code>pythia_oracle</code> 在 server 全部代码里出现次数 ≤ 3（catalog + manifest 字段名 + 测试）。</li>
+  <li><code>make test</code> + <code>pnpm typecheck</code> 0 错；packaging 仍 <code>pnpm --filter @multica/desktop bundle-cli && CUSTOM_DMGBUILD_PATH=… package</code> 跑通。</li>
+</ul>
+<h4>回滚</h4>
+<p>每个被替换的注册表都保留旧 map 作为回退（构建 tag <code>// +build legacy_labs</code>，默认关），确保 <code>git revert</code> 后能立即恢复行为。</p>
+
+<h3 id="pr-3">P3 · 实验室 UI 装配（Opus + Sonnet，1 PR）</h3>
+<p>把 <code>app-sidebar.tsx</code> 中三段硬编码改为 manifest 驱动的 <code>&lt;ExperimentalNav /&gt;</code>；Labs tab 加"打开实验"按钮。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li><code>packages/core/experimental/queries.ts</code>：<code>useExperimentalFlags</code> 返回新增 <code>entryPoints: { sidebar: [{ key, labelKey, route }] }</code>、<code>runtime: { kind, status }</code>。zod schema 同步扩展 <code>ExperimentalFlagSchema</code>。</li>
+  <li><code>packages/views/layout/experimental-nav.tsx</code> 新增：根据 <code>entryPoints.sidebar</code> + <code>useExperimentalFlag</code> 渲染 nav 段；不再用 <code>claudeScienceEnabled</code>/<code>pythiaOracleEnabled</code> 局部状态。</li>
+  <li><code>packages/views/layout/app-sidebar.tsx</code>：删除 <code>experimentalNav</code> 常量 + 三元组，改用 <code>&lt;ExperimentalNav /&gt;</code>。</li>
+  <li><code>packages/views/settings/components/labs-tab.tsx</code>：每条 flag 卡片加"打开"按钮（仅当 <code>entryPoints.settings.route</code> 存在），<code>useNavigation().push()</code> 跳转。</li>
+  <li>测试：<code>app-sidebar.test.tsx</code> 改为"flag 启用 → 入口出现"；<code>labs-tab.test.tsx</code> 验证 entryPoints 缺失时按钮不渲染。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li>Sidebar 源码里再无 <code>claude_science</code> / <code>pythia_oracle</code> 字面量（除 type-only 引用）。</li>
+  <li>跨 5 flag 切换、Labs tab 切到 4 state（loading/error/empty/populated）行为不变。</li>
+  <li><code>pnpm test</code> 与 <code>pnpm typecheck</code> 0 错。</li>
+</ul>
+
+<h3 id="pr-4">P4 · Runtime 沙箱（Opus，1 PR）</h3>
+<p><code>spec.runtime</code> 的实现：让 <code>BaseExperimentalManager</code> 完全按 manifest 装配，零硬编码。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li><code>apps/desktop/src/main/experimental/manager-template.ts</code>：<code>ExperimentalManagerConfig</code> 加 <code>loopbackService: string</code>（manifest 里取），<code>onReady</code>/<code>onStop</code> 默认走 <code>registerExperimentalUpstream(loopbackService, url)</code>。</li>
+  <li>新增 <code>apps/desktop/src/main/experimental/manager-factory.ts</code>：<code>spawnFromManifest(flagKey, manifest): ExperimentalManager</code>，按 <code>runtime.kind</code> 选 subprocess / inline / headless 三个具体实现。inline = null-manager（与当前 claude-science-manager 等价）；headless = 走 agent runtime，不 spawn 子进程；subprocess = 当前 <code>PythiaManager</code> 模板。</li>
+  <li><code>apps/desktop/src/main/index.ts</code>：<code>setupExperimentalIPC</code> 改为遍历 registry，<code>spawnFromManifest</code> 取得 manager 后注册 <code>&lt;flagKey&gt;:get-status/get-url/ensure-up/stop</code> 四个 IPC。Renderer 端 <code>experimentalAPI.&lt;flagKey&gt;</code> 由 <code>preload.ts</code> 自动生成（type-only 暴露）。</li>
+  <li><code>apps/desktop/src/main/pythia-manager.ts</code>、<code>claude-science-manager.ts</code> 删 / 转为 <code>manager-factory</code> 的 thin adapter。</li>
+  <li>测试：<code>manager-factory.test.ts</code> 三类 runtime × 4 IPC 通道矩阵；<code>manager-template.test.ts</code> 保留 BINARY_NOT_BUNDLED + SERVICE_NEEDS_SETUP 两个预防 contract case。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li><code>pythia:ensure-up</code> 仍能在 flag=on 后 < 8s ready；<code>claude-science:ensure-up</code> 立即返 "ready"；新增 <code>code_canvas:ensure-up</code> / <code>headless</code> 类型 case 走 agent runtime。</li>
+  <li><code>pnpm typecheck</code> 0 错；Electron 39 NSAlert 风险继续由 <code>existsSync</code> + <code>SERVICE_NEEDS_SETUP</code> 兜底（<code>0.3.10-experimental-manager-enoent-fix</code>）。</li>
+</ul>
+
+<h3 id="pr-5">P5 · Skill 适配器（Opus，1 PR，<b>风险高，详见 R11</b>）</h3>
+<p>实验拥有专属 Skill 时，由平台在 <b>运行时</b> 注入 <code>SKILL.md</code>。当前 <code>server/internal/service/builtin_skills.go:10-11</code> 用 <code>go:embed builtin_skills</code> 把整目录在编译期固化，<b>无法</b>按 flag 动态增减；本 PR 必须把"编译期 embed"改为"boot 期扫描 <code>MULTICA_RESOURCES_DIR/skills/&lt;flagKey&gt;/</code> + 仅对 <code>useExperimentalFlag(key)</code> 命中的 flag 暴露"。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li><code>server/internal/service/builtin_skills.go</code>：保留 <code>go:embed</code> 作为"主产品 skill"来源，<b>追加</b> boot 阶段 <code>loadExperimentalSkills(queries, flagSnapshot)</code>：扫描 <code>MULTICA_RESOURCES_DIR/skills/&lt;flagKey&gt;/&lt;name&gt;/SKILL.md</code>，仅当 <code>flagSnapshot.IsEnabled(flagKey)</code> 为 true 时挂入 <code>Skills</code> slice。主产品 embed 不动（保证 0.3.6 前的 skill 行为零变化）。</li>
+  <li>每个实验的 <code>SKILL.md</code> 模板：固定 frontmatter <code>multica.experiment: &lt;flagKey&gt;</code>，让 loader 识别其归属。Skill body 仍由开发者写。</li>
+  <li>安全：loopback 端点（<code>/api/runtime/llm-call</code>）和 <code>__experimental/upstream</code> 仍只接受 <code>127.0.0.0/8</code> + JWT + 60/min（<code>runtime_llm_call.go:64-100</code>），manifest <code>safety.ip_allowlist</code> 字段以"附加白名单"语义合并（不替换默认）。</li>
+  <li>测试：<code>builtin_skills_test.go</code> 验证 flag=off 时不读盘、flag=on 时加入列表、SKILL.md frontmatter 缺失或 <code>experiment</code> 字段不匹配则 fail fast。Boot 路径并发安全：读盘必须 mutex + 只在 boot 跑一次。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li>已有 <code>multica-claude-science</code> / <code>multica-pythia</code> / <code>multica-mythos</code> 三个 SKILL.md 加上 frontmatter；新增实验挂 SKILL.md 不再改 server handler / mount 点。</li>
+  <li>loader 在 flag=on 后 200ms 内把新 skill 加入 list；agent 匹配命中。</li>
+  <li>主产品 9 个 embed skill 行为零变化（<code>multica-mentioning</code> / <code>multica-working-on-issues</code> / 等）。</li>
+</ul>
+
+<h3 id="pr-6">P6 · 资源生命周期（Opus + Sonnet，1 PR）</h3>
+<p>把 <code>installableSources</code>、<code>install_&lt;name&gt;.go</code>、<code>manifest.json</code> 读盘 → <code>experimental_resource_lock</code> 这一串资源生命周期收敛到 <code>Lifecycle</code> 装配器。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li><code>server/internal/handler/install_claude_science.go</code> 重构为通用 <code>install_workspace_members_skills_agents_squads.go</code>，按 manifest <code>spec.capabilities</code> 字段分阶段执行，claude_science / mythos 复用同一段代码。lock 行由 <code>resources.lockable_resources</code> 决定；不再硬编码 <code>[]ResourceType{LockWorkspace, LockSkill, …}</code>。</li>
+  <li><code>server/internal/experimental/install_dispatcher.go</code> 新增：<code>Install(ctx, flagKey, userID) error</code>。流程：<code>Restore() → 读 manifest → 装配 workspace/skills/agents/squads → Claim 每个 lock → 返回 manifest</code>。失败回滚：依次 <code>Hide()</code> 已 Claim 行；并写 <code>markInstalled</code> marker id 0 行留待重试。</li>
+  <li><code>markInstalled</code> marker id 改为不依赖 <code>pgtypeUUIDZero</code> 的硬编码；改为 <code>experimental.LifecycleMarker(flagKey)</code> 派生稳定 id（防止 0.3.15 marker 与新 lock 行 id 冲突）。</li>
+  <li>测试：<code>install_dispatcher_test.go</code> 用 5 个 flag 跑 happy path + 失败回滚；<code>lock_test.go</code> 验证 lock 行顺序、隐藏可见切换、id 冲突检测。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li>新增实验只需写 <code>manifest.yaml</code> + 在 dev 加 SKILL.md 即可上线 install；零 server handler 改动。</li>
+  <li><code>POST /api/experimental-resources/{key}/install</code> 在 5 flag 矩阵中行为与 0.3.18 等价；rollback 同样 0 数据损失（hide only）。</li>
+</ul>
+
+<h3 id="pr-7">P7 · 安全网整合（Opus，1 PR）</h3>
+<p>0.3.18 三道安全网（panic/5xx_burst/init_timeout）已经能兜底，但每个实验要"自己声明"才会被追踪。本 PR 把 <code>spec.safety</code> 字段的默认值填进 catalog，让 <code>ExperimentalFlagBurst</code> 中间件、<code>RunWithTimeout</code> 守护、<code>PopPanicFlagContext</code> 全自动作用于所有带 <code>runtime</code> 的实验。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li><code>middleware/experimental_burst.go</code>：当 handler 路由前缀命中 <code>registry.ProxyPrefix(flagKey)</code> 时自动注入 <code>X-Experimental-Flag</code> header（不依赖每个 handler 手写）。</li>
+  <li><code>cmd/server/main.go</code>：<code>defer recover()</code> 改为从 <code>spec.safety.panic_recover</code> 决定是否触发；为 <code>runtime.kind == "headless"</code> 的实验额外挂 <code>RunWithTimeout</code> 守护 init 钩子（20s 上限）。</li>
+  <li><code>panic_context.go</code>：<code>PushPanicFlagContext(flagKey, ctx)</code> 在 <code>MountProxies</code> 注册时一次性 push（per-request），renderer 写 SDK 走 default 即可。</li>
+  <li>测试：<code>safety_integration_test.go</code> 跑 5 flag × 3 触发条件（panic / 5xx / init timeout）的 MarkBroken 路径；blacklist 写入、恢复按钮 IPC 验证。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li>0.3.18 全部 26 个 safety test 仍 PASS；新增的 5 × 3 = 15 矩阵 case PASS。</li>
+  <li>Labs UI 出现 broken badge 时显示 <code>context</code>（路由 path 或 init 钩子名）。</li>
+  <li>预防 contract 维持：writeMu 串行、Reason 三处同步、panic slot defer 清理、5xx burst 中间件 dedupe、main recover 顶层 defer。</li>
+</ul>
+
+<h3 id="pr-8">P8 · CLI & 观察（Opus，1 PR）</h3>
+<p>开发者用 <code>multica experimental &lt;name&gt; &lt;subcmd&gt;</code> 调实验，输出可观察。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li><code>server/cmd/multica/cmd_experimental.go</code> 新增：<code>multica experimental list</code>（打印 registry 中所有 flag + 当前状态）、<code>multica experimental inspect &lt;name&gt;</code>（打印 manifest + lock counts + 最近 24h 任务数）、<code>multica experimental run &lt;name&gt; &lt;args...&gt;</code>（按 manifest <code>runtime</code> 调本地端点 / loopback URL）。</li>
+  <li>旧 <code>cmd_pythia.go</code> / <code>cmd_claude_science.go</code> 重构为 <code>cmd_experimental.go</code> 下的子命令，参数通过 manifest 派生。</li>
+  <li><code>~/.multica/logs/experiments/&lt;name&gt;.log</code>：manager-template 已写 stdout/stderr；新增 <code>log rotate</code> 钩子（每日 + 大小触发），保持 ≤ 50 MB 总占用。</li>
+  <li>测试：<code>cmd_experimental_test.go</code> 覆盖 list / inspect / run 三 subcommand；log rotate 单元测试。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li>开发者能在 shell 调 <code>multica experimental inspect code_canvas</code> 看到完整 manifest 摘要。</li>
+  <li><code>multica pythia status</code> 仍可用（向后兼容别名）。</li>
+</ul>
+
+<h3 id="pr-9">P9 · 内部 Lab 试点（Opus + 领域专家，1 PR）</h3>
+<p>用一个内部实验 <code>code_canvas</code> 走完整契约，作为契约的真实压力测试。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li><code>experiments/code_canvas/manifest.yaml</code> + SKILL.md（dev）+ <code>apps/desktop/resources/experiments/code_canvas/manifest.json</code>（packaged）。</li>
+  <li><code>apps/desktop/resources/code-canvas/run.sh</code> 占位（echo "code-canvas stub"）—— 不真正实现，先验证管线。</li>
+  <li><code>reserved_slugs.json</code> + <code>packages/core/paths/reserved-slugs.ts</code> 加 <code>code-canvas</code>，<code>pnpm generate:reserved-slugs</code> 重生。</li>
+  <li><code>server/internal/experimental/catalog.go</code> 加 <code>code_canvas</code> 条目（DefaultVal=false，title "Code Canvas 实验室"）。</li>
+  <li>测试：<code>code_canvas_e2e_test.go</code> 跑"开启 flag → install → 看见 sidebar 入口 → 渲染页面 → 调实验循环 → 关闭 flag → rollback → 重新开启"全链路。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li><code>pnpm typecheck</code> 0 错；<code>make test</code> PASS；schema_migrations 增加 1 行（marker + 安装 audit 字段）。</li>
+  <li>cold start 5432 + 8090 + manifest resolve < 8s；row parity 不变（marker id 0 行不算业务 row）。</li>
+  <li>DMG 仍能 ship（<code>CUSTOM_DMGBUILD_PATH=… package</code> 跑通，dmg-builder hang 已知 workaround）。</li>
+</ul>
+<h4>回滚</h4>
+<p>删除 manifest + revert catalog + remove slug；零业务数据变动。</p>
+
+<h3 id="pr-10">P10 · 毕业通道（Opus，1 PR）</h3>
+<p>把 <code>code_canvas</code> 升级到主产品路径，演示 graduation 流。</p>
+<h4>改动</h4>
+<ul class="tight">
+  <li><code>server/internal/experimental/catalog.go</code>：<code>code_canvas</code> 条目 <code>DefaultVal=true</code>，<b>不移除</b>（保留让旧 opt-out 用户能找到）。</li>
+  <li>把 <code>experiments/code_canvas/</code> 下的 manifest 搬入 <code>features/code_canvas/</code>，server handler 走主产品 router（不挂 <code>/experimental/</code> 前缀）。<code>spec.graduation.promote_to</code> 字段由本 PR 兑现。</li>
+  <li>Sidebar 入口从 "Experimental" 段迁到主产品段；Labs tab 仍可见 toggle，但默认 on。</li>
+  <li>迁移 schema_migrations 加 1 行（graduation audit）。</li>
+  <li>测试：<code>graduation_test.go</code> 验证"默认 on → 旧 toggle 仍可 opt-out → manifest 仍可重新挂回"。</li>
+</ul>
+<h4>退出标准</h4>
+<ul class="tight">
+  <li>0.4.0 标记为"实验室 1.0 毕业首个实验"；release notes 描述 graduation contract。</li>
+  <li>Labs tab 仍能 un-toggle 退回实验态（关键 safety 保留）。</li>
+  <li>typecheck + test 0 错；冷启动 / health / row parity 验证仍 0 损失。</li>
+</ul>
+
+<h2 id="graph">6. 依赖与并行图</h2>
+<pre class="diagram">P1 catalog 扩展 ──┬─► P2 registry 抽取 ──┬─► P3 实验室 UI ──┐
+                 │                       ├─► P4 runtime 沙箱 ┤
+                 │                       ├─► P6 资源生命周期 ┤
+                 │                       └─► P8 CLI & 观察 ──┤
+                 ├─► P5 Skill 适配器 ────┘                   ├─► P9 内部 Lab 试点 ──► P10 毕业
+                 └─► P7 安全网整合 ──────────────────────────┘
+
+并行规则：
+  P3, P4, P5, P6, P7, P8 互不依赖文件（各自只动 packages/views / apps/desktop / server/internal/experimental /
+  server/internal/handler / server/cmd/server / server/cmd/multica 中的互不重叠子集），可同时
+  在六个 worktree 内推进。
+串行：P1 → P9（manifest 真源） → P10（graduation）
+</pre>
+<p>5 个并行 PR（P3–P8）可在不同 worktree 同时落；P9 必须在 P2/P3/P4/P5/P6/P7/P8 全部合入后再开。</p>
+
+<h2 id="risks">7. 风险与防护</h2>
+<table>
+  <thead><tr><th>#</th><th>风险</th><th>影响</th><th>预防 contract / 缓解</th></tr></thead>
+  <tbody>
+    <tr><td>R1</td><td>manifest 漂移（server 与 desktop bundle 不同步）</td><td>flag=on 但 desktop 没资源 → 实验 502</td><td>bundle-cli.mjs 同步 emit manifest.json，CI 比较 sha256；<code>registry_test.go</code> 在 boot 阶段若 manifest 不一致直接 fail-fast</td></tr>
+    <tr><td>R2</td><td>flag=off 仍 import 实验代码</td><td>违反 0.3.12 硬约束 → 死代码隐藏 bug</td><td>PR3/P4 用 ripgrep 在 CI 验 <code>grep -RE 'import.*experimental.(claude_science|pythia|mythos)'</code> 命中 0 行（manifest path 除外）</td></tr>
+    <tr><td>R3</td><td>loopback 端点绕过 IP 白名单</td><td>安全洞</td><td><code>runtime_llm_call.go</code> 维持 127/8 + JWT + 60/min；新 manifest <code>safety.ip_allowlist</code> 字段以"附加"语义合并，不替换默认</td></tr>
+    <tr><td>R4</td><td>manifest 让实验偷偷写主产品表</td><td>数据污染</td><td>install dispatcher 写任何表前必须先 Claim 对应 lock；漏 Claim → 拒绝；CLAUDE.md forward-only migration 仍适用</td></tr>
+    <tr><td>R5</td><td>实验 manager 启动失败 → GUI NSAlert</td><td>0.2.90/0.3.10 教训</td><td><code>existsSync</code> + <code>child.once('error')</code> + <code>SERVICE_NEEDS_SETUP</code> 强制保留；<code>ManagerFactory.spawn</code> 必须调用 <code>existsSync</code></td></tr>
+    <tr><td>R6</td><td>实验 5xx 拖垮主产品</td><td>用户工作 app 不可用</td><td>0.3.18 burst 中间件维持 + 安全网在 P7 全自动挂载</td></tr>
+    <tr><td>R7</td><td>用户上传 manifest 接管代码</td><td>违反硬约束 2</td><td>loader 仅从 <code>MULTICA_RESOURCES_DIR</code> 读，路径白名单常量 <code>experiments/&lt;flagKey&gt;</code>（catalog key 决定）；不在 schema 暴露 manifest 编辑</td></tr>
+    <tr><td>R8</td><td>实验升级到主产品引入死代码</td><td>渐进性死亡</td><td>P10 graduation 时清掉 <code>experiments/&lt;name&gt;</code> 整套（CI grep 验 0 引用）；release notes 强标</td></tr>
+    <tr><td>R9</td><td>registry 启动失败 → 全部 Labs 不可用</td><td>用户切不到主产品</td><td>boot fail-fast 只在 catalog 自身损坏；缺个别 manifest 记 warning 跳过（<code>DefaultFor</code> 仍走 catalog 默认，runtime 切到 no-op）</td></tr>
+    <tr><td>R10</td><td>DMG 体积</td><td>0.3.16-patch.1 / 0.3.18 已 ship 228–240 MB；多加几个 stub 不超 1 MB</td><td><code>code_canvas</code> 只放 30 行 stub run.sh；后续实验体积大时再评估拆包</td></tr>
+    <tr><td>R11</td><td>实验 Skill 走 embed vs 磁盘冲突</td><td>当前 <code>builtin_skills.go:10-11</code> 编译期 embed；flag=off 时也强制挂入</td><td>P5 改为"embed 装主产品，boot 阶段追加实验 skill"，并保证 flag=off 时不读盘；验证 9 个主产品 skill 行为零变化</td></tr>
+    <tr><td>R12</td><td>manifest 字段变更破坏已 ship 的 DMG</td><td>0.3.18 已 ship 的 DMG 不带 manifest；冷启动时 registry 装配必须 fall back</td><td>P2 装配器对"manifest 缺失"返回 warning + flag=off 等价（catalog 默认 + 渲染为占位）；DMG 内置 5 flag 的 stub manifest</td></tr>
+    <tr><td>R13</td><td><code>schema_migrations</code> 跨 PR 漂移</td><td>0.3.3 教训：ADD COLUMN 无 IF NOT EXISTS 会让 server 不启动</td><td>每次 P6 / P9 涉及新列时必须 <code>ALTER TABLE … ADD COLUMN IF NOT EXISTS</code>，并在 <code>schema_migrations</code> 手动注册 row（<code>0.3.15-ship</code> 预防 contract）</td></tr>
+    <tr><td>R14</td><td>Graduation 留死代码</td><td>P10 搬 manifest 后旧路径残留</td><td>CI ripgrep 验 <code>experiments/code_canvas</code> 命中 0；release notes 强标；manifest 删除与 catalog <code>DefaultVal=true</code> 在同一 PR</td></tr>
+  </tbody>
+</table>
+
+<h2 id="verify">8. 验证清单</h2>
+<p>每个 PR 至少跑下面的窄集；ship 阶段跑宽集。</p>
+<div class="grid-2">
+  <div class="card">
+    <h4>窄集（每个 PR 必跑）</h4>
+    <ul class="tight">
+      <li><code>go test ./internal/experimental/...</code></li>
+      <li><code>go test ./internal/handler/... -run Experimental</code></li>
+      <li><code>go test ./internal/middleware/... -run ExperimentalFlagBurst</code></li>
+      <li><code>pnpm typecheck</code></li>
+      <li><code>pnpm test packages/core/experimental packages/views/settings</code></li>
+      <li>CI ripgrep R2 防护</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>宽集（ship 必跑）</h4>
+    <ul class="tight">
+      <li><code>make test</code></li>
+      <li><code>make check</code></li>
+      <li><code>pnpm test</code></li>
+      <li><code>pnpm exec playwright test</code></li>
+      <li><code>pnpm --filter @multica/desktop bundle-cli</code></li>
+      <li><code>bash ~/.multica/scripts/pre-update-snapshot.sh</code></li>
+      <li>DMG 路径：<code>CUSTOM_DMGBUILD_PATH=/usr/local/bin/create-dmg pnpm --filter @multica/desktop package</code></li>
+      <li><code>bash ~/.multica/scripts/verify-desktop-cold-start.sh</code> → 5432/8090 /health / row parity</li>
+    </ul>
+  </div>
+</div>
+<h3>每 PR 退出标准强制项</h3>
+<ul class="checklist">
+  <li>新增文件 ≤ 800 行；单文件 200–400 行为主</li>
+  <li>所有 export 都有 godoc / JSDoc；注释用英文</li>
+  <li>新增 sqlc query → <code>make sqlc</code>，生成的 Queries 接口必须用上</li>
+  <li>前端 schema 改 → 配套 <code>schemas.test.ts</code> regression case</li>
+  <li>新增 IPC 通道 → grep 4 处（<code>ipcMain.handle</code> / <code>contextBridge</code> / <code>preload.ts</code> / renderer 调用点）</li>
+  <li>迁移 <code>up.sql</code> + <code>down.sql</code> 双向可逆；<code>schema_migrations</code> 行注册</li>
+  <li>变更命中 <code>server-manager.ts</code> / <code>pg-bootstrap.ts</code> / <code>daemon-manager.ts</code> → 跑 desktop smoke 三检</li>
+</ul>
+
+<h2 id="outof">9. 非目标与延后</h2>
+<ul>
+  <li><b>动态插件商店 / 用户上传 manifest</b>：违反硬约束 2，永久不做。</li>
+  <li><b>Web build 的 Labs</b>：0.3.18 起 web 已支持，<code>api.listExperimentalFlags()</code> 可用；但 runtime 沙箱只 desktop。Web 用户看到的是 flag 状态 + Skills 列表，runtime 端点 502 + 友好提示。</li>
+  <li><b>Mobile Labs</b>：apps/mobile 当前不挂任何实验，1.0 不变。</li>
+  <li><b>实验间共享 runtime</b>：未来版本再考虑，本期 1 个实验 = 1 个独立进程（与 0.3.18 现状一致）。</li>
+  <li><b>实验自我升级</b>：实验不能在用户运行时改自己的 manifest；只允许开发者在 PR 升级。</li>
+  <li><b>热重载 manifest</b>：必须重启 Multica 才生效；防止实验改 schema_migrations 拖垮进程。</li>
+</ul>
+
+<h2 id="rollout">10. 落地策略</h2>
+<div class="callout">
+  <strong>节奏</strong>
+  <ol>
+    <li><b>0.3.19</b>：P1 + P2（catalog + registry 抽取），其它 0 改动。5 flag 行为不变；只是后面字段加进去了。</li>
+    <li><b>0.3.20</b>：P3 + P4 + P5 + P7 平行（UI 装配、runtime 沙箱、Skill 适配、安全网整合）。</li>
+    <li><b>0.3.21</b>：P6 + P8（资源生命周期、CLI & 观察）。</li>
+    <li><b>0.4.0-rc.1</b>：P9（内部 Lab 试点 code_canvas 走完整契约）。</li>
+    <li><b>0.4.0</b>：P10（graduation）。Release notes 标"实验室 1.0"。</li>
+  </ol>
+</div>
+<p>每个版本 ship 都跑 <a href="#verify">宽集验证</a>；ship 后立刻把"已完成 PR"写一条 <code>memory/labs-platform-0.X.Y-*.md</code>，<b>0.3.18 起的 4 道预防 contract 必须继续维护</b>（writeMu 串行、Reason 三处同步、panic slot defer 清理、5xx burst dedupe、main recover 顶层 defer；manifest path / Skill loader 不读盘 / IPC 通道不重名 / contextMode bypass）。</p>
+
+<h2 id="appendix">附录 A · 契约速查</h2>
+<h3>A.1 必填字段</h3>
+<pre><code>apiVersion: multica.dev/experiment/v1
+kind: Experiment
+metadata: { name, flag, title, description, default_enabled }
+spec.workspace: { reserved_slug, name, description }
+spec.capabilities: { skills, agents, squads, mcp_servers, permissions }
+spec.entry_points: { sidebar, settings? }
+spec.surface: { proxy_prefix, loopback_service }
+spec.safety: { init_timeout_ms, burst, panic_recover, ip_allowlist }
+</code></pre>
+<h3>A.2 可选字段</h3>
+<pre><code>spec.runtime:  # 只有需要本地进程的实验填
+spec.resources: # 只有 installable 资源才填
+spec.observability:
+spec.graduation:
+</code></pre>
+<h3>A.3 关键默认</h3>
+<table>
+  <tbody>
+    <tr><th>字段</th><th>默认</th><th>说明</th></tr>
+    <tr><td><code>default_enabled</code></td><td><code>false</code></td><td>违反 0.3.12 硬约束 1</td></tr>
+    <tr><td><code>runtime.kind</code></td><td><code>none</code></td><td>完全无子进程（等同于 inline no-op manager）</td></tr>
+    <tr><td><code>runtime.ready_timeout_ms</code></td><td><code>30000</code></td><td>对应 <code>init_watchdog.go:35</code></td></tr>
+    <tr><td><code>runtime.stop_grace_ms</code></td><td><code>5000</code></td><td>对应 <code>server-manager.ts:511-525</code></td></tr>
+    <tr><td><code>safety.init_timeout_ms</code></td><td><code>30000</code></td><td>对应 <code>init_watchdog.go:28-32</code></td></tr>
+    <tr><td><code>safety.burst</code></td><td><code>{threshold:3,window:60s}</code></td><td>对应 <code>experimental_burst.go:38-44</code></td></tr>
+    <tr><td><code>safety.panic_recover</code></td><td><code>true</code></td><td>对应 <code>cmd/server/main.go:128-138</code></td></tr>
+    <tr><td><code>safety.ip_allowlist</code></td><td><code>[127.0.0.0/8]</code></td><td>对应 <code>runtime_llm_call.go:46-48</code></td></tr>
+    <tr><td><code>permissions</code></td><td><code>[]</code></td><td>实验禁止任何 <code>workspace:admin</code> / <code>user:delete</code> 类 platform-level 高权限</td></tr>
+  </tbody>
+</table>
+<h3>A.4 与现有路径的对应</h3>
+<table>
+  <thead><tr><th>Manifest</th><th>Code/Path</th></tr></thead>
+  <tbody>
+    <tr><td>Catalog</td><td><code>server/internal/experimental/catalog.go</code></td></tr>
+    <tr><td>Provider</td><td><code>server/internal/experimental/provider.go</code></td></tr>
+    <tr><td>Lock</td><td><code>server/internal/experimental/lock.go</code></td></tr>
+    <tr><td>Visibility</td><td><code>server/internal/experimental/visibility.go</code></td></tr>
+    <tr><td>Safety</td><td><code>server/internal/experimental/safety.go</code> + <code>panic_context.go</code> + <code>init_watchdog.go</code></td></tr>
+    <tr><td>Burst middleware</td><td><code>server/internal/middleware/experimental_burst.go</code></td></tr>
+    <tr><td>Resources handler</td><td><code>server/internal/handler/experimental_resources.go</code></td></tr>
+    <tr><td>Proxy</td><td><code>server/internal/handler/experimental_proxy.go</code></td></tr>
+    <tr><td>Flags HTTP</td><td><code>server/internal/handler/experimental_flags.go</code></td></tr>
+    <tr><td>Loopback LLM</td><td><code>server/internal/handler/runtime_llm_call.go</code></td></tr>
+    <tr><td>Skills loader (主产品 embed)</td><td><code>server/internal/service/builtin_skills.go</code>（<code>go:embed builtin_skills</code>）</td></tr>
+    <tr><td>Manager template</td><td><code>apps/desktop/src/main/experimental/manager-template.ts</code></td></tr>
+    <tr><td>Upstream registry</td><td><code>apps/desktop/src/main/experimental/upstream-registry.ts</code></td></tr>
+    <tr><td>Manager safety</td><td><code>apps/desktop/src/main/experimental-safety.ts</code></td></tr>
+    <tr><td>Labs tab</td><td><code>packages/views/settings/components/labs-tab.tsx</code></td></tr>
+    <tr><td>Side panel</td><td><code>packages/views/settings/components/labs-flag-side-panel.tsx</code></td></tr>
+    <tr><td>Sidebar nav</td><td><code>packages/views/layout/app-sidebar.tsx</code></td></tr>
+    <tr><td>Core queries</td><td><code>packages/core/experimental/queries.ts</code></td></tr>
+    <tr><td>Core types</td><td><code>packages/core/types/experimental.ts</code></td></tr>
+    <tr><td>Schemas</td><td><code>packages/core/api/schemas.ts</code> (ExperimentalFlagSchema/ExperimentalFlagInstallationSchema)</td></tr>
+    <tr><td>Reserved slugs</td><td><code>server/internal/handler/reserved_slugs.json</code> → <code>packages/core/paths/reserved-slugs.ts</code></td></tr>
+  </tbody>
+</table>
+
+<hr />
+<div class="foot">
+  文件：<code>.omc/plans/multica-labs-platform-blueprint-0.3.19.html</code><br/>
+  生成时间：2026-07-14（基于 0.3.18 working app）<br/>
+  适用范围：Multica 本地化 fork，target version 0.3.19 → 0.4.0<br/>
+  关联 memory：<code>project-init-doc-2026-07-14.md</code>、<code>0.3.18-labs-safety-net-2026-07-14.md</code>、<code>0.3.17-agent-self-optimization-plugin-2026-07-14.md</code>、<code>0.3.16-multica-lab-integration-2026-07-14.md</code>、<code>0.3.15-claude-science-install-2026-07-14.md</code>、<code>0.3.6-experimental-flags-plan-2026-07-12.md</code>
+</div>
+
+</main>
+
+<aside class="toc-end">
+  <h4>本页 TOC</h4>
+  <a href="#top">概览</a>
+  <a href="#state">现状地图</a>
+  <a href="#intent">意图与边界</a>
+  <a href="#contract">统一契约</a>
+  <a href="#platform">平台骨架</a>
+  <a href="#phases">分阶段实施</a>
+  <a href="#phases">P1–P10 概览</a>
+  <a href="#pr-1">P1 catalog 扩展</a>
+  <a href="#pr-2">P2 registry 抽取</a>
+  <a href="#pr-3">P3 实验室 UI</a>
+  <a href="#pr-4">P4 runtime 沙箱</a>
+  <a href="#pr-5">P5 Skill 适配器</a>
+  <a href="#pr-6">P6 资源生命周期</a>
+  <a href="#pr-7">P7 安全网整合</a>
+  <a href="#pr-8">P8 CLI & 观察</a>
+  <a href="#pr-9">P9 内部 Lab 试点</a>
+  <a href="#pr-10">P10 毕业通道</a>
+  <a href="#graph">依赖与并行</a>
+  <a href="#risks">风险与防护</a>
+  <a href="#verify">验证清单</a>
+  <a href="#outof">非目标</a>
+  <a href="#rollout">落地策略</a>
+  <a href="#appendix">附录 A</a>
+  <hr />
+  <h4>关键文件</h4>
+  <a href="#appendix"><code>catalog.go</code></a>
+  <a href="#appendix"><code>lock.go</code></a>
+  <a href="#appendix"><code>visibility.go</code></a>
+  <a href="#appendix"><code>manager-template.ts</code></a>
+  <a href="#appendix"><code>experimental_proxy.go</code></a>
+  <a href="#appendix"><code>experimental_resources.go</code></a>
+  <a href="#appendix"><code>runtime_llm_call.go</code></a>
+  <a href="#appendix"><code>labs-tab.tsx</code></a>
+  <a href="#appendix"><code>app-sidebar.tsx</code></a>
+</aside>
+
+</div>
+<script>
+// Scroll-spy for both side navs.
+(function () {
+  const navLinks = Array.from(document.querySelectorAll('.toc-side a, .toc-end a'));
+  const idToLink = new Map();
+  navLinks.forEach((a) => {
+    const id = a.getAttribute('href').replace('#', '');
+    if (!idToLink.has(id)) idToLink.set(id, a);
+  });
+  const targets = Array.from(document.querySelectorAll('main [id]'));
+  const linkById = (id) => idToLink.get(id);
+
+  function onScroll() {
+    let active = targets[0];
+    const fold = window.scrollY + 120;
+    for (const t of targets) {
+      if (t.offsetTop <= fold) active = t;
+    }
+    navLinks.forEach((a) => a.classList.remove('active'));
+    const link = linkById(active && active.id);
+    if (link) link.classList.add('active');
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+})();
+</script>
+</body>
+</html>

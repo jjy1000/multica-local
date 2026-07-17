@@ -8,7 +8,6 @@ import { CSS } from "@dnd-kit/utilities";
 import { AppLink } from "../../navigation";
 import type { Issue } from "@multica/core/types";
 import { formatDateOnly } from "@multica/core/issues/date";
-import { FlaskConical } from "lucide-react";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -125,12 +124,6 @@ function ListRowContent({
                     +{labels.length - 3}
                   </span>
                 )}
-              </span>
-            )}
-            {issue.lab_source && (
-              <span className="ml-1 hidden md:inline-flex shrink-0 items-center gap-1 rounded-full bg-purple-500/10 px-1.5 py-0.5 text-[10px] text-purple-600 dark:text-purple-400">
-                <FlaskConical className="size-2.5" />
-                Lab
               </span>
             )}
           </span>

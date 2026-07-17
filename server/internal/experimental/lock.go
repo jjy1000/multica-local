@@ -1,0 +1,302 @@
+// Package experimental: source / resource-type enum + lock helpers.
+//
+// The lock package is the single seam between the Labs flag toggle and
+// the underlying domain tables (skill / agent / squad / member /
+// workspace / mcp_server). It exists so:
+//
+//   - Lab flag toggles can show/hide every resource attached to the lab
+//     with a single UPDATE (Hide / Restore below), without each handler
+//     needing to know which domain tables the lab touches.
+//
+//   - Write handlers (PR 2) can reject user-driven edits / deletes with
+//     a uniform ErrLocked when the lab has claimed the resource. The
+//     rejection works regardless of which user / role attempts the
+//     write — the lab owns the resource for the duration of the claim.
+//
+// The lock is purely an overlay table; the underlying domain rows
+// themselves are never moved or renamed. CLAUDE.md's "migrations are
+// forward-only" rule is honored because the table is additive (PR 1
+// ships only the table + helpers, no domain schema changes).
+package experimental
+
+import (
+	"context"
+	"crypto/sha256"
+	"errors"
+	"fmt"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
+)
+
+// LockQuerier is the minimal slice of sqlc's *db.Queries surface the
+// lock package actually calls. Defining it here keeps the lock package
+// decoupled from *db.Queries so unit tests can pass a fake without
+// dragging in every other query the production code calls.
+//
+// Named LockQuerier (not Querier) to avoid colliding with the
+// package-local Querier interface in provider.go — that one serves the
+// featureflag.UserPrefProvider and has a different method set.
+//
+// The production caller in this fork pulls *db.Queries off the
+// request-scoped transaction (see handler dependency wiring in
+// server/internal/handler/experimental_resources.go), then passes it
+// directly: *db.Queries satisfies LockQuerier structurally.
+type LockQuerier interface {
+	InsertExperimentalResourceLock(ctx context.Context, arg db.InsertExperimentalResourceLockParams) error
+	HideExperimentalResourceLocksBySource(ctx context.Context, experimentalSource string) (int64, error)
+	RestoreExperimentalResourceLocksBySource(ctx context.Context, experimentalSource string) (int64, error)
+	IsExperimentalResourceHidden(ctx context.Context, arg db.IsExperimentalResourceHiddenParams) (bool, error)
+	GetExperimentalResourceLock(ctx context.Context, arg db.GetExperimentalResourceLockParams) (db.ExperimentalResourceLock, error)
+	CountExperimentalResourceLocksByType(ctx context.Context, experimentalSource string) ([]db.CountExperimentalResourceLocksByTypeRow, error)
+}
+
+// Source is the closed enum of experimental surfaces that can attach
+// resources via this package. Adding a second surface (e.g. pythia_oracle)
+// means appending a constant here AND extending the CHECK constraint on
+// experimental_resource_lock.experimental_source in a future migration.
+//
+// Constants live alongside the type so package users do not have to
+// chase a registry file. Same single source of truth as the SQL enum.
+type Source string
+
+const (
+	// SourceClaudeScience is the 0.3.20 lab source. Deprecated as of
+	// 0.3.22 — new lab installs use SourceClaudeScienceLab. Existing
+	// rows are kept so prior lock claims remain valid; the catalog no
+	// longer registers a flag for this source.
+	SourceClaudeScience Source = "claude_science"
+	// SourceClaudeScienceLab is the 0.3.22+ lab source. Used by the
+	// consolidated Claude Research Lab flag (`claude_science_lab`),
+	// which folds in the 0.3.20 `claude_science` + `claude_science_runtime`
+	// pair.
+	SourceClaudeScienceLab Source = "claude_science_lab"
+	// SourceMythosSwarm is the Mythos Swarm RDT topology lab. Added
+	// in 0.3.16-patch.1; the install handler provisions the dedicated
+	// mythos-swarm workspace + 5 Mythos agents + 1 squad under this
+	// source.
+	SourceMythosSwarm Source = "mythos_swarm"
+	// 0.3.27 B4: source for the constitution_agent lab. Added so the
+	// install handler can run experimental.Claim(HideAgent) on the
+	// 宪法智能体 row; existing Source values stay frozen because
+	// they may be referenced by historical lock rows.
+	SourceConstitutionAgent Source = "constitution_agent"
+	// 0.3.27 B4: source for the agent_self_optimization lab. Same
+	// rationale as SourceConstitutionAgent.
+	SourceAgentSelfOptimization Source = "agent_self_optimization"
+)
+
+// AllSources is the developer-facing read-only list of every known
+// Source. Used for validation in the install / rollback handlers (PR 3)
+// and for documentation in the labs UI. 0.3.26: SourceClaudeScienceLab
+// added so the consolidated flag (the one currently in `Catalog`) is
+// recognized by every helper that enumerates sources. The legacy
+// `claude_science` source remains because prior 0.3.20 lock claims
+// are still valid rows in experimental_resource_lock.
+var AllSources = []Source{
+	SourceClaudeScience,
+	SourceClaudeScienceLab,
+	SourceMythosSwarm,
+	SourceConstitutionAgent,
+	SourceAgentSelfOptimization,
+}
+
+// Valid reports whether s is in AllSources.
+func (s Source) Valid() bool {
+	for _, v := range AllSources {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+// ResourceType enumerates the kinds of domain rows a lock can attach
+// to. Each value MUST match a CHECK constraint on
+// experimental_resource_lock.resource_type.
+type ResourceType string
+
+const (
+	LockWorkspace ResourceType = "workspace"
+	LockSkill     ResourceType = "skill"
+	LockAgent     ResourceType = "agent"
+	LockSquad     ResourceType = "squad"
+	LockMember    ResourceType = "member"
+	LockMCPServer ResourceType = "mcp_server"
+)
+
+// ErrLocked is the public error returned by handleLockedWrite when a
+// write attempt targets a resource the lab has claimed. Handlers
+// translate this to 423 Locked or 409 Conflict depending on the
+// verb (PR 2).
+type ErrLocked struct {
+	Source Source
+	Type   ResourceType
+	ResID  pgtype.UUID
+}
+
+func (e ErrLocked) Error() string {
+	return fmt.Sprintf("experimental lock: resource %s/%s is owned by lab %q and cannot be edited, optimized, or deleted",
+		e.Type, e.ResID, e.Source)
+}
+
+// MarkerIDNamespace is the byte prefix used by LifecycleMarker to
+// derive a stable pgtype.UUID from a flag key. The 0.3.15
+// pgtypeUUIDZero marker used the all-zero UUID; that collides with
+// the "real" lock row that the install dispatcher inserts after
+// provisioning the workspace (the marker and the real row are
+// distinguished only by resource_type). 0.3.19 P6 derives the marker
+// id from the flag key so each lab has its own deterministic
+// marker UUID — easier to query, impossible to collide.
+const MarkerIDNamespace byte = 0xEC
+
+// LifecycleMarker returns a stable pgtype.UUID for use as the
+// "marker" lock row that a source inserts when its install runs
+// without a heavy installer. The id is derived by
+// SHA-256(flagKey)[0..16] XOR MarkerIDNamespace so:
+//   - each flag has a unique, reproducible marker;
+//   - marker ids are not the all-zero UUID (which previously
+//     collided with "no row at all" semantics);
+//   - the derivation is one-way enough that a future contributor
+//     cannot construct a marker by hand without re-running this
+//     function.
+func LifecycleMarker(flagKey string) pgtype.UUID {
+	var out [16]byte
+	sum := sha256.Sum256([]byte("multica-labs-marker:" + flagKey))
+	copy(out[:], sum[:16])
+	out[0] = out[0] ^ MarkerIDNamespace
+	return pgtype.UUID{Bytes: out, Valid: true}
+}
+
+// ErrUnknownSource is returned by Claim / Hide / Restore when a caller
+// passes a Source outside AllSources. The HTTP layer maps this to a
+// 400 Bad Request.
+var ErrUnknownSource = errors.New("experimental lock: unknown source")
+
+// ErrUnknownResourceType is returned by Claim when a caller passes a
+// ResourceType the SQL enum does not allow. Mapped to 400 Bad Request.
+var ErrUnknownResourceType = errors.New("experimental lock: unknown resource type")
+
+// Claim attaches a lock to (source, type, id). Idempotent: re-claiming
+// the same triple is a no-op (the SQL ON CONFLICT DO NOTHING swallows
+// the duplicate). The new row is created with hidden=false; use Hide
+// below to flip visibility.
+//
+// Returns ErrUnknownSource when src ∉ AllSources, ErrUnknownResourceType
+// when rt is not one of the Lock* constants. Either error is programmer
+// error and should be impossible to trigger from the runtime.
+func Claim(ctx context.Context, q LockQuerier, src Source, rt ResourceType, id pgtype.UUID) error {
+	if !src.Valid() {
+		return ErrUnknownSource
+	}
+	switch rt {
+	case LockWorkspace, LockSkill, LockAgent, LockSquad, LockMember, LockMCPServer:
+	default:
+		return ErrUnknownResourceType
+	}
+	if err := q.InsertExperimentalResourceLock(ctx, db.InsertExperimentalResourceLockParams{
+		ExperimentalSource: string(src),
+		ResourceType:       string(rt),
+		ResourceID:         id,
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Hide flips every row attached to src to hidden=true. Returns the
+// number of rows touched so the rollback handler can report "hidden N
+// rows" without a second round-trip.
+func Hide(ctx context.Context, q LockQuerier, src Source) (int, error) {
+	if !src.Valid() {
+		return 0, ErrUnknownSource
+	}
+	rows, err := q.HideExperimentalResourceLocksBySource(ctx, string(src))
+	if err != nil {
+		return 0, err
+	}
+	return int(rows), nil
+}
+
+// Restore flips every hidden row attached to src back to visible.
+// Returns the number of rows touched. Used by install() in PR 4 when a
+// user re-toggles the lab on after a previous rollback.
+func Restore(ctx context.Context, q LockQuerier, src Source) (int, error) {
+	if !src.Valid() {
+		return 0, ErrUnknownSource
+	}
+	rows, err := q.RestoreExperimentalResourceLocksBySource(ctx, string(src))
+	if err != nil {
+		return 0, err
+	}
+	return int(rows), nil
+}
+
+// IsHidden reports whether a lock exists for (src, rt, id) AND that
+// lock is currently hidden. The handler helper layer (PR 2) wraps
+// this to return false on both "no lock" and "lock visible".
+//
+// Use this in the user-facing read path; it is the cheap read the
+// skill / agent picker hits on every render.
+func IsHidden(ctx context.Context, q LockQuerier, src Source, rt ResourceType, id pgtype.UUID) (bool, error) {
+	if !src.Valid() {
+		return false, ErrUnknownSource
+	}
+	row, err := q.IsExperimentalResourceHidden(ctx, db.IsExperimentalResourceHiddenParams{
+		ExperimentalSource: string(src),
+		ResourceType:       string(rt),
+		ResourceID:         id,
+	})
+	if err != nil {
+		return false, err
+	}
+	return row, nil
+}
+
+// Lookup returns the full lock row for (src, rt, id). The zero-value
+// (with sql.ErrNoRows underneath) means "no claim". The caller checks
+// .Hidden to decide between "lab-owned but visible" (allow writes) and
+// "lab-owned and hidden" (reject writes with ErrLocked).
+//
+// Use this in write handlers — IsHidden above is the read-path
+// variant. Lookup exists so write handlers can also surface the
+// lock metadata (when claimed, by what) in the 423 response.
+func Lookup(ctx context.Context, q LockQuerier, src Source, rt ResourceType, id pgtype.UUID) (db.ExperimentalResourceLock, error) {
+	if !src.Valid() {
+		return db.ExperimentalResourceLock{}, ErrUnknownSource
+	}
+	return q.GetExperimentalResourceLock(ctx, db.GetExperimentalResourceLockParams{
+		ExperimentalSource: string(src),
+		ResourceType:       string(rt),
+		ResourceID:         id,
+	})
+}
+
+// CountByType returns per-resource_type counts for src, both total and
+// visible. Used by the install manifest endpoint (PR 3) to answer
+// "how many resources did the lab import?".
+type LockCounts struct {
+	Type    ResourceType
+	Total   int
+	Visible int
+}
+
+func CountByType(ctx context.Context, q LockQuerier, src Source) ([]LockCounts, error) {
+	if !src.Valid() {
+		return nil, ErrUnknownSource
+	}
+	rows, err := q.CountExperimentalResourceLocksByType(ctx, string(src))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LockCounts, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, LockCounts{
+			Type:    ResourceType(r.ResourceType),
+			Total:   int(r.Total),
+			Visible: int(r.Visible),
+		})
+	}
+	return out, nil
+}

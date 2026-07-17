@@ -1,0 +1,50 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "pythia_oracle",
+    "flag": "pythia_oracle",
+    "title": { "en": "Pythia Multi-Perspective Forecasting", "zh": "Pythia 多视角预测" },
+    "description": {
+      "en": "Headless local Python service that fuses a swarm prediction engine with a live global-intelligence feed. Multica agents call it via the multica-pythia Skill for forecasts, what-if scenarios, and global briefs.",
+      "zh": "本地无界面 Python 服务,融合群体预测引擎与实时全球情报数据源。Multica 智能体通过 multica-pythia 技能调用,用于预测、情景推演与全球简报。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "capabilities": {
+      "skills": ["multica-pythia"],
+      "agents": [],
+      "squads": [],
+      "mcp_servers": [],
+      "permissions": ["agent:invoke"]
+    },
+    "entry_points": {
+      "sidebar": [
+        { "key": "pythia_oracle", "label_key": "experimental_pythia", "route": "/experimental/pythia" }
+      ],
+      "settings": { "route": "/experimental/pythia" }
+    },
+    "runtime": {
+      "kind": "subprocess",
+      "binary": "pythia/run.sh",
+      "args": [],
+      "health_path": "/health",
+      "ready_timeout_ms": 30000,
+      "stop_grace_ms": 5000,
+      "on_ready": "registerUpstream",
+      "on_stop": "unregisterUpstream",
+      "on_missing": "service not bundled — drop the binary into apps/desktop/vendor/pythia/ and re-run bundle-cli"
+    },
+    "surface": {
+      "proxy_prefix": "/experimental/pythia",
+      "loopback_service": "pythia_oracle"
+    },
+    "safety": {
+      "init_timeout_ms": 30000,
+      "burst": { "threshold": 3, "window_seconds": 60 },
+      "panic_recover": true,
+      "ip_allowlist": ["127.0.0.0/8"]
+    }
+  }
+}

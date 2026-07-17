@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "flag_key": "claude_science_runtime",
+  "title": "Claude Science Runtime Sandbox",
+  "description": "Python sandbox bound to the claude_science workspace; gateway under /api/experimental/claude-science-runtime/*. Manifest is a placeholder — populated by the 0.3.19 labs blueprint PR 1 / PR 4. Until that ships, the loader falls back to the flag-only gate the catalog.go entry already provides.",
+  "capabilities": {
+    "skills": ["multica-claude-science-runtime"],
+    "runtime": "inline"
+  },
+  "safety": {
+    "flag_default": false,
+    "blacklist_reasons": ["panic", "5xx_burst", "init_timeout"]
+  }
+}

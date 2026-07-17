@@ -52,7 +52,7 @@
     "scenario_send": "Send",
     "running": "running…",
     "idle": "idle",
-    "run_oracle": "Run oracle now",
+    "run_oracle": "Run forecast now",
     "world_brief_title": "World view",
     "world_event_count": "{{count}} events",
     "world_domains": "{{count}} domains",

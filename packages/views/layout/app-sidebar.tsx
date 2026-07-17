@@ -32,15 +32,24 @@ import {
   X,
   Zap,
   Users,
-  BookOpen,
   BookOpenText,
   FlaskConical,
-  Globe2,
   Network,
   Code2,
   Sparkles,
   ScrollText,
   Hexagon,
+  Octagon,
+  Pentagon,
+  Diamond,
+  Triangle,
+  Star,
+  Circle as CircleShape,
+  Square as SquareShape,
+  TestTubes,
+  ClipboardList,
+  Wrench,
+  Pin,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -90,7 +99,7 @@ import type { PinnedItem } from "@multica/core/types";
 import { useLogout } from "../auth";
 import { ProjectIcon } from "../projects/components/project-icon";
 import { useT } from "../i18n";
-import { useExperimentalFlag, useExperimentalNav } from "@multica/core/experimental";
+import { useExperimentalFlag, useExperimentalFlags, useExperimentalNav } from "@multica/core/experimental";
 
 // Top-level nav items stay active when the user is on a child route
 // (e.g. "Projects" stays lit on /:slug/projects/:id). Pinned items keep
@@ -167,14 +176,82 @@ const configureNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[]
 // enabled flag, so the section only appears when at least one
 // experiment is opted in. The icon mapping stays in this file
 // because the renderer's icon set is an app-level concern.
+// 0.3.33 unified with `LabBadge` (issues/components/lab-badge.tsx).
+// Each labs flag maps to exactly one lucide icon everywhere — sidebar
+// entry, issue row, board card, and the issue-detail lab section all
+// resolve through this single key→glyph table.
+//
+// Adding a new lab? Pick one lucide icon and append it here AND to
+// `LabBadge`'s switch statement; both must agree.
 const experimentalIconByKey: Record<string, typeof FlaskConical> = {
-  claude_science_lab: FlaskConical,
-  pythia_oracle: Globe2,
+  claude_science_lab: TestTubes,
+  pythia_oracle: Sparkles,
   mythos_swarm: Network,
-  llm_wiki_bridge: BookOpen,
+  llm_wiki_bridge: ClipboardList,
   code_canvas: Code2,
-  agent_self_optimization: Sparkles,
+  agent_self_optimization: Wrench,
   constitution_agent: ScrollText,
+  chat_pin_ui: Pin,
+};
+
+/**
+ * Per-lab sidebar badge — glyph (geometric shape) + tonality. Gives
+ * every active lab a row-end cue that is visually distinctive: even
+ * if two labs shared a colour the shapes alone would keep them apart.
+ *
+ * The glyph echoes the lab's semantic:
+ *
+ *   mythos_swarm            Hexagon  → hive cluster (existing 0.3.29 cue)
+ *   pythia_oracle           Star     → oracle / constellation
+ *   claude_science_lab      Octagon  → sterile lab (isolation)
+ *   llm_wiki_bridge         Pentagon → library / five-fold knowledge
+ *   code_canvas             Square   → canvas frame
+ *   agent_self_optimization Triangle → tuning / balance
+ *   constitution_agent      Diamond  → governance / seal
+ *   chat_pin_ui             Circle   → pin dot
+ *
+ * Tonality stays in lockstep with `LabBadge` (issues row pill) so
+ * the sidebar cue and the issue-row cue read as one design system.
+ *
+ * Tailwind utility names only — the tree-shaker drops unused
+ * classes, so the dispatcher must reach every variant statically.
+ */
+const experimentalOnBadgeTone: Record<
+  string,
+  { shape: typeof Hexagon; classes: string }
+> = {
+  mythos_swarm: {
+    shape: Hexagon,
+    classes: "text-emerald-600 dark:text-emerald-400",
+  },
+  pythia_oracle: {
+    shape: Star,
+    classes: "text-violet-600 dark:text-violet-400",
+  },
+  claude_science_lab: {
+    shape: Octagon,
+    classes: "text-sky-600 dark:text-sky-400",
+  },
+  llm_wiki_bridge: {
+    shape: Pentagon,
+    classes: "text-amber-600 dark:text-amber-400",
+  },
+  code_canvas: {
+    shape: SquareShape,
+    classes: "text-rose-600 dark:text-rose-400",
+  },
+  agent_self_optimization: {
+    shape: Triangle,
+    classes: "text-teal-600 dark:text-teal-400",
+  },
+  constitution_agent: {
+    shape: Diamond,
+    classes: "text-indigo-600 dark:text-indigo-400",
+  },
+  chat_pin_ui: {
+    shape: CircleShape,
+    classes: "text-slate-600 dark:text-slate-400",
+  },
 };
 
 function DraftDot() {
@@ -391,7 +468,15 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   // useExperimentalNav for the row, once via useExperimentalFlag for
   // the badge) because useExperimentalNav returns a tuple per row
   // but does NOT export a "is flag on?" boolean.
+  //
+  // 0.3.33: every lab gets its own ON-badge variant (8 tonality +
+  // 8 locales). The badge reads from the live `useExperimentalFlags`
+  // payload instead of `useExperimentalFlag` so the JSX in
+  // `experimentalNav.map(...)` can resolve per-row — calling
+  // useExperimentalFlag inside a `.map` would violate React's rules
+  // of hooks.
   const mythosFlagEnabled = useExperimentalFlag("mythos_swarm", false);
+  const { data: experimentalFlagState = [] } = useExperimentalFlags();
   const { data: workspaces = EMPTY_WORKSPACES } = useQuery(workspaceListOptions());
   const { data: myInvitations = EMPTY_INVITATIONS } = useQuery(myInvitationListOptions());
   const workspaceCreationDisabled = useConfigStore((s) => s.workspaceCreationDisabled);
@@ -832,15 +917,54 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                     // item.labelKey]` cleanly.
                     const sidebarSelector = ($: { sidebar: Record<string, unknown> }) =>
                       $.sidebar[item.labelKey] as unknown as string;
-                    // 0.3.29: mythos_swarm is the only lab that
-                    // exposes the round-extension knobs (extra agents,
-                    // self-optimization). Surface that on the sidebar
-                    // row with a small hexagonal "蜂群已启用" badge so
-                    // users immediately see the lab is live. The badge
-                    // is purely decorative — it does not gate any
-                    // behaviour and is hidden by default when the flag
-                    // is off (the whole row disappears anyway).
-                    const showMythosBadge = item.flagKey === "mythos_swarm" && mythosFlagEnabled;
+                    // 0.3.29: mythos_swarm's "蜂群拓扑已启用" badge.
+                    //
+                    // 0.3.33: every lab row gets its own per-lab
+                    // ON-badge (8 tonalities keyed off the same
+                    // `LabBadge` palette). The badge sits on the
+                    // right edge so users see at a glance whether
+                    // the lab is reachable. Decoratively mirrors
+                    // "showMythosBadge" — purely visual, no gating.
+                    // Hidden whenever the flag is off (the whole row
+                    // disappears via `useExperimentalNav` filter
+                    // anyway).
+                    const labEnabled =
+                      item.flagKey === "mythos_swarm"
+                        ? mythosFlagEnabled
+                        : (experimentalFlagState as Array<{ key: string; enabled: boolean }>).some(
+                            (f) => f.key === item.flagKey && f.enabled,
+                          );
+                    const badgeLabelKey =
+                      item.flagKey === "mythos_swarm"
+                        ? "mythos_enabled_badge"
+                        : `${item.flagKey}_enabled_badge`;
+                    const badgeSpec =
+                      experimentalOnBadgeTone[item.flagKey] ?? {
+                        shape: Hexagon,
+                        classes:
+                          "text-emerald-600 dark:text-emerald-400",
+                      };
+                    const badgeLabel = (() => {
+                      const s = t(
+                        ($) =>
+                          ($.sidebar as Record<string, unknown>)[
+                            badgeLabelKey
+                          ] as unknown as string,
+                      );
+                      // Fall back to a generic "Enabled" if the
+                      // flag-specific key is missing in this locale.
+                      return (
+                        s ||
+                        t(
+                          ($) =>
+                            (
+                              $.sidebar as Record<string, unknown>
+                            ).experimental_enabled_badge as unknown as string,
+                        ) ||
+                        "Enabled"
+                      );
+                    })();
+                    const BadgeShape = badgeSpec.shape;
                     return (
                       <SidebarMenuItem key={item.key}>
                         <SidebarMenuButton
@@ -850,18 +974,18 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                         >
                           <Icon />
                           <span>{t(sidebarSelector) || item.labelKey}</span>
-                          {showMythosBadge ? (
+                          {labEnabled ? (
                             <Tooltip>
                               <TooltipTrigger
                                 render={<span aria-hidden className="ml-auto" />}
                               >
-                                <Hexagon
-                                  className="size-3.5 fill-emerald-500/20 text-emerald-600 dark:text-emerald-400"
-                                  aria-hidden
+                                <BadgeShape
+                                  className={`size-3.5 ${badgeSpec.classes}`}
+                                  aria-label={badgeLabel}
                                 />
                               </TooltipTrigger>
                               <TooltipContent side="right" sideOffset={6}>
-                                {t(($) => $.sidebar.mythos_enabled_badge)}
+                                {badgeLabel}
                               </TooltipContent>
                             </Tooltip>
                           ) : null}

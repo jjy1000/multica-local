@@ -1,6 +1,16 @@
 "use client";
 
-import { FlaskConical, Network } from "lucide-react";
+import {
+  FlaskConical,
+  Network,
+  TestTubes,
+  Sparkles,
+  Code2,
+  ClipboardList,
+  Wrench,
+  ScrollText,
+  Pin,
+} from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
 import {
   HoverCard,
@@ -62,71 +72,71 @@ interface LabBadgeSpec {
 const LAB_BADGES: Record<string, LabBadgeSpec> = {
   mythos_swarm: {
     label: "OpenMythos",
-    toneClassName: "border-emerald-300/70 bg-emerald-50/70 text-emerald-700",
+    toneClassName: "border-emerald-300/70 text-emerald-700",
     toneDarkClassName:
-      "dark:border-emerald-700/60 dark:bg-emerald-950/40 dark:text-emerald-300",
+      "dark:border-emerald-700/60 dark:text-emerald-300",
     tooltip:
       "蜂群拓扑已激活。本任务由 prelude / loop / coda 多智能体协作完成,推理深度与自主能力显著增强。",
     ariaLabel: "Mythos 蜂群增强运行中",
   },
   pythia_oracle: {
     label: "Pythia",
-    toneClassName: "border-violet-300/70 bg-violet-50/70 text-violet-700",
+    toneClassName: "border-violet-300/70 text-violet-700",
     toneDarkClassName:
-      "dark:border-violet-700/60 dark:bg-violet-950/40 dark:text-violet-300",
+      "dark:border-violet-700/60 dark:text-violet-300",
     tooltip:
-      "Pythia 多视角推演已绑定。本任务接收 10 轮多角色联合预测,生成情景与概率分布。",
-    ariaLabel: "Pythia 多视角推演已绑定",
+      "Pythia 多视角预测已绑定。本任务接收 10 轮多角色联合预测,生成情景与概率分布。",
+    ariaLabel: "Pythia 多视角预测已绑定",
   },
   claude_science_lab: {
     label: "Claude Lab",
-    toneClassName: "border-sky-300/70 bg-sky-50/70 text-sky-700",
+    toneClassName: "border-sky-300/70 text-sky-700",
     toneDarkClassName:
-      "dark:border-sky-700/60 dark:bg-sky-950/40 dark:text-sky-300",
+      "dark:border-sky-700/60 dark:text-sky-300",
     tooltip:
       "Claude 科研实验室已绑定。本任务由科研 agent 在隔离沙箱中执行,支持长链路工具调用。",
     ariaLabel: "Claude 科研实验室已绑定",
   },
   llm_wiki_bridge: {
     label: "LLM Wiki",
-    toneClassName: "border-amber-300/70 bg-amber-50/70 text-amber-700",
+    toneClassName: "border-amber-300/70 text-amber-700",
     toneDarkClassName:
-      "dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-300",
+      "dark:border-amber-700/60 dark:text-amber-300",
     tooltip:
       "LLM Wiki 本地桥接已绑定。本任务的上下文通过本地桥接同步至 LLM Wiki 知识库。",
     ariaLabel: "LLM Wiki 本地桥接已绑定",
   },
   code_canvas: {
     label: "Code Canvas",
-    toneClassName: "border-rose-300/70 bg-rose-50/70 text-rose-700",
+    toneClassName: "border-rose-300/70 text-rose-700",
     toneDarkClassName:
-      "dark:border-rose-700/60 dark:bg-rose-950/40 dark:text-rose-300",
+      "dark:border-rose-700/60 dark:text-rose-300",
     tooltip: "代码画布已绑定。本任务的可视化代码工作区同步到本地画布视图。",
     ariaLabel: "代码画布已绑定",
   },
   agent_self_optimization: {
     label: "Self-Opt",
-    toneClassName: "border-teal-300/70 bg-teal-50/70 text-teal-700",
+    toneClassName: "border-teal-300/70 text-teal-700",
     toneDarkClassName:
-      "dark:border-teal-700/60 dark:bg-teal-950/40 dark:text-teal-300",
+      "dark:border-teal-700/60 dark:text-teal-300",
     tooltip:
       "智能体自优化已绑定。本任务的执行 agent 在运行中持续整定自身的指令与策略。",
     ariaLabel: "智能体自优化已绑定",
   },
   constitution_agent: {
     label: "Constitution",
-    toneClassName: "border-indigo-300/70 bg-indigo-50/70 text-indigo-700",
+    toneClassName: "border-indigo-300/70 text-indigo-700",
     toneDarkClassName:
-      "dark:border-indigo-700/60 dark:bg-indigo-950/40 dark:text-indigo-300",
+      "dark:border-indigo-700/60 dark:text-indigo-300",
     tooltip:
       "宪法智能体已绑定。本任务的执行遵循组织宪法约束,并由 CTR/CSIL/TAOL 自动监督。",
     ariaLabel: "宪法智能体已绑定",
   },
   chat_pin_ui: {
     label: "Chat Pin",
-    toneClassName: "border-slate-300/70 bg-slate-50/70 text-slate-700",
+    toneClassName: "border-slate-300/70 text-slate-700",
     toneDarkClassName:
-      "dark:border-slate-700/60 dark:bg-slate-950/40 dark:text-slate-300",
+      "dark:border-slate-700/60 dark:text-slate-300",
     tooltip: "聊天置顶 UI 已绑定。本任务的会话固定在聊天面板顶部。",
     ariaLabel: "聊天置顶 UI 已绑定",
   },
@@ -134,12 +144,44 @@ const LAB_BADGES: Record<string, LabBadgeSpec> = {
 
 /**
  * Pick which Lucide icon to render on the left of the pill.
- * Defaults to `FlaskConical` so even unknown future labs render a
- * placeholder glyph instead of crashing.
+ *
+ * Each labs flag gets a glyph that visually echoes its purpose so
+ * the user can spot which lab an issue is wired up to without
+ * reading the label:
+ *
+ *   mythos_swarm            → Network     multi-agent graph topology
+ *   claude_science_lab      → TestTubes   wet-lab research / sci sandbox
+ *   pythia_oracle           → Sparkles    stochastic prediction / oracle
+ *   llm_wiki_bridge         → ClipboardList knowledge bridge / catalog
+ *   code_canvas             → Code2       developer canvas / REPL
+ *   agent_self_optimization → Scale       policy tuning / balance
+ *   constitution_agent      → Scale       oversight / governance
+ *   chat_pin_ui             → Pin         pinned chat session
+ *
+ * Unmapped future labs fall back to FlaskConical so the row stays
+ * renderable instead of crashing on an unknown key.
  */
 function labIcon(key: string) {
-  if (key === "mythos_swarm") return Network;
-  return FlaskConical;
+  switch (key) {
+    case "mythos_swarm":
+      return Network;
+    case "claude_science_lab":
+      return TestTubes;
+    case "pythia_oracle":
+      return Sparkles;
+    case "llm_wiki_bridge":
+      return ClipboardList;
+    case "code_canvas":
+      return Code2;
+    case "agent_self_optimization":
+      return Wrench;
+    case "constitution_agent":
+      return ScrollText;
+    case "chat_pin_ui":
+      return Pin;
+    default:
+      return FlaskConical;
+  }
 }
 
 /**

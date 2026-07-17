@@ -1,0 +1,235 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/multica-ai/multica/server/internal/experimental"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
+)
+
+// ExperimentalFlagResponse is one entry in the GET /api/experimental-flags
+// response. It mirrors the server-side catalog so the frontend can render
+// the labs UI without a second i18n lookup. The fields here are what the
+// frontend `ExperimentalFlag` type consumes; see packages/core/types/experimental.ts.
+//
+// 0.3.15: the response grows an optional `installation` field that is
+// populated for labs whose flag key has a corresponding
+// /api/experimental-resources/{key}/status entry (currently only
+// claude_science). When present, it carries the install manifest so
+// the Labs UI can render "已装载 292 skills" without a second round
+// trip. The field is omitted when the lab has no installable backing
+// — keeping the wire shape stable for the existing single-flag
+// (chat_pin_ui) and the still-readonly pythia_oracle.
+type ExperimentalFlagResponse struct {
+	Key            string                         `json:"key"`
+	Enabled        bool                           `json:"enabled"`
+	DefaultEnabled bool                           `json:"default_enabled"`
+	Title          experimental.LocalizedString   `json:"title"`
+	Description    experimental.LocalizedString   `json:"description"`
+	Installation   *ExperimentalResourcesManifest `json:"installation,omitempty"`
+	// 0.3.20: catalog RuntimeKind — mirrors experimental.Flag.RuntimeKind.
+	// Surfaced so the renderer's manager-factory loader (apps/desktop)
+	// can build its descriptor list without an extra round-trip and
+	// without reading the desktop-side hard-coded flags.
+	RuntimeKind string `json:"runtime_kind,omitempty"`
+	// 0.3.20: sidebar entries declared in the manifest's
+	// entry_points.sidebar[*]. Empty array means no sidebar row;
+	// absent means the flag has no manifest (chat_pin_ui).
+	SidebarEntries []experimental.SidebarEntry `json:"sidebar_entries,omitempty"`
+}
+
+// ExperimentalFlagsListResponse wraps the list so future metadata
+// (e.g. a `version` field for cache busting) can be added without
+// breaking the consumer shape.
+type ExperimentalFlagsListResponse struct {
+	Flags []ExperimentalFlagResponse `json:"flags"`
+}
+
+// ListExperimentalFlags returns the merged view of every catalog flag and
+// the caller's stored preference for it. Flags the user has not toggled
+// appear with Enabled=DefaultEnabled — the frontend should treat Enabled
+// as the source of truth and only show DefaultEnabled as a helper hint
+// ("Off by default — enable to try").
+//
+// Auth: any authenticated user can read. There is no workspace scoping
+// because experimental prefs are per-user (not per-workspace) and the
+// catalog is server-global. If a future flag ever becomes workspace
+// scoped, this is the handler that adds the workspace check.
+func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	prefs, err := h.Queries.ListExperimentalPrefsByUser(r.Context(), parseUUID(userID))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list experimental flags")
+		return
+	}
+
+	// Build a quick lookup so the per-flag loop stays O(N) instead of
+	// O(N*M). Without this, every catalog entry would scan the prefs
+	// slice linearly — fine for a 5-entry catalog, wasteful as it grows.
+	prefByKey := make(map[string]bool, len(prefs))
+	for _, p := range prefs {
+		prefByKey[p.FlagKey] = p.Enabled
+	}
+
+	resp := ExperimentalFlagsListResponse{
+		Flags: make([]ExperimentalFlagResponse, 0, len(experimental.Catalog)),
+	}
+	for _, f := range experimental.Catalog {
+		enabled, hasOverride := prefByKey[f.Key]
+		flag := ExperimentalFlagResponse{
+			Key:            f.Key,
+			Enabled:        pickEnabled(f.DefaultVal, enabled, hasOverride),
+			DefaultEnabled: f.DefaultVal,
+			Title:          f.Title,
+			Description:    f.Description,
+			RuntimeKind:    f.RuntimeKind,
+		}
+		// 0.3.20: surface manifest entry_points.sidebar so the renderer's
+		// nav hook can render the Experimental sidebar group from the
+		// catalog payload instead of a hard-coded STATIC_NAV list. Flags
+		// without a manifest (e.g. chat_pin_ui) omit the field; flags
+		// with an empty sidebar omit it too. Reading the manifest on
+		// every request is cheap — JSON parse of a ~1KB file under the
+		// resources dir.
+		if reg := h.ExperimentRegistry; reg != nil {
+			if entries := reg.SidebarEntries(f.Key); len(entries) > 0 {
+				flag.SidebarEntries = entries
+			}
+		}
+		// Surface installation manifest for keys wired through PR 3's
+		// resource endpoints. The renderer's 4-state UI ("未装载" /
+		// "安装中" / "已装载 N" / "已隐藏") reads this field instead
+		// of issuing a second /api/experimental-resources/{key}/status
+		// request when the user is on the Labs page.
+		if h.isInstallableFlag(f.Key) {
+			manifest, err := readInstallStatus(r.Context(), h.Queries, experimental.Source(f.Key))
+			if err == nil {
+				flag.Installation = &manifest
+			}
+		}
+		resp.Flags = append(resp.Flags, flag)
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// readInstallStatus is a small adapter around the lock helpers; it
+// mirrors Handler.statusForKey but in package-internal form so the
+// experimental_flags handler does not have to know about the
+// resources handler's internal struct names.
+func readInstallStatus(
+	ctx context.Context,
+	q *db.Queries,
+	src experimental.Source,
+) (ExperimentalResourcesManifest, error) {
+	counts, err := experimental.CountByType(ctx, q, src)
+	if err != nil {
+		return ExperimentalResourcesManifest{}, err
+	}
+	return ExperimentalResourcesManifest{
+		Source:    string(src),
+		Installed: len(counts) > 0,
+		// Mirror statusForKey (experimental_resources.go): a rolled-back
+		// lab keeps its lock rows but flips them to hidden, so Hidden
+		// must be computed from the same counts, not hardcoded false —
+		// otherwise the Labs side panel can never show the "已隐藏"
+		// state after a rollback.
+		Hidden: isManifestHidden(counts),
+		Counts: countsToResponse(counts),
+	}, nil
+}
+
+// pickEnabled merges a stored user override with the catalog default.
+// hasOverride=false means the user has never toggled this flag, so the
+// catalog default applies verbatim.
+func pickEnabled(defaultVal, override bool, hasOverride bool) bool {
+	if !hasOverride {
+		return defaultVal
+	}
+	return override
+}
+
+// UpdateExperimentalFlag upserts the caller's preference for the given
+// flag. Unknown flag keys are rejected with 400 — the labs UI must not
+// be able to land rows that no flag definition knows about, otherwise the
+// row becomes invisible to the user and they cannot un-set it from the UI.
+//
+// The body shape is intentionally tiny: the toggle UI only needs to
+// express "on" or "off", so we accept a single boolean instead of the
+// full Decision shape. Future fields (variant, expires_at) belong on a
+// different endpoint.
+func (h *Handler) UpdateExperimentalFlag(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	flagKey := chi.URLParam(r, "key")
+	if flagKey == "" {
+		writeError(w, http.StatusBadRequest, "flag key is required")
+		return
+	}
+	if !experimental.IsKnownKey(flagKey) {
+		writeError(w, http.StatusBadRequest, "unknown flag key")
+		return
+	}
+
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if _, err := h.Queries.UpsertExperimentalPref(r.Context(), upsertParams(userID, flagKey, body.Enabled)); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update experimental flag")
+		return
+	}
+
+	// 0.3.15: wire the flag toggle into the lock-table install/rollback
+	// endpoints. Off → rollback hides every lab-attached row; on →
+	// install restores visibility (and inserts the marker row that the
+	// renderer's Installed flag reads from). Labs whose key is NOT
+	// installable skip this branch entirely.
+	if h.isInstallableFlag(flagKey) {
+		src := experimental.Source(flagKey)
+		if body.Enabled {
+			if _, err := experimental.Restore(r.Context(), h.Queries, src); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to install lab resources")
+				return
+			}
+			if err := h.markInstalled(r, src); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to record install marker")
+				return
+			}
+		} else {
+			if _, err := experimental.Hide(r.Context(), h.Queries, src); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to rollback lab resources")
+				return
+			}
+		}
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// upsertParams is a tiny adapter that lives in its own function so the
+// conversion from string userID + bool to the sqlc Params struct is
+// documented once. parseUUID is the package helper used by every other
+// handler that needs a UUID from a request header.
+func upsertParams(userID, flagKey string, enabled bool) db.UpsertExperimentalPrefParams {
+	return db.UpsertExperimentalPrefParams{
+		UserID:  parseUUID(userID),
+		FlagKey: flagKey,
+		Enabled: enabled,
+	}
+}

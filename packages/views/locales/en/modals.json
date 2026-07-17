@@ -152,6 +152,8 @@
     "title_placeholder": "Issue title",
     "description_placeholder": "Add description...",
     "more_options_aria": "More options",
+    "lab_menu_pick_aria": "Pick experimental lab",
+    "lab_menu_pick_label": "Experimental Lab",
     "title_required": "Enter a title to create",
     "submit": "Create Issue",
     "submitting": "Creating...",

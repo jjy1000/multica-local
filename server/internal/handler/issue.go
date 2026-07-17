@@ -823,6 +823,18 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// exclude_lab=true (0.3.33) hides lab-bound issues from the main
+	// workspace task list so users see only their regular work.
+	// Passing &exclude_lab=false overrides this filter to show
+	// experimental-lab issues alongside normal ones. The default
+	// is false — the frontend sends exclude_lab=true on every
+	// fetch from the workspace list.
+	excludeLab := r.URL.Query().Get("exclude_lab") == "true"
+	var excludeLabParam pgtype.Bool
+	if excludeLab {
+		excludeLabParam = pgtype.Bool{Bool: true, Valid: true}
+	}
+
 	// open_only=true returns all non-done/cancelled issues (no limit).
 	if r.URL.Query().Get("open_only") == "true" {
 		issues, err := h.Queries.ListOpenIssues(ctx, db.ListOpenIssuesParams{
@@ -833,6 +845,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 			CreatorID:      creatorFilter,
 			ProjectID:      projectFilter,
 			InvolvesUserID: involvesUserFilter,
+			ExcludeLab:     excludeLabParam,
 			MetadataFilter: metadataFilter,
 		})
 		if err != nil {
@@ -951,6 +964,9 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	if scheduledFilter.Valid {
 		where = append(where, "(i.start_date IS NOT NULL OR i.due_date IS NOT NULL)")
+	}
+	if excludeLab {
+		where = append(where, "i.lab_source IS NULL")
 	}
 	if metadataFilter != nil {
 		where = append(where, fmt.Sprintf("i.metadata @> %s::jsonb", addArg(string(metadataFilter))))
@@ -2165,36 +2181,38 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		assigneeID = id
 	}
 
-	// 0.3.31: lab ↔ assignee mutex. A `lab_source` (e.g. claude_science_lab,
-	// pythia_oracle) reserves the agent roster for itself — picking a manual
-	// assignee on top would either be silently overridden by the lab's
-	// leader or leave the assignee sitting idle while the lab dispatches
-	// its own pool. The frontend LabPicker already locks the AssigneePicker
-	// via `lockedReason`, but curl / scripted clients can still bypass the
-	// UI. Reject the combination BEFORE validateAssigneePair so a non-existent
-	// member/agent row never produces a confusing 400 ("does not refer to a
-	// member") when the real issue is the contract violation.
+	// 0.3.31 → 0.3.33: lab ↔ assignee mutex.
 	//
-	// Enhancer-mode exception (0.3.31, mythos_swarm only): when
-	// lab_mode="enhancer" the user MUST pick a target assignee —
-	// mythos preludes + supervises, but the actual execution goes
-	// to the chosen agent or squad. The validateAssigneePair call
-	// below still runs to confirm the assignee exists.
-	if req.LabSource != nil && *req.LabSource != "" {
+	// Originally every `lab_source` reserved the agent roster — that
+	// was over-restrictive. By 0.3.33 most labs (claude_science_lab,
+	// pythia_oracle, llm_wiki_bridge, code_canvas,
+	// agent_self_optimization, constitution_agent, chat_pin_ui)
+	// ship with their own runtime agents / skills / environments and
+	// no longer want manual assignees — pinning a single agent on
+	// top is meaningless and the gate just gets in the way of the
+	// user's "tag the issue, the lab figures it out" workflow.
+	//
+	// Only `mythos_swarm` keeps the mutex — its 5-agent RDT roster
+	// is meaningful enough that the user might want to override the
+	// default assignment, *or* in enhancer mode MUST pair with a
+	// target assignee (mythos preludes + supervises while the chosen
+	// actor executes).
+	//
+	// This gate runs BEFORE validateAssigneePair so a non-existent
+	// member/agent row never produces a confusing 400 ("does not
+	// refer to a member") when the real issue is the contract
+	// violation.
+	if req.LabSource != nil && *req.LabSource == "mythos_swarm" {
 		enhancerMode := req.LabMode != nil && *req.LabMode == "enhancer"
 		hasAssignee := assigneeType.Valid || assigneeID.Valid
 		switch {
 		case !enhancerMode && hasAssignee:
 			writeError(w, http.StatusBadRequest,
-				"lab_source and assignee are mutually exclusive; clear one before setting the other")
+				"lab_source=mythos_swarm requires the lab to own the assignee; clear the manual assignee")
 			return
 		case enhancerMode && !hasAssignee:
 			writeError(w, http.StatusBadRequest,
 				"lab_mode=enhancer requires an assignee (the target agent or squad)")
-			return
-		case enhancerMode && *req.LabSource != "mythos_swarm":
-			writeError(w, http.StatusBadRequest,
-				"lab_mode=enhancer is only supported when lab_source=mythos_swarm")
 			return
 		}
 	}
@@ -2671,10 +2689,16 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			if _, ok := rawFields["lab_source"]; ok && req.LabSource != nil {
 				postLabSource = *req.LabSource
 			}
+			// Mirror the same 0.3.33 narrowing as CreateIssue: only
+			// mythos_swarm still requires the lab ↔ assignee mutex.
+			// Other labs (claude_science_lab, pythia_oracle, …)
+			// are auto-dispatched by their own runtime now, so the
+			// user is free to tag a lab and keep a manual assignee
+			// if the workspace has one.
 			switch {
-			case !enhancerMode && hasAssignee && postLabSource != "":
+			case !enhancerMode && hasAssignee && postLabSource == "mythos_swarm":
 				writeError(w, http.StatusBadRequest,
-					"lab_source and assignee are mutually exclusive; clear one before setting the other")
+					"lab_source=mythos_swarm requires the lab to own the assignee; clear the manual assignee")
 				return
 			case enhancerMode && !hasAssignee:
 				writeError(w, http.StatusBadRequest,

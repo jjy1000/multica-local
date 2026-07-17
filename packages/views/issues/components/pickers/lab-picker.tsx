@@ -105,14 +105,22 @@ export function LabPicker({
   const setOpen = onOpenChange ?? setInternalOpen;
 
   // Build the picker entries once per flag list change. We surface every
-  // flag the catalog exposes so users can flip back and forth freely;
-  // a separate "no lab" entry is always first (id="") so clearing is
-  // a single click.
+  // ENABLED flag the catalog exposes so users can flip back and forth
+  // freely; a separate "no lab" entry is always first (id="") so
+  // clearing is a single click.
+  //
+  // 0.3.33 hardening: we used to list every flag from the catalog,
+  // including disabled ones. That was misleading — clicking a
+  // disabled flag would silently 400 on the server ("lab_source
+  // must match a known experimental flag key" / "this flag is not
+  // enabled for this workspace"). Filtering by `.enabled` here
+  // guarantees the menu only offers what the server would accept.
   const entries = useMemo(() => {
     const out: { id: string; title: string }[] = [
       { id: "", title: t(($) => $.pickers.lab.picker_none) ?? "None" },
     ];
     for (const flag of flags ?? []) {
+      if (!flag.enabled) continue;
       out.push({
         id: flag.key,
         title: flag.title.zh || flag.title.en || flag.key,
