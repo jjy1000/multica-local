@@ -381,6 +381,12 @@ function PlanTab({
 }) {
   const enabled = useExperimentalFlag(CLAUDE_LAB_FLAG, false);
   const { t } = useT("claude-lab");
+  // 0.3.36: hide audit / verification rows by default. Titles wrapped
+  // in `[...]` (the convention used by the 0.3.33 audit + per-ship
+  // smoke tests) are noise in the Plan tab — the user is here to do
+  // research, not inspect test fixtures. A checkbox exposes them
+  // when needed.
+  const [showAudit, setShowAudit] = useState(false);
   const issues = useQuery({
     queryKey: ["claude-lab-issues", wsId, CLAUDE_LAB_SOURCE],
     enabled: enabled && !!wsId,
@@ -413,7 +419,11 @@ function PlanTab({
       />
     );
   }
-  const rows = issues.data?.issues ?? [];
+  const allRows = issues.data?.issues ?? [];
+  const rows = showAudit
+    ? allRows
+    : allRows.filter((it) => !/^\s*\[(audit|test|verify|smoke)/i.test(it.title));
+  const auditCount = allRows.length - rows.length;
   if (rows.length === 0) {
     return (
       <EmptyHint
@@ -429,6 +439,17 @@ function PlanTab({
           <Sparkles className="size-4" aria-hidden />
           <span className="font-medium text-foreground">{t(($) => $.title_plan)}</span>
           <span>· {rows.length} 条</span>
+          {auditCount > 0 && (
+            <label className="ml-2 inline-flex cursor-pointer items-center gap-1 text-[10px]">
+              <input
+                type="checkbox"
+                checked={showAudit}
+                onChange={(e) => setShowAudit(e.target.checked)}
+                className="size-3 accent-primary"
+              />
+              <span>含 {auditCount} 条 audit</span>
+            </label>
+          )}
         </div>
       </header>
       <ul className="flex flex-col gap-3">
