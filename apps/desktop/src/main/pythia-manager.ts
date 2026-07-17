@@ -287,6 +287,12 @@ export interface PythiaProxyRequest {
   // Hard timeout in ms; defaults to 30_000 (Pythia /whatif can take
   // ~10–20s when the swarm deliberates).
   timeoutMs?: number;
+  // Optional renderer identity hint. When the caller supplies it,
+  // proxyRateLimit uses it as the bucket key so per-webContents
+  // quotas are independent. When omitted, the IPC handler falls
+  // back to `_event.sender.id` (which is the webContents id) for the
+  // same effect.
+  identity?: string;
 }
 
 export interface PythiaProxyResponse {
@@ -405,7 +411,10 @@ export function setupPythiaProxyIPC(): void {
   ipcMain.handle(
     "pythia:proxy",
     async (_event, req: PythiaProxyRequest): Promise<PythiaProxyResponse> => {
-      const identity = "renderer";
+      // Bucket key per renderer: prefer the caller-supplied identity,
+      // fall back to the webContents id so even the legacy preload
+      // (which doesn't pass identity) gets per-tab rate isolation.
+      const identity = req.identity ?? String(_event.sender.id);
       if (!proxyRateLimit(identity)) {
         return {
           ok: false,

@@ -982,6 +982,33 @@ func (q *Queries) CompleteAgentTask(ctx context.Context, arg CompleteAgentTaskPa
 	return i, err
 }
 
+const countAgentTerminalTasksByIssue = `-- name: CountAgentTerminalTasksByIssue :one
+SELECT COUNT(*) FROM agent_task_queue
+WHERE agent_id = $1
+  AND issue_id = $2
+  AND status IN ('completed', 'failed', 'cancelled')
+`
+
+type CountAgentTerminalTasksByIssueParams struct {
+	AgentID pgtype.UUID `json:"agent_id"`
+	IssueID pgtype.UUID `json:"issue_id"`
+}
+
+// 0.3.43: total terminal-run count (completed / failed / cancelled)
+// for an agent on an issue, regardless of how many rows the bounded
+// ListAgentTasksByIssue window returned. The Claude Lab workbench
+// surfaces this as the `lab_seq` progress badge — without it the
+// badge caps at the display window (20) and silently under-reports
+// the iteration count for any lab with more than a window's worth
+// of runs. Bounded only by the issue's lifetime history (no LIMIT
+// — the COUNT itself is the bound).
+func (q *Queries) CountAgentTerminalTasksByIssue(ctx context.Context, arg CountAgentTerminalTasksByIssueParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countAgentTerminalTasksByIssue, arg.AgentID, arg.IssueID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countRunningTasks = `-- name: CountRunningTasks :one
 SELECT count(*) FROM agent_task_queue
 WHERE agent_id = $1 AND status IN ('dispatched', 'running', 'waiting_local_directory')
@@ -2547,6 +2574,86 @@ ORDER BY created_at DESC
 
 func (q *Queries) ListAgentTasks(ctx context.Context, agentID pgtype.UUID) ([]AgentTaskQueue, error) {
 	rows, err := q.db.Query(ctx, listAgentTasks, agentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentTaskQueue{}
+	for rows.Next() {
+		var i AgentTaskQueue
+		if err := rows.Scan(
+			&i.ID,
+			&i.AgentID,
+			&i.IssueID,
+			&i.Status,
+			&i.Priority,
+			&i.DispatchedAt,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.Result,
+			&i.Error,
+			&i.CreatedAt,
+			&i.Context,
+			&i.RuntimeID,
+			&i.SessionID,
+			&i.WorkDir,
+			&i.TriggerCommentID,
+			&i.ChatSessionID,
+			&i.AutopilotRunID,
+			&i.Attempt,
+			&i.MaxAttempts,
+			&i.ParentTaskID,
+			&i.FailureReason,
+			&i.TriggerSummary,
+			&i.ForceFreshSession,
+			&i.IsLeaderTask,
+			&i.WaitReason,
+			&i.InitiatorUserID,
+			&i.HandoffNote,
+			&i.PrepareLeaseExpiresAt,
+			&i.SquadID,
+			&i.RuntimeMcpOverlay,
+			&i.EscalationForTaskID,
+			&i.FireAt,
+			&i.DeliveredCommentIds,
+			&i.ChatInputTaskID,
+			&i.CoalescedCommentIds,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentTasksByIssue = `-- name: ListAgentTasksByIssue :many
+SELECT id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, delivered_comment_ids, chat_input_task_id, coalesced_comment_ids FROM agent_task_queue
+WHERE agent_id = $1
+  AND issue_id = $2
+ORDER BY created_at DESC
+LIMIT $3
+`
+
+type ListAgentTasksByIssueParams struct {
+	AgentID pgtype.UUID `json:"agent_id"`
+	IssueID pgtype.UUID `json:"issue_id"`
+	Limit   int32       `json:"limit"`
+}
+
+// 0.3.43: server-side filtered + bounded variant for the Claude Lab
+// workbench. The unbounded `ListAgentTasks` returns the agent's
+// full task history across every issue — a long-running agent
+// could have 5000+ rows, which the workbench bootstrap would
+// pull into Go memory just to truncate to 20 for display.
+// LIMIT is required (no zero-arg default) so callers must think
+// about their bound explicitly. The lab handler passes 50 (2.5×
+// the per-window cap of 20 to leave room for late-arriving
+// tasks whose comments bumped into the per-request envelope).
+func (q *Queries) ListAgentTasksByIssue(ctx context.Context, arg ListAgentTasksByIssueParams) ([]AgentTaskQueue, error) {
+	rows, err := q.db.Query(ctx, listAgentTasksByIssue, arg.AgentID, arg.IssueID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

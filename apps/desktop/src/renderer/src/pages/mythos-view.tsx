@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { FlaskConical, Network, Sparkles, Users, BookOpen, AlertTriangle, Loader2 } from "lucide-react";
 import { useExperimentalFlag } from "@multica/core/experimental";
@@ -190,7 +190,10 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
   // issue.
   const [searchParams] = useSearchParams();
   const urlIssueId = searchParams.get("issue");
-  const [rootIssueId] = useState<string | null>(initialIssueId ?? urlIssueId);
+  const [rootIssueId, setRootIssueId] = useState<string | null>(initialIssueId ?? urlIssueId);
+  useEffect(() => {
+    setRootIssueId(initialIssueId ?? urlIssueId);
+  }, [initialIssueId, urlIssueId]);
   const [maxLoop, setMaxLoop] = useState(3);
   const [extensionAgentIDs, setExtensionAgentIDs] = useState<string[]>([]);
   const [selfOptimization, setSelfOptimization] = useState(true);

@@ -23,6 +23,7 @@ import type {
   AgentTask,
   AgentActivityBucket,
   AgentRunCount,
+  LabContext,
   AgentRuntime,
   RuntimeProfile,
   CreateRuntimeProfileRequest,
@@ -535,12 +536,14 @@ export class ApiClient {
     }
     if (params?.open_only) search.set("open_only", "true");
     if (params?.scheduled) search.set("scheduled", "true");
-    // 0.3.33: default to hiding lab-bound issues from the main
-    // workspace task list. The user can flip a "show experimental
-    // tasks" toggle in the list toolbar; that toggle sets
-    // exclude_lab=false to opt back in. The backend defaults to
-    // include labs when exclude_lab is unset (backward compat).
-    search.set("exclude_lab", params?.exclude_lab !== false ? "true" : "false");
+    // 0.3.33 (revised 0.3.37): default to INCLUDING lab-bound issues in
+    // the main workspace task list. Lab issues are first-class tasks
+    // created from a lab picker but live as regular `issue` rows
+    // (lab_source IS NOT NULL) — the user expects to see, assign, and
+    // delete them in the same list as manual work. The list toolbar's
+    // "hide experimental lab tasks" toggle wires into this parameter
+    // (sets exclude_lab=true) so power users can opt out.
+    search.set("exclude_lab", params?.exclude_lab === true ? "true" : "false");
     if (params?.date_field) search.set("date_field", params.date_field);
     if (params?.date_start) search.set("date_start", params.date_start);
     if (params?.date_end) search.set("date_end", params.date_end);
@@ -616,6 +619,23 @@ export class ApiClient {
 
   async getIssue(id: string): Promise<Issue> {
     return this.fetch(`/api/issues/${id}`);
+  }
+
+  // 0.3.40 Claude Lab workbench bootstrap. Single-call fetch of
+  // issue + agent + task timeline + agent comments + chat session id
+  // — see server/internal/handler/lab.go for the wire shape and
+  // docs at .omc/plans/0.3.40-claude-lab-v1-api.md. We go through
+  // rawRequest (not this.fetch) because the URL needs query-string
+  // encoding and the lab route is gated by experimental flag — a
+  // generic 404 from /api/* would hide a real misfire.
+  async getLabContext(issueId: string, workspaceId: string): Promise<LabContext> {
+    const r = await this.rawRequest(
+      `/api/experimental/claude-science-lab/issues/${encodeURIComponent(issueId)}/context?workspace_id=${encodeURIComponent(workspaceId)}`,
+    );
+    if (!r.ok) {
+      throw new Error(`getLabContext ${r.status}`);
+    }
+    return (await r.json()) as LabContext;
   }
 
   async createIssue(data: CreateIssueRequest): Promise<Issue> {

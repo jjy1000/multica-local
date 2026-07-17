@@ -57,7 +57,15 @@ const VIEW_LAB_SOURCES: ReadonlySet<string> = new Set([
 /**
  * Sidebar "Labs" section for issues that were tagged with a lab source.
  */
-export function IssueLabsSection({ issueId, labSource }: { issueId: string; labSource: string }) {
+export function IssueLabsSection({
+  issueId,
+  labSource,
+  issueLabMode = null,
+}: {
+  issueId: string;
+  labSource: string;
+  issueLabMode?: "sole" | "enhancer" | null;
+}) {
   const { t } = useT("issues");
   const wsId = useWorkspaceId();
   const { data: flags } = useExperimentalFlags();
@@ -161,7 +169,7 @@ export function IssueLabsSection({ issueId, labSource }: { issueId: string; labS
           )}
 
           {/* 0.3.31: enhancer-mode supervise panel */}
-          {labSource === "mythos_swarm" && (
+          {labSource === "mythos_swarm" && issueLabMode === "enhancer" && (
             <MythosEnhancerSupervisePanel issueId={issueId} enhancerMode />
           )}
         </div>

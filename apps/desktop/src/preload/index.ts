@@ -342,11 +342,11 @@ const serverAPI = {
 // off — this matches the per-flag opt-in contract documented in
 // server/internal/experimental/catalog.go:1-21.
 //
-// 0.3.20: keep the legacy .pythia / .claudeScience surfaces (those
-// channels are wired to dedicated managers with extra behaviour like
-// rate limiting on pythia:proxy). The new generic invoke() helper
-// routes through `experimental:<flagKey>:<verb>` so any catalog-only
-// flag (e.g. code_canvas) gets IPC without an edit here.
+// 0.3.20: keep the legacy .pythia surface (its channels are wired
+// to dedicated managers with extra behaviour like rate limiting on
+// pythia:proxy). The new generic invoke() helper routes through
+// `experimental:<flagKey>:<verb>` so any catalog-only flag (e.g.
+// code_canvas) gets IPC without an edit here.
 const experimentalAPI = {
   pythia: {
     ensureUp: (): Promise<string> =>
@@ -368,16 +368,6 @@ const experimentalAPI = {
       },
     ): Promise<{ ok: boolean; status: number; body: unknown }> =>
       ipcRenderer.invoke("pythia:proxy", req),
-  },
-  claudeScience: {
-    ensureUp: (): Promise<string> =>
-      ipcRenderer.invoke("claude-science:ensure-up"),
-    stop: (): Promise<void> =>
-      ipcRenderer.invoke("claude-science:stop"),
-    getStatus: (): Promise<string> =>
-      ipcRenderer.invoke("claude-science:get-status"),
-    getURL: (): Promise<string | null> =>
-      ipcRenderer.invoke("claude-science:get-url"),
   },
   // 0.3.20: generic Labs invoke. Routes to the
   // `experimental:<flagKey>:<verb>` channel namespace managed by

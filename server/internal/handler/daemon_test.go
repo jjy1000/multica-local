@@ -4795,3 +4795,183 @@ func TestCompleteTask_Chat_EmptyOutputNoChatInputOwnerDoesNotWriteNoResponse(t *
 		t.Fatalf("channel task wrote %d no_response rows, want 0 (channel engine handles its own reply)", count)
 	}
 }
+
+// TestBuildTaskResultJSON_MarkdownPreserved — 0.3.40 v2 regression
+// guard. When the agent emits plain markdown (no JSON wrapping),
+// buildTaskResultJSON must produce the legacy {pr_url, output,
+// session_id, work_dir} envelope so the timeline still shows the
+// markdown body. We deliberately don't migrate markdown output to
+// a different field — the workbench's extractResultSummary + the
+// 200-char result_summary column on PlanTimeline rows pick it up
+// unchanged.
+func TestBuildTaskResultJSON_MarkdownPreserved(t *testing.T) {
+	t.Parallel()
+	got, err := buildTaskResultJSON(TaskCompleteRequest{
+		Output:    "## Result\n\nFindings ...",
+		PRURL:     "https://example/pr/1",
+		SessionID: "session-xyz",
+		WorkDir:   "/tmp/work",
+	})
+	if err != nil {
+		t.Fatalf("buildTaskResultJSON: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(got, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed["output"] != "## Result\n\nFindings ..." {
+		t.Errorf("output field mismatch: %v", parsed["output"])
+	}
+	if parsed["session_id"] != "session-xyz" {
+		t.Errorf("session_id mismatch: %v", parsed["session_id"])
+	}
+	if _, has := parsed["attachments"]; has {
+		t.Errorf("attachments should not appear for markdown-only output")
+	}
+}
+
+// TestBuildTaskResultJSON_EnvelopePromoted — 0.3.40 v2 happy path.
+// When the agent emits a JSON object containing attachments /
+// predictions / code_blocks, buildTaskResultJSON promotes those
+// keys to the top level of the persisted envelope (the keys the
+// Claude Lab workbench reads from agent_task_queue.result). The
+// textual output stays under `output` so the timeline still
+// renders the summary line.
+func TestBuildTaskResultJSON_EnvelopePromoted(t *testing.T) {
+	t.Parallel()
+	envelope := map[string]any{
+		"output": "Final report text.",
+		"attachments": []any{
+			map[string]any{"kind": "interactive-chart", "name": "KS"},
+		},
+		"predictions": []any{
+			map[string]any{"round": 1, "scenario": "baseline", "probability": 0.42},
+		},
+		"code_blocks": []any{
+			map[string]any{"language": "python", "code": "import scipy"},
+		},
+	}
+	envelopeJSON, _ := json.Marshal(envelope)
+	got, err := buildTaskResultJSON(TaskCompleteRequest{
+		Output:    string(envelopeJSON),
+		SessionID: "session-xyz",
+	})
+	if err != nil {
+		t.Fatalf("buildTaskResultJSON: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(got, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	atts, ok := parsed["attachments"].([]any)
+	if !ok || len(atts) != 1 {
+		t.Errorf("attachments not promoted: %v", parsed["attachments"])
+	}
+	preds, ok := parsed["predictions"].([]any)
+	if !ok || len(preds) != 1 {
+		t.Errorf("predictions not promoted: %v", parsed["predictions"])
+	}
+	codes, ok := parsed["code_blocks"].([]any)
+	if !ok || len(codes) != 1 {
+		t.Errorf("code_blocks not promoted: %v", parsed["code_blocks"])
+	}
+	if parsed["output"] != "Final report text." {
+		t.Errorf("output field dropped: %v", parsed["output"])
+	}
+	if parsed["session_id"] != "session-xyz" {
+		t.Errorf("session_id dropped: %v", parsed["session_id"])
+	}
+}
+
+// TestBuildTaskResultJSON_OnlyPromotedKeysWhenPresent — partial
+// envelopes. An agent that only emits attachments (no predictions
+// / code_blocks) should still see its attachments promoted, with
+// the other two fields absent (not null).
+func TestBuildTaskResultJSON_OnlyPromotedKeysWhenPresent(t *testing.T) {
+	t.Parallel()
+	envelope := map[string]any{
+		"output": "Short report.",
+		"attachments": []any{
+			map[string]any{"kind": "png", "url": "/api/uploads/abc"},
+		},
+	}
+	envelopeJSON, _ := json.Marshal(envelope)
+	got, _ := buildTaskResultJSON(TaskCompleteRequest{Output: string(envelopeJSON)})
+	var parsed map[string]any
+	_ = json.Unmarshal(got, &parsed)
+	if _, ok := parsed["attachments"]; !ok {
+		t.Errorf("attachments missing")
+	}
+	if _, ok := parsed["predictions"]; ok {
+		t.Errorf("predictions should be absent when not emitted")
+	}
+	if _, ok := parsed["code_blocks"]; ok {
+		t.Errorf("code_blocks should be absent when not emitted")
+	}
+}
+
+// 0.3.42 PR-1: buildTaskResultJSON switched from HasPrefix("{") +
+// HasSuffix("}") to json.Valid(). These three negative-path tests
+// cover the cases the previous heuristic could mis-handle.
+
+func TestBuildTaskResultJSON_InvalidJSONFallthrough(t *testing.T) {
+	t.Parallel()
+	// A string starting with `{` but containing garbage must NOT
+	// promote — json.Valid rejects it, falls through to legacy.
+	got, err := buildTaskResultJSON(TaskCompleteRequest{
+		Output:    "{not valid json",
+		PRURL:     "https://example/p/1",
+		SessionID: "session-abc",
+	})
+	if err != nil {
+		t.Fatalf("buildTaskResultJSON: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(got, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if parsed["output"] != "{not valid json" {
+		t.Errorf("output should be preserved, got %q", parsed["output"])
+	}
+	if parsed["session_id"] != "session-abc" {
+		t.Errorf("session_id should be preserved, got %v", parsed["session_id"])
+	}
+	if _, ok := parsed["attachments"]; ok {
+		t.Errorf("invalid JSON must not promote attachments")
+	}
+}
+
+func TestBuildTaskResultJSON_ProseWithBraces(t *testing.T) {
+	t.Parallel()
+	// Prose that contains { and } must not be promoted — only
+	// real JSON objects with the structured keys trigger promotion.
+	got, _ := buildTaskResultJSON(TaskCompleteRequest{
+		Output: "see {x} and {y} in figure 1",
+	})
+	var parsed map[string]any
+	_ = json.Unmarshal(got, &parsed)
+	if parsed["output"] != "see {x} and {y} in figure 1" {
+		t.Errorf("prose should be preserved, got %q", parsed["output"])
+	}
+	if _, ok := parsed["attachments"]; ok {
+		t.Errorf("prose must not be promoted")
+	}
+}
+
+func TestBuildTaskResultJSON_EmptyObject(t *testing.T) {
+	t.Parallel()
+	// `{}` is valid JSON but carries no structured keys — must
+	// not promote anything.
+	got, _ := buildTaskResultJSON(TaskCompleteRequest{Output: "{}"})
+	var parsed map[string]any
+	_ = json.Unmarshal(got, &parsed)
+	if _, ok := parsed["attachments"]; ok {
+		t.Errorf("empty object must not promote attachments")
+	}
+	if _, ok := parsed["predictions"]; ok {
+		t.Errorf("empty object must not promote predictions")
+	}
+	if _, ok := parsed["code_blocks"]; ok {
+		t.Errorf("empty object must not promote code_blocks")
+	}
+}

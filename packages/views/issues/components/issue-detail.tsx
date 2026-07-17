@@ -63,7 +63,6 @@ import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies, deriveThreadResolution } from "./thread-utils";
 import { IssueAgentHeaderChip } from "./issue-agent-header-chip";
 import { IssueLabsSection, labSourceRouteSuffix } from "./issue-labs-section";
-import { LabWorkspacePanel } from "./lab-workspace-panel";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -752,27 +751,26 @@ interface IssueDetailProps {
    * detail bundle slim. Optional — web leaves this undefined and
    * the sidebar just shows the "Open lab panel" link.
    */
-  /**
-   * Workspace-scoped lab route suffix (e.g. "claude-lab") used by
-   * LabWorkspacePanel to surface a single "打开实验室面板 →" jump
-   * link in the right column. The detailed lab view lives at
-   * `/experimental/<suffix>` and is *not* mounted inline on the
-   * issue page — inline visualization crowded the issue detail
-   * chrome (~600px height) and hid the description / activity
-   * flows.
-   *
-   * Web (no renderLabInline wiring) leaves this undefined and the
-   * panel renders its compact status + bound-for-issue chrome only,
-   * which is enough for users who came in from the issue list.
-   */
-  labRouteSuffix?: string;
 }
+
+/**
+ * Workspace-scoped lab route suffix (e.g. "claude-lab") used by
+ * the sidebar status section to surface a single "打开实验室面板 →"
+ * jump link in the right column. The detailed lab view lives at
+ * `/experimental/<suffix>` and is *not* mounted inline on the issue
+ * page — inline visualization crowded the issue detail chrome
+ * (~600px height) and hid the description / activity flows.
+ *
+ * Web (no inline wiring) leaves this undefined and the sidebar
+ * renders its compact status + bound-for-issue chrome only,
+ * which is enough for users who came in from the issue list.
+ */
 
 // ---------------------------------------------------------------------------
 // IssueDetail
 // ---------------------------------------------------------------------------
 
-export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId, labRouteSuffix }: IssueDetailProps) {
+export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = true, layoutId = "multica_issue_detail_layout", highlightCommentId }: IssueDetailProps) {
   const { t } = useT("issues");
   const timeAgo = useTimeAgo();
   const id = issueId;
@@ -1732,19 +1730,13 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           source. Sits below Pull Requests and above Details so the
           sidebar order stays Properties → Parent → PRs → Labs →
           Details. The status section (IssueLabsSection) is always
-          shown so users on web (no renderLabInline) still see
-          running/queued indicators. The inline visualization
-          (LabWorkspacePanel) is opt-in via the renderLabInline
-          prop — desktop wires it to the lazy-loaded lab view
-          modules, web leaves it undefined. */}
+          shown so users see running/queued indicators + a jump link
+          to the workspace-scoped lab view. */}
       {issue.lab_source && (
-        <IssueLabsSection issueId={id} labSource={issue.lab_source} />
-      )}
-      {issue.lab_source && (
-        <LabWorkspacePanel
+        <IssueLabsSection
           issueId={id}
           labSource={issue.lab_source}
-          routeSuffix={labRouteSuffix}
+          issueLabMode={issue.lab_mode ?? null}
         />
       )}
 

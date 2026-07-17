@@ -2201,6 +2201,223 @@ type TaskCompleteRequest struct {
 	WorkDir   string `json:"work_dir"`   // working directory used during execution
 }
 
+// ResultEnvelope keys (0.3.40 v2): when the agent emits a pure JSON
+// object as its final reply (no markdown wrapping), the server
+// promotes the keys below into the top level of the persisted
+// `result` jsonb so the Claude Lab workbench can render them
+// without parsing markdown. Agents that still emit free-form
+// markdown text fall through to the legacy code path — the
+// existing result_summary extractor picks up the markdown for the
+// Plan timeline regardless.
+var (
+	resultEnvelopeKeyAttachments = "attachments"
+	resultEnvelopeKeyPredictions = "predictions"
+	resultEnvelopeKeyCodeBlocks  = "code_blocks"
+)
+
+// json.Unmarshal depth / key-count limits. The agent-emitted
+// Output can be up to 4 MB after the CompleteTask body cap — a
+// deeply-nested object of `{"a":{"a":...}}` × 10^5 layers causes
+// json.Unmarshal to blow the goroutine stack with a StackOverflow
+// panic; a flat object with 10^7 keys allocates gigabytes. We bound
+// both before Unmarshal so a malicious or buggy agent can't DoS the
+// server via CompleteTask. The bound is generous for the v2 envelope
+// contract (typical envelope: 4 attachments, 3 predictions, 2 code
+// blocks) — anything bigger is rejected with 400 + logged.
+const (
+	maxJSONDepth     = 32   // 32 nested object/array levels
+	maxJSONKeyCount  = 4096 // total distinct keys across the parsed tree
+)
+
+// jsonBytesExceedsLimits reports whether raw parses cleanly AND
+// fits inside the depth / key-count budgets. Cheaper than parsing
+// then walking — walks the raw bytes once with a tiny state
+// machine, tracking bracket depth and counting "key" tokens (an
+// unquoted identifier, a string literal, or a number prefix
+// immediately following `{` or `,`).
+//
+// Worst case the walk costs O(n) over up to 4 MB — cheap. It errs
+// on the side of accepting (false negatives are impossible to
+// avoid without actually parsing), but the only way an envelope
+// slips past is if it's deep AND wide at the same time, which the
+// Claude Lab v2 contract explicitly forbids.
+func jsonBytesExceedsLimits(raw []byte) bool {
+	depth := 0
+	maxDepth := 0
+	keys := 0
+	i := 0
+	for i < len(raw) {
+		c := raw[i]
+		switch c {
+		case '{', '[':
+			depth++
+			if depth > maxDepth {
+				maxDepth = depth
+				if maxDepth > maxJSONDepth {
+					return true
+				}
+			}
+			i++
+		case '}', ']':
+			depth--
+			i++
+		case '"':
+			// Skip the string literal. json.Valid does this
+			// already — we just need an approximate count of
+			// string keys. Walk to the closing unescaped quote.
+			keys++
+			if keys > maxJSONKeyCount {
+				return true
+			}
+			i++
+			for i < len(raw) {
+				if raw[i] == '\\' {
+					i += 2
+					continue
+				}
+				if raw[i] == '"' {
+					i++
+					break
+				}
+				i++
+			}
+		default:
+			i++
+		}
+	}
+	return false
+}
+
+// buildTaskResultJSON produces the bytes that get stored in
+// agent_task_queue.result (jsonb). The default shape mirrors the
+// inbound TaskCompleteRequest (pr_url / output / session_id /
+// work_dir) so older callers / tests keep their existing surface.
+//
+// When req.Output parses as a JSON object AND carries one of the
+// 0.3.40 v2 Claude Lab workbench keys (attachments / predictions /
+// code_blocks), we promote those keys to the top level of the
+// envelope and demote the agent's textual Output into the `output`
+// field of the same envelope. Agents that emit only plain markdown
+// (no JSON) fall through to the default shape — the lab workbench
+// already renders that path via extractResultSummary.
+//
+// 0.3.42: use `json.Valid` (zero-allocation O(n) check) instead of
+// the previous `HasPrefix("{") && HasSuffix("}")` heuristic. The
+// heuristic could be bypassed by a 4 MB string starting with `{`
+// and ending with `}` that wasn't actually valid JSON — json.Valid
+// short-circuits cheaply before json.Unmarshal allocates a parse
+// tree.
+//
+// 0.3.43: depth + key-count guard before Unmarshal. A 4 MB blob
+// with `{"a":{"a":...}}` × 10^5 layers panics the goroutine stack;
+// a flat object with 10^7 keys allocates gigabytes. The bound is
+// tuned to the v2 envelope contract (typical: 4 attachments, 3
+// predictions, 2 code blocks) — anything bigger returns nil to
+// signal "fall through to the legacy envelope" and the caller logs
+// a warning so the operator can spot a runaway agent.
+//
+// 0.3.43: deep-copy the promoted slices/maps at the boundary so
+// the persisted envelope doesn't share backing arrays with the
+// parser-owned tree. The parser recycles its internal buffer
+// after the request returns; without the copy, a later
+// post-Marshal mutation (e.g. dedupe attachments) would corrupt
+// the next request that happens to reuse the same buffer pool.
+// json.Marshal + json.Unmarshal into a generic target gives us
+// the deep copy cheaply.
+//
+// We deliberately do NOT touch pr_url / session_id / work_dir when
+// the JSON envelope is present: those stay at the top level so the
+// run-finished audit / restart hooks keep working unchanged.
+func buildTaskResultJSON(req TaskCompleteRequest) ([]byte, error) {
+	envelope := map[string]any{
+		"pr_url":     req.PRURL,
+		"output":     req.Output,
+		"session_id": req.SessionID,
+		"work_dir":   req.WorkDir,
+	}
+	trimmed := strings.TrimSpace(req.Output)
+	if trimmed == "" {
+		return json.Marshal(envelope)
+	}
+	// json.Valid is the cheap gate — it scans the bytes once and
+	// returns false on any malformed JSON, including trailing
+	// garbage after a closing `}`. Falling through here means
+	// the legacy {pr_url, output, session_id, work_dir} envelope
+	// is returned unchanged.
+	if !json.Valid([]byte(trimmed)) {
+		return json.Marshal(envelope)
+	}
+	// Depth / key-count gate. json.Valid passed, so the bytes are
+	// syntactically valid — this catches pathological shapes that
+	// would blow up Unmarshal. We bail to legacy envelope on
+	// overflow (the alternative is 400, but legacy envelope is
+	// more permissive and matches the documented fall-through
+	// contract).
+	if jsonBytesExceedsLimits([]byte(trimmed)) {
+		slog.Warn("complete task: output exceeds json depth/key limits, falling back to legacy envelope",
+			"output_bytes", len(trimmed),
+			"max_depth", maxJSONDepth,
+			"max_keys", maxJSONKeyCount,
+		)
+		return json.Marshal(envelope)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		// Defensive: Valid said yes but Unmarshal failed (rare —
+		// number-precision edges). Keep legacy envelope.
+		return json.Marshal(envelope)
+	}
+	// Promote the structured deliverables to the top level of the
+	// persisted envelope, then replace the `output` slot with the
+	// envelope's own `output` field if present (so a JSON-only
+	// reply still surfaces a readable summary on the timeline).
+	if rawOut, hasOut := parsed["output"]; hasOut {
+		if s, ok := rawOut.(string); ok {
+			envelope["output"] = s
+		}
+	}
+	// Deep-copy each promoted key across the parser-owned /
+	// envelope-owned boundary. json.Marshal + Unmarshal into a
+	// fresh generic drops any back-reference into the parser's
+	// internal buffer pool.
+	for _, key := range []string{
+		resultEnvelopeKeyAttachments,
+		resultEnvelopeKeyPredictions,
+		resultEnvelopeKeyCodeBlocks,
+	} {
+		if _, has := parsed[key]; !has {
+			continue
+		}
+		copied, err := deepCopyJSONValue(parsed[key])
+		if err != nil {
+			slog.Warn("complete task: failed to deep-copy envelope key",
+				"key", key, "err", err,
+			)
+			continue
+		}
+		envelope[key] = copied
+	}
+	return json.Marshal(envelope)
+}
+
+// deepCopyJSONValue round-trips a generic JSON value (parsed from
+// json.Unmarshal into map[string]any / []any / string / float64 /
+// bool / nil) through Marshal+Unmarshal to drop any back-reference
+// into the source parser's internal buffer. Cost is one Marshal +
+// one Unmarshal — both bounded by the depth/key-count guards
+// above, so neither can recurse unboundedly.
+func deepCopyJSONValue(v any) (any, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var out any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "taskId")
 
@@ -2210,17 +2427,48 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 0.3.42: cap request body to 8 MB so a compromised daemon can't
+	// OOM the server by POSTing a giant body. The decoded Output is
+	// further capped at 4 MB below — that value lands in jsonb.
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<20)
+
 	var req TaskCompleteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	result, _ := json.Marshal(req)
+	// 0.3.42: explicit per-field cap on Output. Output is persisted
+	// to agent_task_queue.result jsonb — a 50 MB blob there bloats
+	// every subsequent lab-context read.
+	const maxTaskOutputBytes = 4 << 20
+	if len(req.Output) > maxTaskOutputBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "output exceeds 4 MB cap")
+		return
+	}
+
+	result, err := buildTaskResultJSON(req)
+	if err != nil {
+		slog.Error("complete task: failed to encode task result",
+			"task_id", taskID, "err", err,
+		)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
 	task, err := h.TaskService.CompleteTask(r.Context(), parseUUID(taskID), result, req.SessionID, req.WorkDir)
 	if err != nil {
-		slog.Warn("complete task failed", "task_id", taskID, "error", err)
-		writeError(w, http.StatusBadRequest, err.Error())
+		// 0.3.43: don't leak pgx/sqlc constraint strings to the
+		// daemon. The previous `err.Error()` body could include
+		// schema/column names and table constraints. Log full
+		// detail server-side, surface a generic body. Validation-
+		// class 4xx errors (e.g. unknown task id, already-completed
+		// task) are surfaced via the service's sentinel errors
+		// and handled by the project-wide generic-message contract
+		// (see .omc/decisions/0.3.42-err-error-audit-scope.md).
+		slog.Error("complete task failed",
+			"task_id", taskID, "err", err,
+		)
+		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 

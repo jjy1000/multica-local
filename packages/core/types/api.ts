@@ -118,11 +118,11 @@ export interface ListIssuesParams {
   sort_by?: "position" | "priority" | "title" | "created_at" | "start_date" | "due_date";
   sort_direction?: "asc" | "desc";
   /**
-   * 0.3.33: when true (the default the API client sends), lab-bound
-   * issues (lab_source IS NOT NULL) are hidden from the result.
-   * Pass false to show experimental-lab issues alongside normal
-   * work. The list toolbar's "show experimental lab tasks" toggle
-   * wires into this parameter.
+   * 0.3.33: when true, lab-bound issues (lab_source IS NOT NULL) are
+   * hidden from the result. Defaults to false (0.3.37): lab issues
+   * are first-class tasks and surface in the main list. The list
+   * toolbar's "hide experimental lab tasks" toggle flips this on
+   * to opt out.
    */
   exclude_lab?: boolean;
 }
@@ -261,4 +261,116 @@ export interface CreatePersonalAccessTokenResponse extends PersonalAccessToken {
 export interface PaginationParams {
   limit?: number;
   offset?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Claude Lab workbench (0.3.40)
+// ---------------------------------------------------------------------------
+// Wire shape of GET /api/experimental/claude-science-lab/issues/{id}/context.
+// Slimmed-down from the full DB rows so the workbench doesn't pull MCP /
+// runtime config blobs it never renders. The renderer keys off `lab_seq` for
+// the progress badge, `tasks[].status` for the live timeline indicator, and
+// `chat_session_id` to bind the right-hand LabChatPanel to the user's
+// existing chat session (MUL-4351, chat_input_task_id).
+export interface LabContext {
+  issue: LabIssueBrief;
+  agent: LabAgentBrief | null;
+  tasks: LabTaskBrief[];
+  comments: LabCommentBrief[];
+  chat_session_id: string | null;
+  lab_seq: number;
+  server_time: string;
+}
+
+export interface LabIssueBrief {
+  id: string;
+  workspace_id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  lab_source: string;
+  lab_mode: "sole" | "enhancer" | null;
+  assignee_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LabAgentBrief {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+}
+
+export interface LabTaskBrief {
+  id: string;
+  status:
+    | "queued"
+    | "dispatched"
+    | "running"
+    | "preparing"
+    | "waiting_local_directory"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "deferred";
+  trigger_summary: string | null;
+  error: string | null;
+  failure_reason: string | null;
+  result_summary: string | null;
+  // 0.3.40 v2: structured deliverables extracted from the agent's
+  // result jsonb. The agent prompt (multica-claude-science SKILL.md +
+  // leader agent `instructions`) instructs the agent to emit these
+  // envelopes so the workbench can render charts / images / code
+  // snippets inline rather than burying them in markdown.
+  result_attachments?: LabAttachment[];
+  result_predictions?: LabPrediction[];
+  result_code_blocks?: LabCodeBlock[];
+  created_at: string;
+  dispatched_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+}
+
+// LabAttachment is a single inline deliverable produced by the
+// agent. `kind` mirrors the artifact-view taxonomy: `png` / `svg` /
+// `html` / `interactive-chart` / `md` / `csv` / `json` / `txt` /
+// `log`. Either `data` (inline payload) or `url` (server-stored
+// reference) is populated; the renderer picks accordingly.
+export interface LabAttachment {
+  kind: string;
+  name?: string;
+  mime?: string;
+  data?: unknown;
+  url?: string;
+  bytes?: number;
+}
+
+// LabPrediction is one row of the agent's probabilistic forecast.
+// Renders as a single point on the Forecast tab probability chart.
+export interface LabPrediction {
+  round: number;
+  scenario: string;
+  narrative?: string;
+  probability: number;
+  confidence?: number;
+  horizon?: string;
+  persona?: string;
+}
+
+// LabCodeBlock is a fenced code snippet the agent wants to surface
+// in the Code tab. `language` drives syntax highlighting; `code` is
+// the raw source.
+export interface LabCodeBlock {
+  language: string;
+  filename?: string;
+  code: string;
+}
+
+export interface LabCommentBrief {
+  id: string;
+  author_type: "member" | "agent" | "system";
+  content: string;
+  created_at: string;
 }

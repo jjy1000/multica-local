@@ -239,12 +239,6 @@ interface ExperimentalAPI {
       timeoutMs?: number;
     }): Promise<{ ok: boolean; status: number; body: unknown }>;
   };
-  claudeScience: {
-    ensureUp(): Promise<string>;
-    stop(): Promise<void>;
-    getStatus(): Promise<string>;
-    getURL(): Promise<string | null>;
-  };
   // 0.3.20: generic Labs invoke. Routes to the
   // `experimental:<flagKey>:<verb>` channel namespace. Use for
   // catalog-only flags without a dedicated manager surface.

@@ -152,48 +152,12 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
     );
   }
 
-  if (!url) {
-    return (
-      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-        <span>
-          {t(($) => $.starting_pythia)} (status: {status})…
-        </span>
-      </div>
-    );
-  }
-
-  return <PythiaStatusPanel url={url} />;
-}
-
-function PythiaStatusPanel({ url }: { url: string }) {
-  const { t } = useT("pythia");
+  // Flag-off: bare placeholder. The Pythia prediction surface is
+  // gated behind `pythia_oracle`; without the flag there's nothing
+  // to render here.
   return (
-    <div className="flex h-full w-full flex-col gap-6 overflow-auto p-8 text-sm">
-      <header className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold">Pythia Prediction Oracle</h2>
-        <p className="text-muted-foreground">
-          Headless Python service. Multica agents reach it via the
-          <code className="mx-1 rounded bg-muted px-1.5 py-0.5">multica-pythia</code>
-          Skill; this page is a status surface for the local subprocess.
-        </p>
-      </header>
-
-      <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
-        <dt className="text-muted-foreground">{t(($) => $.loopback_url)}</dt>
-        <dd className="font-mono">{url}</dd>
-        <dt className="text-muted-foreground">{t(($) => $.health_probe)}</dt>
-        <dd className="font-mono">{`${url}/health`}</dd>
-      </dl>
-
-      <section className="flex flex-col gap-2">
-        <h3 className="font-semibold">{t(($) => $.try_from_agent)}</h3>
-        <pre className="overflow-auto rounded border bg-muted p-3 text-xs leading-relaxed">
-{`multica --json pythia status
-multica pythia brief --url ${url}
-multica pythia predict --url ${url} --scenario "…" --horizon week
-multica pythia whatif --url ${url} --intervention "…"`}
-        </pre>
-      </section>
+    <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+      <span>{t(($) => $.starting_pythia)} (status: {status})…</span>
     </div>
   );
 }

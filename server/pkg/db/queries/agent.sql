@@ -156,6 +156,36 @@ SELECT * FROM agent_task_queue
 WHERE agent_id = $1
 ORDER BY created_at DESC;
 
+-- name: ListAgentTasksByIssue :many
+-- 0.3.43: server-side filtered + bounded variant for the Claude Lab
+-- workbench. The unbounded `ListAgentTasks` returns the agent's
+-- full task history across every issue — a long-running agent
+-- could have 5000+ rows, which the workbench bootstrap would
+-- pull into Go memory just to truncate to 20 for display.
+-- LIMIT is required (no zero-arg default) so callers must think
+-- about their bound explicitly. The lab handler passes 50 (2.5×
+-- the per-window cap of 20 to leave room for late-arriving
+-- tasks whose comments bumped into the per-request envelope).
+SELECT * FROM agent_task_queue
+WHERE agent_id = $1
+  AND issue_id = $2
+ORDER BY created_at DESC
+LIMIT $3;
+
+-- name: CountAgentTerminalTasksByIssue :one
+-- 0.3.43: total terminal-run count (completed / failed / cancelled)
+-- for an agent on an issue, regardless of how many rows the bounded
+-- ListAgentTasksByIssue window returned. The Claude Lab workbench
+-- surfaces this as the `lab_seq` progress badge — without it the
+-- badge caps at the display window (20) and silently under-reports
+-- the iteration count for any lab with more than a window's worth
+-- of runs. Bounded only by the issue's lifetime history (no LIMIT
+-- — the COUNT itself is the bound).
+SELECT COUNT(*) FROM agent_task_queue
+WHERE agent_id = $1
+  AND issue_id = $2
+  AND status IN ('completed', 'failed', 'cancelled');
+
 -- name: CreateAgentTask :one
 INSERT INTO agent_task_queue (
     agent_id, runtime_id, issue_id, status, priority, trigger_comment_id,

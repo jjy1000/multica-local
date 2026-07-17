@@ -660,6 +660,93 @@ func TestWriteMcpConfigToTemp(t *testing.T) {
 	}
 }
 
+// TestWriteMcpConfigToTempNormalizesEmptyObject is the regression guard for
+// the 0.3.38 lab agent dispatch failure: every agent the lab installers
+// (claude_science_lab, mythos_swarm, constitution_agent, agent_self_optimization,
+// code_canvas, llm_wiki_bridge) create ships with `{}` as the default mcp_config.
+// Claude CLI 2.1.211+ validates the file with a Zod schema that rejects the bare
+// `{}` and exits before any prompt reaches the model — so the literal byte
+// sequence the admin saved (`{}`) must NOT be what hits the temp file; we
+// rewrite it to `{"mcpServers":{}}` to keep the strict-mode intent (no managed
+// servers) while satisfying the CLI's stricter contract.
+//
+// Inputs that already declare an `mcpServers` key, or any non-empty JSON,
+// must pass through verbatim so the file content is bit-identical to what the
+// admin saved.
+func TestWriteMcpConfigToTempNormalizesEmptyObject(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "bare empty object gets normalized to mcpServers:{}",
+			in:   `{}`,
+			want: `{"mcpServers":{}}`,
+		},
+		{
+			name: "empty object with whitespace still normalized",
+			in:   "  {  }  ",
+			want: `{"mcpServers":{}}`,
+		},
+		{
+			name: "empty mcpServers map passes through (already valid)",
+			in:   `{"mcpServers":{}}`,
+			want: `{"mcpServers":{}}`,
+		},
+		{
+			name: "populated mcpServers passes through verbatim",
+			in:   `{"mcpServers":{"context7":{"command":"uvx","args":["context7-mcp"]}}}`,
+			want: `{"mcpServers":{"context7":{"command":"uvx","args":["context7-mcp"]}}}`,
+		},
+		{
+			name: "non-mcpServers keys are NOT touched (admin's choice)",
+			in:   `{"other":42}`,
+			want: `{"other":42}`,
+		},
+		{
+			// 0.3.43 P1-1: Claude CLI 2.1.211+ rejects `mcpServers: null`
+			// even though the key is present. Normalise to `mcpServers:{}`
+			// so the temp file passes Zod validation.
+			name: "mcpServers: null gets normalized to mcpServers:{}",
+			in:   `{"mcpServers": null}`,
+			want: `{"mcpServers":{}}`,
+		},
+		{
+			name: "mcpServers: {} (with internal whitespace) gets normalized",
+			in:   `{"mcpServers": {  }}`,
+			want: `{"mcpServers":{}}`,
+		},
+		{
+			name: "mcpServers: [] gets normalized to mcpServers:{}",
+			in:   `{"mcpServers": []}`,
+			want: `{"mcpServers":{}}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path, err := writeClaudeMcpConfigToTemp(json.RawMessage(tc.in))
+			if err != nil {
+				t.Fatalf("writeClaudeMcpConfigToTemp: %v", err)
+			}
+			t.Cleanup(func() { _ = os.Remove(path) })
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("read temp file: %v", err)
+			}
+			if !bytes.Equal(data, []byte(tc.want)) {
+				t.Fatalf("file content mismatch:\n  in:  %s\n  got: %s\n  want: %s",
+					tc.in, data, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolveSessionID(t *testing.T) {
 	t.Parallel()
 

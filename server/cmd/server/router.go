@@ -738,6 +738,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// 0.3.29: Claude Lab tab data source — issue listing by
 			// `lab_source`.
 			handler.RegisterClaudeLabIssuesRoute(r, h)
+			// 0.3.40: Claude Lab workbench context — single-call
+			// fetch of issue + task timeline + agent comments + chat
+			// session for the right-hand LabChatPanel. Reuses the
+			// existing issue / agent / comment sqlc queries instead
+			// of introducing per-issue lists — see lab.go header.
+			handler.RegisterClaudeLabContextRoute(r, h)
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(h.RequireExperimentalFlag("llm_wiki_bridge"))

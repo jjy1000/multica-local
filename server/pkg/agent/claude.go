@@ -40,7 +40,12 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	var mcpConfigPath string
 	var mcpFileCleanup func() // non-nil while this function owns the temp file
 	if len(opts.McpConfig) > 0 {
-		path, err := writeMcpConfigToTemp(opts.McpConfig)
+		// 0.3.43: use the Claude-CLI-specific writer (handles the
+		// `{}` → `{"mcpServers":{}}` normalisation for Claude CLI
+		// 2.1.211+ Zod schema validation). codebuddy.go calls the
+		// verbatim writeMcpConfigToTemp — its CLI behaviour was not
+		// verified, so we deliberately don't normalise there.
+		path, err := writeClaudeMcpConfigToTemp(opts.McpConfig)
 		if err != nil {
 			cancel()
 			return nil, err
@@ -787,12 +792,65 @@ func stripSurroundingQuotes(s string) (string, bool) {
 
 // writeMcpConfigToTemp writes raw MCP config JSON to a temporary file and returns
 // its path. The caller is responsible for removing the file when done.
+//
+// `raw` is normalised before write: when the agent's mcp_config parses to the
+// empty JSON object `{}` (the admin opted into strict-mode with no managed
+// servers), Claude CLI 2.1.211+ validates the file with a Zod schema that
+// requires the top-level `mcpServers` key to be present — passing the literal
+// `{}` makes the CLI exit with `Invalid MCP configuration: mcpServers: Invalid
+// input: expected record, received undefined` and the entire task fails
+// before any prompt reaches the model (root cause of the 0.3.38 lab agent
+// dispatch 100% failure on fresh installs — every agent created by the lab
+// installers ships with `{}` as the default). Codex/OpenClaw still accept `{}`
+// (see hasManagedCodexMcpConfig), so the normalisation stays scoped to the
+// file content; we never rewrite the in-memory raw so the upstream semantics
+// are unchanged.
+//
+// Inputs that already carry any key (including `{"mcpServers":{}}`) are written
+// verbatim so the file content is bit-identical to what the admin saved.
+// Bytes that fail to parse are still written verbatim — a corrupted mcp_config
+// is not our problem to silently rewrite; the CLI's own parser will surface it.
+//
+// 0.3.43 P1-2: split from writeMcpConfigToTemp (which is the verbatim
+// version shared with codebuddy). The Claude-CLI-specific variant is
+// the only caller of the empty-object normalisation. codebuddy still
+// calls writeMcpConfigToTemp verbatim — its CLI was not verified to
+// reject `{}` or accept `{"mcpServers":{}}`, and a silent reverse in
+// the codebuddy path was the worst-case outcome called out by the
+// review. We split rather than gate on caller because the gate
+// would have to be plumbed through every CLI dispatcher.
 func writeMcpConfigToTemp(raw json.RawMessage) (string, error) {
+	return writeMcpConfigToTempPayload(raw, json.RawMessage(""))
+}
+
+// writeClaudeMcpConfigToTemp is the Claude-CLI-specific writer. Same
+// signature and lifetime as writeMcpConfigToTemp, but applies the
+// `{}` → `{"mcpServers":{}}` normalisation described above. Claude
+// callers (claude.go::Run) MUST use this; non-Claude callers
+// (codebuddy.go::Run) MUST use writeMcpConfigToTemp.
+func writeClaudeMcpConfigToTemp(raw json.RawMessage) (string, error) {
+	payload := raw
+	if isEmptyJSONObject(raw) {
+		payload = json.RawMessage(`{"mcpServers":{}}`)
+	}
+	return writeMcpConfigToTempPayload(raw, payload)
+}
+
+// writeMcpConfigToTempPayload is the internal implementation shared
+// by writeMcpConfigToTemp (verbatim) and writeClaudeMcpConfigToTemp
+// (normalised). `finalPayload` is what gets written to disk — when
+// callers don't want normalisation, they pass the original raw.
+// This avoids duplicating the temp-file create / write / cleanup
+// boilerplate across the two writers.
+func writeMcpConfigToTempPayload(raw, finalPayload json.RawMessage) (string, error) {
+	if len(finalPayload) == 0 {
+		finalPayload = raw
+	}
 	f, err := os.CreateTemp("", "multica-mcp-*.json")
 	if err != nil {
 		return "", fmt.Errorf("create mcp config temp file: %w", err)
 	}
-	if _, err := f.Write(raw); err != nil {
+	if _, err := f.Write(finalPayload); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return "", fmt.Errorf("write mcp config temp file: %w", err)
@@ -802,6 +860,58 @@ func writeMcpConfigToTemp(raw json.RawMessage) (string, error) {
 		return "", fmt.Errorf("close mcp config temp file: %w", err)
 	}
 	return f.Name(), nil
+}
+
+// isEmptyJSONObject reports whether raw parses to the empty JSON object `{}`.
+// Whitespace-insensitive: `{}`, `{ }`, and `\n{\n}\n` all qualify. Used by
+// writeMcpConfigToTemp to gate the Claude-CLI-specific normalisation.
+//
+// 0.3.43: also treats `{"mcpServers": null}` and
+// `{"mcpServers": <empty object / empty array>}` as "no managed
+// servers". Claude CLI 2.1.211+'s Zod schema rejects mcpServers values
+// that are null or absent — admin rows that initialised the column
+// to JSON null then opted into strict mode would still 100% fail
+// dispatch without this expansion. Codex/OpenClaw still accept
+// those inputs (gated by hasManagedCodexMcpConfig), so this branch
+// stays scoped to the Claude-CLI temp file payload.
+func isEmptyJSONObject(raw json.RawMessage) bool {
+	var v map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return false
+	}
+	if len(v) == 0 {
+		return true
+	}
+	// Single-key {"mcpServers": null|{}|[]} still has the schema
+	// reject the temp file, so we normalise. Any other key shape is
+	// the admin's deliberate choice and we leave it alone.
+	if len(v) != 1 {
+		return false
+	}
+	val, ok := v["mcpServers"]
+	if !ok {
+		return false
+	}
+	if len(val) == 0 {
+		// missing value → `{"mcpServers":}` is malformed; let
+		// Claude CLI surface the parse error rather than silently
+		// rewriting it.
+		return false
+	}
+	// null / empty object / empty array — all qualify.
+	var s string
+	if err := json.Unmarshal(val, &s); err == nil && s == "null" {
+		return true
+	}
+	var inner map[string]json.RawMessage
+	if err := json.Unmarshal(val, &inner); err == nil && len(inner) == 0 {
+		return true
+	}
+	var arr []json.RawMessage
+	if err := json.Unmarshal(val, &arr); err == nil && len(arr) == 0 {
+		return true
+	}
+	return false
 }
 
 func detectCLIVersion(ctx context.Context, execPath string) (string, error) {
