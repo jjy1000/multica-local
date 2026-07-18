@@ -26,7 +26,7 @@
 
 import { readFileSync } from "node:fs";
 import { execFileSync, spawnSync, execSync } from "node:child_process";
-import { delimiter, dirname, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
