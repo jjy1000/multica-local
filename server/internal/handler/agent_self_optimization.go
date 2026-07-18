@@ -7,9 +7,18 @@
 //   - POST /api/experimental/self-opt/runs/{id}/cancel → cancel a pending run
 //
 // All endpoints require auth + workspace membership. The flag-gate
-// lives at experimental.DefaultFor("agent_self_optimization"): flag
-// off → 404 for everything (the routes register, but the handler
-// 404s so the existence of the flag is not leaked to clients).
+// lives at experimentalFlagEnabled("agent_self_optimization") for
+// caller identity: flag off → 404 for everything (the routes
+// register, but the handler 404s so the existence of the flag is not
+// leaked to clients).
+//
+// 0.3.45.2: gate reads per-user experimental_pref first, falling
+// back to catalog default. This is the same decision logic the
+// RequireExperimentalFlag middleware uses (see
+// experimental_guard.go::experimentalFlagEnabled), but we cannot
+// apply that middleware here because agent_self_optimization has a
+// user-facing history surface that must work even when the catalog
+// default is OFF — only the opt-in user's calls should 404.
 //
 // Why 404 (not 403): a 403 would confirm the flag exists. 404 means
 // "this surface does not exist for your client" — same posture as the
@@ -29,7 +38,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -69,7 +77,7 @@ type SelfOptRunDTO struct {
 //	limit         default 20, max 100
 //	offset        default 0
 func (h *Handler) ListSelfOptRuns(w http.ResponseWriter, r *http.Request) {
-	if !experimental.DefaultFor("agent_self_optimization") {
+	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -112,7 +120,7 @@ func (h *Handler) ListSelfOptRuns(w http.ResponseWriter, r *http.Request) {
 
 // GetSelfOptRun handles GET /api/experimental/self-opt/runs/{id}.
 func (h *Handler) GetSelfOptRun(w http.ResponseWriter, r *http.Request) {
-	if !experimental.DefaultFor("agent_self_optimization") {
+	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -147,7 +155,7 @@ func (h *Handler) GetSelfOptRun(w http.ResponseWriter, r *http.Request) {
 // succeeding). This prevents a future "global opt-in by accident"
 // regression: only opted-in users can trigger runs.
 func (h *Handler) TriggerSelfOptRun(w http.ResponseWriter, r *http.Request) {
-	if !experimental.DefaultFor("agent_self_optimization") {
+	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -192,7 +200,7 @@ func (h *Handler) TriggerSelfOptRun(w http.ResponseWriter, r *http.Request) {
 // in-flight runner will see the next state transition (or the
 // advisory lock will release) and exit cleanly.
 func (h *Handler) CancelSelfOptRun(w http.ResponseWriter, r *http.Request) {
-	if !experimental.DefaultFor("agent_self_optimization") {
+	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
