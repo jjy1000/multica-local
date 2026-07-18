@@ -485,6 +485,23 @@ func (h *Handler) SendChatMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort chat-title auto-generation (MUL-4295). Triggered exactly
+	// once per session: on the first user-role message. Detection is by
+	// counting existing user-role rows BEFORE this insert; the chance of a
+	// race where two Send calls both see "0 prior user messages" is benign
+	// because the CAS in generateChatSessionTitle ensures at most one
+	// generator wins. The async entry point is a no-op when no provider is
+	// configured, so the production cost is one COUNT(*) query per send.
+	if h.ChatTitleProvider != nil {
+		var priorUserCount int64
+		if err := h.DB.QueryRow(r.Context(),
+			`SELECT COUNT(*) FROM chat_message WHERE chat_session_id = $1 AND role = 'user' AND id <> $2`,
+			session.ID, msg.ID,
+		).Scan(&priorUserCount); err == nil && priorUserCount == 0 {
+			h.maybeGenerateChatTitleAsync(workspaceID, userID, session.ID, session.Title, req.Content)
+		}
+	}
+
 	// Back-fill chat_message_id on attachments the sender uploaded while
 	// composing. New clients upload workspace-scoped unattached rows and bind
 	// them here; older clients may still upload against the chat_session_id.

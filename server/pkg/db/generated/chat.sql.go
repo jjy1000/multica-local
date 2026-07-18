@@ -797,3 +797,43 @@ func (q *Queries) UpdateChatSessionTitle(ctx context.Context, arg UpdateChatSess
 	)
 	return i, err
 }
+
+const updateChatSessionTitleIfCurrent = `-- name: UpdateChatSessionTitleIfCurrent :one
+UPDATE chat_session SET title = $3, updated_at = now()
+WHERE id = $1 AND title = $2
+RETURNING id, workspace_id, agent_id, creator_id, title, session_id, work_dir, status, created_at, updated_at, unread_since, runtime_id, last_read_at, is_agent_intro, pinned_at
+`
+
+type UpdateChatSessionTitleIfCurrentParams struct {
+	ID      pgtype.UUID `json:"id"`
+	Title   string      `json:"title"`
+	Title_2 string      `json:"title_2"`
+}
+
+// Compare-and-swap title update: only writes when the current DB title still
+// matches the caller's expected value. Returns the row on hit; pgx.ErrNoRows
+// on miss (so the caller can treat a manual rename as a non-error). Backs the
+// best-effort chat-title auto-generation feature (MUL-4295) so an LLM draft
+// never clobbers a manual rename that landed during the async generation.
+func (q *Queries) UpdateChatSessionTitleIfCurrent(ctx context.Context, arg UpdateChatSessionTitleIfCurrentParams) (ChatSession, error) {
+	row := q.db.QueryRow(ctx, updateChatSessionTitleIfCurrent, arg.ID, arg.Title, arg.Title_2)
+	var i ChatSession
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.AgentID,
+		&i.CreatorID,
+		&i.Title,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.Status,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UnreadSince,
+		&i.RuntimeID,
+		&i.LastReadAt,
+		&i.IsAgentIntro,
+		&i.PinnedAt,
+	)
+	return i, err
+}

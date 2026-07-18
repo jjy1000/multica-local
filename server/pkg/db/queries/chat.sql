@@ -33,6 +33,16 @@ UPDATE chat_session SET title = $2, updated_at = now()
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateChatSessionTitleIfCurrent :one
+-- Compare-and-swap title update: only writes when the current DB title still
+-- matches the caller's expected value. Returns the row on hit; pgx.ErrNoRows
+-- on miss (so the caller can treat a manual rename as a non-error). Backs the
+-- best-effort chat-title auto-generation feature (MUL-4295) so an LLM draft
+-- never clobbers a manual rename that landed during the async generation.
+UPDATE chat_session SET title = $3, updated_at = now()
+WHERE id = $1 AND title = $2
+RETURNING *;
+
 -- name: UpdateChatSessionSession :exec
 -- Updates the resume pointer for a chat session. Empty/NULL inputs are
 -- ignored via COALESCE so a task that completes without a session_id (e.g.

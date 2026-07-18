@@ -199,7 +199,15 @@ type Handler struct {
 	// desktop API client above). nil-able for the same reason as
 	// LLMWikiClient.
 	LLMWikiWriter *llmwiki.Writer
-	cfg           Config
+	// ChatTitleProvider is the optional LLM completion source for the
+	// best-effort chat-session auto-titling feature (MUL-4295). Nil when no
+	// LLM is configured (self-hosted with no key) — the async entry point
+	// short-circuits to a no-op and the session keeps its original
+	// first-message-derived title. Wired in cmd/server/router.go after
+	// handler.New returns; absent there, the feature is simply disabled and
+	// no chat title ever gets auto-rewritten.
+	ChatTitleProvider ChatTitleProvider
+	cfg              Config
 }
 
 func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, emailService *service.EmailService, store storage.Storage, analyticsClient analytics.Client, cfg Config, daemonHubs ...*daemonws.Hub) *Handler {
