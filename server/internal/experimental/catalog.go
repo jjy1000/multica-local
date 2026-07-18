@@ -308,6 +308,47 @@ var Catalog = []Flag{
 		// agent_self_optimization — no subprocess, no proxy.
 		RuntimeKind: "inline",
 	},
+	{
+		// agent_creation_studio (0.3.45): action-type lab distinct
+		// from the visibility-gated flags above. Instead of hiding or
+		// installing hidden agents, it surfaces an in-Labs editor
+		// ("studio") where the user explicitly drafts agent / skill /
+		// squad resources, then submits the existing POST /api/agents,
+		// /api/skills, /api/squads endpoints. Created resources are
+		// normal user-visible rows (no HideableResource rows seeded)
+		// so they participate in the main product immediately — but
+		// the entry point itself lives behind the lab toggle, keeping
+		// the "build a team" affordance out of the main product chrome.
+		//
+		// Unlike agent_self_optimization / constitution_agent (which
+		// are visibility gates with zero new HTTP routes), this flag
+		// exposes no install handler, no HideableResource, no
+		// experimental_resource_lock rows. The only thing it ships is
+		// entry_points.issue_panel_action on the manifest and a
+		// pre-workspace /experimental/agent-creation-studio route.
+		//
+		// 0.3.45 hard constraint: the action entry point fires through
+		// LabPicker's `onAction` callback, NOT through issue.lab_source
+		// — so the lab/assignee mutex, assignDefaultLabAgentOnUpdate,
+		// and the IssueLabsSection sidebar link all stay oblivious to
+		// the studio. This keeps the studio orthogonal to the existing
+		// 8-flag inline / visibility-gate pair.
+		Key:        "agent_creation_studio",
+		DefaultVal: false,
+		Title: LocalizedString{
+			En: "Agent Creation Studio",
+			Zh: "智能体创建",
+		},
+		Description: LocalizedString{
+			En: "Draft and create agent, skill, or squad resources from inside Labs. Created resources are normal user-visible rows; they appear in the main product immediately. Off by default — the studio sits behind an opt-in toggle so the main product chrome stays focused.",
+			Zh: "在实验室内编写并创建智能体 / 技能 / 团队资源。新建资源为普通用户可见行, 立即在主产品中出现。默认关闭 —— 编辑器隐藏在 opt-in 开关后, 保持主产品界面简洁。",
+		},
+		ManifestPath: "experiments/agent_creation_studio/manifest.json",
+		// inline: no subprocess, no proxy, no install handler. The
+		// studio runs purely inside the renderer (ChatWindow-shaped
+		// orchestrator) and round-trips through existing REST APIs.
+		RuntimeKind: "inline",
+	},
 }
 
 // IsKnownKey reports whether key matches a Catalog entry. The HTTP

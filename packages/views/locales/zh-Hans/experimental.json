@@ -1,0 +1,12 @@
+{
+  "agent_creation_studio_view": {
+    "tab_agent": "智能体",
+    "tab_skill": "技能",
+    "tab_squad": "团队",
+    "field_name": "名称",
+    "field_description": "描述",
+    "compat_label": "与智能体宪法兼容",
+    "compat_hint": "0.3.45 UI 占位 — 0.3.45.1 接入 system_key 字段",
+    "submit_create": "创建"
+  }
+}

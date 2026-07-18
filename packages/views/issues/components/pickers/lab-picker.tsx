@@ -26,6 +26,14 @@
 //     it (lab owns the roster), enhancer mode does NOT (the user
 //     must keep their assignee).
 //
+// 0.3.45 action sub-menu (agent_creation_studio):
+//   - Labs Platform action-type entry point. Distinct from the
+//     issue-bound lab_source flow above: the action callback
+//     navigates AWAY from the issue picker, INTO a pre-workspace
+//     /experimental/<route> route, and does NOT mutate
+//     issue.lab_source. The lab/assignee mutex + IssueLabsSection
+//     are intentionally oblivious — the studio is orthogonal.
+//
 // This picker writes both `issue.lab_source` and `issue.lab_mode`
 // through the same `onUpdate` callback. The caller is responsible
 // for routing both fields into the underlying mutation.
@@ -66,6 +74,21 @@ interface LabPickerProps {
    * their assignee.
    */
   onClearAssignee?: () => void;
+  /**
+   * 0.3.45: action-type lab entry. Renders a second-tier sub-menu
+   * at the bottom of the popover when supplied. Triggering an
+   * action invokes `onAction(actionKey)` — the caller is expected
+   * to navigate to the corresponding pre-workspace route. Actions
+   * do NOT mutate `issue.lab_source` and do NOT touch the
+   * lab/assignee mutex.
+   *
+   * Currently the only registered action key is
+   * `"agent_creation_studio"` (defined by the
+   * `agent_creation_studio` manifest's `entry_points.issue_panel_action`).
+   * The string union is kept open so future action-type labs can
+   * register without changing this picker's signature.
+   */
+  onAction?: (actionKey: string) => void;
   /** Popover alignment — same contract as the other pickers. */
   align?: "start" | "center" | "end";
   /** Optional controlled open state (for tests / cmd+k integration). */
@@ -92,6 +115,7 @@ export function LabPicker({
   labMode,
   onUpdate,
   onClearAssignee,
+  onAction,
   align = "start",
   open: controlledOpen,
   onOpenChange,
@@ -144,6 +168,34 @@ export function LabPicker({
       align={align}
       triggerRender={triggerRender}
       trigger={<span aria-hidden />}
+      footer={
+        // 0.3.45 action sub-menu. Rendered in the built-in footer
+        // slot (NOT as a child PickerItem) so arrow-key navigation
+        // skips it — the action isn't a list option, it's an
+        // outbound link. onAction is optional; omitting it
+        // suppresses this footer entirely.
+        onAction ? (
+          <div className="space-y-1" data-lab-picker-action-group>
+            <div className="px-1.5 pb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              {t(($) => $.pickers.lab.action_group_label) ?? "智能体创建"}
+            </div>
+            <PickerItem
+              selected={false}
+              onClick={() => {
+                onAction("agent_creation_studio");
+                setOpen(false);
+              }}
+            >
+              <span className="flex items-center gap-1.5">
+                <span aria-hidden>+</span>
+                <span>
+                  {t(($) => $.pickers.lab.action_create) ?? "创建智能体 / 技能 / 团队"}
+                </span>
+              </span>
+            </PickerItem>
+          </div>
+        ) : null
+      }
     >
       <div className="space-y-1.5 p-1.5">
         {entries.map((entry) => (

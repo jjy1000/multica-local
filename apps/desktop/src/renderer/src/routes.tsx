@@ -36,6 +36,12 @@ import { LLMWikiBridgeView } from "./pages/llm-wiki-bridge-view";
 import { CodeCanvasView } from "./pages/code-canvas-view";
 import { AgentSelfOptimizationView } from "./pages/agent-self-optimization-view";
 import { ConstitutionAgentView } from "./pages/constitution-agent-view";
+// 0.3.45: action-type lab entry point — distinct from the existing
+// 8 flag-bound views (which all describe what a flag DOES once the
+// issue is lab-tagged). The studio is an editor the user navigates
+// INTO from the issue picker; it drafts agent / skill / squad rows
+// and submits through the existing REST APIs.
+import { AgentCreationStudioView } from "./pages/agent-creation-studio-view";
 
 /**
  * Wraps `SettingsPage` so the desktop-only extra tabs can still pull
@@ -157,6 +163,18 @@ export const appRoutes: RouteObject[] = [
         path: "experimental/constitution-agent",
         element: <ConstitutionAgentView />,
         handle: { title: "Constitution Agent" },
+      },
+      {
+        // 0.3.45: action-type lab. Pre-workspace route (no
+        // :workspaceSlug prefix) on purpose — the studio's body
+        // is workspace-agnostic; the active workspace is read
+        // implicitly when the user submits a creation. The
+        // optional `?from_issue=<id>` query param is set by the
+        // LabPicker.onAction dispatch so the studio header can
+        // show a "返回 issue《xxx》" link.
+        path: "experimental/agent-creation-studio",
+        element: <AgentCreationStudioView />,
+        handle: { title: "Agent Creation Studio" },
       },
       {
         path: ":workspaceSlug",

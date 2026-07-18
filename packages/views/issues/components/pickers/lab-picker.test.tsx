@@ -153,4 +153,69 @@ describe("LabPicker", () => {
     expect(onClearAssignee).not.toHaveBeenCalled();
     expect(onUpdate).not.toHaveBeenCalled();
   });
+
+  it("0.3.45: action sub-menu is rendered ONLY when onAction is supplied", () => {
+    // Two phases in one test using `unmount()` to keep DOM
+    // disjoint: the second `render` would otherwise leave two
+    // popover triggers (with stale popovers) and break
+    // `querySelector` lookups.
+    //
+    // Phase A — no onAction: the action footer MUST be absent so
+    // existing web/desktop callers that never wired the callback
+    // see no visual change.
+    const onUpdateA = vi.fn();
+    const queryClientA = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { unmount: unmountA } = render(
+      <QueryClientProvider client={queryClientA}>
+        <I18nProvider resources={TEST_RESOURCES} locale="en">
+          <LabPicker labSource={null} onUpdate={onUpdateA} />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    const triggerA = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(triggerA);
+    expect(
+      document.querySelector("[data-lab-picker-action-group]"),
+    ).toBeNull();
+    unmountA();
+
+    // Phase B — onAction supplied: action footer MUST render.
+    // The footer is rendered inside the built-in `footer` slot of
+    // PropertyPicker (separate from the children list) so arrow-key
+    // navigation skips it — the click handler is the only contract
+    // that fires it.
+    const onAction = vi.fn();
+    const onUpdateB = vi.fn();
+    const queryClientB = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClientB}>
+        <I18nProvider resources={TEST_RESOURCES} locale="en">
+          <LabPicker
+            labSource={null}
+            onUpdate={onUpdateB}
+            onAction={onAction}
+          />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    const triggerB = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(triggerB);
+    const actionGroup = document.querySelector(
+      "[data-lab-picker-action-group]",
+    );
+    expect(actionGroup).not.toBeNull();
+
+    // Click the action row → onAction fires, onUpdate never does,
+    // issue.lab_source is untouched.
+    const actionItem = actionGroup!.querySelector(
+      "button[data-picker-item]",
+    )!;
+    fireEvent.click(actionItem);
+    expect(onAction).toHaveBeenCalledWith("agent_creation_studio");
+    expect(onUpdateB).not.toHaveBeenCalled();
+  });
 });

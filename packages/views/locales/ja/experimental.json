@@ -1,0 +1,12 @@
+{
+  "agent_creation_studio_view": {
+    "tab_agent": "エージェント",
+    "tab_skill": "スキル",
+    "tab_squad": "チーム",
+    "field_name": "名称",
+    "field_description": "説明",
+    "compat_label": "憲法互換",
+    "compat_hint": "0.3.45 UI プレースホルダ — 0.3.45.1 で system_key フィールドを接続",
+    "submit_create": "作成"
+  }
+}

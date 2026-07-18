@@ -532,17 +532,86 @@ Hard contract: an `issue.lab_source` reserves the agent roster for the lab. The 
 
 `issue.lab_source` + `issue.lab_mode` schema: `lab_source` nullable TEXT (mig 155), `lab_mode` nullable TEXT CHECK `'sole'|'enhancer'` (mig 157). Both are NULL for non-lab issues. Any new lab that needs per-issue mode semantics must extend the CHECK constraint and the mutex gate.
 
-### Per-issue lab workspace (0.3.31 inline rendering)
+### Per-issue lab workspace (REMOVED in 0.3.38)
 
-The IssueDetail sidebar now has a SECOND section under `IssueLabsSection` — a `LabWorkspacePanel` that mounts the lab's dedicated view (Claude Lab tabs / Pythia report / Mythos swarm form / LLM Wiki status) **inline on the issue detail page**, pre-scoped to the bound issue. Architecture:
+**The 0.3.31 inline-rendering layer described below was REMOVED in
+0.3.38.** `lab-workspace-panel.tsx`, `LabWorkspacePanel`,
+`pickLabInlineView`, `IssueDetailProps.renderLabInline`, and the
+desktop `*Inline` view wrappers (`ClaudeLabInline` /
+`PythiaInline` / `MythosInline` / `LLMWikiBridgeInline`) all
+deleted; `apps/desktop/src/renderer/src/pages/issue-detail-page.tsx`
+is now a thin wrapper around `<IssueDetail issueId={id} />`. All
+lab surfaces are reachable only via `/experimental/<suffix>`
+routes from the sidebar footer or `<IssueLabsSection>`'s
+"open panel" link. Pre-0.3.38 dispatch logic
+(`/api/experimental/claude-science-labs/dispatch`,
+`assignDefaultLabAgentOnUpdate` → `defaultLabLeaderForKey`)
+remains live — only the inline UI rendering was retired.
 
-- `packages/views/issues/components/lab-workspace-panel.tsx` — generic chrome container. Takes a `renderInline?: (issueId: string) => ReactNode` prop. Flag-off / disabled / missing-renderInline all return `null` (silent skip).
-- `packages/views/issues/components/issue-detail.tsx` — accepts a new `renderLabInline?: (issueId: string) => ReactNode` prop on `IssueDetailProps`. Renders `LabWorkspacePanel` below `IssueLabsSection` when both `issue.lab_source` and `renderLabInline` are set. Web leaves this undefined (sidebar link to `/experimental/<suffix>` stays the surface).
-- `apps/desktop/src/renderer/src/pages/issue-detail-page.tsx` — provides `pickLabInlineView(issue.lab_source)` which dispatches to one of 4 named inline components (`ClaudeLabInline` / `PythiaInline` / `MythosInline` / `LLMWikiBridgeInline`). Each takes `{ issueId: string }` and forwards it to the lazy-loaded view. LLMWikiBridge is a workspace-level status surface and accepts the prop but does not consume it.
+The following architecture description is kept for historical
+reference, NOT for implementation guidance:
 
-The 4 desktop views accept `issueId?: string | null` (default null for the standalone `/experimental/<suffix>` route). When the prop is supplied, the view opens pre-scoped to that issue: `PythiaView` → report shows the bound issue, `ClaudeLabView` → Plan / Forecast / Code tabs filter to the issue, `MythosView` → `RunForm` sends `root_issue_id` in the `/api/experimental/mythos-swarm/run` body, `LLMWikiBridgeView` → accepts the prop for contract uniformity (workspace-level).
+> The IssueDetail sidebar has a SECOND section under
+> `IssueLabsSection` — a `LabWorkspacePanel` that mounts the
+> lab's dedicated view (Claude Lab tabs / Pythia report /
+> Mythos swarm form / LLM Wiki status) **inline on the issue
+> detail page**, pre-scoped to the bound issue.
+>
+> [`lab-workspace-panel.tsx`] — generic chrome container.
+> Takes a `renderInline?: (issueId: string) => ReactNode` prop.
+> Flag-off / disabled / missing-renderInline all return `null`
+> (silent skip).
+> [`issue-detail.tsx`] — accepts a
+> `renderLabInline?: (issueId: string) => ReactNode` prop on
+> `IssueDetailProps`. Renders `LabWorkspacePanel` below
+> `IssueLabsSection` when both `issue.lab_source` and
+> `renderLabInline` are set.
+> [`issue-detail-page.tsx`] — provides
+> `pickLabInlineView(issue.lab_source)` which dispatches to one
+> of 4 named inline components.
 
-Routes that have NO per-issue inline view yet: `agent_self_optimization`, `constitution_agent`, `code_canvas`, `chat_pin_ui`. For these, `pickLabInlineView` returns `undefined` and the sidebar shows the IssueLabsSection link to the workspace-scoped view only.
+### 0.3.45 action-type lab (NEW)
+
+A separate entry point **distinct from issue-bound labs**:
+`agent_creation_studio`. Lives under
+`apps/desktop/resources/experiments/agent_creation_studio/`
+(manifest + pre-workspace route `/experimental/agent-creation-studio`).
+Mounted from issue detail via `LabPicker.onAction` (footer sub-menu
+in the picker popover, NOT in the issue `lab_source` column);
+orthogonal to the existing lab/assignee mutex, `IssueLabsSection`,
+and `assignDefaultLabAgentOnUpdate`.
+
+- `server/internal/experimental/catalog.go:121-311` — append the
+  `agent_creation_studio` Flag literal. `DefaultVal: false`,
+  `RuntimeKind: "inline"`, no install handler, no
+  `HideableResource`, no `experimental_resource_lock` rows.
+- `packages/views/issues/components/pickers/lab-picker.tsx` —
+  `onAction?: (actionKey: string) => void` callback wired by the
+  caller (issue-detail) to `router.push("/experimental/agent-creation-studio?from_issue=<id>")`.
+  Footer is rendered only when `onAction` is supplied; arrow-key
+  navigation skips it (built-in `PropertyPicker` footer slot).
+- `apps/desktop/src/renderer/src/pages/agent-creation-studio-view.tsx` —
+  3-tab orchestrator (agent / skill / squad) calling the existing
+  `api.createAgent / createSkill / createSquad` methods directly
+  (no new mutation hook, no new sqlc). Pre-workspace route; does
+  not write `issue.lab_source`.
+- `packages/views/issues/components/issue-detail.tsx:1555` —
+  `LabPicker` PropRow hoisted out of the `issue.lab_source &&`
+  guard so the action footer is always reachable; the
+  `labSourceRouteSuffix` ExternalLink still only renders when
+  `issue.lab_source` is set.
+- `packages/views/locales/{en,zh-Hans,ja,ko}/experimental.json` —
+  new namespace `experimental.agent_creation_studio_view.*`.
+  Registered in `packages/views/locales/index.ts` (4 locales)
+  and typed in `packages/views/i18n/resources-types.ts`
+  (`I18nResources.experimental`).
+
+Constrained to 0.3.45: NO schema migration, NO new sqlc query,
+NO new IPC channel, NO new visibility row, NO new agent /
+squad / skill. The "与智能体宪法兼容" toggle in each tab is a UI
+placeholder only — wiring `system_key` requires an upstream
+`agent.system_key` column migration this fork has not yet
+shipped (deferred to 0.3.45.1).
 
 ## Known Stability Surfaces
 

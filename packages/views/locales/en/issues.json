@@ -471,7 +471,9 @@
       "mode_sole": "Standalone",
       "mode_enhancer": "Enhancer",
       "mode_sole_hint": "Mythos owns the issue end-to-end · clears the assignee",
-      "mode_enhancer_hint": "Mythos plans first · hands off to your agent/squad"
+      "mode_enhancer_hint": "Mythos plans first · hands off to your agent/squad",
+      "action_group_label": "Agent Creation",
+      "action_create": "Create agent / skill / squad"
     }
   },
   "lab_section": {

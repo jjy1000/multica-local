@@ -470,7 +470,9 @@
       "mode_sole": "독립 실행",
       "mode_enhancer": "강화",
       "mode_sole_hint": "Mythos 가 완결 처리 · 담당자 초기화",
-      "mode_enhancer_hint": "Mythos 가 계획 · 담당자 에이전트에 위임"
+      "mode_enhancer_hint": "Mythos 가 계획 · 담당자 에이전트에 위임",
+      "action_group_label": "에이전트 만들기",
+      "action_create": "에이전트 / 스킬 / 팀 만들기"
     }
   },
   "lab_section": {

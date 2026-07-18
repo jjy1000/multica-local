@@ -457,7 +457,9 @@
       "mode_sole": "蜂群独立",
       "mode_enhancer": "蜂群增强",
       "mode_sole_hint": "Mythos 自己完成 · 清空现有 assignee",
-      "mode_enhancer_hint": "Mythos 先开会规划 · 交给你的 agent/squad 执行"
+      "mode_enhancer_hint": "Mythos 先开会规划 · 交给你的 agent/squad 执行",
+      "action_group_label": "智能体创建",
+      "action_create": "创建智能体 / 技能 / 团队"
     }
   },
   "lab_section": {

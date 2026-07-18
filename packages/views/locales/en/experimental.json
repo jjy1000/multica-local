@@ -1,0 +1,12 @@
+{
+  "agent_creation_studio_view": {
+    "tab_agent": "Agent",
+    "tab_skill": "Skill",
+    "tab_squad": "Squad",
+    "field_name": "Name",
+    "field_description": "Description",
+    "compat_label": "Constitution-compatible",
+    "compat_hint": "0.3.45 UI placeholder — 0.3.45.1 wires the system_key field",
+    "submit_create": "Create"
+  }
+}

@@ -452,7 +452,9 @@
       "mode_sole": "単独実行",
       "mode_enhancer": "拡張",
       "mode_sole_hint": "Mythos が完結 · 担当者をクリア",
-      "mode_enhancer_hint": "Mythos が計画 · 担当者エージェントに委譲"
+      "mode_enhancer_hint": "Mythos が計画 · 担当者エージェントに委譲",
+      "action_group_label": "エージェント作成",
+      "action_create": "エージェント / スキル / チームを作成"
     }
   },
   "lab_section": {

@@ -1551,28 +1551,66 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             />
           </PropRow>
 
-          {/* Lab source — read-only badge when the issue was created via a lab */}
-          {issue.lab_source && (
-            <PropRow label="Lab">
-              <span className="flex items-center gap-1.5 min-w-0">
-                <LabPicker
-                  labSource={issue.lab_source}
-                  labMode={issue.lab_mode ?? null}
-                  onUpdate={(u) =>
-                    handleUpdateField({
-                      lab_source: u.lab_source ?? null,
-                      lab_mode: u.lab_mode ?? null,
-                    })
+          {/* Lab source picker — always shown on issue detail.
+              0.3.45 hoist: the LabPicker PropRow used to render ONLY
+              when `issue.lab_source` was set (it then served as a
+              read-only badge linking to the lab panel). Now we keep
+              the picker mounted unconditionally and gate ONLY the
+              "open lab panel" external link on `issue.lab_source`
+              being truthy.
+
+              Why hoist now: the 0.3.45 agent_creation_studio entry
+              point lives inside the LabPicker popover as a footer
+              sub-menu (LabPicker.onAction). Hiding the entire
+              row when no lab is set would put the "create a new
+              agent / skill / squad" affordance behind a UX
+              dead-end — users see nothing, click nothing, never
+              discover the studio. Keeping the row alive at all
+              times (default chrome reads "No lab") makes the
+              action footer discoverable from any issue, while
+              the existing lab-bound flow remains untouched.
+
+              The Lab ↔ assignee mutex, IssueLabsSection, and
+              assignDefaultLabAgentOnUpdate are all oblivious to
+              the action path — they fire only via onUpdate →
+              handleUpdateField → PATCH `issue.lab_source`.
+              Action clicks route the renderer to
+              /experimental/agent-creation-studio?from_issue=<id>
+              instead, so no PATCH touches the issue row. */}
+          <PropRow label="Lab">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <LabPicker
+                labSource={issue.lab_source ?? null}
+                labMode={issue.lab_mode ?? null}
+                onUpdate={(u) =>
+                  handleUpdateField({
+                    lab_source: u.lab_source ?? null,
+                    lab_mode: u.lab_mode ?? null,
+                  })
+                }
+                onClearAssignee={() =>
+                  handleUpdateField({
+                    assignee_type: null,
+                    assignee_id: null,
+                  })
+                }
+                onAction={(actionKey) => {
+                  // 0.3.45 action-type lab dispatch. Currently only
+                  // `agent_creation_studio` is registered; future
+                  // action-type labs (e.g. a skill-only studio) can
+                  // share the same dispatch by branching here.
+                  if (actionKey === "agent_creation_studio") {
+                    const issueId = issue.id ?? "";
+                    const qs = issueId
+                      ? `?from_issue=${encodeURIComponent(issueId)}`
+                      : "";
+                    router.push(`/experimental/agent-creation-studio${qs}`);
                   }
-                  onClearAssignee={() =>
-                    handleUpdateField({
-                      assignee_type: null,
-                      assignee_id: null,
-                    })
-                  }
-                  align="start"
-                />
-                {labSourceRouteSuffix(issue.lab_source) && (
+                }}
+                align="start"
+              />
+              {issue.lab_source &&
+                labSourceRouteSuffix(issue.lab_source) && (
                   <AppLink
                     href={`/experimental/${labSourceRouteSuffix(issue.lab_source)!}`}
                     aria-label={t(($) => $.lab_section.open_panel)}
@@ -1581,9 +1619,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                     <ExternalLink className="size-3" />
                   </AppLink>
                 )}
-              </span>
-            </PropRow>
-          )}
+            </span>
+          </PropRow>
 
           {/* Optional props — rendered only when set on the issue OR added
               via "+ Add property" in this session. Row order follows the

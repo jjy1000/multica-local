@@ -24,6 +24,7 @@ import enChat from "./en/chat.json";
 import enClaudeLab from "./en/claude-lab.json";
 import enCommon from "./en/common.json";
 import enEditor from "./en/editor.json";
+import enExperimental from "./en/experimental.json";
 import enInbox from "./en/inbox.json";
 import enIssues from "./en/issues.json";
 import enLabels from "./en/labels.json";
@@ -53,6 +54,7 @@ import jaChat from "./ja/chat.json";
 import jaClaudeLab from "./ja/claude-lab.json";
 import jaCommon from "./ja/common.json";
 import jaEditor from "./ja/editor.json";
+import jaExperimental from "./ja/experimental.json";
 import jaInbox from "./ja/inbox.json";
 import jaIssues from "./ja/issues.json";
 import jaLabels from "./ja/labels.json";
@@ -82,6 +84,7 @@ import koChat from "./ko/chat.json";
 import koClaudeLab from "./ko/claude-lab.json";
 import koCommon from "./ko/common.json";
 import koEditor from "./ko/editor.json";
+import koExperimental from "./ko/experimental.json";
 import koInbox from "./ko/inbox.json";
 import koIssues from "./ko/issues.json";
 import koLabels from "./ko/labels.json";
@@ -111,6 +114,7 @@ import zhHansChat from "./zh-Hans/chat.json";
 import zhHansClaudeLab from "./zh-Hans/claude-lab.json";
 import zhHansCommon from "./zh-Hans/common.json";
 import zhHansEditor from "./zh-Hans/editor.json";
+import zhHansExperimental from "./zh-Hans/experimental.json";
 import zhHansInbox from "./zh-Hans/inbox.json";
 import zhHansIssues from "./zh-Hans/issues.json";
 import zhHansLabels from "./zh-Hans/labels.json";
@@ -141,6 +145,7 @@ const en: LocaleResources = {
   "claude-lab": enClaudeLab,
   common: enCommon,
   editor: enEditor,
+  experimental: enExperimental,
   inbox: enInbox,
   issues: enIssues,
   labels: enLabels,
@@ -172,6 +177,7 @@ const zhHans: LocaleResources = {
   "claude-lab": zhHansClaudeLab,
   common: zhHansCommon,
   editor: zhHansEditor,
+  experimental: zhHansExperimental,
   inbox: zhHansInbox,
   issues: zhHansIssues,
   labels: zhHansLabels,
@@ -203,6 +209,7 @@ const ko: LocaleResources = {
   "claude-lab": koClaudeLab,
   common: koCommon,
   editor: koEditor,
+  experimental: koExperimental,
   inbox: koInbox,
   issues: koIssues,
   labels: koLabels,
@@ -234,6 +241,7 @@ const ja: LocaleResources = {
   "claude-lab": jaClaudeLab,
   common: jaCommon,
   editor: jaEditor,
+  experimental: jaExperimental,
   inbox: jaInbox,
   issues: jaIssues,
   labels: jaLabels,

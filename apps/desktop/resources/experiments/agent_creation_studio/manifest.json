@@ -1,0 +1,42 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "agent_creation_studio",
+    "flag": "agent_creation_studio",
+    "title": { "en": "Agent Creation Studio", "zh": "智能体创建" },
+    "description": {
+      "en": "Draft and create agent, skill, or squad resources from inside Labs. Created resources are normal user-visible rows; they appear in the main product immediately. Off by default — the studio sits behind an opt-in toggle so the main product chrome stays focused.",
+      "zh": "在实验室内编写并创建智能体 / 技能 / 团队资源。新建资源为普通用户可见行, 立即在主产品中出现。默认关闭 —— 编辑器隐藏在 opt-in 开关后, 保持主产品界面简洁。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "capabilities": {
+      "skills": [],
+      "agents": [],
+      "squads": [],
+      "mcp_servers": [],
+      "permissions": []
+    },
+    "entry_points": {
+      "sidebar": [],
+      "issue_panel_action": {
+        "key": "agent_creation_studio",
+        "label_key": "experimental_agent_creation_studio",
+        "route": "/experimental/agent-creation-studio"
+      }
+    },
+    "runtime": { "kind": "inline" },
+    "resources": {
+      "installable": false,
+      "lockable_resources": []
+    },
+    "safety": {
+      "init_timeout_ms": 30000,
+      "burst": { "threshold": 3, "window_seconds": 60 },
+      "panic_recover": true,
+      "ip_allowlist": ["127.0.0.0/8"]
+    }
+  }
+}
