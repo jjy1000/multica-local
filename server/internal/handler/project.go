@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/logger"
+	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -25,6 +26,8 @@ type ProjectResponse struct {
 	Icon        *string `json:"icon"`
 	Status      string  `json:"status"`
 	Priority    string  `json:"priority"`
+	StartDate   *string `json:"start_date"`
+	DueDate     *string `json:"due_date"`
 	LeadType    *string `json:"lead_type"`
 	LeadID      *string `json:"lead_id"`
 	CreatedAt   string  `json:"created_at"`
@@ -47,6 +50,8 @@ func projectToResponse(p db.Project) ProjectResponse {
 		Icon:        textToPtr(p.Icon),
 		Status:      p.Status,
 		Priority:    p.Priority,
+		StartDate:   dateToPtr(p.StartDate),
+		DueDate:     dateToPtr(p.DueDate),
 		LeadType:    textToPtr(p.LeadType),
 		LeadID:      uuidToPtr(p.LeadID),
 		CreatedAt:   timestampToString(p.CreatedAt),
@@ -76,6 +81,8 @@ type CreateProjectRequest struct {
 	Icon        *string                               `json:"icon"`
 	Status      string                                `json:"status"`
 	Priority    string                                `json:"priority"`
+	StartDate   *string                               `json:"start_date"`
+	DueDate     *string                               `json:"due_date"`
 	LeadType    *string                               `json:"lead_type"`
 	LeadID      *string                               `json:"lead_id"`
 	Resources   []CreateProjectResourceRequestPayload `json:"resources,omitempty"`
@@ -97,6 +104,8 @@ type UpdateProjectRequest struct {
 	Icon        *string `json:"icon"`
 	Status      *string `json:"status"`
 	Priority    *string `json:"priority"`
+	StartDate   *string `json:"start_date"`
+	DueDate     *string `json:"due_date"`
 	LeadType    *string `json:"lead_type"`
 	LeadID      *string `json:"lead_id"`
 }
@@ -264,6 +273,28 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse calendar dates before any DB work so an invalid YYYY-MM-DD surfaces
+	// as a clean 400 instead of half-creating the project. The mirrors
+	// issue.go:2252-2266 (same calendar-day contract).
+	var startDate pgtype.Date
+	if req.StartDate != nil && *req.StartDate != "" {
+		d, err := util.ParseCalendarDate(*req.StartDate)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid start_date format, expected YYYY-MM-DD")
+			return
+		}
+		startDate = d
+	}
+	var dueDate pgtype.Date
+	if req.DueDate != nil && *req.DueDate != "" {
+		d, err := util.ParseCalendarDate(*req.DueDate)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid due_date format, expected YYYY-MM-DD")
+			return
+		}
+		dueDate = d
+	}
+
 	// Pre-validate every resource payload before opening a transaction so an
 	// invalid ref produces a clean 400 with no DB work. For local_directory we
 	// also enforce one row per daemon_id within the batch — the daemon-side
@@ -309,6 +340,8 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		LeadType:    leadType,
 		LeadID:      leadID,
 		Priority:    priority,
+		StartDate:   startDate,
+		DueDate:     dueDate,
 	}
 
 	// Without resources, keep the simple non-tx path.
@@ -440,6 +473,8 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		Icon:        prevProject.Icon,
 		LeadType:    prevProject.LeadType,
 		LeadID:      prevProject.LeadID,
+		StartDate:   prevProject.StartDate,
+		DueDate:     prevProject.DueDate,
 	}
 	if req.Title != nil {
 		params.Title = pgtype.Text{String: *req.Title, Valid: true}
@@ -468,6 +503,34 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 			params.Icon = pgtype.Text{String: *req.Icon, Valid: true}
 		} else {
 			params.Icon = pgtype.Text{Valid: false}
+		}
+	}
+	// start_date / due_date follow the same lifecycle as description / icon:
+	// key absent → leave the column untouched; key present with non-empty
+	// value → parse and set; key present with empty string → clear the date.
+	// Invalid format short-circuits with a 400 before any DB write.
+	if _, ok := rawFields["start_date"]; ok {
+		if req.StartDate != nil && *req.StartDate != "" {
+			d, err := util.ParseCalendarDate(*req.StartDate)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid start_date format, expected YYYY-MM-DD")
+				return
+			}
+			params.StartDate = d
+		} else {
+			params.StartDate = pgtype.Date{Valid: false}
+		}
+	}
+	if _, ok := rawFields["due_date"]; ok {
+		if req.DueDate != nil && *req.DueDate != "" {
+			d, err := util.ParseCalendarDate(*req.DueDate)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid due_date format, expected YYYY-MM-DD")
+				return
+			}
+			params.DueDate = d
+		} else {
+			params.DueDate = pgtype.Date{Valid: false}
 		}
 	}
 	if _, ok := rawFields["lead_type"]; ok {

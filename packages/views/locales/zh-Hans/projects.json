@@ -144,5 +144,15 @@
     "direction_desc": "降序",
     "section_columns": "列",
     "view": "视图"
+  },
+  "pickers": {
+    "start_date": {
+      "trigger_label": "开始日期",
+      "clear_action": "清除日期"
+    },
+    "due_date": {
+      "trigger_label": "截止日期",
+      "clear_action": "清除日期"
+    }
   }
 }

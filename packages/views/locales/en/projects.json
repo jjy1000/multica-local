@@ -144,5 +144,15 @@
     "direction_desc": "Descending",
     "section_columns": "Columns",
     "view": "View"
+  },
+  "pickers": {
+    "start_date": {
+      "trigger_label": "Start date",
+      "clear_action": "Clear date"
+    },
+    "due_date": {
+      "trigger_label": "Due date",
+      "clear_action": "Clear date"
+    }
   }
 }

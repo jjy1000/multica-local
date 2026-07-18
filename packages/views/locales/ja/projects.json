@@ -144,5 +144,15 @@
     "direction_desc": "降順",
     "section_columns": "列",
     "view": "ビュー"
+  },
+  "pickers": {
+    "start_date": {
+      "trigger_label": "開始日",
+      "clear_action": "日付をクリア"
+    },
+    "due_date": {
+      "trigger_label": "期限",
+      "clear_action": "日付をクリア"
+    }
   }
 }

@@ -144,5 +144,15 @@
     "direction_desc": "내림차순",
     "section_columns": "열",
     "view": "보기"
+  },
+  "pickers": {
+    "start_date": {
+      "trigger_label": "시작일",
+      "clear_action": "날짜 지우기"
+    },
+    "due_date": {
+      "trigger_label": "마감일",
+      "clear_action": "날짜 지우기"
+    }
   }
 }

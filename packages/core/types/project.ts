@@ -38,6 +38,10 @@ export interface UpdateProjectRequest {
   icon?: string | null;
   status?: ProjectStatus;
   priority?: ProjectPriority;
+  /** YYYY-MM-DD, or null/"" to clear. Calendar-day contract (MUL-4513). */
+  start_date?: string | null;
+  /** YYYY-MM-DD, or null/"" to clear. Calendar-day contract (MUL-4513). */
+  due_date?: string | null;
   lead_type?: "member" | "agent" | null;
   lead_id?: string | null;
 }
