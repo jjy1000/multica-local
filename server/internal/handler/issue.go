@@ -659,6 +659,17 @@ func (h *Handler) SearchIssues(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	rows, err := h.DB.Query(ctx, sqlQuery, args...)
 	if err != nil {
+		// Distinguish the Postgres-side statement_timeout (SQLSTATE 57014)
+		// from a Go-context deadline. The two are emitted as different HTTP
+		// statuses (503 vs 504) so the frontend can tell them apart:
+		//   - 503: Postgres killed the query (DB-side hard cap)
+		//   - 504: the Go context expired (network / handler slow)
+		// See search_503.go for the canonical mapping.
+		if isSearchStatementTimeout(err) {
+			slog.Warn("search issues hit pg statement_timeout", "workspace_id", workspaceID, "query", q)
+			writeError(w, http.StatusServiceUnavailable, "search cancelled by database timeout; please narrow your query")
+			return
+		}
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			slog.Warn("search issues timed out", "workspace_id", workspaceID, "query", q)
 			writeError(w, http.StatusGatewayTimeout, "search took too long; please narrow your query")

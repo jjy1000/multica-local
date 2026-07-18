@@ -3,12 +3,14 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -772,8 +774,27 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 	args[len(args)-2] = limit
 	args[len(args)-1] = offset
 
+	// Bound the search at 5s to mirror SearchIssues. Pre-0.3.44 this was
+	// unguarded: a stuck pg query on /api/search/projects would hang the
+	// request forever. The 5s cap layers a Go-side context deadline on top
+	// of any future Postgres-side statement_timeout.
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
 	rows, err := h.DB.Query(ctx, sqlQuery, args...)
 	if err != nil {
+		// SQLSTATE 57014 → 503 (PG statement timeout); Go context deadline
+		// → 504. Both come from search_503.go. Anything else is a real
+		// server-side fault → 500.
+		if isSearchStatementTimeout(err) {
+			slog.Warn("search projects hit pg statement_timeout", "workspace_id", workspaceID, "query", q)
+			writeError(w, http.StatusServiceUnavailable, "search cancelled by database timeout; please narrow your query")
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			slog.Warn("search projects timed out", "workspace_id", workspaceID, "query", q)
+			writeError(w, http.StatusGatewayTimeout, "search took too long; please narrow your query")
+			return
+		}
 		slog.Warn("search projects failed", "error", err, "workspace_id", workspaceID, "query", q)
 		writeError(w, http.StatusInternalServerError, "failed to search projects")
 		return
