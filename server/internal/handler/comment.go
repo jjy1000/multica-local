@@ -1155,6 +1155,18 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "content is required")
 		return
 	}
+	// GH #5388: PostgreSQL TEXT rejects NUL (\x00) with SQLSTATE 22021. A
+	// CLI `--content-file` round trip can smuggle an embedded NUL byte that
+	// survives the JSON parse. Stripping here means a stray byte degrades to
+	// "missing" instead of an opaque 500 that the CLI interprets as a
+	// transient server failure and retries forever. The preview path
+	// (previewCommentTriggers) must strip with the same rule so preview /
+	// enqueue stay in sync (comment_content_sanitize_test.go).
+	req.Content = strings.ReplaceAll(req.Content, "\x00", "")
+	if req.Content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
 	if req.Type == "" {
 		req.Type = "comment"
 	}
@@ -1870,6 +1882,13 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if req.Content == "" {
+		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	// GH #5388: see CreateComment — strip NUL bytes so a stray 0x00 from a
+	// --content-file round trip degrades to "missing" instead of opaque 500.
+	req.Content = strings.ReplaceAll(req.Content, "\x00", "")
 	if req.Content == "" {
 		writeError(w, http.StatusBadRequest, "content is required")
 		return
