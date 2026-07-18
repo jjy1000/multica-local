@@ -2789,10 +2789,18 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	// broadcast. We do this only when the caller actually changed
 	// lab_source, to avoid clobbering a deliberate assignee chosen via
 	// the picker on a pre-existing lab issue.
+	labAutoAssigned := false
 	if _, touchedLabSource := rawFields["lab_source"]; touchedLabSource &&
 		req.LabSource != nil && *req.LabSource != "" &&
 		!issue.AssigneeType.Valid {
 		h.assignDefaultLabAgentOnUpdate(r.Context(), &issue, *req.LabSource)
+		// The auto-assign mutates issue.AssigneeType/AssigneeID in place.
+		// If it stuck, treat this as an assignee change so WillEnqueueRun
+		// dispatches the lab leader (RunSourceAssign). Without this the
+		// PATCH that only flips lab_source carries no assignee_* field, so
+		// the assigneeChanged calc below stays false and the research run
+		// never starts (MUL: "selecting the lab must start the work").
+		labAutoAssigned = issue.AssigneeType.Valid
 	}
 
 	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
@@ -2801,6 +2809,11 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	assigneeChanged := (req.AssigneeType != nil || req.AssigneeID != nil) &&
 		(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))
+	// Lab auto-assign happens without an explicit assignee_* field in the
+	// request, so fold it into assigneeChanged to arm the dispatch path.
+	if labAutoAssigned {
+		assigneeChanged = true
+	}
 	statusChanged := req.Status != nil && prevIssue.Status != issue.Status
 	priorityChanged := req.Priority != nil && prevIssue.Priority != issue.Priority
 	// project_changed gates the client's per-project issue-list refetch the way

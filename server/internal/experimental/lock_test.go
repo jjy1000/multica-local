@@ -121,6 +121,22 @@ func (f *fakeQuerier) RestoreExperimentalResourceLocksBySource(ctx context.Conte
 	return touched, nil
 }
 
+func (f *fakeQuerier) RestoreExperimentalResourceLockByID(ctx context.Context, arg db.RestoreExperimentalResourceLockByIDParams) (int64, error) {
+	k := key(experimental.Source(arg.ExperimentalSource), experimental.ResourceType(arg.ResourceType), arg.ResourceID)
+	row, ok := f.rows[k]
+	if !ok || !row.Hidden {
+		return 0, nil
+	}
+	row.Hidden = false
+	f.rows[k] = row
+	if _, ok := f.countByType[experimental.Source(arg.ExperimentalSource)]; ok {
+		v := f.countByType[experimental.Source(arg.ExperimentalSource)][experimental.ResourceType(row.ResourceType)]
+		v.visible++
+		f.countByType[experimental.Source(arg.ExperimentalSource)][experimental.ResourceType(row.ResourceType)] = v
+	}
+	return 1, nil
+}
+
 func (f *fakeQuerier) IsExperimentalResourceHidden(ctx context.Context, arg db.IsExperimentalResourceHiddenParams) (bool, error) {
 	row, ok := f.rows[key(experimental.Source(arg.ExperimentalSource), experimental.ResourceType(arg.ResourceType), arg.ResourceID)]
 	if !ok {

@@ -201,6 +201,37 @@ func (q *Queries) ListExperimentalResourceLocks(ctx context.Context, experimenta
 	return items, nil
 }
 
+const restoreExperimentalResourceLockByID = `-- name: RestoreExperimentalResourceLockByID :execrows
+UPDATE experimental_resource_lock
+SET hidden = false,
+    hidden_at = NULL
+WHERE experimental_source = $1
+  AND resource_type = $2
+  AND resource_id = $3
+  AND hidden = true
+`
+
+type RestoreExperimentalResourceLockByIDParams struct {
+	ExperimentalSource string      `json:"experimental_source"`
+	ResourceType       string      `json:"resource_type"`
+	ResourceID         pgtype.UUID `json:"resource_id"`
+}
+
+// Flip a single (source, resource_type, resource_id) row back to visible.
+// Unlike RestoreExperimentalResourceLocksBySource (which un-hides every
+// row for the source), this targets one lock so callers can keep a
+// lifecycle marker visible while every other lab resource stays hidden.
+// 0.3.44: install_claude_science uses this to restore its workspace
+// lifecycle marker after the blanket Hide(src) that suppresses lab
+// resources from the main pickers.
+func (q *Queries) RestoreExperimentalResourceLockByID(ctx context.Context, arg RestoreExperimentalResourceLockByIDParams) (int64, error) {
+	result, err := q.db.Exec(ctx, restoreExperimentalResourceLockByID, arg.ExperimentalSource, arg.ResourceType, arg.ResourceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const restoreExperimentalResourceLocksBySource = `-- name: RestoreExperimentalResourceLocksBySource :execrows
 UPDATE experimental_resource_lock
 SET hidden = false,

@@ -243,6 +243,25 @@ func (h *Handler) InstallClaudeScience(ctx context.Context, src experimental.Sou
 		return fmt.Errorf("hide lab resources: %w", err)
 	}
 
+	// 0.3.44: the blanket Hide() above also hides this source's
+	// workspace lifecycle marker, which breaks install/rollback status
+	// semantics — with every lock row hidden, isManifestHidden() can no
+	// longer tell "installed" apart from "rolled back". Restore a single
+	// visible marker row (workspace-typed, keyed off LifecycleMarker so
+	// it never matches a real workspace/agent/skill and cannot leak into
+	// the pickers) to carry the "installed & visible" signal. Claim first
+	// so the marker exists on a fresh install; RestoreOne then un-hides
+	// it on re-install (Claim is a no-op once the row already exists).
+	// Rollback's Hide() re-hides the marker along with everything else,
+	// so Hidden flips back to true. Both calls are idempotent.
+	marker := experimental.LifecycleMarker(string(src))
+	if err := experimental.Claim(ctx, h.Queries, src, experimental.LockWorkspace, marker); err != nil {
+		return fmt.Errorf("claim lifecycle marker: %w", err)
+	}
+	if _, err := experimental.RestoreOne(ctx, h.Queries, src, experimental.LockWorkspace, marker); err != nil {
+		return fmt.Errorf("restore lifecycle marker: %w", err)
+	}
+
 	// 0.3.35: heal agent.runtime_id for agents installed by earlier
 	// versions that pointed at the synthetic offline stub. The
 	// upsert* helpers above short-circuit on existing rows, so this

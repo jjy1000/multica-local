@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Issue, UpdateIssueRequest } from "@multica/core/types";
+import { api } from "@multica/core/api";
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -88,6 +89,33 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
       updateIssue.mutate(
         { id: issueId, ...updates },
         {
+          onSuccess: () => {
+            // Lab parity with the create-issue path: when the user tags an
+            // existing issue with lab_source = pythia_oracle (the update
+            // path, e.g. via the LabPicker in the detail panel), auto-launch
+            // a 10-round Pythia deliberation so "selecting the lab starts the
+            // work" — mirroring create-issue.tsx. The report accumulates in
+            // the Pythia panel (the lab's experiment interface), never the
+            // issue timeline. Best-effort: a launch failure must not surface
+            // as an update error, because the field change already succeeded.
+            if (updates.lab_source === "pythia_oracle") {
+              void api
+                .rawRequest(
+                  "/api/experimental/pythia-oracle/forecast/issue",
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ issue_id: issueId, rounds: 10 }),
+                  },
+                )
+                .catch((err) => {
+                  console.warn(
+                    "[issue-actions] pythia_oracle auto-launch failed",
+                    err,
+                  );
+                });
+            }
+          },
           onError: (err) =>
             toast.error(
               err instanceof Error && err.message

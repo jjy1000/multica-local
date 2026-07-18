@@ -62,7 +62,7 @@ import { CommentInput } from "./comment-input";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies, deriveThreadResolution } from "./thread-utils";
 import { IssueAgentHeaderChip } from "./issue-agent-header-chip";
-import { IssueLabsSection, labSourceRouteSuffix } from "./issue-labs-section";
+import { IssueLabsSection, labSourceRouteSuffix, VIEW_LAB_SOURCES } from "./issue-labs-section";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -1015,16 +1015,27 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // unrelated thread) hands every card a brand-new prop reference and forces
   // every thread subtree to re-render in lockstep.
   const prevThreadRepliesRef = useRef<Map<string, TimelineEntry[]>>(new Map());
+  // For lab issues that own a workbench view, the agent delivers its
+  // results inside the lab panel (GetClaudeLabContext), so its comments
+  // (plans / conclusions) must not surface as deliverables in the plain
+  // issue timeline. Agent *activities* (started / completed) still show.
+  const hideLabAgentComments =
+    !!issue?.lab_source && VIEW_LAB_SOURCES.has(issue.lab_source);
   const timelineView = useMemo(() => {
     // Group entries: top-level = activities + root comments; replies are
     // bucketed under their parent's id and rendered nested inside CommentCard.
     // No orphan rescue needed: the timeline is fetched in full, so every
     // reply's parent is always in the same array.
-    const topLevel = timeline.filter(
+    const visible = hideLabAgentComments
+      ? timeline.filter(
+          (e) => !(e.type === "comment" && e.actor_type === "agent"),
+        )
+      : timeline;
+    const topLevel = visible.filter(
       (e) => e.type === "activity" || !e.parent_id,
     );
     const repliesByParent = new Map<string, TimelineEntry[]>();
-    for (const e of timeline) {
+    for (const e of visible) {
       if (e.type === "comment" && e.parent_id) {
         const list = repliesByParent.get(e.parent_id) ?? [];
         list.push(e);
@@ -1091,7 +1102,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     }
 
     return { threadReplies, groups };
-  }, [timeline]);
+  }, [timeline, hideLabAgentComments]);
 
   // Flat array consumed by <Virtuoso>. Recomputed when timelineView.groups
   // changes (timeline events) or expandedResolved flips (user toggles a

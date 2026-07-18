@@ -83,3 +83,19 @@ SELECT EXISTS (
       AND resource_id = $3
       AND hidden = true
 ) AS hidden;
+
+-- name: RestoreExperimentalResourceLockByID :execrows
+-- Flip a single (source, resource_type, resource_id) row back to visible.
+-- Unlike RestoreExperimentalResourceLocksBySource (which un-hides every
+-- row for the source), this targets one lock so callers can keep a
+-- lifecycle marker visible while every other lab resource stays hidden.
+-- 0.3.44: install_claude_science uses this to restore its workspace
+-- lifecycle marker after the blanket Hide(src) that suppresses lab
+-- resources from the main pickers.
+UPDATE experimental_resource_lock
+SET hidden = false,
+    hidden_at = NULL
+WHERE experimental_source = $1
+  AND resource_type = $2
+  AND resource_id = $3
+  AND hidden = true;

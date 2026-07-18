@@ -47,6 +47,13 @@ vi.mock("@multica/core/issues/mutations", () => ({
   useUpdateIssue: () => ({ mutate: mockUpdateMutate }),
 }));
 
+// api.rawRequest is used by updateField to auto-launch the Pythia forecast
+// on the update path (lab parity). Mocked so the POST can be asserted.
+const mockRawRequest = vi.fn();
+vi.mock("@multica/core/api", () => ({
+  api: { rawRequest: (...args: any[]) => mockRawRequest(...args) },
+}));
+
 vi.mock("@multica/core/paths", async () => {
   const actual = await vi.importActual<typeof import("@multica/core/paths")>(
     "@multica/core/paths",
@@ -109,6 +116,8 @@ beforeEach(() => {
   mockUpdateMutate.mockReset();
   mockCreatePinMutate.mockReset();
   mockDeletePinMutate.mockReset();
+  mockRawRequest.mockReset();
+  mockRawRequest.mockResolvedValue({ ok: true });
   pinListRef.value = [];
   localStorage.clear();
   Object.defineProperty(navigator, "clipboard", {
@@ -129,6 +138,36 @@ describe("useIssueActions", () => {
       { id: "issue-1", status: "done" },
       expect.any(Object),
     );
+  });
+
+  it("tagging an issue with lab_source=pythia_oracle auto-launches a 10-round forecast on update success", () => {
+    // The mutate mock normally ignores the options bag; wire it to invoke
+    // onSuccess so the update-path lab-parity branch actually runs.
+    mockUpdateMutate.mockImplementation((_payload, opts) => opts?.onSuccess?.());
+    const { result } = renderHook(() => useIssueActions(mockIssue), { wrapper });
+
+    act(() => {
+      result.current.updateField({ lab_source: "pythia_oracle" });
+    });
+
+    expect(mockRawRequest).toHaveBeenCalledWith(
+      "/api/experimental/pythia-oracle/forecast/issue",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ issue_id: "issue-1", rounds: 10 }),
+      }),
+    );
+  });
+
+  it("does not auto-launch a forecast for non-pythia field updates", () => {
+    mockUpdateMutate.mockImplementation((_payload, opts) => opts?.onSuccess?.());
+    const { result } = renderHook(() => useIssueActions(mockIssue), { wrapper });
+
+    act(() => {
+      result.current.updateField({ status: "done" });
+    });
+
+    expect(mockRawRequest).not.toHaveBeenCalled();
   });
 
   it("assigning an agent routes through the run-confirm modal instead of mutating directly", () => {

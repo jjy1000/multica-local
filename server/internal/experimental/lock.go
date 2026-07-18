@@ -47,6 +47,7 @@ type LockQuerier interface {
 	InsertExperimentalResourceLock(ctx context.Context, arg db.InsertExperimentalResourceLockParams) error
 	HideExperimentalResourceLocksBySource(ctx context.Context, experimentalSource string) (int64, error)
 	RestoreExperimentalResourceLocksBySource(ctx context.Context, experimentalSource string) (int64, error)
+	RestoreExperimentalResourceLockByID(ctx context.Context, arg db.RestoreExperimentalResourceLockByIDParams) (int64, error)
 	IsExperimentalResourceHidden(ctx context.Context, arg db.IsExperimentalResourceHiddenParams) (bool, error)
 	GetExperimentalResourceLock(ctx context.Context, arg db.GetExperimentalResourceLockParams) (db.ExperimentalResourceLock, error)
 	CountExperimentalResourceLocksByType(ctx context.Context, experimentalSource string) ([]db.CountExperimentalResourceLocksByTypeRow, error)
@@ -227,6 +228,36 @@ func Restore(ctx context.Context, q LockQuerier, src Source) (int, error) {
 		return 0, ErrUnknownSource
 	}
 	rows, err := q.RestoreExperimentalResourceLocksBySource(ctx, string(src))
+	if err != nil {
+		return 0, err
+	}
+	return int(rows), nil
+}
+
+// RestoreOne flips a single (src, rt, id) lock back to visible, leaving
+// every other row attached to src untouched. It is the by-row companion
+// to Restore (which un-hides the whole source). The install path uses it
+// to keep a workspace lifecycle marker visible after the blanket
+// Hide(src) that suppresses lab resources from the main pickers, so the
+// marker's Visible count drives "installed" status without leaking any
+// real resource back into the picker.
+//
+// Returns the number of rows touched (0 when the lock is absent or
+// already visible). Same source / resource-type validation as Claim.
+func RestoreOne(ctx context.Context, q LockQuerier, src Source, rt ResourceType, id pgtype.UUID) (int, error) {
+	if !src.Valid() {
+		return 0, ErrUnknownSource
+	}
+	switch rt {
+	case LockWorkspace, LockSkill, LockAgent, LockSquad, LockMember, LockMCPServer:
+	default:
+		return 0, ErrUnknownResourceType
+	}
+	rows, err := q.RestoreExperimentalResourceLockByID(ctx, db.RestoreExperimentalResourceLockByIDParams{
+		ExperimentalSource: string(src),
+		ResourceType:       string(rt),
+		ResourceID:         id,
+	})
 	if err != nil {
 		return 0, err
 	}

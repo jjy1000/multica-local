@@ -566,24 +566,31 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// boot should not block startup.
 		bootCtx, bootCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer bootCancel()
-		if ids, err := h.Queries.ListAllWorkspaceIDs(bootCtx); err == nil {
-			var totalResumed int
-			for _, id := range ids {
-				if n, err := svc.ResumeSupervision(bootCtx, id); err != nil {
-					slog.Warn("mythos supervise resume failed",
-						"workspace_id", util.UUIDToString(id),
-						"err", err)
-				} else {
-					totalResumed += n
+		// A nil pool (tests that only exercise routing, e.g.
+		// TestMainRouterDoesNotExposePrometheusMetrics) has no DB to
+		// scan; skip the recovery walk rather than dereferencing a nil
+		// pool inside Queries.ListAllWorkspaceIDs. Consistent with the
+		// "non-fatal on boot" contract above.
+		if pool != nil {
+			if ids, err := h.Queries.ListAllWorkspaceIDs(bootCtx); err == nil {
+				var totalResumed int
+				for _, id := range ids {
+					if n, err := svc.ResumeSupervision(bootCtx, id); err != nil {
+						slog.Warn("mythos supervise resume failed",
+							"workspace_id", util.UUIDToString(id),
+							"err", err)
+					} else {
+						totalResumed += n
+					}
 				}
+				if totalResumed > 0 {
+					slog.Info("mythos supervise resumed",
+						"total", totalResumed)
+				}
+			} else {
+				slog.Warn("mythos supervise resume: list workspace ids failed",
+					"err", err)
 			}
-			if totalResumed > 0 {
-				slog.Info("mythos supervise resumed",
-					"total", totalResumed)
-			}
-		} else {
-			slog.Warn("mythos supervise resume: list workspace ids failed",
-				"err", err)
 		}
 	}
 
@@ -964,11 +971,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Delete("/reactions", h.RemoveIssueReaction)
 					r.Get("/attachments", h.ListAttachments)
 					r.Get("/children", h.ListChildIssues)
-						// 0.3.31: returns recent mythos runs for this
-						// issue. The IssueLabsSection supervise panel
-						// reads this to discover the run id for a
-						// given enhancer-mode issue.
-						r.Get("/mythos-runs", h.GetMythosRunsByIssue)
+					// 0.3.31: returns recent mythos runs for this
+					// issue. The IssueLabsSection supervise panel
+					// reads this to discover the run id for a
+					// given enhancer-mode issue.
+					r.Get("/mythos-runs", h.GetMythosRunsByIssue)
 					r.Get("/labels", h.ListLabelsForIssue)
 					r.Post("/labels", h.AttachLabel)
 					r.Delete("/labels/{labelId}", h.DetachLabel)

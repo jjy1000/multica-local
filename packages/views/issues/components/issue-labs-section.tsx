@@ -44,7 +44,14 @@ export function labSourceRouteSuffix(
   return FLAG_ROUTE_SUFFIX[labSource];
 }
 
-const VIEW_LAB_SOURCES: ReadonlySet<string> = new Set([
+/**
+ * Lab sources that own a dedicated workspace-scoped view (workbench).
+ * For these labs the agent's substantive output is delivered inside the
+ * lab panel (via GetClaudeLabContext), so issue-detail.tsx hides the
+ * agent's deliverable comments from the plain issue timeline — the
+ * results belong in the lab, not the issue task.
+ */
+export const VIEW_LAB_SOURCES: ReadonlySet<string> = new Set([
   "claude_science_lab",
   "pythia_oracle",
   "mythos_swarm",
