@@ -24,6 +24,7 @@
 // The `normalizeGitVersion` helper is exported so tests can cover the
 // version-derivation logic without shelling out.
 
+import { readFileSync } from "node:fs";
 import { execFileSync, spawnSync, execSync } from "node:child_process";
 import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -126,7 +127,32 @@ export function normalizeGitVersion(raw) {
 }
 
 function deriveVersion() {
-  return normalizeGitVersion(sh("git describe --tags --always --dirty"));
+  // Localized fork is a sparse-git checkout (no release tags), so
+  // `git describe --tags --always --dirty` falls back to the commit hash
+  // and the DMG / Info.plist renders as "0.0.0-g<hash>". bundle-cli.mjs
+  // already trusts apps/desktop/package.json as the canonical version
+  // (CLAUDE.md §Version source); mirror the same fallback here so the
+  // shipped DMG carries a human-meaningful CFBundleShortVersionString.
+  // Pre-0.3.29 ship used the bare commit-hash form — restored parity.
+  const gitRaw = sh("git describe --tags --always --dirty");
+  // Decide the fallback BEFORE normalizeGitVersion runs, because
+  // normalizeGitVersion coerces any non-semver input into "0.0.0-g<hash>"
+  // — which would then re-match "^\d+\.\d+\.\d+" and short-circuit the
+  // package.json fallback. Test gitRaw's major.minor.patch form directly.
+  if (gitRaw && /^\d+\.\d+\.\d+/.test(gitRaw.replace(/^v/, ""))) {
+    return normalizeGitVersion(gitRaw);
+  }
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(desktopRoot, "package.json"), "utf-8"),
+    );
+    if (pkg && typeof pkg.version === "string" && pkg.version) {
+      return pkg.version;
+    }
+  } catch {
+    // fall through to the original normalized fallback
+  }
+  return normalizeGitVersion(gitRaw) ?? "0.0.0";
 }
 
 function uniqueOrdered(values) {

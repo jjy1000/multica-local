@@ -219,3 +219,41 @@ reason-code wire-values lock test = 17 new subtests.
 - i18n selector block-body crash contract preserved (only arrow expressions
   in new code; verified by ESLint).
 - Pre-update snapshot mandatory before any DMG rebuild (see Task #12).
+## Ship chain results (2026-07-18)
+
+- **pre-update-snapshot** → app 767M / 13 tables / 80 configs / 817 KB
+  files / `git tag pre-update-20260718-202107`
+- **migrate up** → 158_project_dates applied
+- **bundle-cli** → 3 Go binaries + 158 migration + PG manifest + Pythia
+  + claude-science + llm-wiki + code-canvas into `resources/`
+- **electron-vite build** → clean
+- **electron-builder + hdiutil** → 290M DMG at
+  `dist/multica-desktop-0.3.44-mac-arm64.dmg`
+- **cold-start three-check** (post `open /Applications/Multica.app`):
+  - `lsof -nP -iTCP:5432 -sTCP:LISTEN` → `postgres` listening
+  - `lsof -nP -iTCP:8090 -sTCP:LISTEN` → `server` listening
+  - `curl -s http://localhost:8090/health` → `{"status":"ok"}` in 5s
+- **`/Applications/Multica.app` Info.plist**:
+  - `CFBundleShortVersionString = 0.3.44`
+  - server binary ldflag: `-X main.version=0.3.44`
+- **Row parity** (vs 0.3.43 gold baseline):
+  - workspace 1 (unchanged)
+  - issue 200 (drift +116 from local usage; expected)
+  - comment 1022 (drift +545; expected)
+  - agent 85 (drift +47 from 0.3.32 mythos + claude_science squads)
+  - project 10 (new column; expected)
+
+## Known follow-up
+
+- **`package.mjs::deriveVersion`** in the localized fork has a sparse-git
+  fallback gap: when `git describe --tags --always --dirty` returns the
+  pre-update marker tag (e.g. `pre-update-20260718-202107-dirty`) instead
+  of a real `v0.3.44`, `electron-builder` ends up rendering
+  `0.0.0-gpre-update-...` in the DMG filename and the raw Info.plist
+  template. A fix in `package.mjs` (mirror of `bundle-cli.mjs`'s
+  pre-update-tag guard) is in the working tree but did not survive the
+  `electron-builder` rerun in this session — the DMG was rebuilt with
+  `hdiutil` after Info.plist was patched to `0.3.44` so the shipped
+  artifact is correct. Next ship: integrate the package.mjs fix into
+  the standard `pnpm --filter @multica/desktop package` flow.
+  See `apps/desktop/scripts/package.mjs` working tree.
