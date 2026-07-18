@@ -65,6 +65,21 @@ type AgentRuntime struct {
 	ProfileID      pgtype.UUID        `json:"profile_id"`
 }
 
+type AgentSelfOptRun struct {
+	ID                pgtype.UUID        `json:"id"`
+	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
+	Status            string             `json:"status"`
+	TriggerKind       string             `json:"trigger_kind"`
+	StartedAt         pgtype.Timestamptz `json:"started_at"`
+	FinishedAt        pgtype.Timestamptz `json:"finished_at"`
+	SourceIssueCount  int32              `json:"source_issue_count"`
+	PromptSuggestions []byte             `json:"prompt_suggestions"`
+	ReportMd          pgtype.Text        `json:"report_md"`
+	KbAppendixPath    pgtype.Text        `json:"kb_appendix_path"`
+	ErrorMessage      pgtype.Text        `json:"error_message"`
+	CreatedIssueID    pgtype.UUID        `json:"created_issue_id"`
+}
+
 type AgentSkill struct {
 	AgentID   pgtype.UUID        `json:"agent_id"`
 	SkillID   pgtype.UUID        `json:"skill_id"`

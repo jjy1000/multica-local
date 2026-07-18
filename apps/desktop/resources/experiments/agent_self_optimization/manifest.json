@@ -25,6 +25,11 @@
           "key": "agent_self_optimization",
           "label_key": "experimental_agent_self_optimization",
           "route": "/experimental/agent-self-optimization"
+        },
+        {
+          "key": "self_opt_history",
+          "label_key": "experimental_self_opt_history",
+          "route": "/experimental/self-opt-history"
         }
       ]
     },

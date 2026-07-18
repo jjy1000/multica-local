@@ -35,6 +35,11 @@ import { PythiaView } from "./pages/pythia-view";
 import { LLMWikiBridgeView } from "./pages/llm-wiki-bridge-view";
 import { CodeCanvasView } from "./pages/code-canvas-view";
 import { AgentSelfOptimizationView } from "./pages/agent-self-optimization-view";
+// 0.3.45.1: run-history view for agent_self_optimization. Distinct
+// from AgentSelfOptimizationView (which is the 0.3.20 flag-status
+// placeholder) — this view reads GET /api/experimental/self-opt/runs
+// and renders the per-run report markdown + prompt suggestions.
+import { SelfOptHistoryView } from "./pages/self-opt-history-view";
 import { ConstitutionAgentView } from "./pages/constitution-agent-view";
 // 0.3.45: action-type lab entry point — distinct from the existing
 // 8 flag-bound views (which all describe what a flag DOES once the
@@ -158,6 +163,11 @@ export const appRoutes: RouteObject[] = [
         path: "experimental/agent-self-optimization",
         element: <AgentSelfOptimizationView />,
         handle: { title: "Agent Self-Optimization" },
+      },
+      {
+        path: "experimental/self-opt-history",
+        element: <SelfOptHistoryView />,
+        handle: { title: "智能体自优化历史" },
       },
       {
         path: "experimental/constitution-agent",

@@ -29,6 +29,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
+	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -134,6 +135,13 @@ type Handler struct {
 	// h.Queries is available. Nil is acceptable (older builds or
 	// tests) — the supervise HTTP handlers fall back to 503.
 	MythosService *mythossvc.Service
+	// SelfOptService (0.3.45.1) owns the agent_self_optimization
+	// scheduler tickers + runner dispatch. Boot wires it from
+	// cmd/server/router.go. Nil is acceptable — the HTTP handlers
+	// fall back to 503. Flag-off (DefaultFor=false) means
+	// Service.Start no-ops on boot, so the field is non-nil but
+	// inert.
+	SelfOptService *selfoptsvc.Service
 	// Metrics is the shared business-metrics collector built by main.go.
 	// May be nil in tests / self-hosted with the metrics listener disabled;
 	// every Record* method is nil-safe and obsmetrics.RecordEvent treats a

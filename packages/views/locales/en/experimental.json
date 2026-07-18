@@ -6,7 +6,32 @@
     "field_name": "Name",
     "field_description": "Description",
     "compat_label": "Constitution-compatible",
-    "compat_hint": "0.3.45 UI placeholder — 0.3.45.1 wires the system_key field",
+    "compat_hint": "0.3.45 UI placeholder — 0.3.45.1 wires system_key",
     "submit_create": "Create"
+  },
+  "self_opt_history_view": {
+    "header_label": "Agent Self-Optimization History",
+    "page_title": "Agent Self-Optimization History",
+    "page_intro": "Every 4 days the scheduler scans completed tasks (excluding experimental agents) and derives prompt suggestions. Each run creates an issue with the lab badge; full reports appear in this view.",
+    "cadence_label": "Every 4 days · weekday 10:00 (local)",
+    "refresh_btn": "Refresh",
+    "trigger_btn": "Run now",
+    "loading_label": "Loading…",
+    "empty_label": "No self-opt runs yet. Click \"Run now\" to trigger one manually, or wait for the next weekday 10:00 schedule.",
+    "select_detail_hint": "Pick a run from the list to view the full report and suggestion list.",
+    "run_detail_title": "Run detail",
+    "suggestions_title": "Prompt suggestions",
+    "report_md_summary": "Full Markdown report",
+    "kb_label": "KB appendix",
+    "open_issue_link": "Open related issue →",
+    "source_issue_label": "source issues",
+    "suggestion_count_label": "suggestions",
+    "confidence_label": "confidence",
+    "status_done_scheduled": "done",
+    "status_done_manual": "manual",
+    "status_running": "running",
+    "status_failed": "failed",
+    "status_cancelled": "cancelled",
+    "status_pending": "pending"
   }
 }

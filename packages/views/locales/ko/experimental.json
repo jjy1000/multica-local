@@ -8,5 +8,30 @@
     "compat_label": "헌장 호환",
     "compat_hint": "0.3.45 UI 자리표시자 — 0.3.45.1에서 system_key 필드 연결",
     "submit_create": "만들기"
+  },
+  "self_opt_history_view": {
+    "header_label": "에이전트 자기 최적화 기록",
+    "page_title": "에이전트 자기 최적화 기록",
+    "page_intro": "4일마다 완료된 작업(실험적 에이전트 제외)을 스캔하여 prompt 개선 제안을 도출합니다. 각 run은 실험실 배지가 있는 issue를 자동 생성합니다.",
+    "cadence_label": "4일마다 · 평일 10:00(로컬)",
+    "refresh_btn": "새로고침",
+    "trigger_btn": "지금 실행",
+    "loading_label": "로딩 중…",
+    "empty_label": "자기 최적화 run 이 없습니다. \"지금 실행\"을 클릭하여 수동으로 실행하거나 다음 평일 10:00까지 기다려 주세요.",
+    "select_detail_hint": "왼쪽에서 run 을 선택하면 보고서와 제안 목록을 볼 수 있습니다.",
+    "run_detail_title": "보고서 상세",
+    "suggestions_title": "제안 목록",
+    "report_md_summary": "전체 Markdown 보고서",
+    "kb_label": "KB 기록",
+    "open_issue_link": "관련 issue 열기 →",
+    "source_issue_label": "소스 issue",
+    "suggestion_count_label": "개의 제안",
+    "confidence_label": "신뢰도",
+    "status_done_scheduled": "완료",
+    "status_done_manual": "수동",
+    "status_running": "실행 중",
+    "status_failed": "실패",
+    "status_cancelled": "취소됨",
+    "status_pending": "대기"
   }
 }

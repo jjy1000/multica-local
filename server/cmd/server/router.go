@@ -32,6 +32,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
+	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
@@ -594,6 +595,50 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		}
 	}
 
+	// 0.3.45.1: wire the agent_self_optimization service. Mirrors the
+	// mythos supervise block above: a single Service instance hosts a
+	// per-workspace scheduler ticker that fires when NextTrigger(now)
+	// matches the user's local weekday 10:00 + ≥96h-since-last-success
+	// gates. Service.Start() no-ops when the flag is OFF (see
+	// agent_self_optimization/flag.go), so this block is safe to ship
+	// without a per-flag toggle.
+	{
+		optSvc := selfoptsvc.NewService(h.Queries)
+		h.SelfOptService = optSvc
+		// Best-effort recovery: scan for runs left in 'pending' or
+		// 'running' by a previous process. Resume marks zombies
+		// (>MaxRunLifetime in 'running') as 'failed' so a fresh
+		// scheduler tick can pick a new slot.
+		bootCtx, bootCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer bootCancel()
+		if pool != nil {
+			if ids, err := h.Queries.ListAllWorkspaceIDs(bootCtx); err == nil {
+				var totalResumed int
+				for _, id := range ids {
+					if n, err := optSvc.Resume(bootCtx, id); err != nil {
+						slog.Warn("agent-self-opt resume failed",
+							"workspace_id", util.UUIDToString(id),
+							"err", err)
+					} else {
+						totalResumed += n
+					}
+				}
+				if totalResumed > 0 {
+					slog.Info("agent-self-opt resumed", "total", totalResumed)
+				}
+				// Launch the per-workspace tickers. Start() no-ops
+				// when the flag is OFF, so the boot cost on a default
+				// install is the (cheap) Resume scan only.
+				if err := optSvc.Start(bootCtx, ids); err != nil {
+					slog.Warn("agent-self-opt start failed", "err", err)
+				}
+			} else {
+				slog.Warn("agent-self-opt start: list workspace ids failed",
+					"err", err)
+			}
+		}
+	}
+
 	// Realtime subsystem metrics — connection counts, slow-client evictions,
 	// and per-event-type send QPS counters. Exposed as JSON so it can be
 	// scraped by ops or surfaced in the admin UI without adding a Prometheus
@@ -779,6 +824,21 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Use(h.RequireExperimentalFlag("pythia_oracle"))
 			handler.AttachPythiaIssueForecastMiddleware(r, h)
 			handler.RegisterPythiaIssueForecastRoutes(r)
+		})
+
+		// 0.3.45.1: agent_self_optimization history view endpoints.
+		// Flag-gated inside the handlers themselves (returns 404 when
+		// the flag is OFF) so the route table is uniform across the
+		// localised fork regardless of which Labs the user has opted
+		// into. Mirrors the pythia_oracle / mythos_swarm gating style
+		// but without RequireExperimentalFlag middleware — this lab
+		// has both a true-bypass runtime AND a user-facing history
+		// surface, so the 404 path lives at the handler entry.
+		r.Route("/api/experimental/self-opt", func(r chi.Router) {
+			r.Get("/runs", h.ListSelfOptRuns)
+			r.Post("/runs", h.TriggerSelfOptRun)
+			r.Get("/runs/{id}", h.GetSelfOptRun)
+			r.Post("/runs/{id}/cancel", h.CancelSelfOptRun)
 		})
 
 		// --- User-scoped routes (no workspace context required) ---
