@@ -921,7 +921,22 @@ func (q *Queries) ClearAgentThinkingLevel(ctx context.Context, id pgtype.UUID) (
 
 const completeAgentTask = `-- name: CompleteAgentTask :one
 UPDATE agent_task_queue
-SET status = 'completed', completed_at = now(), result = $2, session_id = $3, work_dir = $4, prepare_lease_expires_at = NULL
+SET status = 'completed',
+    completed_at = now(),
+    result = $2,
+    session_id = $3,
+    work_dir = $4,
+    prepare_lease_expires_at = NULL,
+    delivered_comment_ids = (
+      SELECT ARRAY(
+        SELECT DISTINCT unnest(
+          COALESCE(delivered_comment_ids, '{}'::uuid[])
+          || COALESCE(coalesced_comment_ids, '{}'::uuid[])
+          || (CASE WHEN trigger_comment_id IS NOT NULL
+                   THEN ARRAY[trigger_comment_id] ELSE '{}'::uuid[] END)
+        )
+      )
+    )
 WHERE id = $1 AND status = 'running'
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, delivered_comment_ids, chat_input_task_id, coalesced_comment_ids
 `
@@ -933,6 +948,15 @@ type CompleteAgentTaskParams struct {
 	WorkDir   pgtype.Text `json:"work_dir"`
 }
 
+// On completion, append the trigger_comment_id (and any coalesced comments
+// folded into the task via MergeCommentIntoPendingTask) into
+// delivered_comment_ids so the post-completion reconcile pass
+// (reconcileCommentsOnCompletion) does not treat them as "still undelivered"
+// and enqueue an infinite-loop follow-up. MUL-4195 surface: a trigger comment
+// whose task keeps finishing without ever marking it delivered causes the
+// reconcile path to schedule a new follow-up on the same trigger every time,
+// and the agent self-reports "Same trigger, Nth time. Already handled." with
+// no way to break the loop without closing the issue.
 func (q *Queries) CompleteAgentTask(ctx context.Context, arg CompleteAgentTaskParams) (AgentTaskQueue, error) {
 	row := q.db.QueryRow(ctx, completeAgentTask,
 		arg.ID,

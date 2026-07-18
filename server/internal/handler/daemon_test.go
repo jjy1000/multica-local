@@ -4975,3 +4975,108 @@ func TestBuildTaskResultJSON_EmptyObject(t *testing.T) {
 		t.Errorf("empty object must not promote code_blocks")
 	}
 }
+
+// TestCompleteTask_AppendsTriggerToDelivered guards the MUL-4195 surface
+// against an infinite self-trigger loop. Before the fix, CompleteAgentTask
+// left delivered_comment_ids empty even when the task carried a
+// trigger_comment_id, so the post-completion reconcile pass kept finding
+// the trigger as "still undelivered" and enqueueing a fresh follow-up on
+// the same trigger every time. The agent then self-reported
+// "Same trigger, Nth time. Already handled." with no way to break the
+// loop without closing the issue. After the fix, completing a comment-
+// triggered task must record both the trigger and any coalesced comments
+// in delivered_comment_ids so reconcileCommentsOnCompletion skips them.
+func TestCompleteTask_AppendsTriggerToDelivered(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+
+	var agentID, runtimeID string
+	if err := testPool.QueryRow(ctx, `
+		SELECT a.id, a.runtime_id FROM agent a WHERE a.workspace_id = $1 LIMIT 1
+	`, testWorkspaceID).Scan(&agentID, &runtimeID); err != nil {
+		t.Fatalf("setup: get agent: %v", err)
+	}
+
+	var issueID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO issue (workspace_id, title, status, priority, creator_id, creator_type, number, position)
+		VALUES ($1, 'delivered_comment_ids regression fixture', 'in_progress', 'none', $2, 'member', 9001, 0)
+		RETURNING id
+	`, testWorkspaceID, testUserID).Scan(&issueID); err != nil {
+		t.Fatalf("setup: create issue: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID) })
+
+	var triggerCommentID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type)
+		VALUES ($1, $2, 'member', $3, 'fix loop regression', 'comment')
+		RETURNING id
+	`, issueID, testWorkspaceID, testUserID).Scan(&triggerCommentID); err != nil {
+		t.Fatalf("setup: create trigger comment: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM comment WHERE id = $1`, triggerCommentID) })
+
+	// One coalesced comment folded in via MergeCommentIntoPendingTask —
+	// must also land in delivered_comment_ids on completion.
+	var coalescedCommentID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type)
+		VALUES ($1, $2, 'member', $3, 'also relevant', 'comment')
+		RETURNING id
+	`, issueID, testWorkspaceID, testUserID).Scan(&coalescedCommentID); err != nil {
+		t.Fatalf("setup: create coalesced comment: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM comment WHERE id = $1`, coalescedCommentID) })
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO agent_task_queue (
+			agent_id, runtime_id, issue_id, trigger_comment_id,
+			coalesced_comment_ids, status, priority, started_at
+		)
+		VALUES ($1, $2, $3, $4, ARRAY[$5]::uuid[], 'running', 0, now())
+		RETURNING id
+	`, agentID, runtimeID, issueID, triggerCommentID, coalescedCommentID).Scan(&taskID); err != nil {
+		t.Fatalf("setup: create comment-triggered task: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest("POST", "/api/daemon/tasks/"+taskID+"/complete",
+		map[string]any{"output": "ack"},
+		testWorkspaceID, "legit-daemon")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("taskId", taskID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	testHandler.CompleteTask(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("CompleteTask: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var delivered []string
+	if err := testPool.QueryRow(ctx, `
+		SELECT ARRAY(
+			SELECT id::text FROM unnest(delivered_comment_ids) AS id
+		) FROM agent_task_queue WHERE id = $1
+	`, taskID).Scan(&delivered); err != nil {
+		t.Fatalf("query delivered_comment_ids: %v", err)
+	}
+
+	deliveredSet := map[string]bool{}
+	for _, id := range delivered {
+		deliveredSet[id] = true
+	}
+	if !deliveredSet[triggerCommentID] {
+		t.Errorf("trigger_comment_id %s missing from delivered_comment_ids %v; reconcile would re-loop",
+			triggerCommentID, delivered)
+	}
+	if !deliveredSet[coalescedCommentID] {
+		t.Errorf("coalesced comment %s missing from delivered_comment_ids %v",
+			coalescedCommentID, delivered)
+	}
+}

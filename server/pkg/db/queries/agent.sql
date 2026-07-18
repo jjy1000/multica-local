@@ -426,8 +426,32 @@ WHERE id = $1 AND status = 'dispatched'
 RETURNING *;
 
 -- name: CompleteAgentTask :one
+-- On completion, append the trigger_comment_id (and any coalesced comments
+-- folded into the task via MergeCommentIntoPendingTask) into
+-- delivered_comment_ids so the post-completion reconcile pass
+-- (reconcileCommentsOnCompletion) does not treat them as "still undelivered"
+-- and enqueue an infinite-loop follow-up. MUL-4195 surface: a trigger comment
+-- whose task keeps finishing without ever marking it delivered causes the
+-- reconcile path to schedule a new follow-up on the same trigger every time,
+-- and the agent self-reports "Same trigger, Nth time. Already handled." with
+-- no way to break the loop without closing the issue.
 UPDATE agent_task_queue
-SET status = 'completed', completed_at = now(), result = $2, session_id = $3, work_dir = $4, prepare_lease_expires_at = NULL
+SET status = 'completed',
+    completed_at = now(),
+    result = $2,
+    session_id = $3,
+    work_dir = $4,
+    prepare_lease_expires_at = NULL,
+    delivered_comment_ids = (
+      SELECT ARRAY(
+        SELECT DISTINCT unnest(
+          COALESCE(delivered_comment_ids, '{}'::uuid[])
+          || COALESCE(coalesced_comment_ids, '{}'::uuid[])
+          || (CASE WHEN trigger_comment_id IS NOT NULL
+                   THEN ARRAY[trigger_comment_id] ELSE '{}'::uuid[] END)
+        )
+      )
+    )
 WHERE id = $1 AND status = 'running'
 RETURNING *;
 
