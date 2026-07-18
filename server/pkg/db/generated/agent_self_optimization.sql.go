@@ -84,6 +84,29 @@ func (q *Queries) GetAgentSelfOptRun(ctx context.Context, id pgtype.UUID) (Agent
 	return i, err
 }
 
+const getExperimentalPrefEnabled = `-- name: GetExperimentalPrefEnabled :one
+SELECT enabled
+FROM experimental_pref
+WHERE user_id = $1
+  AND flag_key = $2
+`
+
+type GetExperimentalPrefEnabledParams struct {
+	UserID  pgtype.UUID `json:"user_id"`
+	FlagKey string      `json:"flag_key"`
+}
+
+// 0.3.45.2: per-tick re-check used by flagOnForUser(). Returns the
+// enabled column directly so the Service avoids importing the full
+// experimental_pref row just to read a bool. sqlc.ErrNoRows means
+// "no opt-in row" → caller treats as opted-out.
+func (q *Queries) GetExperimentalPrefEnabled(ctx context.Context, arg GetExperimentalPrefEnabledParams) (bool, error) {
+	row := q.db.QueryRow(ctx, getExperimentalPrefEnabled, arg.UserID, arg.FlagKey)
+	var enabled bool
+	err := row.Scan(&enabled)
+	return enabled, err
+}
+
 const lastSuccessfulAgentSelfOptRun = `-- name: LastSuccessfulAgentSelfOptRun :one
 SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id
 FROM agent_self_opt_run
@@ -252,6 +275,48 @@ func (q *Queries) ListDoneIssuesForSelfOpt(ctx context.Context, arg ListDoneIssu
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOptedInUsers = `-- name: ListOptedInUsers :many
+SELECT DISTINCT user_id
+FROM experimental_pref
+WHERE flag_key = 'agent_self_optimization'
+  AND enabled = TRUE
+`
+
+// 0.3.45.2: per-user opt-in scan used by the Service.Start() boot
+// path. Returns every user_id that has an enabled=true row in
+// experimental_pref for the agent_self_optimization flag key.
+// The daemon turns this list × every workspace into a per-(user,
+// workspace) scheduler ticker so a single opted-in user with one
+// workspace gets one ticker, and three opted-in users in one
+// workspace get three tickers (each checks flagOnForUser on every
+// tick and self-skips on opt-out).
+//
+// Deduplicated at the SQL layer with DISTINCT so a user who toggled
+// the flag multiple times is only counted once. The Service trusts
+// the flagOnForUser() re-check on every tick before launching work,
+// so this list is "who opted in at boot" — not "who is currently
+// opted in". Toggling the flag while the daemon is running does not
+// require a restart.
+func (q *Queries) ListOptedInUsers(ctx context.Context) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listOptedInUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err

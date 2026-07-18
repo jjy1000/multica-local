@@ -125,3 +125,34 @@ LIMIT $5;
 -- lock key is hashed off the run id so every run row has its own
 -- lock domain — no global bottleneck.
 SELECT pg_try_advisory_xact_lock(hashtextextended($1::text, 0)) AS locked;
+
+-- name: ListOptedInUsers :many
+-- 0.3.45.2: per-user opt-in scan used by the Service.Start() boot
+-- path. Returns every user_id that has an enabled=true row in
+-- experimental_pref for the agent_self_optimization flag key.
+-- The daemon turns this list × every workspace into a per-(user,
+-- workspace) scheduler ticker so a single opted-in user with one
+-- workspace gets one ticker, and three opted-in users in one
+-- workspace get three tickers (each checks flagOnForUser on every
+-- tick and self-skips on opt-out).
+--
+-- Deduplicated at the SQL layer with DISTINCT so a user who toggled
+-- the flag multiple times is only counted once. The Service trusts
+-- the flagOnForUser() re-check on every tick before launching work,
+-- so this list is "who opted in at boot" — not "who is currently
+-- opted in". Toggling the flag while the daemon is running does not
+-- require a restart.
+SELECT DISTINCT user_id
+FROM experimental_pref
+WHERE flag_key = 'agent_self_optimization'
+  AND enabled = TRUE;
+
+-- name: GetExperimentalPrefEnabled :one
+-- 0.3.45.2: per-tick re-check used by flagOnForUser(). Returns the
+-- enabled column directly so the Service avoids importing the full
+-- experimental_pref row just to read a bool. sqlc.ErrNoRows means
+-- "no opt-in row" → caller treats as opted-out.
+SELECT enabled
+FROM experimental_pref
+WHERE user_id = $1
+  AND flag_key = $2;

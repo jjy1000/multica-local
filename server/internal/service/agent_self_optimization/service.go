@@ -1,20 +1,24 @@
-// Package agent_self_optimization — service.go (0.3.45.1).
+// Package agent_self_optimization — service.go (0.3.45.1 + 0.3.45.2).
 //
-// Per-workspace scheduler + runner host. Mirrors the mythos
+// Per-(user, workspace) scheduler + runner host. Mirrors the mythos
 // Service pattern (see server/internal/service/mythos/runner.go):
 //
 //   - One Service instance per daemon process
-//   - One ticker goroutine per workspace (workspaceIDsMu-protected set)
+//   - One ticker goroutine per (opted-in user, workspace) pair
 //   - Advisory-lock guarded runs (no two daemons run the same ws)
 //   - Resume() on daemon bootstrap picks up any pending rows from the
 //     previous process
 //   - Stop() cancels every ticker / in-flight run on daemon shutdown
 //
-// Flag-off contract: Service.Start() is a no-op when
-// experimental.DefaultFor("agent_self_optimization") is false. The
-// ticker never starts, Resume() returns 0, Stop() is also a no-op.
-// This keeps the "flag-off completely bypasses experimental code"
-// CLAUDE.md contract intact.
+// 0.3.45.2 gate: the scheduler tick consults flagOnForUser() on every
+// tick. A user can opt out at any time and the next tick (within
+// SchedulerTickerInterval = 1 minute) silently stops scheduling for
+// that user. No need to cancel the ticker — it self-skips.
+//
+// "flag-off completely bypasses experimental code" contract: the
+// catalog default remains OFF. The Service NEVER consults the catalog
+// default at the gate; it ONLY consults experimental_pref. A user
+// without a row (or with enabled=false) is OFF.
 package agent_self_optimization
 
 import (
@@ -31,10 +35,10 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// SchedulerTickerInterval is how often the per-workspace scheduler
+// SchedulerTickerInterval is how often the per-(user, workspace) scheduler
 // loop checks whether to fire. 1 minute is coarse enough to be
-// cheap (8 ticks per workspace per hour) and fine enough to fire
-// within 60s of the scheduled 10:00 local instant.
+// cheap and fine enough to fire within 60s of the scheduled 10:00 local
+// instant, AND fine enough to honor an opt-out within 60s.
 const SchedulerTickerInterval = 1 * time.Minute
 
 // LockKey is the advisory-lock namespace key. pg_try_advisory_lock
@@ -43,15 +47,23 @@ const SchedulerTickerInterval = 1 * time.Minute
 // requests can't run concurrent scans for the same workspace.
 const LockKey = "agent_self_optimization"
 
+// tickerKey is the map key for s.tickers. Composed of userID +
+// workspaceID so a per-user opt-out only cancels that user's ticker
+// for that workspace, not every workspace the daemon knows about.
+type tickerKey struct {
+	UserID      pgtype.UUID
+	WorkspaceID pgtype.UUID
+}
+
 // Service is the daemon-wide host. Construct via NewService.
 type Service struct {
 	queries *db.Queries
 	kb      KBWriter
 
-	mu             sync.Mutex
-	tickers        map[pgtype.UUID]context.CancelFunc
-	workspaceIDs   []pgtype.UUID
-	localClock     *time.Location
+	mu           sync.Mutex
+	tickers      map[tickerKey]context.CancelFunc
+	workspaceIDs []pgtype.UUID
+	localClock   *time.Location
 }
 
 // NewService returns a Service ready for Start. The caller (typically
@@ -61,7 +73,7 @@ func NewService(queries *db.Queries) *Service {
 	return &Service{
 		queries:    queries,
 		kb:         NewFileSystemKBWriter(""),
-		tickers:    make(map[pgtype.UUID]context.CancelFunc),
+		tickers:    make(map[tickerKey]context.CancelFunc),
 		localClock: time.Local,
 	}
 }
@@ -82,46 +94,73 @@ func (s *Service) SetLocalClock(loc *time.Location) {
 	s.localClock = loc
 }
 
-// Start launches one scheduler goroutine per workspace ID. Safe to
-// call multiple times — repeated calls add new tickers; the daemon
-// bootstrap path always calls Start exactly once.
+// Start launches one scheduler goroutine per (opted-in user,
+// workspace) pair. Safe to call multiple times — repeated calls add
+// new tickers; the daemon bootstrap path always calls Start exactly
+// once.
 //
-// Flag-off: returns nil immediately without launching any tickers.
-// The cancel-func map stays empty and Stop() is also a no-op.
+// 0.3.45.2 boot flow:
+//  1. Query ListOptedInUsers → which users have experimental_pref row
+//  2. Cross-product with workspaceIDs → N×M ticker keys
+//  3. Spawn one goroutine per key. The goroutine self-cancels on
+//     opt-out (flagOnForUser returns false on a later tick).
+//
+// Flag-off: returns nil immediately. The boot is a no-op when no user
+// has opted in. The cancel-func map stays empty and Stop() is also a
+// no-op. This is the "flag-off completely bypasses experimental code"
+// contract — but per-USER, not per-PROCESS.
 func (s *Service) Start(ctx context.Context, workspaceIDs []pgtype.UUID) error {
-	// Hard gate: flag-off means we don't even consult the catalog
-	// default — every gate downstream of DefaultFor is a no-op.
-	// This is the CLAUDE.md "flag-off completely bypasses
-	// experimental code" contract for agent_self_optimization.
-	// The check stays at the TOP of Start (not inside the per-
-	// workspace loop) so the bypass is uniform.
-	if !flagOn() {
-		slog.Info("agent-self-opt: flag off; scheduler not started")
+	s.mu.Lock()
+	s.workspaceIDs = append([]pgtype.UUID(nil), workspaceIDs...)
+	s.mu.Unlock()
+
+	users, err := s.queries.ListOptedInUsers(ctx)
+	if err != nil {
+		slog.Warn("agent-self-opt: list opted-in users failed; scheduler not started", "err", err)
+		return nil
+	}
+	if len(users) == 0 {
+		slog.Info("agent-self-opt: no opted-in users; scheduler not started")
 		return nil
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.workspaceIDs = append([]pgtype.UUID(nil), workspaceIDs...)
-	for _, id := range workspaceIDs {
-		if _, exists := s.tickers[id]; exists {
-			continue
+	for _, userID := range users {
+		for _, wsID := range workspaceIDs {
+			key := tickerKey{UserID: userID, WorkspaceID: wsID}
+			if _, exists := s.tickers[key]; exists {
+				continue
+			}
+			tickCtx, cancel := context.WithCancel(context.Background())
+			s.tickers[key] = cancel
+			go s.runScheduler(tickCtx, userID, wsID)
 		}
-		tickCtx, cancel := context.WithCancel(context.Background())
-		s.tickers[id] = cancel
-		go s.runScheduler(tickCtx, id)
 	}
+	slog.Info("agent-self-opt: scheduler started",
+		"users", len(users), "workspaces", len(workspaceIDs),
+		"tickers", len(s.tickers))
 	return nil
 }
 
 // Resume scans for pending / running rows left behind by a previous
-// process and re-launches their runners. The scheduler tickers
-// themselves are started via Start; Resume is purely for crash
-// recovery. Returns the number of runs resumed.
+// process. The scheduler tickers themselves are started via Start;
+// Resume is purely for crash recovery. Returns the number of runs
+// resumed (zombies that get marked failed do not count).
+//
+// 0.3.45.2: Resume is invoked per-workspace from the router boot
+// block, but the gate is now per-(user, workspace) — we check
+// ListOptedInUsers once and only resume runs whose workspace has at
+// least one opted-in user (or we just resume unconditionally since
+// runs are user-agnostic once created — the next scheduler tick for
+// any opted-in user in that workspace will surface them).
+//
+// Decision: runs are user-agnostic after creation (the row lives in
+// agent_self_opt_run without a user_id column), so Resume() at boot
+// unconditionally scans every pending/running row regardless of the
+// opted-in set. The scheduler tick will still gate new work on the
+// opt-in check.
 func (s *Service) Resume(ctx context.Context, workspaceID pgtype.UUID) (int, error) {
-	if !flagOn() {
-		return 0, nil
-	}
 	rows, err := s.queries.ListPendingAgentSelfOptRuns(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("list pending self-opt runs: %w", err)
@@ -136,9 +175,9 @@ func (s *Service) Resume(ctx context.Context, workspaceID pgtype.UUID) (int, err
 		}
 		// We don't re-launch a stuck runner here — the scheduler
 		// ticker for this workspace will pick the row up on its
-		// next tick and re-attempt. Mark the row 'cancelled' if
-		// it's been "running" for more than MaxRunLifetime so a
-		// true zombie doesn't block the next run.
+		// next tick and re-attempt. Mark the row 'failed' if it's
+		// been "running" for more than MaxRunLifetime so a true
+		// zombie doesn't block the next run.
 		if r.Status == "running" && r.StartedAt.Valid && time.Since(r.StartedAt.Time) > MaxRunLifetime {
 			if _, uerr := s.queries.UpdateAgentSelfOptRunStatus(ctx, db.UpdateAgentSelfOptRunStatusParams{
 				ID:           r.ID,
@@ -157,27 +196,22 @@ func (s *Service) Resume(ctx context.Context, workspaceID pgtype.UUID) (int, err
 	return resumed, nil
 }
 
-// MaxRunLifetime caps how long a single runner can hold status='running'.
-// Mirrors mythos.SupervisionMaxLifetime but shorter — the self-opt run
-// is bounded by the SQL scan + heuristic computation, which should
-// complete in well under an hour even on a 1000-issue workspace.
-const MaxRunLifetime = 2 * time.Hour
-
 // Stop cancels every ticker and waits for in-flight runners to drain.
 // Called from the daemon shutdown hook.
 func (s *Service) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for id, cancel := range s.tickers {
+	for key, cancel := range s.tickers {
 		cancel()
-		delete(s.tickers, id)
+		delete(s.tickers, key)
 	}
 }
 
-// runScheduler is the per-workspace goroutine. Ticks once a minute;
-// on each tick it computes NextTrigger for this workspace and, if
-// the current time is at/after that instant, fires a run.
-func (s *Service) runScheduler(ctx context.Context, workspaceID pgtype.UUID) {
+// runScheduler is the per-(user, workspace) goroutine. Ticks once a
+// minute; on each tick it first re-checks flagOnForUser() and skips
+// silently when the user has opted out. If still opted in, it
+// computes NextTrigger and fires when due.
+func (s *Service) runScheduler(ctx context.Context, userID, workspaceID pgtype.UUID) {
 	ticker := time.NewTicker(SchedulerTickerInterval)
 	defer ticker.Stop()
 	for {
@@ -185,15 +219,68 @@ func (s *Service) runScheduler(ctx context.Context, workspaceID pgtype.UUID) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.maybeFire(ctx, workspaceID)
+			// 0.3.45.2: per-tick opt-in re-check. A user who toggled
+			// the flag off mid-tick is silently skipped within 60s.
+			if !flagOnForUser(ctx, s.queries, userID) {
+				continue
+			}
+			s.maybeFire(ctx, userID, workspaceID)
 		}
 	}
 }
+// executeRun is the shared body for both the scheduler tick path
+// and the manual-trigger HTTP path. Returns the created run row id.
+func (s *Service) executeRun(ctx context.Context, runID pgtype.UUID, workspaceID pgtype.UUID, triggerKind string, kb KBWriter) {
+	result, runErr := Run(ctx, s.queries, RunInputs{
+		WorkspaceID: workspaceID,
+		TriggerKind: triggerKind,
+	}, kb)
+
+	if runErr != nil {
+		slog.Warn("agent-self-opt: run failed",
+			"run", runID, "workspace", workspaceID, "err", runErr)
+		_, _ = s.queries.UpdateAgentSelfOptRunStatus(ctx, db.UpdateAgentSelfOptRunStatusParams{
+			ID:           runID,
+			Status:       "failed",
+			ErrorMessage: pgtype.Text{String: runErr.Error(), Valid: true},
+		})
+		return
+	}
+
+	promptJSON, mErr := MarshalPromptSuggestions(result.PromptSuggestions)
+	if mErr != nil {
+		slog.Warn("agent-self-opt: marshal suggestions failed",
+			"run", runID, "err", mErr)
+	}
+	_, _ = s.queries.UpdateAgentSelfOptRunResult(ctx, db.UpdateAgentSelfOptRunResultParams{
+		ID:                  runID,
+		PromptSuggestions:   promptJSON,
+		ReportMd:            pgtype.Text{String: result.ReportMarkdown, Valid: true},
+		SourceIssueCount:    int32(result.SourceIssueCount),
+		KbAppendixPath:      pgtype.Text{String: result.KBAppendixPath, Valid: result.KBAppendixPath != ""},
+		CreatedIssueID:      result.CreatedIssueID,
+	})
+}
+
+// MaxRunLifetime caps how long a single runner can hold status='running'.
+// Mirrors mythos.SupervisionMaxLifetime but shorter — the self-opt run
+// is bounded by the SQL scan + heuristic computation, which should
+// complete in well under an hour even on a 1000-issue workspace.
+const MaxRunLifetime = 2 * time.Hour
 
 // maybeFire runs the gate check + advisory lock + Run() call. The
 // advisory lock keeps two daemons (or a daemon + a manual CLI
 // trigger) from running the same workspace concurrently.
-func (s *Service) maybeFire(ctx context.Context, workspaceID pgtype.UUID) {
+//
+// 0.3.45.2: the userID is passed for log correlation only — the
+// per-user opt-in gate was already enforced by runScheduler() before
+// this function was called. We re-check here defensively so a stale
+// ticker that slipped past the runScheduler check still no-ops
+// without firing work.
+func (s *Service) maybeFire(ctx context.Context, userID, workspaceID pgtype.UUID) {
+	if !flagOnForUser(ctx, s.queries, userID) {
+		return
+	}
 	// 1. Last successful run → schedule reference point.
 	var lastSuccess time.Time
 	last, err := s.queries.LastSuccessfulAgentSelfOptRun(ctx, workspaceID)
@@ -262,46 +349,17 @@ func (s *Service) maybeFire(ctx context.Context, workspaceID pgtype.UUID) {
 	s.executeRun(ctx, pending.ID, workspaceID, "scheduled", kb)
 }
 
-// executeRun is the shared body for both the scheduler tick path
-// and the manual-trigger HTTP path. Returns the created run row id.
-func (s *Service) executeRun(ctx context.Context, runID pgtype.UUID, workspaceID pgtype.UUID, triggerKind string, kb KBWriter) {
-	result, runErr := Run(ctx, s.queries, RunInputs{
-		WorkspaceID: workspaceID,
-		TriggerKind: triggerKind,
-	}, kb)
-
-	if runErr != nil {
-		slog.Warn("agent-self-opt: run failed",
-			"run", runID, "workspace", workspaceID, "err", runErr)
-		_, _ = s.queries.UpdateAgentSelfOptRunStatus(ctx, db.UpdateAgentSelfOptRunStatusParams{
-			ID:           runID,
-			Status:       "failed",
-			ErrorMessage: pgtype.Text{String: runErr.Error(), Valid: true},
-		})
-		return
-	}
-
-	promptJSON, mErr := MarshalPromptSuggestions(result.PromptSuggestions)
-	if mErr != nil {
-		slog.Warn("agent-self-opt: marshal suggestions failed",
-			"run", runID, "err", mErr)
-	}
-	_, _ = s.queries.UpdateAgentSelfOptRunResult(ctx, db.UpdateAgentSelfOptRunResultParams{
-		ID:                  runID,
-		PromptSuggestions:   promptJSON,
-		ReportMd:            pgtype.Text{String: result.ReportMarkdown, Valid: true},
-		SourceIssueCount:    int32(result.SourceIssueCount),
-		KbAppendixPath:      pgtype.Text{String: result.KBAppendixPath, Valid: result.KBAppendixPath != ""},
-		CreatedIssueID:      result.CreatedIssueID,
-	})
-}
-
 // TriggerManualRun is the manual-trigger entry point. CLI + HTTP call
 // it. Returns the run row id. The advisory lock guards against
 // concurrent manual triggers + the scheduler tick.
-func (s *Service) TriggerManualRun(ctx context.Context, workspaceID pgtype.UUID) (pgtype.UUID, error) {
-	if !flagOn() {
-		return pgtype.UUID{}, fmt.Errorf("agent_self_optimization flag is off")
+//
+// 0.3.45.2: gate moved from process-level flagOn() to per-user
+// flagOnForUser(ctx, callerUserID). Returns a clear error when the
+// caller is not opted in so the HTTP layer can return 403 with a
+// helpful message instead of silently succeeding.
+func (s *Service) TriggerManualRun(ctx context.Context, callerUserID, workspaceID pgtype.UUID) (pgtype.UUID, error) {
+	if !flagOnForUser(ctx, s.queries, callerUserID) {
+		return pgtype.UUID{}, fmt.Errorf("agent_self_optimization flag is off for caller")
 	}
 	pending, err := s.queries.CreateAgentSelfOptRun(ctx, db.CreateAgentSelfOptRunParams{
 		WorkspaceID: workspaceID,
@@ -329,12 +387,6 @@ func (s *Service) TriggerManualRun(ctx context.Context, workspaceID pgtype.UUID)
 	s.mu.Unlock()
 	go s.executeRun(context.Background(), pending.ID, workspaceID, "manual", kb)
 	return pending.ID, nil
-}
-
-// Flag is the central gate. Wraps experimental.DefaultFor so a
-// single grep finds every entry point.
-func flagOn() bool {
-	return flagOnExperimental()
 }
 
 // _ = uuid.Nil keeps the import alive for tests that compare against

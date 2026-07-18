@@ -138,6 +138,14 @@ func (h *Handler) GetSelfOptRun(w http.ResponseWriter, r *http.Request) {
 //
 // Returns 202 Accepted with the pending run row id; the actual run
 // executes asynchronously in a goroutine inside SelfOptService.
+//
+// 0.3.45.2: gate moved from process-level catalog default to per-user
+// flagOnForUser. The 404 → 403 posture is preserved — the handler
+// still hides the endpoint behind the flag, but it now ALSO checks
+// that the caller is opted in (returns 403 with a clear message when
+// the caller has no row in experimental_pref, instead of silently
+// succeeding). This prevents a future "global opt-in by accident"
+// regression: only opted-in users can trigger runs.
 func (h *Handler) TriggerSelfOptRun(w http.ResponseWriter, r *http.Request) {
 	if !experimental.DefaultFor("agent_self_optimization") {
 		http.NotFound(w, r)
@@ -145,6 +153,16 @@ func (h *Handler) TriggerSelfOptRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.SelfOptService == nil {
 		writeError(w, http.StatusServiceUnavailable, "self-opt service not initialised")
+		return
+	}
+	callerUserIDStr := requestUserID(r)
+	if callerUserIDStr == "" {
+		writeError(w, http.StatusUnauthorized, "missing caller identity")
+		return
+	}
+	callerUserID, err := util.ParseUUID(callerUserIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid caller user id: "+err.Error())
 		return
 	}
 	var body struct {
@@ -159,7 +177,7 @@ func (h *Handler) TriggerSelfOptRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "workspace_id: "+err.Error())
 		return
 	}
-	runID, err := h.SelfOptService.TriggerManualRun(r.Context(), wsID)
+	runID, err := h.SelfOptService.TriggerManualRun(r.Context(), callerUserID, wsID)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
