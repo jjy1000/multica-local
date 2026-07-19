@@ -129,7 +129,13 @@ function SelfOptHistoryViewBody() {
       );
       return active ? 5_000 : 60_000;
     },
-    staleTime: 30_000,
+    // 0.3.49: align staleTime to the idle cadence (60_000) so TanStack
+    // Query doesn't mark the cache stale on every focus and trigger a
+    // redundant refetch on top of the idle poll. Pre-0.3.49 the values
+    // were 30_000 / 60_000 — staleTime < idle made focus-driven
+    // refetches race the idle beat. Mode C contract from the 0.3.45.9
+    // lineage: both numbers must agree on the same baseline.
+    staleTime: 60_000,
   });
 
   const trigger = useMutationLite(() => listQuery.refetch());

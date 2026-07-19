@@ -1321,6 +1321,18 @@ function ArtifactTab({
     // badges. Poll every 5s while a session is still running; fall back to
     // the 15s idle beat when all sessions are terminal. No WS push reaches
     // this custom key, so idle keeps a baseline poll rather than `false`.
+    //
+    // 0.3.49 (Mode B variant): the canonical Mode B idle cadence from
+    // the 0.3.45.9 lineage is `30_000` for "no WS + tab-cross" keys.
+    // Claude Lab session queries (`runtime-sessions` and `code-sessions`,
+    // both below) deliberately use a tighter `15_000` because they are
+    // per-issue scoped — when the user is actively viewing the Artifact
+    // or Code tab they need new session rows to surface within a single
+    // reading beat. Mode B `30_000` would still be correct under
+    // tab-cross semantics (i.e. users opening one issue, switching
+    // away, coming back), but Claude Lab's UX assumption is "you are
+    // here for this issue right now". If that assumption ever
+    // changes, switch to `30_000` and update the comment block below.
     refetchInterval: (query) =>
       (query.state.data?.sessions ?? []).some((s) =>
         LIVE_LAB_SESSION_STATUSES.has(s.status),
@@ -1556,6 +1568,11 @@ function CodeTab({
     // badges. Poll every 5s while a session is still running; fall back to
     // the 15s idle beat when all sessions are terminal. No WS push reaches
     // this custom key, so idle keeps a baseline poll rather than `false`.
+    //
+    // 0.3.49 (Mode B variant): mirrors `claude-lab-runtime-sessions`
+    // above — both per-issue scoped Claude Lab session keys use a
+    // deliberate `15_000` instead of the canonical Mode B `30_000`.
+    // See the longer rationale at the runtime-sessions block.
     refetchInterval: (query) =>
       (query.state.data?.sessions ?? []).some((s) =>
         LIVE_LAB_SESSION_STATUSES.has(s.status),

@@ -50,6 +50,24 @@ export function labSourceRouteSuffix(
  * lab panel (via GetClaudeLabContext), so issue-detail.tsx hides the
  * agent's deliverable comments from the plain issue timeline — the
  * results belong in the lab, not the issue task.
+ *
+ * 0.3.49: noted as a 6-element subset that overlaps with the catalog's
+ * `HideFromIssueLabPicker` field. The two encode different semantics:
+ *  - `VIEW_LAB_SOURCES` answers "does this lab ship a workspace-scoped
+ *    view?" (used by issue-detail.tsx to gate the timeline deliverable
+ *    thread).
+ *  - `HideFromIssueLabPicker` answers "should this lab be hidden from
+ *    the per-issue LabPicker popover?" (used by `lab-picker.tsx` to
+ *    suppress infrastructure / self-driven labs from manual selection).
+ *
+ * They happen to share 6 keys today, but the lists can diverge:
+ * `chat_pin_ui` and `agent_creation_studio` are NOT in
+ * `VIEW_LAB_SOURCES` (neither owns a workspace-scoped view); the
+ * `HideFromIssueLabPicker:true` set (`llm_wiki_bridge` +
+ * `agent_self_optimization`) intentionally stays small. The hardcoded
+ * set is maintained as the canonical "workspace-scoped view" anchor;
+ * the server-driven `HideFromIssueLabPicker` is independently toggled
+ * in `server/internal/experimental/catalog.go`.
  */
 export const VIEW_LAB_SOURCES: ReadonlySet<string> = new Set([
   "claude_science_lab",

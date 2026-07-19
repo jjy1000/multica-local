@@ -646,6 +646,8 @@ See `agentTaskSnapshotOptions` (`packages/core/agents/queries.ts:36`)
 for the canonical implementation and `memory/0.3.45.{7,9}-ship-log-*`
 for the lineage.
 
+**0.3.49 documented variant** — `claude-lab-view.tsx:1319` (`claude-lab-runtime-sessions` / Artifact tab) and `:1554` (`claude-lab-code-sessions` / Code tab) use a 15-second idle beat instead of the canonical Mode B 30s. These are deliberate per-issue scoped tabs where the user is actively viewing the Artifact or Code surface and 15s feels right (a fresh `finished` session surfaces within a single reading beat). The Plan tab `:1167` and the workbench context `:361` already follow Mode B canonical 30s. If the per-issue viewing assumption ever changes, switch the two sites to `30_000` and drop this paragraph.
+
 ### 2. Lab leader rewrite on `lab_source` flip (0.3.46 P0#4)
 
 `server/internal/handler/issue.go::shouldRewriteAssigneeForLabLeader`
