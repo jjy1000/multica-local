@@ -37,6 +37,7 @@
   "agent_lock_unlocked_hint": "「計画」タブで Issue を選んでエージェントをロック",
   "agent_lock_issue_required": "先に「計画」タブで Issue を選んでください",
   "agent_lock_clear": "エージェントロックを解除",
+  "agent_lock_no_assignee_hint": "まず Issue パネルでラボのラボ担当エージェントを設定してください",
   "select_issue": "選択",
   "selected": "選択中",
   "open_chat_button": "チャットを開く",

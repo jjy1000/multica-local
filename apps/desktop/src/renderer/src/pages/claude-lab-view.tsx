@@ -77,7 +77,6 @@ import { getCurrentSlug, getCurrentWsId } from "@multica/core/platform";
 import { paths } from "@multica/core/paths";
 import { useNavigation } from "@multica/views/navigation";
 import { api } from "@multica/core/api";
-import type { Agent } from "@multica/core/types/agent";
 
 import { ExperimentalArtifactView } from "@/components/experimental-artifact-view";
 
@@ -129,6 +128,35 @@ interface RuntimeSessionsResponse {
 const CLAUDE_LAB_FLAG = "claude_science_lab";
 const CLAUDE_LAB_SOURCE = "claude_science_lab";
 
+// 0.3.45.8 (P0#3.7 sibling): the three lab list queries below
+// (`claude-lab-issues` / `claude-lab-runtime-sessions` /
+// `claude-lab-code-sessions`) use custom query keys that are NOT covered
+// by use-realtime-sync's WS invalidation (which only touches the standard
+// issueKeys.all / runtimeKeys.all / … keys). They previously had a
+// staleTime but no refetchInterval, so a status badge only refreshed on
+// mount or window refocus — the same stale-status failure mode fixed for
+// agentTaskSnapshot in 0.3.45.7, but worse here because there is no WS
+// push to fall back on. Poll every 5s while any row is still in flight
+// and fall back to the original staleTime cadence as an idle baseline
+// (never `false`, precisely because there is no WS signal to catch
+// externally-triggered changes or newly created issues).
+//
+// Live issue statuses: the badge can still flip while the lab works the
+// issue — typically in_review → done when the agent finishes (see
+// daemon.go CompleteTask). done / todo / backlog / cancelled are treated
+// as idle by the poll.
+const LIVE_LAB_ISSUE_STATUSES = new Set(["in_progress", "in_review"]);
+
+// Live runtime/code session statuses: a session's status badge flips from
+// running → finished/failed. Anything not in this set is terminal-ish and
+// polled at the idle baseline.
+const LIVE_LAB_SESSION_STATUSES = new Set([
+  "running",
+  "pending",
+  "queued",
+  "starting",
+]);
+
 export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: string | null } = {}) {
   const enabled = useExperimentalFlag(CLAUDE_LAB_FLAG, false);
   const [tab, setTab] = useState<LabTab>("plan");
@@ -158,12 +186,14 @@ export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: st
     const next = initialIssueId ?? urlIssueId ?? null;
     setSelectedIssueId((prev) => (prev === next ? prev : next));
   }, [initialIssueId, urlIssueId]);
-  // lockedAgentId is only meaningful while a lab is selected. Setting
-  // it to a non-null value implies the agent is locked; clearing
-  // selectedIssueId does NOT auto-clear the agent (the lab session
-  // outlives the picker — same pattern as the Chat tab's wsId).
-  const [lockedAgentId, setLockedAgentId] = useState<string | null>(null);
-
+  // 0.3.45.8: the lab's running agent is no longer a separate piece
+  // of state. It comes from the bound issue's assignee (issue.assignee_id
+  // is set when the user picks the lab in IssueDetail's PropRow — see
+  // packages/views/issues/components/pickers/lab-picker.tsx). The lab
+  // panel renders that as a read-only strip and the Code tab pulls it
+  // from the same `api.getIssue(id)` query. Dropping the dedicated
+  // state removes a class of bugs where the lock leaked across
+  // surfaces (set agent in one tab, see it bind to a different issue).
   useEffect(() => {
     const id = setInterval(() => {
       const next = getCurrentWsId();
@@ -171,13 +201,6 @@ export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: st
     }, 500);
     return () => clearInterval(id);
   }, []);
-
-  // When the picker clears, drop the agent lock too. This keeps the
-  // "lab is selected" state consistent — an agent is locked BECAUSE a
-  // lab is selected, not independently.
-  useEffect(() => {
-    if (!selectedIssueId) setLockedAgentId(null);
-  }, [selectedIssueId]);
 
   if (!enabled) {
     return (
@@ -196,17 +219,14 @@ export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: st
       <Header active={tab} onTabChange={setTab} />
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-6">
         <Intro />
-        <LabAgentLockBar
+        <LabAgentFromIssue
           wsId={wsId}
           selectedIssueId={selectedIssueId}
-          lockedAgentId={lockedAgentId}
-          onLockedAgentChange={setLockedAgentId}
         />
         <ActiveTab
           tab={tab}
           wsId={wsId}
           selectedIssueId={selectedIssueId}
-          lockedAgentId={lockedAgentId}
           onSelectIssue={setSelectedIssueId}
         />
         {/* 0.3.40 Claude Lab workbench: appears below the active tab
@@ -295,10 +315,10 @@ function LabWorkbenchSection({
 // to the workbench's LabContext. We render the panel as a fixed
 // 480-px-ish column on desktop; on narrow viewports it stacks
 // below the timeline (handled by the parent grid above). The panel
-// inherits the lockedAgentId from the parent view — if the user
-// already locked a specific lab agent in the Plan tab lock bar,
-// the chat panel reuses that choice; otherwise it picks the
-// issue's assignee agent (typically the same value anyway).
+// reads its agent from the bound issue's assignee — 0.3.45.8 dropped
+// the separate lab-agent lock state, so there is nothing to inherit
+// here; the chat and the lab are bound to the same issue and the
+// same agent row.
 function LabChatPanelContainer({
   wsId,
   selectedIssueId,
@@ -991,55 +1011,70 @@ function FlagOffNotice() {
   );
 }
 
-// LabAgentLockBar — 0.3.29: when a Claude Lab issue is picked, the
-// user locks a lab agent for the duration of the experiment. The lock
-// bar is the only place agent selection happens for this surface, and
-// it ONLY appears when an issue is actively selected. Without a
-// selected issue the bar shows the "pick an issue first" hint and the
-// agent picker stays inert.
+// LabAgentFromIssue — 0.3.45.8: replaces the old LabAgentLockBar picker.
+// The lab's running agent is now derived from the issue itself: an
+// issue bound to claude_science_lab has `assignee_type='agent'` +
+// `assignee_id=<leader>`, set when the user picked the lab in the issue
+// detail PropRow (see packages/views/issues/components/pickers/lab-picker.tsx).
+// That agent IS the lab's leader; the user does not pick a separate lab
+// agent inside the lab panel — that was the 0.3.29 design but it let
+// users bind an unrelated agent to an issue without going through the
+// normal IssueDetail flow, which made the lab-agent lock leak across
+// surfaces and confused the per-issue task panel.
 //
-// Hard rule: the lock UI must NOT show when `selectedIssueId` is null.
-// This is the single source of truth for "is a lab actively chosen?"
-// — locking without a lab would otherwise leak the locked agent into
-// other surfaces.
-function LabAgentLockBar({
+// Contract:
+//   - When selectedIssueId is null → render the existing hint (no lab).
+//   - When selectedIssueId is set → render a read-only "由 {agentName}
+//     驱动" strip sourced from `api.getIssue(id).assignee_id`.
+//   - No `<select>`, no agent list, no clear button.
+//   - The Code tab pulls agent_id from this same query rather than
+//     from a separate piece of state.
+function LabAgentFromIssue({
   wsId,
   selectedIssueId,
-  lockedAgentId,
-  onLockedAgentChange,
 }: {
   wsId: string | null;
   selectedIssueId: string | null;
-  lockedAgentId: string | null;
-  onLockedAgentChange: (id: string | null) => void;
 }) {
   const { t } = useT("claude-lab");
   const enabled = useExperimentalFlag(CLAUDE_LAB_FLAG, false);
 
-  // Agent list is only fetched when an issue is selected AND the
-  // flag is on. When selectedIssueId is null we return early on the
-  // hint branch below, so the query stays cold and no extra request
-  // hits the server.
-  const agents = useQuery({
-    queryKey: ["claude-lab-agents", wsId],
+  const issueQ = useQuery({
+    queryKey: ["claude-lab-issue", wsId, selectedIssueId] as const,
     enabled: enabled && !!wsId && !!selectedIssueId,
-    staleTime: 60_000,
+    staleTime: 30_000,
     queryFn: async () => {
-      const list = await api.listAgents({ workspace_id: wsId ?? undefined });
-      return list ?? [];
+      const r = await api.getIssue(selectedIssueId as string);
+      return r;
     },
   });
 
   if (!selectedIssueId) {
-    // Lock UI ONLY appears when a lab is actively chosen. Before that
-    // we render the hint branch — see the doc comment on this
-    // function for the invariant.
     return (
       <section className="rounded-xl border border-dashed border-border bg-card/40 p-3 text-xs text-muted-foreground">
         {t(($) => $.agent_lock_unlocked_hint)}
       </section>
     );
   }
+
+  const issue = issueQ.data;
+  const agentId = issue?.assignee_type === "agent" ? issue.assignee_id : null;
+  const agentLabel = agentId?.slice(0, 8) ?? "—";
+
+  // 0.3.45.8: pull the agent's display name from the cached workspace
+  // agent list so the strip shows "由 research 驱动" instead of the
+  // truncated UUID. Falls back to the truncated ID while the list is
+  // loading (first paint).
+  const agentName = useQuery({
+    queryKey: ["claude-lab-agents-lookup", wsId, agentId] as const,
+    enabled: !!wsId && !!agentId,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const list = await api.listAgents({ workspace_id: wsId ?? undefined });
+      return list ?? [];
+    },
+  });
+  const resolvedName = agentName.data?.find((a) => a.id === agentId)?.name ?? agentLabel;
 
   return (
     <section className="rounded-xl border border-border bg-card p-3">
@@ -1048,28 +1083,18 @@ function LabAgentLockBar({
         <span className="text-xs font-medium text-foreground">
           {t(($) => $.agent_lock_header)}
         </span>
-        <select
-          aria-label={t(($) => $.agent_lock_pick)}
-          className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
-          value={lockedAgentId ?? ""}
-          onChange={(e) => onLockedAgentChange(e.target.value || null)}
+        <span
+          className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground/90"
+          data-testid="claude-lab-agent-display"
         >
-          <option value="">{t(($) => $.agent_lock_pick)}…</option>
-          {(agents.data ?? []).map((a: Agent) => (
-            <option key={a.id} value={a.id}>
-              {a.name || a.id.slice(0, 8)}
-            </option>
-          ))}
-        </select>
-        {lockedAgentId ? (
-          <button
-            type="button"
-            onClick={() => onLockedAgentChange(null)}
-            className="rounded-md border border-border bg-background px-2 py-1 text-xs hover:bg-muted"
-          >
-            {t(($) => $.agent_lock_clear)}
-          </button>
-        ) : null}
+          {agentId ? (
+            <span className="font-medium">{resolvedName}</span>
+          ) : (
+            <span className="text-muted-foreground">
+              {t(($) => $.agent_lock_no_assignee_hint) ?? "请先在 issue 面板选择「实验插件」以指派实验 leader"}
+            </span>
+          )}
+        </span>
         <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
           {t(($) => $.agent_lock_locked)}
         </span>
@@ -1082,7 +1107,6 @@ interface ActiveTabProps {
   tab: LabTab;
   wsId: string | null;
   selectedIssueId: string | null;
-  lockedAgentId: string | null;
   onSelectIssue: (id: string) => void;
 }
 
@@ -1090,7 +1114,6 @@ function ActiveTab({
   tab,
   wsId,
   selectedIssueId,
-  lockedAgentId,
   onSelectIssue,
 }: ActiveTabProps) {
   switch (tab) {
@@ -1105,7 +1128,6 @@ function ActiveTab({
         <CodeTab
           wsId={wsId}
           selectedIssueId={selectedIssueId}
-          lockedAgentId={lockedAgentId}
         />
       );
     case "knowledge":
@@ -1143,6 +1165,17 @@ function PlanTab({
     queryKey: ["claude-lab-issues", wsId, CLAUDE_LAB_SOURCE],
     enabled: enabled && !!wsId,
     staleTime: 30_000,
+    // 0.3.45.8 (P0#3.7 sibling): the Plan tab renders each row's issue
+    // status badge ({it.status}). Poll every 5s while any issue is still
+    // in flight so an in_review → done flip surfaces promptly; otherwise
+    // fall back to the 30s idle beat. No WS invalidation reaches this
+    // custom key, so idle must still poll (not `false`).
+    refetchInterval: (query) =>
+      (query.state.data?.issues ?? []).some((it) =>
+        LIVE_LAB_ISSUE_STATUSES.has(it.status),
+      )
+        ? 5_000
+        : 30_000,
     queryFn: async () => {
       const r = await api.rawRequest(
         `/api/experimental/claude-science-lab/issues?workspace_id=${encodeURIComponent(wsId ?? "")}&lab=${encodeURIComponent(CLAUDE_LAB_SOURCE)}`,
@@ -1284,6 +1317,16 @@ function ArtifactTab({
     queryKey: ["claude-lab-runtime-sessions", wsId, selectedIssueId],
     enabled: enabled && !!wsId && !!selectedIssueId,
     staleTime: 15_000,
+    // 0.3.45.8 (P0#3.7 sibling): the Artifact tab shows per-session status
+    // badges. Poll every 5s while a session is still running; fall back to
+    // the 15s idle beat when all sessions are terminal. No WS push reaches
+    // this custom key, so idle keeps a baseline poll rather than `false`.
+    refetchInterval: (query) =>
+      (query.state.data?.sessions ?? []).some((s) =>
+        LIVE_LAB_SESSION_STATUSES.has(s.status),
+      )
+        ? 5_000
+        : 15_000,
     queryFn: async () => {
       const r = await api.rawRequest(
         `/api/experimental/claude-science-runtime/sessions/by-issue?workspace_id=${encodeURIComponent(wsId ?? "")}&issue_id=${encodeURIComponent(selectedIssueId ?? "")}&limit=20`,
@@ -1496,11 +1539,9 @@ function useForecastFrames(url: string): { id: string; probability: number; crea
 function CodeTab({
   wsId,
   selectedIssueId,
-  lockedAgentId,
 }: {
   wsId: string | null;
   selectedIssueId: string | null;
-  lockedAgentId: string | null;
 }) {
   const { t } = useT("claude-lab");
   const enabled = useExperimentalFlag(CLAUDE_LAB_FLAG, false);
@@ -1511,6 +1552,16 @@ function CodeTab({
     queryKey: ["claude-lab-code-sessions", wsId, selectedIssueId],
     enabled: enabled && !!wsId && !!selectedIssueId,
     staleTime: 15_000,
+    // 0.3.45.8 (P0#3.7 sibling): the Code tab shows per-session status
+    // badges. Poll every 5s while a session is still running; fall back to
+    // the 15s idle beat when all sessions are terminal. No WS push reaches
+    // this custom key, so idle keeps a baseline poll rather than `false`.
+    refetchInterval: (query) =>
+      (query.state.data?.sessions ?? []).some((s) =>
+        LIVE_LAB_SESSION_STATUSES.has(s.status),
+      )
+        ? 5_000
+        : 15_000,
     queryFn: async () => {
       const r = await api.rawRequest(
         `/api/experimental/claude-science-runtime/sessions/by-issue?workspace_id=${encodeURIComponent(wsId ?? "")}&issue_id=${encodeURIComponent(selectedIssueId ?? "")}&limit=20`,
@@ -1519,6 +1570,19 @@ function CodeTab({
       return (await r.json()) as RuntimeSessionsResponse;
     },
   });
+
+  // 0.3.45.8: the running agent is sourced from the bound issue's
+  // assignee, NOT from a separate lab-agent lock state. This guarantees
+  // the lab's "Run for me" call executes on the exact agent the user
+  // bound via IssueDetail's LabPicker — no second source of truth.
+  const issueQ = useQuery({
+    queryKey: ["claude-lab-issue", wsId, selectedIssueId] as const,
+    enabled: enabled && !!wsId && !!selectedIssueId,
+    staleTime: 30_000,
+    queryFn: async () => api.getIssue(selectedIssueId as string),
+  });
+  const agentId =
+    issueQ.data?.assignee_type === "agent" ? issueQ.data.assignee_id : null;
 
   if (!wsId || !selectedIssueId) {
     return (
@@ -1529,10 +1593,10 @@ function CodeTab({
     );
   }
 
-  const runDisabled = !lockedAgentId || runState === "running";
+  const runDisabled = !agentId || runState === "running";
 
   const onRunForMe = async () => {
-    if (!lockedAgentId) return;
+    if (!agentId) return;
     setRunState("running");
     try {
       const r = await api.rawRequest("/api/experimental/claude-science-runtime/execute", {
@@ -1540,7 +1604,7 @@ function CodeTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           workspace_id: wsId,
-          agent_id: lockedAgentId,
+          agent_id: agentId,
           issue_id: selectedIssueId,
           language: "python",
           // 0.3.29 "Run for me" — emits a self-describing JSON blob so
@@ -1581,8 +1645,9 @@ function CodeTab({
             disabled={runDisabled}
             aria-busy={runState === "running"}
             title={
-              !lockedAgentId
-                ? t(($) => $.agent_lock_pick)
+              !agentId
+                ? (t(($) => $.agent_lock_no_assignee_hint) ??
+                  "请先在 issue 面板选择「实验插件」以指派实验 leader")
                 : runState === "running"
                   ? t(($) => $.code_run_running)
                   : t(($) => $.code_run_button)
@@ -1607,9 +1672,10 @@ function CodeTab({
         <p className="text-xs text-muted-foreground">
           {t(($) => $.code_intro_with_count, { count: sessions.data?.total ?? 0 })}
         </p>
-        {!lockedAgentId ? (
+        {!agentId ? (
           <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">
-            {t(($) => $.agent_lock_pick)}
+            {t(($) => $.agent_lock_no_assignee_hint) ??
+              "请先在 issue 面板选择「实验插件」以指派实验 leader"}
           </p>
         ) : null}
         {runState === "done" ? (

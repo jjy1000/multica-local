@@ -202,6 +202,33 @@ describe("TranscriptButton", () => {
     expect(listTaskMessages).toHaveBeenCalledTimes(1);
   });
 
+  it("autoOpen: terminal task fetches on mount and renders without a click (0.3.45.8)", async () => {
+    // ExecutionLogSection pins the most recent past run with
+    // autoOpen=true so the user sees the agent's reasoning inline on the
+    // issue detail right rail. Without a user click, the lazy fetch
+    // would never fire and the dialog would stay empty.
+    const qc = newClient();
+    listTaskMessages.mockResolvedValue([msg(1, "Bash"), msg(2, "Read")]);
+
+    renderWith(
+      qc,
+      <TranscriptButton
+        task={{ ...baseTask, status: "completed", completed_at: "2026-05-15T10:00:10.000Z" }}
+        agentName="Codex"
+        autoOpen
+      />,
+    );
+
+    // No click. The dialog must open and fetch on mount.
+    await waitFor(() =>
+      expect(listTaskMessages).toHaveBeenCalledWith(LIVE_TASK_ID),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByTestId("event")).toHaveLength(2),
+    );
+    expect(listTaskMessages).toHaveBeenCalledTimes(1);
+  });
+
   it("running→terminal: keeps the dialog populated and takes a final backfill", async () => {
     const qc = newClient();
     qc.setQueryData(chatKeys.taskMessages(LIVE_TASK_ID), [msg(1, "Bash")]);

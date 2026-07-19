@@ -37,6 +37,7 @@
   "agent_lock_unlocked_hint": "在「计划」标签页选中 Issue 以锁定智能体",
   "agent_lock_issue_required": "请先在「计划」标签页选中一个 Issue",
   "agent_lock_clear": "清除智能体锁定",
+  "agent_lock_no_assignee_hint": "请先在任务面板的「实验插件」中指派实验 leader",
   "select_issue": "选中",
   "selected": "已选中",
   "open_chat_button": "打开对话",

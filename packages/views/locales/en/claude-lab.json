@@ -37,6 +37,7 @@
   "agent_lock_unlocked_hint": "Pick an issue in Plan to lock the agent",
   "agent_lock_issue_required": "Select an issue in the Plan tab first",
   "agent_lock_clear": "Clear agent lock",
+  "agent_lock_no_assignee_hint": "Assign an experimental lab in the issue panel first",
   "select_issue": "Select",
   "selected": "Selected",
   "open_chat_button": "Open chat",

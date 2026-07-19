@@ -41,6 +41,16 @@ interface TranscriptButtonProps {
    * surface autopilot webhook payloads inline with the run history.
    */
   headerSlot?: React.ReactNode;
+  /**
+   * 0.3.45.8: when true the transcript dialog opens on mount without
+   * requiring a click. Used by ExecutionLogSection for the most recent
+   * past run so the user sees the agent's full reasoning / tool trace
+   * inline on the issue detail right rail — without it, a finished
+   * research run shows only a status chip and the user has to chase
+   * the transcript through hover-to-reveal. Default false to preserve
+   * the click-to-open pattern on dense task lists.
+   */
+  autoOpen?: boolean;
 }
 
 /**
@@ -65,10 +75,20 @@ export function TranscriptButton({
   className,
   title = "View transcript",
   headerSlot,
+  autoOpen = false,
 }: TranscriptButtonProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const [loading, setLoading] = useState(false);
   const [loadedItems, setLoadedItems] = useState<TimelineItem[] | null>(null);
+
+  // 0.3.45.8: when autoOpen flips on (the ExecutionLogSection marks the
+  // most recent past run as auto-open), ensure the dialog state follows.
+  // Using an effect rather than seeding state lets a parent flip autoOpen
+  // mid-life (e.g. the live → terminal transition where we want the
+  // dialog to stay open and finish loading the tail).
+  useEffect(() => {
+    if (autoOpen) setOpen(true);
+  }, [autoOpen]);
 
   // Live cache mode: the running task feeds the shared task-messages cache, so
   // we render straight off that cache instead of a one-shot local snapshot.
@@ -87,6 +107,37 @@ export function TranscriptButton({
 
   // Live mode renders from the cache; lazy/provided modes from local state.
   const items = providedItems ?? loadedItems ?? [];
+
+  // 0.3.45.8: when the parent asks us to autoOpen on a lazy terminal
+  // task (ExecutionLogSection pins the most recent past run), we have
+  // no items yet and the user has NOT clicked anything. Kick off the
+  // same fetch the click handler would run, idempotent with respect
+  // to a later manual click.
+  useEffect(() => {
+    if (!autoOpen) return;
+    if (providedItems !== undefined) return;
+    if (loadedItems !== null) return;
+    if (liveCacheMode) return;
+    let cancelled = false;
+    setLoading(true);
+    api
+      .listTaskMessages(task.id)
+      .then((msgs) => {
+        if (cancelled) return;
+        setLoadedItems(buildTimeline(msgs));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(err);
+        setLoadedItems([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [autoOpen, providedItems, loadedItems, liveCacheMode, task.id]);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {

@@ -159,8 +159,23 @@ export function ExecutionLogSection({ issueId }: ExecutionLogSectionProps) {
               </button>
               {showPast && (
                 <div className="mt-0.5 space-y-0.5">
-                  {pastTasks.map((task) => (
-                    <PastRow key={task.id} task={task} issueId={issueId} />
+                  {pastTasks.map((task, idx) => (
+                    <PastRow
+                      key={task.id}
+                      task={task}
+                      issueId={issueId}
+                      // 0.3.45.8: auto-open the transcript for the most
+                      // recent past run (idx 0 — pastTasks is sorted
+                      // newest-first) so a freshly-finished Claude Lab /
+                      // agent run shows its full reasoning inline on the
+                      // right rail. Older runs keep the click-to-open
+                      // pattern. The TaskCommentLinkRow component below
+                      // also surfaces the produced comment, but the
+                      // transcript view is where the user sees the
+                      // "Excellent. Let me search for more sources..."
+                      // intermediate thinking that justifies the result.
+                      autoOpen={idx === 0}
+                    />
                   ))}
                 </div>
               )}
@@ -361,7 +376,7 @@ export function ActiveTaskRow({
 
 // ─── Past row ──────────────────────────────────────────────────────────────
 
-function PastRow({ task, issueId }: { task: AgentTask; issueId: string }) {
+function PastRow({ task, issueId, autoOpen = false }: { task: AgentTask; issueId: string; autoOpen?: boolean }) {
   const { t } = useT("issues");
   const timeAgo = useTimeAgo();
   const [retrying, setRetrying] = useState(false);
@@ -404,7 +419,12 @@ function PastRow({ task, issueId }: { task: AgentTask; issueId: string }) {
         <span className="text-muted-foreground">{time}</span>
       </RowStatus>
       <RowActions>
-        <TranscriptButton task={task} agentName="" title={t(($) => $.execution_log.transcript_tooltip)} />
+        <TranscriptButton
+          task={task}
+          agentName=""
+          title={t(($) => $.execution_log.transcript_tooltip)}
+          autoOpen={autoOpen}
+        />
         {canRetry && (
           <Tooltip>
             <TooltipTrigger
