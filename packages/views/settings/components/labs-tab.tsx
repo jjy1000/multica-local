@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, FlaskConical } from "lucide-react";
+import { AlertTriangle, FlaskConical, RefreshCw, Package } from "lucide-react";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Label } from "@multica/ui/components/ui/label";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { Button } from "@multica/ui/components/ui/button";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
+import { api } from "@multica/core/api";
 import {
   Empty,
   EmptyDescription,
@@ -84,9 +85,47 @@ async function clearBrokenFlag(flagKey: string): Promise<boolean> {
 // (e.g. chat-window.tsx for chat_pin_ui).
 export function LabsTab() {
   const { t, i18n } = useT("settings");
-  const { data: flags, isLoading, error } = useExperimentalFlags();
+  const { data: flags, isLoading, error, refetch } = useExperimentalFlags();
   const updateFlag = useUpdateExperimentalFlag();
   const [broken, setBroken] = useState<BrokenFlagEntry[]>([]);
+  // 0.3.45.4: install-all recovery state. When the user lands here
+  // with a flag enabled but 0 resources (e.g. they toggled the flag
+  // on before commit 23c5998 wired RunInstall into the toggle
+  // path), the recovery banner surfaces the "运行 install" button.
+  // Running it calls POST /api/experimental-resources/install-all
+  // which walks every opted-in flag and re-runs the install path
+  // so the user doesn't have to toggle each flag off-then-on.
+  const [installAllPending, setInstallAllPending] = useState(false);
+  const [installAllSummary, setInstallAllSummary] = useState<string | null>(null);
+
+  async function runInstallAll() {
+    setInstallAllPending(true);
+    setInstallAllSummary(null);
+    try {
+      const res = await api.rawRequest("/api/experimental-resources/install-all", {
+        method: "POST",
+      });
+      if (!res.ok) {
+        setInstallAllSummary(`失败: HTTP ${res.status}`);
+        return;
+      }
+      const body = (await res.json()) as {
+        attempted: number;
+        succeeded: number;
+        failed: number;
+      };
+      setInstallAllSummary(
+        `已运行: ${body.attempted} 个 lab,成功 ${body.succeeded},失败 ${body.failed}`,
+      );
+      // Force a refetch of the flag list so the per-flag manifest
+      // (resource counts) refreshes.
+      await refetch();
+    } catch (err) {
+      setInstallAllSummary(`失败: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setInstallAllPending(false);
+    }
+  }
 
   // Refresh the broken-flag set whenever the tab re-mounts. We
   // intentionally do NOT poll — the safety file only changes when
@@ -180,6 +219,28 @@ export function LabsTab() {
       <p className="text-sm text-muted-foreground">
         {t(($) => $.labs.section_intro)}
       </p>
+      {/* 0.3.45.4: install-all recovery banner. Visible at all times
+          because the user can land here with opted-in flags whose
+          resource count is 0 (toggle path before 23c5998). Hides
+          itself only while a request is in flight. */}
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+        <div className="flex items-center gap-2 text-sm text-foreground">
+          <Package className="h-4 w-4 text-amber-600" aria-hidden />
+          <span>
+            {installAllSummary ?? "实验室功能未装载?点击下方按钮对所有已开启的实验室重新运行 install。"}
+          </span>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={runInstallAll}
+          disabled={installAllPending}
+        >
+          <RefreshCw className={`h-3 w-3 ${installAllPending ? "animate-spin" : ""}`} aria-hidden />
+          {installAllPending ? "运行中…" : "运行 install"}
+        </Button>
+      </div>
       {flags.map((flag) => {
         const title = flag.title[localized] || flag.title.en;
         const description = flag.description[localized] || flag.description.en;

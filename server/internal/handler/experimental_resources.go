@@ -177,6 +177,99 @@ func (h *Handler) PostExperimentalResourcesRollback(w http.ResponseWriter, r *ht
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// InstallAllResult is the per-flag outcome in the install-all
+// response. Status is "ok" or "error"; for "ok" Manifest carries the
+// refreshed counts so the renderer can update the side panel without
+// a second round-trip.
+type InstallAllResult struct {
+	Key      string                       `json:"key"`
+	Status   string                       `json:"status"`
+	Error    string                       `json:"error,omitempty"`
+	Manifest *ExperimentalResourcesManifest `json:"manifest,omitempty"`
+}
+
+// PostExperimentalResourcesInstallAll (0.3.45.4) walks every catalog
+// flag and runs the per-flag install path for the ones the caller has
+// opted into. Designed for the "I just installed Multica and nothing
+// works" recovery flow — without it, a user who toggled a flag on
+// before commit 23c5998 (which wired RunInstall into the toggle path)
+// would have 0 lab resources even with the flag enabled.
+//
+// Per-flag failures are non-fatal: the response includes one entry
+// per attempted flag with its status. The HTTP status is 200 even
+// when individual flags fail, so the client can render a per-lab
+// error without parsing a single 5xx body.
+func (h *Handler) PostExperimentalResourcesInstallAll(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+	workspaceID := h.resolveWorkspaceID(r)
+	prefs, err := h.Queries.ListExperimentalPrefsByUser(r.Context(), parseUUID(userID))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list experimental prefs")
+		return
+	}
+	results := make([]InstallAllResult, 0, len(prefs))
+	for _, p := range prefs {
+		if !p.Enabled {
+			continue
+		}
+		key := p.FlagKey
+		// Skip non-installable flags (chat_pin_ui etc.) — they
+		// have no install path but a user toggle is still valid.
+		if !h.isInstallableFlag(key) {
+			continue
+		}
+		src := experimental.Source(key)
+		// Restore visibility then RunInstall, mirroring the
+		// toggle-on path. Idempotent.
+		if _, err := experimental.Restore(r.Context(), h.Queries, src); err != nil {
+			results = append(results, InstallAllResult{Key: key, Status: "error", Error: "restore: " + err.Error()})
+			continue
+		}
+		if h.ExperimentRegistry != nil {
+			if err := h.ExperimentRegistry.RunInstall(key, userID, workspaceID); err != nil {
+				slog.Warn("install-all: RunInstall failed",
+					"flag", key, "err", err)
+				// Non-fatal: record the error and move on so the
+				// user sees per-flag status in the response.
+				results = append(results, InstallAllResult{
+					Key: key, Status: "error",
+					Error: "install: " + err.Error(),
+				})
+				continue
+			}
+		}
+		if err := h.markInstalled(r, src); err != nil {
+			results = append(results, InstallAllResult{Key: key, Status: "error", Error: "mark: " + err.Error()})
+			continue
+		}
+		manifest, err := h.statusForKey(r, src)
+		if err != nil {
+			results = append(results, InstallAllResult{Key: key, Status: "error", Error: "status: " + err.Error()})
+			continue
+		}
+		results = append(results, InstallAllResult{Key: key, Status: "ok", Manifest: &manifest})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results":     results,
+		"attempted":   len(results),
+		"succeeded":   countStatuses(results, "ok"),
+		"failed":      countStatuses(results, "error"),
+	})
+}
+
+func countStatuses(rs []InstallAllResult, want string) int {
+	n := 0
+	for _, r := range rs {
+		if r.Status == want {
+			n++
+		}
+	}
+	return n
+}
+
 // statusForKey is the read-side helper shared by status / install /
 // rollback handlers. It walks the lock overlay once and projects the
 // manifest shape the renderer expects. Keeping the helper inline

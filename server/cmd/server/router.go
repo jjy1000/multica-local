@@ -1291,6 +1291,14 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/{key}/status", h.GetExperimentalResourcesStatus)
 				r.Post("/{key}/install", h.PostExperimentalResourcesInstall)
 				r.Post("/{key}/rollback", h.PostExperimentalResourcesRollback)
+				// 0.3.45.4: one-shot install-all. Walks every opted-in
+				// flag and re-runs the install path so a user who
+				// toggled the flag before the RunInstall hook landed
+				// (commits before 23c5998) can self-heal without
+				// toggling each flag off-then-on. Returns the per-
+				// flag result so the renderer can show "5 of 5 labs
+				// installed" / per-lab error messages.
+				r.Post("/install-all", h.PostExperimentalResourcesInstallAll)
 			})
 
 			// Inbox
