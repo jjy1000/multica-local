@@ -2505,9 +2505,23 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	// work" the same way the lab-side runner already does. The
 	// UpdateIssueStatus workspace_id predicate keeps the write
 	// tenant-safe.
+	//
+	// 0.3.45.5 (P0#3.6): expand the trigger to also flip
+	// 'todo' → 'done'. A daemon restart (or any other path that
+	// re-dispatches a task whose previous run already wrote an
+	// 'in_review' comment) resets the issue to 'todo' so the
+	// scheduler can pick it up again — and the agent's final
+	// state is "task done, do not re-dispatch", so the issue
+	// should be 'done' regardless of whether the prior run left
+	// it as 'in_review' or 'todo'. Anything stricter (e.g.
+	// 'in_progress' → 'done') is intentionally out of scope:
+	// 'in_progress' means the daemon is still running, and the
+	// task that just completed is a child task, not the issue
+	// itself. Only flip the two states the agent is expected to
+	// leave behind on completion.
 	if task.IssueID.Valid && task.Status == "done" {
 		issueRow, ierr := h.Queries.GetIssue(r.Context(), task.IssueID)
-		if ierr == nil && issueRow.Status == "in_review" {
+		if ierr == nil && (issueRow.Status == "in_review" || issueRow.Status == "todo") {
 			if _, uerr := h.Queries.UpdateIssueStatus(r.Context(), db.UpdateIssueStatusParams{
 				ID:          task.IssueID,
 				Status:      "done",
