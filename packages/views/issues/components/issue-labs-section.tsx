@@ -45,6 +45,15 @@ export function labSourceRouteSuffix(
 }
 
 /**
+ * @deprecated 0.3.49.1: the renderer-side hardcoded `VIEW_LAB_SOURCES`
+ * set has been folded into the server catalog as
+ * `Flag.HidesDeliverableInIssueTimeline` (mirrored on the wire as
+ * `hides_deliverable_in_issue_timeline`). The two consumer sites
+ * (`IssueLabsSection` for the open-panel link, `IssueDetail` for the
+ * timeline comment filter) now read the field via `useExperimentalFlags`.
+ * The constant is kept exported only so older renderers don't fail to
+ * typecheck during the rollout window; new code MUST NOT reference it.
+ *
  * Lab sources that own a dedicated workspace-scoped view (workbench).
  * For these labs the agent's substantive output is delivered inside the
  * lab panel (via GetClaudeLabContext), so issue-detail.tsx hides the
@@ -106,7 +115,16 @@ export function IssueLabsSection({
 
   const suffix = FLAG_ROUTE_SUFFIX[labSource];
   const labEnabled = (flags ?? []).some((f) => f.key === labSource && f.enabled);
-  const hasWorkspaceView = VIEW_LAB_SOURCES.has(labSource);
+  // 0.3.49.1: read the "owns a workbench view" flag from the catalog
+  // rather than the deprecated VIEW_LAB_SOURCES const. The semantics
+  // are identical (the const was seeded with the same 7 flags the
+  // catalog now declares `hides_deliverable_in_issue_timeline: true`)
+  // but going through the server keeps the consumer in sync with
+  // future flag additions or removals without a TS release.
+  const hidesDeliverable = (flags ?? []).some(
+    (f) => f.key === labSource && f.hides_deliverable_in_issue_timeline === true,
+  );
+  const hasWorkspaceView = hidesDeliverable;
 
   const live = useMemo(() => {
     let running = false;

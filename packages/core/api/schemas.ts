@@ -1213,6 +1213,22 @@ export const ExperimentalFlagSchema = z.object({
   // response surfaces the install manifest here so the renderer
   // side panel can render without a second round-trip.
   installation: ExperimentalFlagInstallationSchema.optional(),
+  // 0.3.20: catalog RuntimeKind — none / inline / subprocess / headless.
+  // Surfaced so the renderer's manager-factory loader (apps/desktop)
+  // can build its descriptor list without an extra round-trip.
+  runtime_kind: z.string().optional(),
+  // 0.3.20: sidebar entries declared in the manifest's
+  // entry_points.sidebar[*]. Empty array means no sidebar row;
+  // absent means the flag has no manifest (chat_pin_ui).
+  sidebar_entries: z.array(z.unknown()).optional(),
+  // 0.3.45.8: when true, the issue-detail LabPicker does NOT offer
+  // this flag as a per-issue "实验插件" choice.
+  hide_from_issue_lab_picker: z.boolean().optional(),
+  // 0.3.49.1: when true, `issue-detail.tsx` hides the lab's agent
+  // deliverable thread from the plain issue timeline (the deliverable
+  // belongs in the lab's workspace-scoped view — Claude Lab Artifact
+  // tab, Mythos Swarm reflection panel).
+  hides_deliverable_in_issue_timeline: z.boolean().optional(),
 }).loose();
 
 // Server wire shape (handler/experimental_flags.go:62-76) wraps the array

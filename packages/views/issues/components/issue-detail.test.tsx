@@ -223,6 +223,7 @@ const mockApiObj = vi.hoisted(() => ({
   listAgents: vi.fn().mockResolvedValue([]),
   getProject: vi.fn(),
   listProjects: vi.fn().mockResolvedValue({ projects: [] }),
+  listExperimentalFlags: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock("@multica/core/api", () => ({
@@ -517,6 +518,71 @@ describe("IssueDetail (shared)", () => {
     // Reset project mock — individual tests override per case. Default fixture
     // has project_id: null so getProject is not invoked.
     mockApiObj.getProject.mockReset();
+  });
+
+  // 0.3.49.1: HidesDeliverableInIssueTimeline contract — when the
+  // issue's lab_source corresponds to a flag that declares
+  // `hides_deliverable_in_issue_timeline: true` in the catalog, the
+  // plain timeline must drop agent-authored comments (the deliverable
+  // belongs in the lab's workbench view). Member-authored comments
+  // and agent ACTIVITIES still render. The two cases below pin both
+  // branches of the migration from the deprecated `VIEW_LAB_SOURCES`
+  // const to the server-derived field.
+  it("hides agent deliverable comments when the lab catalog declares hides_deliverable_in_issue_timeline", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      lab_source: "claude_science_lab",
+    });
+    mockApiObj.listExperimentalFlags.mockResolvedValue([
+      {
+        key: "claude_science_lab",
+        enabled: true,
+        default_enabled: false,
+        title: { en: "Claude Research Lab", zh: "Claude 科研实验室" },
+        description: { en: "", zh: "" },
+        hides_deliverable_in_issue_timeline: true,
+      },
+    ]);
+
+    renderIssueDetail();
+
+    // member comment stays visible (peer discussion belongs in the timeline).
+    await waitFor(() => {
+      expect(screen.getByText("Started working on this")).toBeInTheDocument();
+    });
+    // agent deliverable does NOT — the Agent "I can help with this"
+    // belongs in the Claude Lab Artifact tab, not the plain timeline.
+    expect(screen.queryByText("I can help with this")).not.toBeInTheDocument();
+  });
+
+  it("keeps agent deliverable comments when the lab catalog field is absent", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      lab_source: "claude_science_lab",
+    });
+    // Older server (pre-0.3.49.1): the field is absent, the wire shape
+    // does not include `hides_deliverable_in_issue_timeline` at all.
+    // pre-0.3.49.1 VIEW_LAB_SOURCES had claude_science_lab in it, but
+    // the migration drops that path — the migration is opt-in via the
+    // server. With the field absent, the deliverable stays visible
+    // (forward-compat: future flags surface in the timeline until the
+    // operator seeds the field).
+    mockApiObj.listExperimentalFlags.mockResolvedValue([
+      {
+        key: "claude_science_lab",
+        enabled: true,
+        default_enabled: false,
+        title: { en: "Claude Research Lab", zh: "Claude 科研实验室" },
+        description: { en: "", zh: "" },
+      },
+    ]);
+
+    renderIssueDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Started working on this")).toBeInTheDocument();
+    });
+    expect(screen.getByText("I can help with this")).toBeInTheDocument();
   });
 
   it("shows loading skeleton while data is loading", () => {

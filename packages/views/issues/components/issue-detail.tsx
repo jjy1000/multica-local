@@ -62,7 +62,7 @@ import { CommentInput } from "./comment-input";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies, deriveThreadResolution } from "./thread-utils";
 import { IssueAgentHeaderChip } from "./issue-agent-header-chip";
-import { IssueLabsSection, labSourceRouteSuffix, VIEW_LAB_SOURCES } from "./issue-labs-section";
+import { IssueLabsSection, labSourceRouteSuffix } from "./issue-labs-section";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -782,6 +782,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   const wsId = useWorkspaceId();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
+  // 0.3.49.1: server-derived flag catalog. Used by the timeline
+  // comment filter to look up `hides_deliverable_in_issue_timeline`
+  // for the active issue's `lab_source` — pre-0.3.49.1 this used a
+  // hardcoded `VIEW_LAB_SOURCES` const.
+  const { data: flagCatalog } = useExperimentalFlags();
   // Workspace owners and admins moderate any comment authored by anyone
   // (mirrors backend `comment.go:507-512`). Computed here so per-comment
   // rendering doesn't have to re-derive it for every row.
@@ -1019,8 +1024,19 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // results inside the lab panel (GetClaudeLabContext), so its comments
   // (plans / conclusions) must not surface as deliverables in the plain
   // issue timeline. Agent *activities* (started / completed) still show.
+  //
+  // 0.3.49.1: read `hides_deliverable_in_issue_timeline` from the
+  // server catalog payload (`useExperimentalFlags`) instead of the
+  // deprecated `VIEW_LAB_SOURCES` const. Same 7 flags are seeded,
+  // but the server is the canonical source from now on — a new lab
+  // that declares the field stays in sync without a TS release.
   const hideLabAgentComments =
-    !!issue?.lab_source && VIEW_LAB_SOURCES.has(issue.lab_source);
+    !!issue?.lab_source &&
+    flagCatalog?.some(
+      (f) =>
+        f.key === issue.lab_source &&
+        f.hides_deliverable_in_issue_timeline === true,
+    ) === true;
   const timelineView = useMemo(() => {
     // Group entries: top-level = activities + root comments; replies are
     // bucketed under their parent's id and rendered nested inside CommentCard.

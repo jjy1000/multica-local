@@ -47,6 +47,15 @@ type ExperimentalFlagResponse struct {
 	// as per-issue "实验插件" choices. Absent means the picker offers
 	// the flag as usual.
 	HideFromIssueLabPicker bool `json:"hide_from_issue_lab_picker,omitempty"`
+	// 0.3.49.1: mirror of Flag.HidesDeliverableInIssueTimeline. When
+	// true, `issue-detail.tsx` hides the lab's agent deliverable
+	// comments from the plain issue timeline (the results belong in
+	// the lab's workspace-scoped view — Claude Lab Artifact tab, Mythos
+	// Swarm reflection panel — not in the timeline). Absent means
+	// deliverable comments stay visible. Pre-0.3.49.1 this was a
+	// renderer-side hardcoded `VIEW_LAB_SOURCES` set; the migration
+	// moved the source of truth into the catalog.
+	HidesDeliverableInIssueTimeline bool `json:"hides_deliverable_in_issue_timeline,omitempty"`
 }
 
 // ExperimentalFlagsListResponse wraps the list so future metadata
@@ -92,13 +101,14 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 	for _, f := range experimental.Catalog {
 		enabled, hasOverride := prefByKey[f.Key]
 		flag := ExperimentalFlagResponse{
-			Key:                    f.Key,
-			Enabled:                pickEnabled(f.DefaultVal, enabled, hasOverride),
-			DefaultEnabled:         f.DefaultVal,
-			Title:                  f.Title,
-			Description:            f.Description,
-			RuntimeKind:            f.RuntimeKind,
-			HideFromIssueLabPicker: f.HideFromIssueLabPicker,
+			Key:                          f.Key,
+			Enabled:                      pickEnabled(f.DefaultVal, enabled, hasOverride),
+			DefaultEnabled:               f.DefaultVal,
+			Title:                        f.Title,
+			Description:                  f.Description,
+			RuntimeKind:                  f.RuntimeKind,
+			HideFromIssueLabPicker:       f.HideFromIssueLabPicker,
+			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 		}
 		// 0.3.20: surface manifest entry_points.sidebar so the renderer's
 		// nav hook can render the Experimental sidebar group from the

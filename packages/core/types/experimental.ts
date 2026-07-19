@@ -72,6 +72,16 @@ export interface ExperimentalFlag {
    *  still rendered in the Labs settings tab where the user flips the
    *  toggle on. Absent or false = picker offers the flag as usual. */
   hide_from_issue_lab_picker?: boolean;
+  /** 0.3.49.1: when true, the lab owns a workspace-scoped view where
+   *  the agent deliverable belongs, and `issue-detail.tsx` filters the
+   *  deliverable thread out of the plain issue timeline. Pre-0.3.49.1
+   *  this was a renderer-side hardcoded `VIEW_LAB_SOURCES` Set;
+   *  the migration moved the source of truth into the catalog so a
+   *  future flag declares "I own a workbench view" once and the
+   *  consumers (`issue-detail.tsx`, `issue-labs-section.tsx`) inherit
+   *  the choice for free. Absent or false = deliverable comments
+   *  remain visible in the plain timeline. */
+  hides_deliverable_in_issue_timeline?: boolean;
   /** PR 7: present when the flag has installable backing resources. */
   installation?: ExperimentalFlagInstallation;
 }
