@@ -2492,6 +2492,33 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	// task has already reached a terminal state server-side.
 	h.reconcileCommentsOnCompletion(r.Context(), task)
 
+	// 0.3.45.4 (P0#3.5): the lab runner (mythos_swarm) writes
+	// issue.status='done' on its own terminal branch (0.3.45.3
+	// P0#3). The non-lab / lab-agent path through this handler
+	// did not — claude_science_lab's research agent runs through
+	// agent_task_queue and was leaving bound issues stuck in
+	// 'in_review' forever. Now: when a task completes successfully
+	// against an issue whose status is still 'in_review' (the
+	// agent-finished marker per
+	// internal/daemon/execenv/runtime_config.go:722), flip the
+	// issue to 'done' so the issue list reflects "agent finished
+	// work" the same way the lab-side runner already does. The
+	// UpdateIssueStatus workspace_id predicate keeps the write
+	// tenant-safe.
+	if task.IssueID.Valid && task.Status == "done" {
+		issueRow, ierr := h.Queries.GetIssue(r.Context(), task.IssueID)
+		if ierr == nil && issueRow.Status == "in_review" {
+			if _, uerr := h.Queries.UpdateIssueStatus(r.Context(), db.UpdateIssueStatusParams{
+				ID:          task.IssueID,
+				Status:      "done",
+				WorkspaceID: issueRow.WorkspaceID,
+			}); uerr != nil {
+				slog.Warn("complete task: issue status to done failed",
+					"task_id", taskID, "issue", task.IssueID, "err", uerr)
+			}
+		}
+	}
+
 	slog.Info("task completed", "task_id", taskID, "agent_id", uuidToString(task.AgentID))
 	writeJSON(w, http.StatusOK, taskToResponse(*task, workspaceID))
 }
