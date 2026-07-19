@@ -2819,7 +2819,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	labAutoAssigned := false
 	if _, touchedLabSource := rawFields["lab_source"]; touchedLabSource &&
 		req.LabSource != nil && *req.LabSource != "" {
-		if h.shouldRewriteAssigneeForLabLeader(&issue, *req.LabSource) {
+		if h.shouldRewriteAssigneeForLabLeader(r.Context(), &issue, *req.LabSource) {
 			h.assignDefaultLabAgentOnUpdate(r.Context(), &issue, *req.LabSource)
 			// The auto-assign mutates issue.AssigneeType/AssigneeID in place.
 			// If it stuck, treat this as an assignee change so WillEnqueueRun
@@ -2929,11 +2929,12 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 // assignDefaultLabAgentOnUpdate mirrors IssueService.assignDefaultLabAgent
 // for the Update path. Called when a PATCH flips lab_source onto a
 // value with a known leader agent (claude_science_lab → research,
-// constitution_agent → constitution_leader, …) and the issue has no
-// assignee yet. We do not have an IssueService handle here, so the
-// helper goes directly through h.Queries. Errors are logged and
-// swallowed — a stale experimental agent row must not 500 an issue
-// update.
+// constitution_agent → constitution_leader, …) and the existing
+// assignee does NOT already point at the leader (see
+// shouldRewriteAssigneeForLabLeader, 0.3.46 P0#4). We do not have
+// an IssueService handle here, so the helper goes directly through
+// h.Queries. Errors are logged and swallowed — a stale experimental
+// agent row must not 500 an issue update.
 func (h *Handler) assignDefaultLabAgentOnUpdate(ctx context.Context, issue *db.Issue, labSource string) {
 	leaderName, ok := defaultLabLeaderForKey(labSource)
 	if !ok {
@@ -2999,7 +3000,7 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 // the rewrite to avoid clobbering a deliberate user choice with
 // "no leader installed". assignDefaultLabAgentOnUpdate logs the
 // miss and proceeds; this gate just keeps the auto-rewrite honest.
-func (h *Handler) shouldRewriteAssigneeForLabLeader(issue *db.Issue, labSource string) bool {
+func (h *Handler) shouldRewriteAssigneeForLabLeader(ctx context.Context, issue *db.Issue, labSource string) bool {
 	leaderName, ok := defaultLabLeaderForKey(labSource)
 	if !ok {
 		return false
@@ -3018,7 +3019,7 @@ func (h *Handler) shouldRewriteAssigneeForLabLeader(issue *db.Issue, labSource s
 	if issue.AssigneeType.String != "agent" {
 		return true
 	}
-	leader, err := h.Queries.GetAgentByWorkspaceAndName(context.Background(), db.GetAgentByWorkspaceAndNameParams{
+	leader, err := h.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
 		WorkspaceID: issue.WorkspaceID,
 		Name:        leaderName,
 	})
@@ -3416,6 +3417,41 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// 0.3.47 (P0#4 Batch parity): mirror UpdateIssue's
+		// shouldRewriteAssigneeForLabLeader + assignDefaultLabAgentOnUpdate
+		// path. Without this, a batch PATCH like
+		// `{"updates": {"lab_source": "claude_science_lab"}}` against
+		// N unassigned issues persists N lab-tagged issues with no
+		// leader assignee — WillEnqueueRun never arms because
+		// assigneeChanged stays false, so the research leader never
+		// starts. CLAUDE.md (Active Contracts §2) explicitly binds
+		// BatchUpdateIssues to the same helper. The mutex gate above
+		// already rejects requests that also carry assignee_*, so
+		// batchTouchedType/batchTouchedID here are always false and
+		// the rewrite is safe to perform.
+		labAutoRewrote := false
+		if params.LabSource.Valid && params.LabSource.String != "" {
+			if h.shouldRewriteAssigneeForLabLeader(r.Context(), &prevIssue, params.LabSource.String) {
+				leaderName, _ := defaultLabLeaderForKey(params.LabSource.String)
+				leader, lookupErr := h.Queries.GetAgentByWorkspaceAndName(r.Context(), db.GetAgentByWorkspaceAndNameParams{
+					WorkspaceID: prevIssue.WorkspaceID,
+					Name:        leaderName,
+				})
+				if lookupErr != nil {
+					slog.Info("BatchUpdateIssues: leader agent not installed, skipping auto-rewrite",
+						"issue_id", issueID, "lab_source", params.LabSource.String,
+						"expected_agent_name", leaderName, "error", lookupErr)
+				} else {
+					params.AssigneeType = pgtype.Text{String: "agent", Valid: true}
+					params.AssigneeID = leader.ID
+					labAutoRewrote = true
+					slog.Info("BatchUpdateIssues: assigned default lab leader",
+						"issue_id", issueID, "lab_source", params.LabSource.String,
+						"agent_name", leaderName)
+				}
+			}
+		}
+
 		if req.Updates.Title != nil {
 			params.Title = pgtype.Text{String: *req.Updates.Title, Valid: true}
 		}
@@ -3555,6 +3591,13 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 
 		assigneeChanged := (req.Updates.AssigneeType != nil || req.Updates.AssigneeID != nil) &&
 			(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))
+		// 0.3.47 (P0#4 Batch parity): batch rewrites the assignee above
+		// without an explicit assignee_* field in the request, so fold
+		// the lab auto-rewrite into assigneeChanged to arm the dispatch
+		// path (mirrors UpdateIssue's labAutoAssigned fold at line 2842).
+		if labAutoRewrote {
+			assigneeChanged = true
+		}
 		statusChanged := req.Updates.Status != nil && prevIssue.Status != issue.Status
 		priorityChanged := req.Updates.Priority != nil && prevIssue.Priority != issue.Priority
 		projectChanged := req.Updates.ProjectID != nil && uuidToString(prevIssue.ProjectID) != uuidToString(issue.ProjectID)

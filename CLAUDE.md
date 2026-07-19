@@ -613,6 +613,73 @@ placeholder only — wiring `system_key` requires an upstream
 `agent.system_key` column migration this fork has not yet
 shipped (deferred to 0.3.45.1).
 
+## Active Contracts (0.3.45.7+) — Polling fallback, lab leader rewrite, by-issue route order
+
+Three patterns landed in 0.3.45.7 → 0.3.46 that future Claude sessions
+must respect when adding or refactoring lab-class surfaces. Each
+cost a ship to discover the gap; reproducing the regression is
+slower than honouring the contract.
+
+### 1. 5s polling fallback for any lab-class query key (0.3.45.7 → 0.3.45.9)
+
+WS push is the primary freshness signal for `agent_task_queue`,
+`autopilot_run`, `mythos_run`, but the push can drop (network blip,
+server restart, slow startup) or fire before the renderer mounts.
+The 30s `staleTime` is a tab-focus safety net only — it does NOT
+catch a WS event that never lands. Apply this pattern to every
+lab-class query key that has no WS push:
+
+```ts
+refetchInterval: (query) => isLive(query.state.data) ? 5_000 : idleMs
+```
+
+Three idle modes depending on WS coverage:
+
+- **WS covers + no idle needed** (autopilot runs): idle = `false`,
+  rely on focus + WS only.
+- **No WS + tab-cross relevance** (runtime session list): idle =
+  `30_000` so externally-created rows still surface.
+- **No WS + very low frequency** (self-opt, runs every 4 days):
+  idle = `60_000`.
+
+See `agentTaskSnapshotOptions` (`packages/core/agents/queries.ts:36`)
+for the canonical implementation and `memory/0.3.45.{7,9}-ship-log-*`
+for the lineage.
+
+### 2. Lab leader rewrite on `lab_source` flip (0.3.46 P0#4)
+
+`server/internal/handler/issue.go::shouldRewriteAssigneeForLabLeader`
++ `assignDefaultLabAgentOnUpdate` form a 4-case contract that any
+new code path flipping `issue.lab_source` MUST honour. The pre-0.3.46
+gate `!issue.AssigneeType.Valid` only fired on unassigned issues and
+silently broke the common "user picked an agent, then later flipped
+to a lab" path.
+
+| Caller intent | Existing assignee | Result |
+|---|---|---|
+| lab_source untouched | (any) | noop |
+| lab_source → no-leader lab (mythos_swarm) | (any) | noop |
+| lab_source → leader lab | already leader | noop |
+| lab_source → leader lab | missing / non-agent / different agent | **rewrite to leader** |
+
+Future CreateIssue / BatchUpdateIssues / workflow-script paths that
+touch `lab_source` must go through this helper rather than re-derive
+the gate. Tests: `TestUpdateIssueLabSource*` in
+`server/internal/handler/issue_lab_dispatch_test.go`.
+
+### 3. chi route order — literal slug BEFORE `{param}` (0.3.45.8)
+
+`server/internal/handler/claude_science_runtime.go::RegisterClaudeScienceRuntimeRoutes`
+got the `/sessions/by-issue` route registered AFTER `/sessions/{sessionID}`,
+and chi fell through to `{sessionID}` capturing the literal
+`"by-issue"`. The handler returned 400 "sessionID is not a UUID"
+and the Claude Lab 产物 tab rendered "加载 session 失败: by-issue 400".
+
+When adding a new `/sessions/<key>` (or any `/path/<key>`) route
+that competes with an existing `{param}` route, the new literal
+**must** register FIRST. Comment the order rationale inline so the
+next reader doesn't reorder for "alphabetical consistency".
+
 ## Known Stability Surfaces
 
 Real failure modes that took non-trivial debugging. NOT obvious from reading the code, so do not skip them when touching the relevant subsystems:
@@ -637,6 +704,9 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 - `0.3.22-ship-2026-07-15.md` — Claude Research Lab consolidation ship log. Read before touching the `claude_science_lab` flag, install handler, or any consolidated lab route.
 - `0.3.30.2-ship-2026-07-16.md` — Labs runtime fixes (Pythia `already started` + Claude Lab `Failed to fetch` + Pythia `预测神谕` → `多视角推演` rename). **Critical**: discovered 0.3.30.1 ship had not actually replaced renderer asar (`pnpm build` does NOT run electron-builder) — `pnpm exec electron-builder --mac --dir` is now a mandatory ship step. **Cold-start three-check does NOT catch renderer fetch failures**; verify with `grep -c rawRequest app.asar`.
 - `0.3.31-ship-2026-07-16.md` — Mythos swarm dual-mode (sole + enhancer). Adds `issue.lab_mode` column, mythos supervise goroutine, squad visibility gating, 4-language i18n for mythos enhancer UI. **Read before touching**: `service/mythos/runner.go` (Mode/Target/Extension/Reflection/startSupervise), `service/mythos/supervise.go` (superviseLoop/tickSupervision/ResumeSupervision/Stop), `handler/mythos_supervise.go` (GET state/POST tick/GET runs-by-issue), `handler/install_mythos.go` (upsertMythosVisibility), `experimental/visibility.go` (HideSquad), `handler/squad.go` (filterLabsHiddenByDefault), `handler/issue.go` (lab_mode in CreateIssue/UpdateIssue), `views/issue-detail.tsx` (labMode prop), `views/lab-picker.tsx` (sole/enhancer tabs), `views/issue-labs-section.tsx` (MythosEnhancerSupervisePanel), `migrations/157_mythos_dual_mode.*`.
+- `0.3.45.8-ship-log-2026-07-19.md` — Claude Lab UX cleanup: by-issue route (chi 路由顺序 lesson) + LabPicker 隐藏基础设施/自驱动 flag + Claude Lab 视图删 LabAgentLockBar + ExecutionLogSection autoOpen 最新 past run transcript. Read before touching `claude_science_runtime.go` route order, `catalog.Flag.HideFromIssueLabPicker`, or any lab-view agent wiring.
+- `0.3.45.9-ship-log-2026-07-19.md` — 5s polling fallback 通用模式(autopilot / squad member / runtime session / self-opt run 4 个 sibling query key);3 idle 决策模式(false / 30s / 60s)。Read before adding any lab-class query key without WS coverage.
+- `0.3.46-ship-log-2026-07-19.md` — **P0#4** lab leader rewrite:`shouldRewriteAssigneeForLabLeader` + `assignDefaultLabAgentOnUpdate` 4-case 决策表;Mythos enhancer 不动;4 tests 全过。Read before touching any code path that mutates `issue.lab_source`.
 
 **Per-subsystem memory (read before touching the relevant code):**
 - `multica-0.3.0-standalone-2026-07-02.md` — P0 destructive-migration incident; read before touching `pg-bootstrap.ts` / `server-manager.ts` migrate logic.

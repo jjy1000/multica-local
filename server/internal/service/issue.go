@@ -363,7 +363,6 @@ func (s *IssueService) linkAttachments(ctx context.Context, issue db.Issue, ids 
 // the matching install handler — both live in this package.
 var defaultLeaderAgentForLab = map[string]string{
 	"claude_science_lab": "research", // claude_science SKILL helper leader
-	"mythos_swarm":       "mythos_prelude",
 	"constitution_agent": "constitution_leader",
 }
 
