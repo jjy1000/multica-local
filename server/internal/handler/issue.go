@@ -58,7 +58,7 @@ type IssueResponse struct {
 	// LabSource="mythos_swarm". "sole" = mythos owns the issue end-to-end;
 	// "enhancer" = mythos preludes + supervises, the user-picked assignee
 	// executes. Null means no mode set (treats as "sole").
-	LabMode *string `json:"lab_mode"`
+	LabMode   *string `json:"lab_mode"`
 	CreatedAt string  `json:"created_at"`
 	UpdatedAt string  `json:"updated_at"`
 	// Metadata is the per-issue KV map (see issue_metadata.go). Always emitted
@@ -115,7 +115,7 @@ func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 		StartDate:     dateToPtr(i.StartDate),
 		DueDate:       dateToPtr(i.DueDate),
 		LabSource:     textToPtr(i.LabSource),
-		LabMode:      textToPtr(i.LabMode),
+		LabMode:       textToPtr(i.LabMode),
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
@@ -145,7 +145,7 @@ func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueRespons
 		StartDate:     dateToPtr(i.StartDate),
 		DueDate:       dateToPtr(i.DueDate),
 		LabSource:     textToPtr(i.LabSource),
-		LabMode:      textToPtr(i.LabMode),
+		LabMode:       textToPtr(i.LabMode),
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
@@ -205,7 +205,7 @@ func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueRes
 		StartDate:     dateToPtr(i.StartDate),
 		DueDate:       dateToPtr(i.DueDate),
 		LabSource:     textToPtr(i.LabSource),
-		LabMode:      textToPtr(i.LabMode),
+		LabMode:       textToPtr(i.LabMode),
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
@@ -2367,7 +2367,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		OriginID:       originID,
 		Stage:          ptrToInt4(req.Stage),
 		LabSource:      ptrToText(req.LabSource),
-		LabMode:       ptrToText(req.LabMode),
+		LabMode:        ptrToText(req.LabMode),
 		AttachmentIDs:  attachmentIDs,
 		AllowDuplicate: req.AllowDuplicate,
 	}, service.IssueCreateOpts{
@@ -2416,8 +2416,8 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	// renderer treats as 'sole' anyway. Logging only; not fatal.
 	if req.LabMode != nil && *req.LabMode != "" {
 		if err := h.Queries.UpdateIssueLabMode(r.Context(), db.UpdateIssueLabModeParams{
-			ID:       issue.ID,
-			LabMode:  pgtype.Text{String: *req.LabMode, Valid: true},
+			ID:          issue.ID,
+			LabMode:     pgtype.Text{String: *req.LabMode, Valid: true},
 			WorkspaceID: issue.WorkspaceID,
 		}); err != nil {
 			slog.Warn("create issue: persist lab_mode failed",
@@ -2455,7 +2455,7 @@ type UpdateIssueRequest struct {
 	// LabMode (0.3.31): see the matching field on CreateIssueRequest.
 	// nil on update = leave existing value untouched; explicit "" =
 	// clear to NULL. Currently only meaningful when LabSource="mythos_swarm".
-	LabMode       *string  `json:"lab_mode"`
+	LabMode *string `json:"lab_mode"`
 	// AttachmentIDs lets the description editor bind newly uploaded files to
 	// this issue so they surface in `GET /api/issues/:id/attachments` and the
 	// editor's preview Eye keeps working past a refresh. Existing bindings
@@ -2794,24 +2794,41 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// 0.3.34 lab auto-dispatch: when the caller flips lab_source onto
 	// a value with a known leader agent (claude_science_lab → research,
-	// constitution_agent → constitution_leader, …) and the issue has no
-	// assignee, write the leader as the assignee. The auto-pickup path
-	// then runs through enqueueAgentTask downstream of the WS update
-	// broadcast. We do this only when the caller actually changed
-	// lab_source, to avoid clobbering a deliberate assignee chosen via
-	// the picker on a pre-existing lab issue.
+	// constitution_agent → constitution_leader, …) the issue's assignee
+	// must end up pointing at that leader. The auto-pickup path then
+	// runs through enqueueAgentTask downstream of the WS update broadcast.
+	//
+	// 0.3.46 bug fix (P0#4): the original gate (`!issue.AssigneeType.Valid`)
+	// only auto-assigned when the issue had no assignee yet. If the user
+	// had previously assigned a non-leader agent (e.g. created the issue
+	// without a lab, picked any agent from the AssigneePicker, then later
+	// flipped lab_source onto claude_science_lab) the auto-assign was
+	// skipped and the lab ended up running on the wrong agent — the lab
+	// runner resolves its leader from `issue.assignee_id`, so a stale
+	// assignee silently breaks the lab while the UI shows the lab badge.
+	//
+	// New contract: when the caller flips lab_source to a value with a
+	// known leader AND the existing assignee does NOT already point at
+	// that leader, rewrite the assignee to the leader. We leave the
+	// assignee alone when it already matches (preserves the common path
+	// where AssigneePicker fired first and chose the lab leader
+	// intentionally). Mythos enhancer-mode is not auto-overwritten — the
+	// runner expects the user-picked target assignee, and the leader
+	// helper returns ("", false) for mythos_swarm so this branch is a
+	// no-op for that lab.
 	labAutoAssigned := false
 	if _, touchedLabSource := rawFields["lab_source"]; touchedLabSource &&
-		req.LabSource != nil && *req.LabSource != "" &&
-		!issue.AssigneeType.Valid {
-		h.assignDefaultLabAgentOnUpdate(r.Context(), &issue, *req.LabSource)
-		// The auto-assign mutates issue.AssigneeType/AssigneeID in place.
-		// If it stuck, treat this as an assignee change so WillEnqueueRun
-		// dispatches the lab leader (RunSourceAssign). Without this the
-		// PATCH that only flips lab_source carries no assignee_* field, so
-		// the assigneeChanged calc below stays false and the research run
-		// never starts (MUL: "selecting the lab must start the work").
-		labAutoAssigned = issue.AssigneeType.Valid
+		req.LabSource != nil && *req.LabSource != "" {
+		if h.shouldRewriteAssigneeForLabLeader(&issue, *req.LabSource) {
+			h.assignDefaultLabAgentOnUpdate(r.Context(), &issue, *req.LabSource)
+			// The auto-assign mutates issue.AssigneeType/AssigneeID in place.
+			// If it stuck, treat this as an assignee change so WillEnqueueRun
+			// dispatches the lab leader (RunSourceAssign). Without this the
+			// PATCH that only flips lab_source carries no assignee_* field, so
+			// the assigneeChanged calc below stays false and the research run
+			// never starts (MUL: "selecting the lab must start the work").
+			labAutoAssigned = issue.AssigneeType.Valid
+		}
 	}
 
 	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
@@ -2971,6 +2988,46 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// shouldRewriteAssigneeForLabLeader — 0.3.46 (P0#4) companion helper.
+// Returns true when the caller is flipping lab_source onto a value
+// with a known leader AND the current issue.assignee does NOT already
+// point at that leader. The leader lookup is best-effort: if the
+// leader agent row is missing (install never ran) we cannot tell
+// whether the existing assignee matches, so we conservatively skip
+// the rewrite to avoid clobbering a deliberate user choice with
+// "no leader installed". assignDefaultLabAgentOnUpdate logs the
+// miss and proceeds; this gate just keeps the auto-rewrite honest.
+func (h *Handler) shouldRewriteAssigneeForLabLeader(issue *db.Issue, labSource string) bool {
+	leaderName, ok := defaultLabLeaderForKey(labSource)
+	if !ok {
+		return false
+	}
+	// Mythos / other no-leader labs return ("", false) — caller handles.
+	if leaderName == "" {
+		return false
+	}
+	// No assignee yet → rewrite needed (assignDefaultLabAgentOnUpdate
+	// will look up + write).
+	if !issue.AssigneeType.Valid || !issue.AssigneeID.Valid {
+		return true
+	}
+	// Already pointing at an agent — only rewrite if it is NOT the
+	// expected leader. Same-leader path is a no-op.
+	if issue.AssigneeType.String != "agent" {
+		return true
+	}
+	leader, err := h.Queries.GetAgentByWorkspaceAndName(context.Background(), db.GetAgentByWorkspaceAndNameParams{
+		WorkspaceID: issue.WorkspaceID,
+		Name:        leaderName,
+	})
+	if err != nil {
+		// Leader not installed — preserve current assignee rather than
+		// guessing. Caller logs the install miss separately.
+		return false
+	}
+	return leader.ID != issue.AssigneeID
 }
 
 // predicate as chat / @-mention / history. Agent callers (X-Agent-ID) bypass

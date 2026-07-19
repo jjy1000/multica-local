@@ -147,3 +147,113 @@ func TestUpdateIssueLabSourceBacklogParks(t *testing.T) {
 		t.Fatalf("backlog lab issue must park, but %d run(s) were enqueued", got)
 	}
 }
+
+// TestUpdateIssueLabSourceRewritesStaleAssignee — 0.3.46 (P0#4).
+//
+// Regression for the silent breakage where an issue was assigned to a
+// non-leader agent, then later flipped to claude_science_lab. The
+// pre-0.3.46 gate `!issue.AssigneeType.Valid` skipped the auto-assign
+// in that case, leaving the issue running on the wrong agent while
+// the UI showed the lab badge. The new contract rewrites the
+// assignee to the lab's leader whenever the existing one is not
+// already pointing at it.
+func TestUpdateIssueLabSourceRewritesStaleAssignee(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	owner := mustCreateTestMember(t, wsUUID)
+	researchID := ensureReadyResearchAgent(t, wsUUID, owner)
+
+	// A separate, non-leader agent that we deliberately assign first.
+	decoyID := mustCreateTestAgent(t, wsUUID, "lab-decoy-"+util.UUIDToString(researchID)[:8], owner)
+	decoyIDStr := util.UUIDToString(decoyID)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent WHERE id = $1`, decoyID)
+	})
+
+	issue := createIssueForTest(t, map[string]any{
+		"title":         "lab-p04-stale-assignee",
+		"status":        "todo",
+		"assignee_type": "agent",
+		"assignee_id":   decoyIDStr,
+	})
+
+	w := httptest.NewRecorder()
+	req := withURLParam(
+		newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{
+			"lab_source": "claude_science_lab",
+		}),
+		"id", issue.ID,
+	)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue lab_source (stale assignee): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp IssueResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode issue response: %v", err)
+	}
+	if resp.AssigneeType == nil || *resp.AssigneeType != "agent" {
+		t.Fatalf("expected agent assignee, got %v", resp.AssigneeType)
+	}
+	if resp.AssigneeID == nil || *resp.AssigneeID != util.UUIDToString(researchID) {
+		t.Fatalf("P0#4 regression: stale assignee was not rewritten to research leader. got=%v want=%s",
+			resp.AssigneeID, util.UUIDToString(researchID))
+	}
+}
+
+// TestUpdateIssueLabSourceKeepsMatchingAssignee — 0.3.46 (P0#4) companion.
+//
+// When the existing assignee already IS the lab leader (e.g. AssigneePicker
+// fired before LabPicker, picking research intentionally), flipping
+// lab_source onto claude_science_lab must leave the assignee untouched.
+// The new contract only rewrites when the assignee does not match.
+func TestUpdateIssueLabSourceKeepsMatchingAssignee(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	owner := mustCreateTestMember(t, wsUUID)
+	researchID := ensureReadyResearchAgent(t, wsUUID, owner)
+	researchIDStr := util.UUIDToString(researchID)
+
+	// Pre-assign the leader before any lab is set, simulating a user who
+	// picked research from the AssigneePicker first.
+	issue := createIssueForTest(t, map[string]any{
+		"title":         "lab-p04-matching-assignee",
+		"status":        "todo",
+		"assignee_type": "agent",
+		"assignee_id":   researchIDStr,
+	})
+
+	w := httptest.NewRecorder()
+	req := withURLParam(
+		newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{
+			"lab_source": "claude_science_lab",
+		}),
+		"id", issue.ID,
+	)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue lab_source (matching assignee): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp IssueResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode issue response: %v", err)
+	}
+	if resp.AssigneeID == nil || *resp.AssigneeID != researchIDStr {
+		t.Fatalf("P0#4 contract: matching assignee must NOT be rewritten. got=%v want=%s",
+			resp.AssigneeID, researchIDStr)
+	}
+}
