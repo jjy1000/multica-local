@@ -61,6 +61,14 @@ export function squadListOptions(wsId: string) {
 // agent / runtime invalidation wired in use-realtime-sync (which broadly
 // invalidates `["workspaces", wsId, "squads"]`); the staleTime is a
 // tab-focus safety net.
+//
+// 0.3.45.8 (P0#3.7 sibling): add the same 5s refetchInterval second-line
+// guarantee shipped for agentTaskSnapshotOptions in 0.3.45.7. The
+// working/idle/offline member pills derive from the same task lifecycle
+// signal and had the identical failure mode — a WS invalidate dropped or
+// fired before mount left the pill stale for up to the 30s staleTime.
+// 5s matches the daemon's status poll cadence so a member's presence flips
+// within 5s even when the WS push never lands.
 export function squadMemberStatusOptions(wsId: string, squadId: string) {
   return queryOptions({
     queryKey: workspaceKeys.squadMemberStatus(wsId, squadId),
@@ -68,6 +76,7 @@ export function squadMemberStatusOptions(wsId: string, squadId: string) {
     enabled: !!wsId && !!squadId,
     staleTime: 30 * 1000,
     refetchOnWindowFocus: true,
+    refetchInterval: 5 * 1000,
   });
 }
 

@@ -51,6 +51,11 @@ interface SelfOptRunListResponse {
   has_more: boolean;
 }
 
+// Terminal run statuses — anything else (running, or the default
+// "等待" / queued state) is treated as in-flight by the list poll.
+// Mirrors the StatusBadge branch set below.
+const TERMINAL_SELF_OPT_STATUSES = new Set(["done", "failed", "cancelled"]);
+
 interface PromptSuggestion {
   agent_name?: string;
   agent_id?: string;
@@ -111,7 +116,19 @@ function SelfOptHistoryViewBody() {
       }
       return res.json() as Promise<SelfOptRunListResponse>;
     },
-    refetchInterval: 60_000,
+    // 0.3.45.8 (P0#3.7 sibling): self-opt runs have no WS event at all
+    // (unlike agent tasks / autopilot), so this poll is the ONLY freshness
+    // signal. The flat 60s interval left a run's status badge stale for up
+    // to a minute as it moved running → done. Poll every 5s while any run is
+    // still in flight (anything not done/failed/cancelled), and fall back to
+    // a 60s idle beat so externally-triggered runs still surface.
+    refetchInterval: (query) => {
+      const runs = query.state.data?.runs ?? [];
+      const active = runs.some(
+        (r) => !TERMINAL_SELF_OPT_STATUSES.has(r.status),
+      );
+      return active ? 5_000 : 60_000;
+    },
     staleTime: 30_000,
   });
 

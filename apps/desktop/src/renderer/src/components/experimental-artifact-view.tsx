@@ -57,6 +57,20 @@ interface SessionsResponse {
   total: number;
 }
 
+// 0.3.45.8 (P0#3.7 sibling): statuses where a runtime session is still in
+// flight and its status badge (SessionRow, {session.status}) can still
+// flip. This custom `["claude-science-runtime", "sessions", …]` query key
+// is NOT covered by use-realtime-sync's WS invalidation, so without a
+// poll the workspace-wide session list only refreshed on window refocus
+// after the 30s staleTime — the same stale-status failure mode fixed for
+// the per-issue lists in claude-lab-view.tsx. Poll 5s while any session is
+// live, otherwise fall back to a 30s idle beat (never `false`: no WS
+// signal exists to surface externally-created sessions).
+const LIVE_RUNTIME_SESSION_STATUSES = new Set<RuntimeSession["status"]>([
+  "queued",
+  "running",
+]);
+
 export function ExperimentalArtifactView({ workspaceId }: { workspaceId: string }) {
   const runtimeEnabled = useExperimentalFlag("claude_science_lab", false);
   const qc = useQueryClient();
@@ -72,6 +86,12 @@ export function ExperimentalArtifactView({ workspaceId }: { workspaceId: string 
     },
     enabled: runtimeEnabled && workspaceId !== "",
     staleTime: 30_000,
+    refetchInterval: (query) =>
+      (query.state.data?.sessions ?? []).some((s) =>
+        LIVE_RUNTIME_SESSION_STATUSES.has(s.status),
+      )
+        ? 5_000
+        : 30_000,
   });
 
   if (!runtimeEnabled) return null;

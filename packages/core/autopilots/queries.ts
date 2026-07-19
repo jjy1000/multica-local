@@ -36,6 +36,18 @@ export function autopilotRunsOptions(wsId: string, id: string) {
     queryKey: autopilotKeys.runs(wsId, id),
     queryFn: () => api.listAutopilotRuns(id),
     select: (data) => data.runs,
+    // 0.3.45.8 (P0#3.7 sibling): the run list is invalidated by the WS
+    // `autopilot:run_start` / `autopilot:run_done` events, but that push is
+    // the only freshness signal — a dropped event left an in-flight run
+    // stuck on "running" until the user refocused the window (same class
+    // as the pre-0.3.45.7 agent-task-snapshot bug). Poll every 5s only
+    // while a run is actually in flight; when everything is terminal the
+    // list falls back to WS + focus with zero idle polling. `query.state.data`
+    // is the raw (pre-select) response, hence `.runs`.
+    refetchInterval: (query) =>
+      (query.state.data?.runs ?? []).some((r) => r.status === "running")
+        ? 5 * 1000
+        : false,
   });
 }
 
