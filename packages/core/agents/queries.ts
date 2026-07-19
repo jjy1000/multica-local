@@ -25,6 +25,14 @@ export const agentRunCountsKeys = {
 // The 30s staleTime is a safety net only; the primary freshness signal is
 // WS task events, which invalidate this query immediately. Without WS,
 // presence still updates within 30s on focus / mount.
+//
+// 0.3.45.6 (P0#3.7): add a 5s refetchInterval as a second-line guarantee
+// that the issue card agent activity indicator stays current even when
+// the WS push is dropped (network blip, server restart, slow startup).
+// Cost: 1 GET /api/agent-task-snapshot per 5s per active workspace tab.
+// 5s matches the daemon's own status poll cadence, so a freshly
+// dispatched task becomes visible to the user within 5s of dispatch
+// without waiting for the WS event to land.
 export function agentTaskSnapshotOptions(wsId: string) {
   return queryOptions({
     queryKey: agentTaskSnapshotKeys.list(wsId),
@@ -32,6 +40,7 @@ export function agentTaskSnapshotOptions(wsId: string) {
     staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
+    refetchInterval: 5 * 1000,
   });
 }
 
