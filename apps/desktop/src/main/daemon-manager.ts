@@ -1034,20 +1034,51 @@ const RECOVER_THROTTLE_MS = 30_000;
 
 async function maybeRecoverDaemon(): Promise<void> {
   const now = Date.now();
-  if (now - lastRecoverAttemptAt < RECOVER_THROTTLE_MS) return;
+  // 0.3.45.2 bug fix (P1#10): the throttle was a silent early-return.
+  // Operators reading daemon-watchdog.log had no signal that the
+  // recovery loop was skipping attempts. Log every skip so a long
+  // string of "recover suppressed" lines is visible, and tag the
+  // console output with the suppression reason so the same line is
+  // useful in the dev console and the production log.
+  if (now - lastRecoverAttemptAt < RECOVER_THROTTLE_MS) {
+    const suppressMs = RECOVER_THROTTLE_MS - (now - lastRecoverAttemptAt);
+    console.log(
+      `[daemon] recovery suppressed (next attempt in ${Math.ceil(suppressMs / 1000)}s)`,
+    );
+    return;
+  }
   lastRecoverAttemptAt = now;
 
   const prefs = await loadPrefs();
-  if (!prefs.autoStart) return;
+  if (!prefs.autoStart) {
+    console.log("[daemon] recovery suppressed: autoStart disabled");
+    return;
+  }
   const active = await ensureActiveProfile();
   const cfg = await readProfileConfig(active.name);
-  if (!cfg.token || typeof cfg.token !== "string" || !cfg.token.startsWith("mul_")) return;
+  if (!cfg.token || typeof cfg.token !== "string" || !cfg.token.startsWith("mul_")) {
+    console.log("[daemon] recovery suppressed: no mul_ token for active profile");
+    return;
+  }
   const bin = await resolveCliBinary();
-  if (!bin) return;
+  if (!bin) {
+    console.log("[daemon] recovery suppressed: multica CLI binary not found");
+    return;
+  }
   console.log(
     "[daemon] pollOnce: daemon not running but autoStart enabled — restarting",
   );
-  await startDaemon();
+  try {
+    await startDaemon();
+  } catch (err) {
+    // 0.3.45.2 (P1#10): previously the startDaemon promise rejection
+    // bubbled up uncaught and was only caught one level up (line
+    // 1027) — a 1-2 minute thundering herd of recoveries after each
+    // failed start. Log here so a single console.error pinpoints the
+    // exact failure mode (permissions, port busy, bad token, etc).
+    console.error("[daemon] startDaemon failed during recovery:", err);
+    throw err;
+  }
 }
 
 function startPolling(): void {

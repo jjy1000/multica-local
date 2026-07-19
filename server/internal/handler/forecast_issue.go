@@ -346,7 +346,16 @@ func sourceForForecast(_ string, ifc *issueForecastContext) issueForecastSource 
 	return func(ctx context.Context, seed int64, ifc *issueForecastContext, round int) (forecastEnvelope, error) {
 		env, err := queryOracleIssue(ctx, url, ifc, seed, round)
 		if err != nil {
-			return syntheticIssueForecast(ctx, seed, ifc, round)
+			// 0.3.45.2 bug fix (P1#5): oracle failure fell back to the
+			// synthetic envelope but did NOT relabel it, so the UI
+			// showed the same data shape and the user could not tell
+			// whether they were reading a live model answer or a
+			// mock. Force the LabSource to "synthetic_oracle_failover"
+			// so the renderer can tag it "此为 mock 数据" / "oracle
+			// failed, used local fallback".
+			env, _ = syntheticIssueForecast(ctx, seed, ifc, round)
+			env.LabSource = "synthetic_oracle_failover"
+			return env, nil
 		}
 		return env, nil
 	}

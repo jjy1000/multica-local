@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -200,12 +201,36 @@ func (h *Handler) UpdateExperimentalFlag(w http.ResponseWriter, r *http.Request)
 	// install restores visibility (and inserts the marker row that the
 	// renderer's Installed flag reads from). Labs whose key is NOT
 	// installable skip this branch entirely.
+	//
+	// 0.3.45.2 bug fix (P0#1): previously the toggle path only called
+	// experimental.Restore() which flips existing hidden rows back to
+	// visible — it does NOT actually create the lab's agents/squads/
+	// skills. For the 4 installable labs that ship in 0.3.22+ this
+	// meant the user could toggle the flag on, the visibility rows
+	// were restored (count goes from 0 to N because the rollback
+	// leftovers un-hide), but the underlying resource rows were never
+	// created. The RunInstall call below closes the gap: it delegates
+	// to the per-source install handler registered at boot
+	// (router.go:533-549) which is the one that actually inserts the
+	// lab's agents / squads / skills. Idempotent — safe to call on
+	// every toggle.
 	if h.isInstallableFlag(flagKey) {
 		src := experimental.Source(flagKey)
 		if body.Enabled {
 			if _, err := experimental.Restore(r.Context(), h.Queries, src); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to install lab resources")
 				return
+			}
+			if h.ExperimentRegistry != nil {
+				workspaceID := h.resolveWorkspaceID(r)
+				if err := h.ExperimentRegistry.RunInstall(flagKey, userID, workspaceID); err != nil {
+					// Install failure is not fatal for the pref write —
+					// the user will see the resource count is 0 in the
+					// Labs tab and can retry by toggling off+on. Log so
+					// the operator can diagnose.
+					slog.Warn("experimental flag install: RunInstall failed",
+						"flag", flagKey, "err", err)
+				}
 			}
 			if err := h.markInstalled(r, src); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to record install marker")

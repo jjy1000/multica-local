@@ -166,6 +166,9 @@ func (s *Service) Resume(ctx context.Context, workspaceID pgtype.UUID) (int, err
 		return 0, fmt.Errorf("list pending self-opt runs: %w", err)
 	}
 	resumed := 0
+	s.mu.Lock()
+	kb := s.kb
+	s.mu.Unlock()
 	for _, r := range rows {
 		if r.WorkspaceID != workspaceID {
 			continue
@@ -173,11 +176,9 @@ func (s *Service) Resume(ctx context.Context, workspaceID pgtype.UUID) (int, err
 		if r.Status != "pending" && r.Status != "running" {
 			continue
 		}
-		// We don't re-launch a stuck runner here — the scheduler
-		// ticker for this workspace will pick the row up on its
-		// next tick and re-attempt. Mark the row 'failed' if it's
-		// been "running" for more than MaxRunLifetime so a true
-		// zombie doesn't block the next run.
+		// True zombie: running for more than MaxRunLifetime. Mark
+		// failed and move on — the next scheduler tick can pick a
+		// fresh slot.
 		if r.Status == "running" && r.StartedAt.Valid && time.Since(r.StartedAt.Time) > MaxRunLifetime {
 			if _, uerr := s.queries.UpdateAgentSelfOptRunStatus(ctx, db.UpdateAgentSelfOptRunStatusParams{
 				ID:           r.ID,
@@ -188,10 +189,13 @@ func (s *Service) Resume(ctx context.Context, workspaceID pgtype.UUID) (int, err
 			}
 			continue
 		}
+		// 0.3.45.2 bug fix (P0#2): actually re-launch the runner.
+		// Background ctx so the boot-time timeout doesn't kill it.
+		go s.executeRun(context.Background(), r.ID, r.WorkspaceID, r.TriggerKind, kb)
 		resumed++
 	}
 	if resumed > 0 {
-		slog.Info("agent-self-opt: resume pending runs", "count", resumed, "workspace", workspaceID)
+		slog.Info("agent-self-opt: resume re-launched runs", "count", resumed, "workspace", workspaceID)
 	}
 	return resumed, nil
 }

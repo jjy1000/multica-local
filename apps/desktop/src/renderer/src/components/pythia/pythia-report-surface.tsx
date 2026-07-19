@@ -22,6 +22,7 @@
 //     attach Bearer / CSRF / workspace headers).
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "@multica/core/api";
 import { useT } from "@multica/views/i18n";
 import type { PythiaPrediction } from "./types";
 import { GlobeSVG } from "./globe-svg";
@@ -252,7 +253,13 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
     const run = async () => {
       setRegenerating(true);
       try {
-        const res = await fetch(
+        // 0.3.45.2 bug fix (P1#6): was a bare fetch("/api/..."). On
+        // the packaged desktop build the renderer document origin is
+        // `file://`, not `http://localhost:8090`, so the request
+        // never reached the server. api.rawRequest prepends the
+        // configured baseUrl and injects the Bearer header, which
+        // is the only path that works under desktop token mode.
+        const res = await api.rawRequest(
           `/api/experimental/pythia-oracle/forecast/issue`,
           {
             method: "POST",

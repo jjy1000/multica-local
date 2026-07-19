@@ -425,6 +425,30 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 	}
 	result.Status = final.Status
 
+	// 0.3.45.2 bug fix (P0#3): the mythos lab was completing its
+	// pipeline but leaving the issue.status stuck at in_review because
+	// the agent system prompt at internal/daemon/execenv/runtime_config.go
+	// is trained to call `multica issue status <id> in_review` (NOT
+	// done) when finishing. The user-visible effect was "实验室完成
+	// 了，但 issue 永远 in_review / 看起来 agent 没工作".
+	//
+	// Sole-mode: the lab owns the issue end-to-end, so flip it to
+	// 'done' here. The mutex contract (issue.lab_source reserves the
+	// agent roster) is already enforced server-side, so a manual
+	// user-PATCH is the only thing this could collide with — and
+	// those win because UpdateIssueStatus is unconditional on the
+	// status field.
+	if cfg.Mode == ModeSole {
+		if _, ierr := s.queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+			ID:          run.RootIssueID,
+			Status:      "done",
+			WorkspaceID: run.WorkspaceID,
+		}); ierr != nil {
+			slog.Warn("mythos: issue status to done failed",
+				"run", run.ID, "issue", run.RootIssueID, "err", ierr)
+		}
+	}
+
 	// 0.3.31: launch the supervise goroutine for enhancer runs. The
 	// call is fire-and-forget; supervise tracks its own lifecycle and
 	// self-terminates when supervision_state.phase hits a terminal

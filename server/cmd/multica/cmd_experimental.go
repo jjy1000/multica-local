@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/spf13/cobra"
 
 	"github.com/multica-ai/multica/server/internal/experimental"
@@ -56,6 +57,19 @@ var experimentalInspectCmd = &cobra.Command{
 	Short: "Print the local registry + remote effective state for one flag",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runExperimentalInspect,
+}
+
+var experimentalStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Per-workspace install/visibility summary for every Labs flag",
+	RunE:  runExperimentalStatus,
+}
+
+var experimentalGCCmd = &cobra.Command{
+	Use:   "gc",
+	Short: "Garbage-collect orphan visibility rows for a flag (0.3.45.2 P2#11)",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runExperimentalGC,
 }
 
 var claudeScienceRuntimeRootCmd = &cobra.Command{
@@ -166,6 +180,8 @@ func init() {
 		experimentalFlagsCmd,
 		experimentalListCmd,
 		experimentalInspectCmd,
+		experimentalStatusCmd,
+		experimentalGCCmd,
 	)
 
 	experimentalCmd.AddCommand(claudeScienceRuntimeRootCmd)
@@ -314,6 +330,94 @@ func runExperimentalList(cmd *cobra.Command, _ []string) error {
 		}
 		fmt.Printf("%-26s %-10s %-12s %s\n", f.Key, f.Runtime, def, prefix)
 	}
+	return nil
+}
+
+// runExperimentalStatus (0.3.45.2 P2#11) prints a per-workspace roll-up
+// of installed Labs flags + resource counts. The query joins
+// experimental_pref with experimental_resource_visibility so the
+// operator can see which workspaces have actually enabled + installed
+// each flag and how many resources (agent / autopilot / skill / squad)
+// are present. This is the canonical "is this lab wired up" check.
+//
+// Round-trips the database via a local libpq connection; reads the
+// connection string from the same env vars Multica's server uses
+// (DATABASE_URL) so it works on dev + packaged without flags.
+func runExperimentalStatus(cmd *cobra.Command, _ []string) error {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return fmt.Errorf("DATABASE_URL is required for `multica experimental status`")
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer conn.Close(ctx)
+	rows, err := conn.Query(ctx, `
+		SELECT pref.flag_key,
+		       count(DISTINCT pref.user_id) AS opted_in_users,
+		       count(DISTINCT vis.resource_id) AS hidden_resources
+		FROM experimental_pref pref
+		LEFT JOIN experimental_resource_visibility vis
+		  ON vis.flag_key = pref.flag_key AND vis.hidden = TRUE
+		WHERE pref.enabled = TRUE
+		GROUP BY pref.flag_key
+		ORDER BY pref.flag_key
+	`)
+	if err != nil {
+		return fmt.Errorf("query: %w", err)
+	}
+	defer rows.Close()
+	fmt.Printf("%-28s %-12s %s\n", "FLAG", "OPTED_IN", "HIDDEN_ROWS")
+	for rows.Next() {
+		var key string
+		var optedIn, hidden int64
+		if err := rows.Scan(&key, &optedIn, &hidden); err != nil {
+			return fmt.Errorf("scan: %w", err)
+		}
+		fmt.Printf("%-28s %-12d %d\n", key, optedIn, hidden)
+	}
+	return rows.Err()
+}
+
+// runExperimentalGC (0.3.45.2 P2#11) deletes visibility rows for a
+// given flag whose underlying resource is gone (e.g. an agent that
+// was hard-deleted from the workspace but the visibility row was
+// left behind by a partial rollback). Bounded by flag_key only;
+// the SQL filter is the resource_id NOT IN (subquery) so we never
+// delete a row whose target still exists.
+//
+// Idempotent and safe to re-run.
+func runExperimentalGC(cmd *cobra.Command, args []string) error {
+	flagKey := args[0]
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return fmt.Errorf("DATABASE_URL is required for `multica experimental gc`")
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
+	defer conn.Close(ctx)
+
+	tag, err := conn.Exec(ctx, `
+		DELETE FROM experimental_resource_visibility
+		WHERE flag_key = $1
+		  AND (
+		    (resource_type = 'agent'    AND resource_id NOT IN (SELECT id FROM agent))
+		    OR (resource_type = 'autopilot' AND resource_id NOT IN (SELECT id FROM autopilot))
+		    OR (resource_type = 'skill'    AND resource_id NOT IN (SELECT id FROM skill))
+		    OR (resource_type = 'squad'    AND resource_id NOT IN (SELECT id FROM squad))
+		  )
+	`, flagKey)
+	if err != nil {
+		return fmt.Errorf("delete: %w", err)
+	}
+	fmt.Printf("gc: removed %d orphan visibility rows for flag %q\n", tag.RowsAffected(), flagKey)
 	return nil
 }
 

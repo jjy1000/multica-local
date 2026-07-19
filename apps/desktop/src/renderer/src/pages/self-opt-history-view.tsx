@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FlaskConical, RefreshCw, PlayCircle, Clock, FileText, AlertCircle } from "lucide-react";
 import { api } from "@multica/core/api";
+import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
 import { AppLink } from "@multica/views/navigation";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -60,6 +61,34 @@ interface PromptSuggestion {
 }
 
 export function SelfOptHistoryView() {
+  // 0.3.45.2 bug fix (P1#8): the only gate preventing the flag-off
+  // view from rendering was the server returning 404 on the runs
+  // endpoint, which we silently swallowed into an empty list. Users
+  // who landed here via the Labs sidebar (which only renders when
+  // the flag is on) would see the chrome but no data; users who
+  // typed the URL with the flag off would also see the chrome.
+  // Add a real flag gate so the flag-off state shows a single
+  // "请先在设置 → 试验性功能中启用" placeholder.
+  useT("experimental");
+  const enabled = useExperimentalFlag("agent_self_optimization", false);
+  if (!enabled) {
+    return <FlagOffPlaceholder />;
+  }
+  return <SelfOptHistoryViewBody />;
+}
+
+function FlagOffPlaceholder() {
+  return (
+    <div className="flex h-full w-full flex-col overflow-y-auto bg-background">
+      <Header />
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-12 text-sm text-muted-foreground">
+        <p>智能体自优化未启用。请先在「设置 → 试验性功能」中打开「智能体自优化」开关,再返回此处查看历史。</p>
+      </main>
+    </div>
+  );
+}
+
+function SelfOptHistoryViewBody() {
   // useT reserved for future i18n coverage; the MVP renders Chinese
   // strings inline (matches the other Labs views). Linter requires
   // us to drop the variable rather than hold it dead.

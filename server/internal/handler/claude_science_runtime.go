@@ -36,6 +36,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -193,6 +194,25 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 	}
 
 	if err := probePython3(); err != nil {
+		// 0.3.45.2 bug fix (P1#4): post a failure comment to the
+		// originating issue so the user sees the surface fail in their
+		// task timeline, not as a silent HTTP error in the lab pane.
+		// Without this the user thinks "实验室又没工作" because the
+		// lab pane is a transient overlay and the issue is the only
+		// persistent surface.
+		if issueID.Valid {
+			if _, cerr := h.Queries.CreateComment(r.Context(), db.CreateCommentParams{
+				IssueID:    issueID,
+				AuthorType: "agent",
+				AuthorID:   agentID,
+				Content:    "Claude Lab runtime 调用失败:python3 不在 PATH 上(需要 Python 3.11+)。请安装后重试。",
+				Type:       "comment",
+				WorkspaceID: wsID,
+			}); cerr != nil {
+				slog.Warn("claude-science runtime: failure comment write failed",
+					"issue", issueID, "err", cerr)
+			}
+		}
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
 			"error": "python3 not available on PATH; install Python 3.11+ and retry",
 		})

@@ -167,6 +167,25 @@ func runSuperviseLoop(ctx context.Context, svc *Service, runID pgtype.UUID, cfg 
 					terminalStatus = "aborted"
 				}
 				_ = svc.completeRun(ctx, runID, terminalStatus)
+				// 0.3.45.2 bug fix (P1#9): mythos enhancer runs were
+				// completing the run row but leaving the issue.status
+				// stuck at in_review. Same root cause as P0#3 (sole
+				// mode) — flip the bound issue to done on the
+				// terminal 'completed' transition so the user sees
+				// the run finish in the issue list.
+				if terminalStatus == "completed" && rootIssueID.Valid {
+					runRow, rerr := svc.queries.GetMythosRun(ctx, runID)
+					if rerr == nil {
+						if _, ierr := svc.queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
+							ID:          runRow.RootIssueID,
+							Status:      "done",
+							WorkspaceID: runRow.WorkspaceID,
+						}); ierr != nil {
+							slog.Warn("mythos enhancer: issue status to done failed",
+								"run", runID, "issue", runRow.RootIssueID, "err", ierr)
+						}
+					}
+				}
 				svc.unregisterSupervise(runID)
 				return
 			}
@@ -298,7 +317,17 @@ func (s *Service) TickSupervisionOnce(
 	}
 	prev := SupervisionState{Phase: PhasePreparing}
 	if len(raw) > 0 {
-		_ = json.Unmarshal(raw, &prev)
+		// 0.3.45.2 P2#12: previously swallowed the unmarshal error and
+		// silently fell through to PhasePreparing. A corrupted
+		// JSONB blob would loop the supervise goroutine from scratch
+		// forever. Log on first failure so an operator can inspect
+		// the row before the next bootstrap. The fall-through stays
+		// (we still want a working supervision loop), but the bad
+		// state is now visible.
+		if err := json.Unmarshal(raw, &prev); err != nil {
+			slog.Warn("mythos: supervision_state JSONB unmarshal failed; falling back to PhasePreparing",
+				"run", runID, "err", err, "raw_bytes", len(raw))
+		}
 	}
 	return s.tickSupervision(ctx, runID, rootIssueID, prev)
 }
