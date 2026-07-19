@@ -169,6 +169,66 @@ func (q *Queries) InsertExperimentalRuntimeArtifact(ctx context.Context, arg Ins
 	return i, err
 }
 
+const listExperimentalClaudeRuntimeSessionsByIssue = `-- name: ListExperimentalClaudeRuntimeSessionsByIssue :many
+SELECT id, workspace_id, agent_id, issue_id, language, code, status, exit_code, stdout, stderr, summary, duration_ms, created_at, started_at, finished_at, expires_at, lab_id, lab_source FROM experimental_claude_runtime_session
+WHERE workspace_id = $1 AND issue_id = $2
+ORDER BY created_at DESC
+LIMIT $3
+`
+
+type ListExperimentalClaudeRuntimeSessionsByIssueParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	IssueID     pgtype.UUID `json:"issue_id"`
+	Limit       int32       `json:"limit"`
+}
+
+// 0.3.45.8: used by the Claude Lab "产物" page to filter the session
+// list to the currently focused issue. The agent task that produced
+// the report above (and any sibling research snippets) is what the
+// user came here to inspect; showing the full workspace session list
+// is misleading because most rows belong to unrelated chat sessions.
+// Filter by both workspace_id (defense-in-depth; the router already
+// gates membership) and issue_id, newest first, with an explicit
+// LIMIT so a runaway issue does not blow the response budget.
+func (q *Queries) ListExperimentalClaudeRuntimeSessionsByIssue(ctx context.Context, arg ListExperimentalClaudeRuntimeSessionsByIssueParams) ([]ExperimentalClaudeRuntimeSession, error) {
+	rows, err := q.db.Query(ctx, listExperimentalClaudeRuntimeSessionsByIssue, arg.WorkspaceID, arg.IssueID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ExperimentalClaudeRuntimeSession{}
+	for rows.Next() {
+		var i ExperimentalClaudeRuntimeSession
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.AgentID,
+			&i.IssueID,
+			&i.Language,
+			&i.Code,
+			&i.Status,
+			&i.ExitCode,
+			&i.Stdout,
+			&i.Stderr,
+			&i.Summary,
+			&i.DurationMs,
+			&i.CreatedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.ExpiresAt,
+			&i.LabID,
+			&i.LabSource,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listExperimentalClaudeRuntimeSessionsByWorkspace = `-- name: ListExperimentalClaudeRuntimeSessionsByWorkspace :many
 SELECT id, workspace_id, agent_id, issue_id, language, code, status, exit_code, stdout, stderr, summary, duration_ms, created_at, started_at, finished_at, expires_at, lab_id, lab_source FROM experimental_claude_runtime_session
 WHERE workspace_id = $1

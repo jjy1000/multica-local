@@ -48,8 +48,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/internal/util"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 const (
@@ -126,6 +126,7 @@ func RegisterClaudeScienceRuntimeRoutes(r chi.Router, h *Handler) {
 	r.Route("/api/experimental/claude-science-runtime", func(r chi.Router) {
 		r.Post("/execute", h.PostClaudeScienceRuntimeExecute)
 		r.Get("/sessions", h.ListClaudeScienceRuntimeSessions)
+		r.Get("/sessions/by-issue", h.ListClaudeScienceRuntimeSessionsByIssue)
 		r.Get("/sessions/{sessionID}", h.GetClaudeScienceRuntimeSession)
 		r.Get("/sessions/{sessionID}/artifacts", h.ListClaudeScienceRuntimeArtifacts)
 		r.Get("/artifacts/{artifactID}", h.GetClaudeScienceRuntimeArtifactBytes)
@@ -202,11 +203,11 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 		// persistent surface.
 		if issueID.Valid {
 			if _, cerr := h.Queries.CreateComment(r.Context(), db.CreateCommentParams{
-				IssueID:    issueID,
-				AuthorType: "agent",
-				AuthorID:   agentID,
-				Content:    "Claude Lab runtime 调用失败:python3 不在 PATH 上(需要 Python 3.11+)。请安装后重试。",
-				Type:       "comment",
+				IssueID:     issueID,
+				AuthorType:  "agent",
+				AuthorID:    agentID,
+				Content:     "Claude Lab runtime 调用失败:python3 不在 PATH 上(需要 Python 3.11+)。请安装后重试。",
+				Type:        "comment",
 				WorkspaceID: wsID,
 			}); cerr != nil {
 				slog.Warn("claude-science runtime: failure comment write failed",
@@ -414,6 +415,57 @@ func (h *Handler) ListClaudeScienceRuntimeSessions(w http.ResponseWriter, r *htt
 		return
 	}
 	rows, err := h.Queries.ListExperimentalClaudeRuntimeSessionsByWorkspace(r.Context(), wsID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sessions": rows,
+		"total":    len(rows),
+	})
+}
+
+// ListClaudeScienceRuntimeSessionsByIssue (0.3.45.8) powers the Claude
+// Lab "产物" tab. The renderer asks for sessions bound to a specific
+// issue so the user sees the snippets their own agent produced, not a
+// noisy workspace-wide dump of unrelated chat sessions.
+//
+// IMPORTANT: this route must register BEFORE /sessions/{sessionID} on
+// the chi router; otherwise `{sessionID}` captures the literal string
+// "by-issue" and ParseUUID returns 400 "sessionID is not a UUID".
+// See RegisterClaudeScienceRuntimeRoutes — the order is preserved.
+func (h *Handler) ListClaudeScienceRuntimeSessionsByIssue(w http.ResponseWriter, r *http.Request) {
+	wsRaw := r.URL.Query().Get("workspace_id")
+	wsID, err := util.ParseUUID(wsRaw)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workspace_id is required"})
+		return
+	}
+	if _, ok := h.workspaceMember(w, r, wsID.String()); !ok {
+		return
+	}
+	issueRaw := r.URL.Query().Get("issue_id")
+	issueID, err := util.ParseUUID(issueRaw)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "issue_id is required"})
+		return
+	}
+	limit := int32(20)
+	if v := r.URL.Query().Get("limit"); v != "" {
+		// Defensive parse: a malformed or negative value falls back to
+		// the default rather than blowing up the request. The cap at
+		// 100 mirrors ListExperimentalClaudeRuntimeSessionsByWorkspace
+		// (50) but doubled because by-issue is the user-facing surface.
+		var n int
+		if _, scanErr := fmt.Sscanf(v, "%d", &n); scanErr == nil && n > 0 && n <= 100 {
+			limit = int32(n)
+		}
+	}
+	rows, err := h.Queries.ListExperimentalClaudeRuntimeSessionsByIssue(r.Context(), db.ListExperimentalClaudeRuntimeSessionsByIssueParams{
+		WorkspaceID: wsID,
+		IssueID:     issueID,
+		Limit:       limit,
+	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
