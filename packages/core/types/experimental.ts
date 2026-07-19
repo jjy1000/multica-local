@@ -65,6 +65,13 @@ export interface ExperimentalFlag {
   /** 0.3.20: manifest entry_points.sidebar rows. Empty array means
    *  the flag has no sidebar entry (visible only in the Labs tab). */
   sidebar_entries?: ExperimentalSidebarEntry[];
+  /** 0.3.45.8: when true, the issue-detail LabPicker does NOT offer
+   *  this flag as a per-issue "实验插件" choice. Reserved for
+   *  infrastructure / self-driven labs whose effect is global once
+   *  enabled (llm_wiki_bridge, agent_self_optimization). The flag is
+   *  still rendered in the Labs settings tab where the user flips the
+   *  toggle on. Absent or false = picker offers the flag as usual. */
+  hide_from_issue_lab_picker?: boolean;
   /** PR 7: present when the flag has installable backing resources. */
   installation?: ExperimentalFlagInstallation;
 }

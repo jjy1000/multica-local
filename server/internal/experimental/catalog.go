@@ -76,6 +76,18 @@ type Flag struct {
 	RuntimeKind     string          `json:"runtime_kind,omitempty"`
 	ProxyPrefix     string          `json:"proxy_prefix,omitempty"`
 	LoopbackService string          `json:"loopback_service,omitempty"`
+	// HideFromIssueLabPicker — when true, the flag is NOT offered in the
+	// issue-detail LabPicker. Reserved for "infrastructure" or
+	// "self-driven" labs whose effect is global (every agent can use it
+	// automatically once enabled), not per-issue. Examples:
+	//   - llm_wiki_bridge: agents read LLM Wiki automatically via the
+	//     llm-wiki MCP server; picking it per-issue is meaningless.
+	//   - agent_self_optimization: runs on its own 4-day schedule, no
+	//     issue ownership; choosing it per-issue is a UX trap.
+	// LabPicker renders the title for these flags in the Labs settings
+	// tab (where the user flips the toggle on), but never inside the
+	// "实验插件" popover on a specific issue.
+	HideFromIssueLabPicker bool `json:"hide_from_issue_lab_picker,omitempty"`
 	// Sidebar mirrors entry_points.sidebar[*] from the manifest so
 	// GET /api/experimental-flags can ship the nav rows in one call.
 	// Loaded at boot from the manifest under MULTICA_RESOURCES_DIR.
@@ -225,6 +237,10 @@ var Catalog = []Flag{
 		// Desktop manager kind is subprocess because it separately owns the
 		// local stdio MCP lifecycle declared by the manifest.
 		RuntimeKind: "inline",
+		// Infrastructure flag — agents use the bridge automatically once
+		// it's enabled. Picking it per-issue has no meaning, so the issue
+		// LabPicker does not offer it as a "实验插件" choice.
+		HideFromIssueLabPicker: true,
 	},
 	{
 		// code_canvas: 0.3.19 P9 internal lab. A subprocess-style
@@ -276,6 +292,11 @@ var Catalog = []Flag{
 		// rows hide the agent / 2 autopilots / skill from list queries
 		// and the autopilot scheduler). No subprocess; no proxy.
 		RuntimeKind: "inline",
+		// Self-driven scheduler (per-3-workday bulk optimization +
+		// SkillOpt-Multica daily loop). The flag owns its own run
+		// cadence — picking it per-issue would imply the user can
+		// trigger a run by creating an issue, which is misleading.
+		HideFromIssueLabPicker: true,
 	},
 	{
 		// constitution_agent: hides the 宪法智能体 agent, its 3

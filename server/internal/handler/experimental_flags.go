@@ -41,6 +41,12 @@ type ExperimentalFlagResponse struct {
 	// entry_points.sidebar[*]. Empty array means no sidebar row;
 	// absent means the flag has no manifest (chat_pin_ui).
 	SidebarEntries []experimental.SidebarEntry `json:"sidebar_entries,omitempty"`
+	// 0.3.45.8: mirror of Flag.HideFromIssueLabPicker. The issue-detail
+	// LabPicker filters by this field so infrastructure / self-driven
+	// labs (llm_wiki_bridge, agent_self_optimization) are not offered
+	// as per-issue "实验插件" choices. Absent means the picker offers
+	// the flag as usual.
+	HideFromIssueLabPicker bool `json:"hide_from_issue_lab_picker,omitempty"`
 }
 
 // ExperimentalFlagsListResponse wraps the list so future metadata
@@ -86,12 +92,13 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 	for _, f := range experimental.Catalog {
 		enabled, hasOverride := prefByKey[f.Key]
 		flag := ExperimentalFlagResponse{
-			Key:            f.Key,
-			Enabled:        pickEnabled(f.DefaultVal, enabled, hasOverride),
-			DefaultEnabled: f.DefaultVal,
-			Title:          f.Title,
-			Description:    f.Description,
-			RuntimeKind:    f.RuntimeKind,
+			Key:                    f.Key,
+			Enabled:                pickEnabled(f.DefaultVal, enabled, hasOverride),
+			DefaultEnabled:         f.DefaultVal,
+			Title:                  f.Title,
+			Description:            f.Description,
+			RuntimeKind:            f.RuntimeKind,
+			HideFromIssueLabPicker: f.HideFromIssueLabPicker,
 		}
 		// 0.3.20: surface manifest entry_points.sidebar so the renderer's
 		// nav hook can render the Experimental sidebar group from the

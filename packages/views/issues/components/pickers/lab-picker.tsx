@@ -139,12 +139,21 @@ export function LabPicker({
   // must match a known experimental flag key" / "this flag is not
   // enabled for this workspace"). Filtering by `.enabled` here
   // guarantees the menu only offers what the server would accept.
+  //
+  // 0.3.45.8: also drop flags whose catalog.HideFromIssueLabPicker is
+  // true. Those are infrastructure / self-driven labs (llm_wiki_bridge,
+  // agent_self_optimization) that take effect globally once enabled;
+  // picking them per-issue is a UX trap because the issue-level
+  // lab_source value would never be consulted by the runtime. The
+  // user still flips these flags on in the Labs settings tab — only
+  // the per-issue picker omits them.
   const entries = useMemo(() => {
     const out: { id: string; title: string }[] = [
       { id: "", title: t(($) => $.pickers.lab.picker_none) ?? "None" },
     ];
     for (const flag of flags ?? []) {
       if (!flag.enabled) continue;
+      if (flag.hide_from_issue_lab_picker) continue;
       out.push({
         id: flag.key,
         title: flag.title.zh || flag.title.en || flag.key,

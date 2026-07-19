@@ -16,7 +16,12 @@ const mockFlags = vi.hoisted(() => ({
   value: [
     { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
     { key: "pythia_oracle", title: { zh: "Pythia 多视角预测", en: "Pythia Multi-Perspective Forecasting" }, enabled: true },
-  ],
+  ] as Array<{
+    key: string;
+    title: { zh: string; en: string };
+    enabled: boolean;
+    hide_from_issue_lab_picker?: boolean;
+  }>,
 }));
 
 vi.mock("@multica/core/experimental", () => ({
@@ -217,5 +222,29 @@ describe("LabPicker", () => {
     fireEvent.click(actionItem);
     expect(onAction).toHaveBeenCalledWith("agent_creation_studio");
     expect(onUpdateB).not.toHaveBeenCalled();
+  });
+
+  it("0.3.45.8: hides flags whose hide_from_issue_lab_picker is true", () => {
+    // llm_wiki_bridge and agent_self_optimization are infrastructure
+    // / self-driven labs — enabled means global, not per-issue. The
+    // picker must NOT offer them as a "实验插件" choice even when
+    // enabled. They still appear in the Labs settings tab where the
+    // user flips the toggle on.
+    mockFlags.value = [
+      { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
+      { key: "pythia_oracle", title: { zh: "Pythia 多视角预测", en: "Pythia Multi-Perspective Forecasting" }, enabled: true },
+      { key: "llm_wiki_bridge", title: { zh: "LLM Wiki 本地桥接", en: "LLM Wiki Bridge" }, enabled: true, hide_from_issue_lab_picker: true },
+      { key: "agent_self_optimization", title: { zh: "智能体自优化循环", en: "Agent Self-Opt" }, enabled: true, hide_from_issue_lab_picker: true },
+    ];
+    renderPicker();
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(trigger);
+    const items = document.querySelectorAll("button[data-picker-item]");
+    // None + claude_science_lab + pythia_oracle = 3 items.
+    // The two hide_from_issue_lab_picker flags must NOT be present.
+    expect(items.length).toBe(3);
+    const labels = Array.from(items).map((el) => el.textContent ?? "");
+    expect(labels.some((l) => l.includes("LLM Wiki"))).toBe(false);
+    expect(labels.some((l) => l.includes("自优化"))).toBe(false);
   });
 });
