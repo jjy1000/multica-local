@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, ExternalLink, FlaskConical, Loader2, RefreshCw, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { useExperimentalFlags } from "@multica/core/experimental";
@@ -199,6 +199,20 @@ interface SuperviseStateSnapshot {
   abort_reason?: string;
 }
 
+// Mythos supervise phases that need sub-minute polling. The server-side
+// `superviseLoop` (server/internal/service/mythos/supervise.go) ticks
+// every 30 s; without `isLive`-driven 5 s polling the renderer can
+// race the server tick and miss an entire supervision snapshot per
+// fetch. Terminal phases (`done` / `aborted` / `degraded`) fall back to
+// 60 s idle — the panel is mounted only while `enhancerMode` is true,
+// so the existence of this set is the only signal we have for "is this
+// run still progressing?".
+const LIVE_MYTHOS_PHASES = new Set<SuperviseStateSnapshot["phase"]>([
+  "preparing",
+  "planning",
+  "supervising",
+]);
+
 function MythosEnhancerSupervisePanel({
   issueId,
   enhancerMode,
@@ -208,10 +222,14 @@ function MythosEnhancerSupervisePanel({
 }) {
   const { t } = useT("issues");
   const qc = useQueryClient();
-  const [pollMs, setPollMs] = useState(30_000);
 
   const wsId = useWorkspaceId();
 
+  // `mythos-runs-for-issue` polls once a run exists for the issue.
+  // Before a run shows up (preparing / still spinning up) the panel
+  // renders the empty-state copy and the query backs off to 60 s so
+  // we're not hammering the server. Once a run ID materialises the
+  // companion `mythos-supervise-state` query (below) takes over at 5 s.
   const runsQuery = useQuery({
     queryKey: ["mythos-runs-for-issue", issueId, wsId] as const,
     queryFn: async () => {
@@ -226,7 +244,8 @@ function MythosEnhancerSupervisePanel({
       return res.json() as Promise<{ run_id: string }[]>;
     },
     enabled: enhancerMode,
-    refetchInterval: pollMs,
+    refetchInterval: (query) =>
+      query.state.data && query.state.data.length > 0 ? 5_000 : 60_000,
     staleTime: 10_000,
   });
 
@@ -247,7 +266,11 @@ function MythosEnhancerSupervisePanel({
       return res.json() as Promise<SuperviseStateSnapshot>;
     },
     enabled: !!runID,
-    refetchInterval: pollMs,
+    refetchInterval: (query) => {
+      const snap = query.state.data;
+      if (!snap) return 60_000;
+      return LIVE_MYTHOS_PHASES.has(snap.phase) ? 5_000 : 60_000;
+    },
     staleTime: 5_000,
   });
 
@@ -267,18 +290,15 @@ function MythosEnhancerSupervisePanel({
   });
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const phaseDummy = stateQuery.data?.phase ?? (runID ? "preparing" : "preparing");
-  const phase: string = phaseDummy;
+  const phase: string = stateQuery.data?.phase ?? "preparing";
 
-  useEffect(() => {
-    if (tick.isSuccess) {
-      setPollMs(10_000);
-      const timer = setTimeout(() => setPollMs(30_000), 10_000);
-      return () => clearTimeout(timer);
-    }
-    // Return undefined for the non-isSuccess branch (TS7030)
-    return undefined;
-  }, [tick.isSuccess]);
+  // 0.3.48: removed the `useState(30_000) + setTimeout(10_000)` manual
+  // poll-boost that used to ride on `tick.isSuccess`. The `tick`
+  // mutation's `onSuccess` already seeds `stateQuery` via
+  // `qc.setQueryData`, and the `refetchInterval` above now keys off the
+  // snapshot's phase, so the bespoke 10-second boost is superseded by
+  // the canonical `isLive(...) ? 5_000 : 60_000` shape (see
+  // 0.3.45.7 → 0.3.45.9 lineage).
 
   if (!enhancerMode) return null;
   if (!runID) {

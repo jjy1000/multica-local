@@ -67,6 +67,15 @@ export interface ManagerFactoryDescriptor {
 // still needs a descriptor so the IPC dispatcher can answer
 // get-status with a stable "ready" surface instead of throwing.
 // loadFlagDescriptors() still merges any server-only additions on top.
+//
+// 0.3.48: agent_creation_studio joined the catalog in 0.3.45 as an
+// action-type lab (no install handler, no spawned runtime, accessed
+// via LabPicker.onAction → /experimental/agent-creation-studio).
+// Without an entry below, a cold-boot race between renderer mount and
+// the first /api/experimental-flags fetch would surface "no handler
+// registered" on the IPC channel that LabPicker.onAction exercises.
+// Adding it here closes the cold-boot IPC parity gap the comment above
+// promises.
 const staticFlagDescriptors: ReadonlyArray<ManagerFactoryDescriptor> = [
   { flagKey: "chat_pin_ui", kind: "none", label: "experimental_chat_pin_ui" },
   { flagKey: "claude_science_lab", kind: "inline", label: "experimental_claude_science_lab" },
@@ -76,6 +85,7 @@ const staticFlagDescriptors: ReadonlyArray<ManagerFactoryDescriptor> = [
   { flagKey: "code_canvas", kind: "subprocess", label: "experimental_code_canvas" },
   { flagKey: "agent_self_optimization", kind: "inline", label: "experimental_agent_self_optimization" },
   { flagKey: "constitution_agent", kind: "inline", label: "experimental_constitution_agent" },
+  { flagKey: "agent_creation_studio", kind: "inline", label: "experimental_agent_creation_studio" },
 ];
 
 let flagDescriptors: ReadonlyArray<ManagerFactoryDescriptor> = staticFlagDescriptors;

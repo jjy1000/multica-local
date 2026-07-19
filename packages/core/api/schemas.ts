@@ -16,6 +16,7 @@ import type {
   CreateBillingPortalSessionResponse,
   GroupedIssuesResponse,
   InboxWorkspaceUnread,
+  Issue,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
   SearchIssuesResponse,
@@ -259,6 +260,15 @@ export const IssueSchema = z.object({
   // Older backends predate `stage`; default to null so a missing field parses
   // cleanly into the non-optional Issue.stage (number | null).
   stage: z.number().nullable().default(null),
+  // 0.3.48: lab_source / lab_mode joined the wire shape in 0.3.31
+  // (mythos_swarm lab-mode) and 0.3.22 (claude_science_lab lock row) but
+  // were never added to IssueSchema. Adding them here as `.nullable()`
+  // with default null so older backends that omit the fields still
+  // parse into Issue.lab_source? / Issue.lab_mode?. The matching
+  // `(type)` field on the Issue interface stays optional — both
+  // branches of the union type now line up.
+  lab_source: z.string().nullable().default(null),
+  lab_mode: z.enum(["sole", "enhancer"]).nullable().default(null),
   start_date: z.string().nullable(),
   due_date: z.string().nullable(),
   metadata: IssueMetadataSchema,
@@ -276,6 +286,54 @@ export const ListIssuesResponseSchema = z.object({
 export const EMPTY_LIST_ISSUES_RESPONSE: ListIssuesResponse = {
   issues: [],
   total: 0,
+};
+
+// Sentinel fallback for `api.getIssue(...)` when the server returns
+// a malformed / drift-prone single-issue payload (e.g. an older build
+// missing `lab_source`, `lab_mode`, or `stage`). Keeping the shape
+// narrow — only the fields the rest of the app unconditionally reads
+// on every render — prevents the Claude Lab / IssueLabsSection
+// consumers (which read `assignee_type` / `lab_source` / `lab_mode`
+// directly) from crashing on `undefined` reads downstream.
+//
+// Sentinel values are inert enum members (status="backlog", the
+// lifecycle entry bucket; priority="none"; creator_type="member")
+// so the typed IssueStatus / IssuePriority / IssueAssigneeType unions
+// stay satisfied when zod falls back to this shape. Downstream
+// consumers should treat empty `id` / `workspace_id` / `created_at`
+// as the universal "no data" signal — that pair is more reliable
+// than any single sentinel because drift usually strips id or
+// workspace_id first.
+export const EMPTY_ISSUE: Issue = {
+  id: "",
+  workspace_id: "",
+  number: 0,
+  identifier: "",
+  title: "",
+  description: null,
+  status: "backlog",
+  priority: "none",
+  assignee_type: null,
+  assignee_id: null,
+  creator_type: "member",
+  creator_id: "",
+  parent_issue_id: null,
+  project_id: null,
+  position: 0,
+  stage: null,
+  // 0.3.48: lab_source + lab_mode live on the Issue interface but
+  // older schemas strip them off. Default to null so fallback
+  // consumers (LabPicker, IssueLabsSection, MythosEnhancerSupervisePanel
+  // gating) keep working when drift hits.
+  lab_source: null,
+  lab_mode: null,
+  start_date: null,
+  due_date: null,
+  metadata: {},
+  reactions: [],
+  labels: [],
+  created_at: "",
+  updated_at: "",
 };
 
 const IssueAssigneeGroupSchema = z.object({

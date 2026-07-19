@@ -163,6 +163,7 @@ import {
   EMPTY_CREATE_AGENT_FROM_TEMPLATE_RESPONSE,
   EMPTY_GROUPED_ISSUES_RESPONSE,
   EMPTY_INBOX_UNREAD_SUMMARY,
+  EMPTY_ISSUE,
   EMPTY_LIST_ISSUES_RESPONSE,
   EMPTY_SEARCH_ISSUES_RESPONSE,
   EMPTY_SEARCH_PROJECTS_RESPONSE,
@@ -176,6 +177,7 @@ import {
   AppConfigSchema,
   type AppConfigResponse,
   GroupedIssuesResponseSchema,
+  IssueSchema,
   ListAutopilotsResponseSchema,
   EMPTY_LIST_AUTOPILOTS_RESPONSE,
   ListIssuesResponseSchema,
@@ -618,7 +620,18 @@ export class ApiClient {
   }
 
   async getIssue(id: string): Promise<Issue> {
-    return this.fetch(`/api/issues/${id}`);
+    // 0.3.48: route through parseWithFallback so a backend drift
+    // (e.g. a missing `lab_source` / `lab_mode` / `assignee_type` on
+    // an older build) returns the typed EMPTY_ISSUE sentinel instead
+    // of an `any`-shaped partial object that crashes downstream
+    // readers — see `claude-lab-view.tsx::LabAgentFromIssue`,
+    // `issue-labs-section.tsx` (MythosEnhancerSupervisePanel gating),
+    // and `issue-detail.tsx`. Sister methods (`listIssues`,
+    // `listComments`, `listTimeline`) already use this shape.
+    const raw = await this.fetch<unknown>(`/api/issues/${id}`);
+    return parseWithFallback(raw, IssueSchema, EMPTY_ISSUE, {
+      endpoint: "GET /api/issues/:id",
+    });
   }
 
   // 0.3.40 Claude Lab workbench bootstrap. Single-call fetch of

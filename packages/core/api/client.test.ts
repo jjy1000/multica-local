@@ -344,6 +344,133 @@ describe("ApiClient", () => {
     );
   });
 
+  // 0.3.48: getIssue now routes through parseWithFallback so a
+  // backend drift (missing `lab_source` / `lab_mode` / `assignee_type`
+  // on an older build) returns EMPTY_ISSUE instead of an `any`-shaped
+  // partial that crashes downstream readers (LabAgentFromIssue,
+  // IssueLabsSection MythosEnhancerSupervisePanel gating).
+  describe("getIssue", () => {
+    it("returns the parsed issue for a well-formed response", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              id: "iss-1",
+              workspace_id: "ws-1",
+              number: 42,
+              identifier: "WS-42",
+              title: "ship 0.3.48",
+              description: null,
+              status: "todo",
+              priority: "high",
+              assignee_type: "agent",
+              assignee_id: "agent-research",
+              creator_type: "member",
+              creator_id: "u-1",
+              parent_issue_id: null,
+              project_id: null,
+              position: 0,
+              stage: null,
+              lab_source: "claude_science_lab",
+              lab_mode: "sole",
+              start_date: null,
+              due_date: null,
+              metadata: {},
+              created_at: "2026-07-19T00:00:00Z",
+              updated_at: "2026-07-19T00:00:00Z",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      );
+
+      const client = new ApiClient("https://api.example.test");
+      const issue = await client.getIssue("iss-1");
+
+      expect(issue.id).toBe("iss-1");
+      expect(issue.lab_source).toBe("claude_science_lab");
+      expect(issue.lab_mode).toBe("sole");
+      expect(issue.assignee_type).toBe("agent");
+    });
+
+    it("falls back to EMPTY_ISSUE when the server omits lab_source", async () => {
+      // Older server build (pre-0.3.22) — the IssueSchema's
+      // .nullable().default(null) on lab_source/lab_mode kicks in and
+      // the field falls back to null. EMPTY_ISSUE itself keeps the
+      // typed Issue shape so downstream consumers (LabPicker,
+      // IssueLabsSection) never see `undefined`.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              id: "iss-1",
+              workspace_id: "ws-1",
+              number: 1,
+              identifier: "WS-1",
+              title: "drift-prone old build",
+              description: null,
+              status: "todo",
+              priority: "none",
+              assignee_type: null,
+              assignee_id: null,
+              creator_type: "member",
+              creator_id: "u-1",
+              parent_issue_id: null,
+              project_id: null,
+              position: 0,
+              stage: null,
+              start_date: null,
+              due_date: null,
+              metadata: {},
+              created_at: "2026-01-01T00:00:00Z",
+              updated_at: "2026-01-01T00:00:00Z",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+      );
+
+      const client = new ApiClient("https://api.example.test");
+      const issue = await client.getIssue("iss-1");
+
+      // IssueSchema.nullable() default kicks in.
+      expect(issue.lab_source).toBeNull();
+      expect(issue.lab_mode).toBeNull();
+      // Issue keeps its identity intact even with drift-prone fields.
+      expect(issue.id).toBe("iss-1");
+    });
+
+    it("falls back to EMPTY_ISSUE on a JSON-shaped payload with missing required fields", async () => {
+      // Schema-level drift surface: the server returns a successful
+      // (200) JSON body but omits required fields (id, workspace_id,
+      // title). IssueSchema's `.loose()` permits extra keys but
+      // missing required keys fail the safeParse, so parseWithFallback
+      // must return EMPTY_ISSUE here instead of a partial `any`.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({ totally_wrong: "shape", no_id: true }),
+            {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            },
+          ),
+        ),
+      );
+
+      const client = new ApiClient("https://api.example.test");
+      const issue = await client.getIssue("iss-1");
+
+      // EMPTY_ISSUE sentinel — id is the universal "no data" signal.
+      expect(issue.id).toBe("");
+      expect(issue.lab_source).toBeNull();
+      expect(issue.lab_mode).toBeNull();
+    });
+  });
+
   describe("getAttachment", () => {
     it("returns the parsed attachment for a well-formed response", async () => {
       vi.stubGlobal(
