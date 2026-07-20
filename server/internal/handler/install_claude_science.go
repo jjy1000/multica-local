@@ -232,6 +232,26 @@ func (h *Handler) InstallClaudeScience(ctx context.Context, src experimental.Sou
 		}
 	}
 
+	// 0.3.53: seed experimental_resource_visibility rows for every
+	// Claude Science agent + squad the install just created. The mythos
+	// install path has had this since 0.3.31; claude_science did not,
+	// which meant `filterLabsHiddenByDefault(flagKey, HideAgent)` was
+	// silently a no-op for claude_science_lab when the flag was OFF
+	// (no visibility rows → empty hidden set → all rows passed
+	// through). Today the user-facing picker filters via the lock
+	// table's `hidden=true` rows (ListVisibleAgentsByWorkspace), but
+	// the visibility table is the canonical source-of-truth for any
+	// future flag-gated UI surface. Without this loop a future
+	// migration that adds a flag-driven filter would silently leave
+	// Claude Science agents visible — exactly the failure mode this
+	// PR fixes.
+	//
+	// Idempotent: InsertExperimentalResourceVisibility uses ON CONFLICT
+	// DO NOTHING, so re-running the install is a no-op.
+	if err := upsertClaudeScienceVisibility(ctx, h, workspaceUUID, agentsByName, manifest); err != nil {
+		return fmt.Errorf("claude_science visibility: %w", err)
+	}
+
 	// 0.3.33: every lab-installed row is now claimed — flip them
 	// hidden=TRUE so they never surface in the main user-facing
 	// pickers (agent / autopilot / squad / skill lists). The lab
@@ -713,6 +733,69 @@ func attachSquadMembers(
 		if err := experimental.Claim(ctx, h.Queries, src,
 			experimental.LockMember, agentID); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// upsertClaudeScienceVisibility (0.3.53) writes visibility rows so
+// every Claude Science agent + squad is hidden from the regular
+// pickers when the claude_science_lab flag is OFF. Mirrors
+// install_mythos.go::upsertMythosVisibility. The user-facing picker
+// filter (`ListVisibleAgentsByWorkspace`) currently reads the
+// experimental_resource_lock table's `hidden=true` rows; this loop
+// keeps the visibility table in sync so any future flag-gated UI
+// surface (filterLabsHiddenByDefault) sees a complete set without
+// having to backfill.
+//
+// Idempotent via the visibility table's UNIQUE(flag_key, resource_type,
+// resource_id) constraint + ON CONFLICT DO NOTHING.
+func upsertClaudeScienceVisibility(
+	ctx context.Context,
+	h *Handler,
+	workspaceUUID pgtype.UUID,
+	agentsByName map[string]pgtype.UUID,
+	manifest claudeScienceManifest,
+) error {
+	if h == nil || h.Queries == nil {
+		return errors.New("upsertClaudeScienceVisibility: handler not initialized")
+	}
+	src := experimental.SourceClaudeScienceLab
+	flagKey := string(src)
+	// Every agent the install just created gets a visibility row keyed
+	// to the lab's experimental_source.
+	for _, name := range []string{
+		"biology", "physics", "ml", "research", "write",
+	} {
+		id, ok := agentsByName[name]
+		if !ok {
+			continue
+		}
+		if err := h.Queries.InsertExperimentalResourceVisibility(ctx, db.InsertExperimentalResourceVisibilityParams{
+			FlagKey:      flagKey,
+			ResourceType: string(experimental.HideAgent),
+			ResourceID:   id,
+		}); err != nil {
+			return fmt.Errorf("agent %s visibility: %w", name, err)
+		}
+	}
+	// Every squad the install just created gets a visibility row too.
+	// Reuse the same (workspace_id, name) lookup the install loop
+	// above uses — squads are uniquely identified by that pair.
+	for _, sq := range manifest.Squads {
+		squadID, err := h.Queries.GetSquadByWorkspaceAndName(ctx, db.GetSquadByWorkspaceAndNameParams{
+			WorkspaceID: workspaceUUID,
+			Name:        sq.Name,
+		})
+		if err != nil {
+			return fmt.Errorf("squad %s lookup: %w", sq.Name, err)
+		}
+		if err := h.Queries.InsertExperimentalResourceVisibility(ctx, db.InsertExperimentalResourceVisibilityParams{
+			FlagKey:      flagKey,
+			ResourceType: string(experimental.HideSquad),
+			ResourceID:   squadID.ID,
+		}); err != nil {
+			return fmt.Errorf("squad %s visibility: %w", sq.Name, err)
 		}
 	}
 	return nil
