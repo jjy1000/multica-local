@@ -6,8 +6,16 @@
 # the loopback pipeline can be exercised without depending on a
 # real external service. Real code-canvas experiments replace this
 # stub with the actual binary.
+#
+# 0.3.51: removed `exec python3 - <<PY` — under `exec` the heredoc
+# is consumed by the surrounding shell and `python3 -` reads empty
+# stdin, so the server silently exits without binding the port.
+# Running python3 in the foreground (no exec) keeps the heredoc
+# attached to stdin and the server stays up. Also added SO_REUSEADDR
+# so a prior binding in TIME_WAIT doesn't make the stub silently
+# exit with EADDRINUSE on restart.
 PORT="${1:-8091}"
-exec python3 - <<PY
+python3 - <<PY
 import http.server, socketserver, sys
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -17,6 +25,8 @@ class H(http.server.BaseHTTPRequestHandler):
         else:
             self.send_response(404); self.end_headers()
     def log_message(self, *a, **k): pass
-with socketserver.TCPServer(("127.0.0.1", int("${PORT}")), H) as s:
+class ReusableTCPServer(socketserver.TCPServer):
+    allow_reuse_address = True
+with ReusableTCPServer(("127.0.0.1", int("${PORT}")), H) as s:
     s.serve_forever()
 PY

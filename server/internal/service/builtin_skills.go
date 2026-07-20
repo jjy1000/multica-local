@@ -45,6 +45,22 @@ func (s *TaskService) BuiltinSkills() []AgentSkillData {
 	return loadBuiltinSkills()
 }
 
+// LoadBuiltinSkillByName resolves a builtin Skill by its directory
+// name (e.g. "multica-constitution-agent"). Returns (skill, true) on
+// hit; (zero, false) when the Skill is not embedded or has no
+// SKILL.md. Used by the 0.3.51 system-prompt binding layer in
+// daemon.go::loadSystemPromptBinding to look up the body that should
+// be prepended to an agent's Instructions when agent.system_key is
+// set.
+//
+// Cheap: the underlying loadBuiltinSkill reads from the in-memory
+// embed.FS, so a second call within the same process is essentially
+// free. If the Skill set grows large enough that this matters we can
+// add a sync.Once cache — at 13 skills (0.3.50) it doesn't.
+func LoadBuiltinSkillByName(name string) (AgentSkillData, bool) {
+	return loadBuiltinSkill(name)
+}
+
 func loadBuiltinSkills() []AgentSkillData {
 	skills := loadMainProductSkills()
 	skills = append(skills, loadExperimentSkills()...)

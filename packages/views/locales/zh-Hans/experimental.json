@@ -6,7 +6,7 @@
     "field_name": "名称",
     "field_description": "描述",
     "compat_label": "与智能体宪法兼容",
-    "compat_hint": "0.3.45 UI 占位 — 0.3.45.1 接入 system_key 字段",
+    "compat_hint": "开启后,该智能体的 system_key 会设为 constitution_agent_v1,Daemon 在执行前会把 multica-constitution-agent Skill 正文 prepend 到 instructions 之前",
     "submit_create": "创建"
   },
   "self_opt_history_view": {

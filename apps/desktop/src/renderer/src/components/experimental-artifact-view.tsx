@@ -231,21 +231,26 @@ function SessionRow({ session, onInvalidate }: { session: RuntimeSession; onInva
 }
 
 function ArtifactTile({ artifact }: { artifact: RuntimeArtifactStub }) {
-  // NOTE: `href` is consumed by native resource loads (<img src>,
-  // <iframe src>, <a href download>) which cannot carry the
-  // Authorization: Bearer header the desktop session needs. These
-  // still resolve against the renderer origin and will 401/404 on a
-  // token-auth desktop build — tracked as a follow-up (needs a blob
-  // objectURL fetched via api.rawRequest or a signed artifact URL).
-  // The inline readers below (SvgInline / TextFetch /
-  // InteractiveChartCard) already fetch through api.rawRequest and
-  // work correctly.
-  const href = `/api/experimental/claude-science-runtime/artifacts/${artifact.id}`;
+  // 0.3.51: artifact bytes are now fetched through `api.rawRequest`
+  // and rendered via `URL.createObjectURL` so the renderer can carry
+  // the desktop session's Bearer token. The pre-0.3.51 implementation
+  // used `/api/experimental/claude-science-runtime/artifacts/<id>`
+  // directly as <img src> / <iframe src> / <a href download>, which
+  // resolved against the renderer origin and 401/404 on a token-auth
+  // desktop build (renderer origin has no Bearer token, only cookies
+  // that the desktop session does not use). The fetch path goes
+  // through the api client so the Authorization header is attached;
+  // the objectURL is revoked on unmount via the hook.
+  //
+  // Text and chart payloads continue to use the existing
+  // `TextFetch` / `InteractiveChartCard` paths because those read the
+  // body as text/JSON, not as a binary blob.
+  const fetchUrl = `/api/experimental/claude-science-runtime/artifacts/${artifact.id}`;
 
   if (artifact.kind === "png") {
     return (
       <figure className="overflow-hidden rounded-md border border-border bg-background/40">
-        <img src={href} alt={artifact.name} className="block max-h-72 w-full object-contain" />
+        <ArtifactImage src={fetchUrl} alt={artifact.name} />
         <figcaption className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
           <span>{artifact.name}</span>
           <span>{artifact.bytes} B</span>
@@ -256,7 +261,7 @@ function ArtifactTile({ artifact }: { artifact: RuntimeArtifactStub }) {
   if (artifact.kind === "svg") {
     return (
       <figure className="overflow-hidden rounded-md border border-border bg-background/40">
-        <SvgInline url={href} />
+        <SvgInline url={fetchUrl} />
         <figcaption className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
           <span>{artifact.name}</span>
           <span>{artifact.bytes} B</span>
@@ -267,12 +272,7 @@ function ArtifactTile({ artifact }: { artifact: RuntimeArtifactStub }) {
   if (artifact.kind === "html") {
     return (
       <figure className="overflow-hidden rounded-md border border-border bg-background/40">
-        <iframe
-          title={artifact.name}
-          src={href}
-          sandbox=""
-          className="block h-64 w-full bg-white"
-        />
+        <ArtifactIframe title={artifact.name} src={fetchUrl} />
         <figcaption className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
           <span>{artifact.name}</span>
           <span>{artifact.bytes} B</span>
@@ -288,19 +288,136 @@ function ArtifactTile({ artifact }: { artifact: RuntimeArtifactStub }) {
       <figure className="rounded-md border border-border bg-background/40 p-2">
         <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
           <span>{artifact.name}</span>
-          <a href={href} className="underline">
+          <ArtifactDownloadLink src={fetchUrl} downloadName={artifact.name}>
             下载
-          </a>
+          </ArtifactDownloadLink>
         </div>
         <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono text-xs">
-          <TextFetch url={href} />
+          <TextFetch url={fetchUrl} />
         </pre>
       </figure>
     );
   }
   return (
-    <a href={href} className="rounded-md border border-border bg-background/40 p-2 text-xs underline">
+    <ArtifactDownloadLink src={fetchUrl} downloadName={artifact.name} className="rounded-md border border-border bg-background/40 p-2 text-xs underline">
       {artifact.name} ({artifact.bytes} B)
+    </ArtifactDownloadLink>
+  );
+}
+
+// useArtifactBlobUrl fetches a binary artifact via api.rawRequest
+// (which carries the Bearer header on desktop) and exposes an
+// `URL.createObjectURL` blob URL the renderer can plug into
+// <img> / <iframe> / <a download>. The blob URL is revoked on
+// unmount and whenever the URL prop changes, so the same hook is
+// safe to use for any number of tiles in a list.
+//
+// Errors surface as `null` — the caller renders a placeholder. We
+// intentionally do NOT throw on a 404 / 401 because the tile UI is
+// not a critical surface; a broken image tile is acceptable.
+function useArtifactBlobUrl(url: string): string | null {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let current: string | null = null;
+
+    void (async () => {
+      try {
+        const r = await api.rawRequest(url);
+        if (!r.ok) return;
+        const blob = await r.blob();
+        if (cancelled) {
+          // Component unmounted during the fetch — release the blob
+          // immediately so we don't leak memory. Blob.close() is not
+          // in the older DOM lib typings used by Electron's renderer
+          // (Electron 39 ships with TS 5.6 / DOM lib ~es2022) — the
+          // underlying behaviour is just "release the data", which
+          // happens automatically when the only reference is dropped.
+          // Casting to unknown keeps us type-safe across lib versions
+          // without a polyfill.
+          const blobAny = blob as unknown as { close?: () => void };
+          blobAny.close?.();
+          return;
+        }
+        current = URL.createObjectURL(blob);
+        setBlobUrl(current);
+      } catch {
+        // Network error or blob() rejection — leave blobUrl null and
+        // render the placeholder.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (current !== null) URL.revokeObjectURL(current);
+    };
+  }, [url]);
+
+  return blobUrl;
+}
+
+function ArtifactImage({ src, alt }: { src: string; alt: string }) {
+  const blobUrl = useArtifactBlobUrl(src);
+  if (!blobUrl) {
+    return <div className="flex h-48 items-center justify-center text-xs text-muted-foreground">加载图片…</div>;
+  }
+  return <img src={blobUrl} alt={alt} className="block max-h-72 w-full object-contain" />;
+}
+
+function ArtifactIframe({ src, title }: { src: string; title: string }) {
+  const blobUrl = useArtifactBlobUrl(src);
+  if (!blobUrl) {
+    return <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">加载 HTML…</div>;
+  }
+  // 0.3.51: keep the existing `sandbox=""` policy — even though the
+  // blob URL is now same-origin as the renderer, the artifact body
+  // is still agent-generated HTML that we never want to give script
+  // execution privileges to. `sandbox=""` (empty string) disables
+  // everything; the user can still scroll and read the rendered
+  // content.
+  return <iframe title={title} src={blobUrl} sandbox="" className="block h-64 w-full bg-white" />;
+}
+
+interface ArtifactDownloadLinkProps {
+  src: string;
+  downloadName: string;
+  className?: string;
+  children: React.ReactNode;
+}
+
+function ArtifactDownloadLink({ src, downloadName, className, children }: ArtifactDownloadLinkProps) {
+  // The download link cannot navigate to an objectURL directly
+  // because clicking it would navigate the renderer window. Instead
+  // we fetch on click, build a blob, and trigger an anchor click
+  // programmatically with a fresh objectURL. Object URL is revoked
+  // after a short delay so the browser has time to start the
+  // download.
+  const onClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      const r = await api.rawRequest(src);
+      if (!r.ok) return;
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = downloadName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // 60s is enough for the browser to start streaming; revoke
+      // after that so we don't leak the blob indefinitely.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      // swallow — a failed download shows no UI feedback today;
+      // this matches the pre-0.3.51 <a href> behaviour where a
+      // 401/404 silently did nothing.
+    }
+  };
+  return (
+    <a href={src} onClick={onClick} className={className ?? "underline"}>
+      {children}
     </a>
   );
 }

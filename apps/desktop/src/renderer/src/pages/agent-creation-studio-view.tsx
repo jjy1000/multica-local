@@ -44,11 +44,18 @@ import {
 //     LabPicker.onAction UX fires whether or not Labs sets the
 //     flag on. (Future: we may flip to render-gated if the
 //     `agent_creation_studio` flag stays a "discovery" toggle.)
-//   - The "与智能体宪法兼容" checkbox is a UI placeholder only;
-//     `CreateAgentRequest` does not yet accept a system_key field
-//     (would require the upstream `agent.system_key` column that
-//     this fork has not yet migrated). Release notes flag it as
-//     deferred to 0.3.45.1.
+//
+// 0.3.51 wiring:
+//   - The "与智能体宪法兼容" checkbox is now live. Migration 161 added
+//     `agent.system_key TEXT`; CreateAgent + UpdateAgent handlers
+//     accept `system_key`; the daemon prepends the matching Skill
+//     body (multica-constitution-agent) to the agent's Instructions
+//     before dispatch when system_key="constitution_agent_v1".
+//   - Skill / Squad tabs still show the checkbox for visual parity,
+//     but their create handlers ignore system_key server-side (only
+//     CreateAgent accepts it today). The ResourceForm threads the
+//     toggle state through the onSubmit context so future Skill /
+//     Squad wiring can opt in without re-plumbing the toggle.
 
 type StudioTab = "agent" | "skill" | "squad";
 
@@ -168,6 +175,13 @@ function CompatToggle({ label, checked, onChange, hint }: CompatToggleProps) {
 
 interface ResourceFormContext {
   defaultRuntimeId: string | null;
+  // 0.3.51: the constitution_compat toggle state. Today only
+  // `CreateAgent` consumes this — Skill / Squad forms ignore it because
+  // their server-side create handlers don't accept `system_key`.
+  // Threading it through the context (rather than re-reading local
+  // state in each form) keeps the toggle source-of-truth in
+  // `ResourceForm` where the checkbox lives.
+  compatConstitution: boolean;
 }
 
 interface ResourceFormProps {
@@ -179,7 +193,13 @@ interface ResourceFormProps {
   compatHint: string;
   submitLabel: string;
   onSubmit: (
-    input: { name: string; description: string },
+    input: {
+      name: string;
+      description: string;
+      // 0.3.51: surfaced so agent-form callers can write system_key
+      // when compatConstitution is true. Skill / Squad forms ignore it.
+      systemKey?: string;
+    },
     ctx: ResourceFormContext,
   ) => Promise<void>;
 }
@@ -230,8 +250,21 @@ function ResourceForm({
         setError(null);
         try {
           await onSubmit(
-            { name: name.trim(), description: description.trim() },
-            { defaultRuntimeId },
+            {
+              name: name.trim(),
+              description: description.trim(),
+              // 0.3.51: only the agent form reads systemKey — the toggle
+              // is shown for visual parity across the three tabs but
+              // Skill / Squad forms drop it server-side anyway because
+              // their create handlers don't accept the field.
+              systemKey: compat
+                ? "constitution_agent_v1"
+                : undefined,
+            },
+            {
+              defaultRuntimeId,
+              compatConstitution: compat,
+            },
           );
           // success → onSubmit routed to a detail page; this line
           // only fires on slow / failed submit where the parent
@@ -305,17 +338,22 @@ function CreateAgentForm() {
       }
       compatHint={
         t(($) => $.agent_creation_studio_view.compat_hint) ??
-        "0.3.45 UI 占位 — 0.3.45.1 接入 system_key 字段"
+        "开启后,该智能体的 system_key 会设为 constitution_agent_v1,Daemon 在执行前会把 multica-constitution-agent Skill 正文 prepend 到 instructions 之前"
       }
       submitLabel={
         t(($) => $.agent_creation_studio_view.submit_create) ?? "创建"
       }
-      onSubmit={async ({ name, description }, ctx) => {
+      onSubmit={async ({ name, description, systemKey }, ctx) => {
+        // 0.3.51: thread the constitution toggle through to the server.
+        // systemKey is undefined when the toggle is off so the server
+        // column stays NULL (default) rather than an empty string,
+        // matching the pre-0.3.51 semantics — agents run their own
+        // instructions verbatim.
         const agent = await api.createAgent({
           name,
           description,
           runtime_id: ctx.defaultRuntimeId!,
-          // system_key wiring deferred to 0.3.45.1 (see file header).
+          ...(systemKey ? { system_key: systemKey } : {}),
         });
         window.location.assign(`/agents/${agent.id}`);
       }}
@@ -341,7 +379,7 @@ function CreateSkillForm() {
       }
       compatHint={
         t(($) => $.agent_creation_studio_view.compat_hint) ??
-        "0.3.45 UI 占位"
+        "Skill / Squad 没有 system_key 字段,本开关仅对智能体生效(此表单下,开关会被服务端忽略)"
       }
       submitLabel={
         t(($) => $.agent_creation_studio_view.submit_create) ?? "创建"
@@ -375,7 +413,7 @@ function CreateSquadForm() {
       }
       compatHint={
         t(($) => $.agent_creation_studio_view.compat_hint) ??
-        "0.3.45 UI 占位"
+        "Skill / Squad 没有 system_key 字段,本开关仅对智能体生效(此表单下,开关会被服务端忽略)"
       }
       submitLabel={
         t(($) => $.agent_creation_studio_view.submit_create) ?? "创建"

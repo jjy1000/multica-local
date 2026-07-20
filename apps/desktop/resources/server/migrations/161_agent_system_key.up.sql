@@ -1,0 +1,16 @@
+-- 161_agent_system_key (0.3.51)
+-- ----------------------------------------------------------------------------
+-- Adds the agent.system_key column. Used by the agent_creation_studio
+-- "与智能体宪法兼容" toggle (UI placeholder in 0.3.45; wired in 0.3.51).
+--
+-- Semantics:
+--   NULL          — no explicit system prompt binding (default; matches
+--                   pre-0.3.51 behaviour, agent runs its own instructions).
+--   'constitution_agent_v1' — the agent's instructions get prepended with
+--                   the constitution_agent Skill body at runtime.
+--
+-- Forward-only: no default value applied to existing rows (NULL is the
+-- natural pre-existing state, so nothing to migrate). New rows can set
+-- the column via CreateAgent / UpdateAgent.
+-- ----------------------------------------------------------------------------
+ALTER TABLE agent ADD COLUMN IF NOT EXISTS system_key TEXT DEFAULT NULL;

@@ -62,7 +62,14 @@ type AgentResponse struct {
 	// for this agent (empty = use runtime default). The picker is per-runtime
 	// per-model; the API never normalizes across providers. See MUL-2339.
 	ThinkingLevel string              `json:"thinking_level"`
-	OwnerID       *string             `json:"owner_id"`
+	// SystemKey (0.3.51) — optional system-prompt binding, empty when
+	// the agent runs its own instructions verbatim. Currently only
+	// "constitution_agent_v1" is recognised (the constitution_agent
+	// runtime prepends the constitution Skill body when the key is set).
+	// The value is round-tripped through Create/Update so the agent
+	// creator studio can toggle the binding on saved agents.
+	SystemKey   string               `json:"system_key"`
+	OwnerID     *string              `json:"owner_id"`
 	Skills        []AgentSkillSummary `json:"skills"`
 	CreatedAt     string              `json:"created_at"`
 	UpdatedAt     string              `json:"updated_at"`
@@ -137,6 +144,7 @@ func agentToResponse(a db.Agent) AgentResponse {
 		MaxConcurrentTasks: a.MaxConcurrentTasks,
 		Model:              a.Model.String,
 		ThinkingLevel:      a.ThinkingLevel.String,
+		SystemKey:          a.SystemKey.String,
 		OwnerID:            uuidToPtr(a.OwnerID),
 		Skills:             []AgentSkillSummary{},
 		CreatedAt:          timestampToString(a.CreatedAt),
@@ -355,6 +363,11 @@ type TaskAgentData struct {
 	McpConfig     json.RawMessage             `json:"mcp_config,omitempty"`
 	Model         string                      `json:"model,omitempty"`
 	ThinkingLevel string                      `json:"thinking_level,omitempty"`
+	// SystemKey (0.3.51) — system-prompt binding key. The daemon reads
+	// this and, when it matches a known Skill (e.g. "constitution_agent_v1"),
+	// prepends the Skill body to the agent's Instructions before sending
+	// to the provider. Empty = no binding (default).
+	SystemKey     string                      `json:"system_key,omitempty"`
 	// RuntimeConfig is the agent's saved runtime_config JSON as-is. The
 	// daemon decodes it per-provider — e.g. the openclaw backend reads
 	// `mode` + `gateway.*` to choose between embedded and gateway routing
@@ -712,6 +725,12 @@ type CreateAgentRequest struct {
 	MaxConcurrentTasks int32             `json:"max_concurrent_tasks"`
 	Model              string            `json:"model"`
 	ThinkingLevel      string            `json:"thinking_level"`
+	// SystemKey (0.3.51) — optional system-prompt binding. Today only
+	// `constitution_agent_v1` is recognised; empty/NULL means the agent
+	// runs its own instructions verbatim. The constitution_agent runtime
+	// uses this to know whether to prepend the constitution Skill body
+	// before the daemon executes the agent's task.
+	SystemKey string `json:"system_key"`
 	// Template records which template slug was used to seed this agent
 	// (e.g. "coding" / "planning" / "writing" / "assistant"). Empty when
 	// the caller didn't come from a template picker — the `agent_created`
@@ -862,6 +881,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		McpConfig:          mc,
 		Model:              pgtype.Text{String: req.Model, Valid: req.Model != ""},
 		ThinkingLevel:      pgtype.Text{String: req.ThinkingLevel, Valid: req.ThinkingLevel != ""},
+		SystemKey:          pgtype.Text{String: req.SystemKey, Valid: req.SystemKey != ""},
 	})
 	if err != nil {
 		// Unique constraint on (workspace_id, name) — return a clear conflict error
@@ -994,6 +1014,13 @@ type UpdateAgentRequest struct {
 	// Distinguishing those modes is why this is a pointer; the raw-fields
 	// map captured at decode time tells us whether the key was sent.
 	ThinkingLevel *string `json:"thinking_level"`
+	// SystemKey (0.3.51) follows the same tri-state pattern as
+	// ThinkingLevel: omitted → no change, present with "" → explicit
+	// clear (back to NULL / no system prompt), present with non-empty →
+	// set (e.g. "constitution_agent_v1"). Today only the constitution
+	// flag uses this; the runtime resolves the key against the
+	// Skill catalogue before prepending it to the agent's instructions.
+	SystemKey *string `json:"system_key"`
 }
 
 // workspaceAlwaysRedactSecrets reports whether the workspace has opted
@@ -1277,6 +1304,17 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 			))
 			return
 		}
+	}
+
+	// 0.3.51: system_key follows the tri-state pointer pattern.
+	//   omitted → no change (COALESCE keeps existing value)
+	//   ""      → explicit clear (set NULL, agent runs plain instructions)
+	//   value   → set (currently only "constitution_agent_v1" is recognised;
+	//              an unknown key is still accepted — the runtime treats it
+	//              as "no binding" rather than 400 so the schema doesn't
+	//              break when a new system_prompt is added later).
+	if req.SystemKey != nil {
+		params.SystemKey = pgtype.Text{String: *req.SystemKey, Valid: *req.SystemKey != ""}
 	}
 
 	updated, err := h.Queries.UpdateAgent(r.Context(), params)

@@ -1321,6 +1321,7 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			McpConfig:     mcpConfig,
 			Model:         agent.Model.String,
 			ThinkingLevel: agent.ThinkingLevel.String,
+			SystemKey:     agent.SystemKey.String,
 			RuntimeConfig: runtimeConfig,
 		}
 		if useSkillRefs {
@@ -1410,6 +1411,36 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 						"squad_id", uuidToString(squad.ID),
 						"squad_name", squad.Name,
 						"leader_agent_id", resp.Agent.ID,
+					)
+				}
+			}
+
+			// 0.3.51: prepend the system-prompt binding (if any) to the
+			// agent's Instructions before the daemon dispatches the task.
+			// Today only "constitution_agent_v1" is recognised — the
+			// constitution_agent Skill body becomes the root system
+			// prompt, sitting above the agent's own Instructions so the
+			// user-authored text stays authoritative for general
+			// behaviour while the Skill enforces the workspace's hard
+			// constraints. Other keys are tolerated at the API surface
+			// (CreateAgent / UpdateAgent) but ignored here so adding a
+			// new system prompt later is a daemon-side change, not a
+			// schema change.
+			if resp.Agent != nil && resp.Agent.SystemKey != "" {
+				if body, ok := loadSystemPromptBinding(resp.Agent.SystemKey); ok {
+					if strings.TrimSpace(resp.Agent.Instructions) == "" {
+						resp.Agent.Instructions = body
+					} else {
+						resp.Agent.Instructions = body + "\n\n" + resp.Agent.Instructions
+					}
+					slog.Debug("injected system prompt binding",
+						"agent_id", resp.Agent.ID,
+						"system_key", resp.Agent.SystemKey,
+					)
+				} else {
+					slog.Warn("system_key set but binding body not found",
+						"agent_id", resp.Agent.ID,
+						"system_key", resp.Agent.SystemKey,
 					)
 				}
 			}
@@ -3191,4 +3222,36 @@ func (h *Handler) GetTaskGCCheck(w http.ResponseWriter, r *http.Request) {
 		"status":       task.Status,
 		"completed_at": task.CompletedAt.Time,
 	})
+}
+
+// loadSystemPromptBinding resolves an `agent.system_key` to the body
+// text that should be prepended to the agent's Instructions at
+// dispatch time. The mapping is intentionally minimal: each key
+// points at exactly one builtin Skill whose body becomes the root
+// system prompt. Adding a new system prompt means (a) adding a Skill
+// under server/internal/service/builtin_skills/multica-<name>/, and
+// (b) adding a case here.
+//
+// Returns (body, true) on hit; ("", false) when the key is unknown
+// or the Skill file is missing. The caller logs a warning so an
+// uninstalled Skill doesn't silently strip the binding.
+//
+// 0.3.51: initial wiring with one binding — constitution_agent_v1 →
+// multica-constitution-agent. The Skill body is loaded lazily via
+// the same loadBuiltinSkill helper used by the Skill catalogue so
+// adding more bindings does not require a new code path.
+func loadSystemPromptBinding(key string) (string, bool) {
+	switch key {
+	case "constitution_agent_v1":
+		// Cache hits because the Skill catalogue already loads every
+		// builtin skill at boot — loadBuiltinSkill hits embed.FS which
+		// is in-memory, so the second call is just a path read.
+		skill, ok := service.LoadBuiltinSkillByName("multica-constitution-agent")
+		if !ok {
+			return "", false
+		}
+		return skill.Content, true
+	default:
+		return "", false
+	}
 }

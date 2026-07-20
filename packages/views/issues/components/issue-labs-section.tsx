@@ -45,50 +45,6 @@ export function labSourceRouteSuffix(
 }
 
 /**
- * @deprecated 0.3.49.1: the renderer-side hardcoded `VIEW_LAB_SOURCES`
- * set has been folded into the server catalog as
- * `Flag.HidesDeliverableInIssueTimeline` (mirrored on the wire as
- * `hides_deliverable_in_issue_timeline`). The two consumer sites
- * (`IssueLabsSection` for the open-panel link, `IssueDetail` for the
- * timeline comment filter) now read the field via `useExperimentalFlags`.
- * The constant is kept exported only so older renderers don't fail to
- * typecheck during the rollout window; new code MUST NOT reference it.
- *
- * Lab sources that own a dedicated workspace-scoped view (workbench).
- * For these labs the agent's substantive output is delivered inside the
- * lab panel (via GetClaudeLabContext), so issue-detail.tsx hides the
- * agent's deliverable comments from the plain issue timeline — the
- * results belong in the lab, not the issue task.
- *
- * 0.3.49: noted as a 6-element subset that overlaps with the catalog's
- * `HideFromIssueLabPicker` field. The two encode different semantics:
- *  - `VIEW_LAB_SOURCES` answers "does this lab ship a workspace-scoped
- *    view?" (used by issue-detail.tsx to gate the timeline deliverable
- *    thread).
- *  - `HideFromIssueLabPicker` answers "should this lab be hidden from
- *    the per-issue LabPicker popover?" (used by `lab-picker.tsx` to
- *    suppress infrastructure / self-driven labs from manual selection).
- *
- * They happen to share 6 keys today, but the lists can diverge:
- * `chat_pin_ui` and `agent_creation_studio` are NOT in
- * `VIEW_LAB_SOURCES` (neither owns a workspace-scoped view); the
- * `HideFromIssueLabPicker:true` set (`llm_wiki_bridge` +
- * `agent_self_optimization`) intentionally stays small. The hardcoded
- * set is maintained as the canonical "workspace-scoped view" anchor;
- * the server-driven `HideFromIssueLabPicker` is independently toggled
- * in `server/internal/experimental/catalog.go`.
- */
-export const VIEW_LAB_SOURCES: ReadonlySet<string> = new Set([
-  "claude_science_lab",
-  "pythia_oracle",
-  "mythos_swarm",
-  "llm_wiki_bridge",
-  "code_canvas",
-  "agent_self_optimization",
-  "constitution_agent",
-]);
-
-/**
  * Sidebar "Labs" section for issues that were tagged with a lab source.
  */
 export function IssueLabsSection({
@@ -115,12 +71,11 @@ export function IssueLabsSection({
 
   const suffix = FLAG_ROUTE_SUFFIX[labSource];
   const labEnabled = (flags ?? []).some((f) => f.key === labSource && f.enabled);
-  // 0.3.49.1: read the "owns a workbench view" flag from the catalog
-  // rather than the deprecated VIEW_LAB_SOURCES const. The semantics
-  // are identical (the const was seeded with the same 7 flags the
-  // catalog now declares `hides_deliverable_in_issue_timeline: true`)
-  // but going through the server keeps the consumer in sync with
-  // future flag additions or removals without a TS release.
+  // 0.3.51: the catalog's `hides_deliverable_in_issue_timeline` field
+  // is the single source-of-truth for "does this lab ship a
+  // workspace-scoped workbench view?". The 0.3.49.1 ship wired this
+  // lookup; the 0.3.50 ship replaced the historical VIEW_LAB_SOURCES
+  // const entirely, so this is now the only place the field is read.
   const hidesDeliverable = (flags ?? []).some(
     (f) => f.key === labSource && f.hides_deliverable_in_issue_timeline === true,
   );

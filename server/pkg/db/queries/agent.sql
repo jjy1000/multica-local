@@ -32,14 +32,23 @@ SELECT * FROM agent
 WHERE id = $1 AND workspace_id = $2;
 
 -- name: CreateAgent :one
+-- 0.3.51: system_key added (was $17 / nil-safe). NULL means "no explicit
+-- system-prompt binding" — matches the pre-migration behaviour.
 INSERT INTO agent (
     workspace_id, name, description, avatar_url, runtime_mode,
     runtime_config, runtime_id, visibility, max_concurrent_tasks, owner_id,
-    instructions, custom_env, custom_args, mcp_config, model, thinking_level
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+    instructions, custom_env, custom_args, mcp_config, model, thinking_level,
+    system_key
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16,
+    $17
+)
 RETURNING *;
 
 -- name: UpdateAgent :one
+-- 0.3.51: system_key added (sqlc.narg preserves the COALESCE semantics so
+-- omitting the field leaves the existing value untouched).
 UPDATE agent SET
     name = COALESCE(sqlc.narg('name'), name),
     description = COALESCE(sqlc.narg('description'), description),
@@ -56,6 +65,7 @@ UPDATE agent SET
     mcp_config = COALESCE(sqlc.narg('mcp_config'), mcp_config),
     model = COALESCE(sqlc.narg('model'), model),
     thinking_level = COALESCE(sqlc.narg('thinking_level'), thinking_level),
+    system_key = COALESCE(sqlc.narg('system_key'), system_key),
     updated_at = now()
 WHERE id = $1
 RETURNING *;
