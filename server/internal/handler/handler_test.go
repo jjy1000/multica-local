@@ -43,6 +43,20 @@ func TestMain(m *testing.M) {
 		dbURL = "postgres://multica:multica@localhost:5432/multica?sslmode=disable"
 	}
 
+	// 0.3.52: materialise the install-fixture symlinks once before the
+	// suite runs. Idempotent — see ensureFixtureSymlinks. Without this,
+	// TestExperimentalResourcesRoundTrip_InstalledThenHidden fails
+	// with ErrManifestUnavailable because the fixture only ships a
+	// manifest.json + references to skills/ + agents/ symlinks that
+	// point at the production asset trees. A failure here skips the
+	// whole suite (we can't run tests that may need the fixture)
+	// rather than silently leaving it half-broken.
+	fixtureT := &testing.T{}
+	if !ensureFixtureSymlinks(fixtureT) {
+		fmt.Printf("Skipping tests: install fixture symlinks could not be created. failure detail: %v\n", fixtureT.Failed())
+		os.Exit(0)
+	}
+
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		fmt.Printf("Skipping tests: could not connect to database: %v\n", err)

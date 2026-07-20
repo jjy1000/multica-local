@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "experimental_source": "claude_science",
+  "workspace": {
+    "name": "Claude 科研实验室 (test fixture)",
+    "slug": "claude-science",
+    "description": "Minimal 1-skill / 1-agent / 1-squad fixture for TestExperimentalResourcesRoundTrip_InstalledThenHidden. Real production manifests ship 291 skills / 5 agents / 5 squads; the test only needs the contract to walk install → rollback → install once, so a single row of each is enough."
+  },
+  "skills": [
+    {
+      "category": "research",
+      "name": "fixture-perplexity-search",
+      "body_path": "skills/research/perplexity-search/SKILL.md"
+    }
+  ],
+  "agents": [
+    {
+      "name": "fixture-research",
+      "category": "research",
+      "prompt_path": "agents/research.txt"
+    }
+  ],
+  "squads": [
+    {
+      "name": "fixture-research-squad",
+      "description": "Single-agent test squad. Used only by TestExperimentalResourcesRoundTrip_InstalledThenHidden.",
+      "members": ["fixture-research"],
+      "leader_agent": "fixture-research"
+    }
+  ],
+  "installed_at_build": true,
+  "built_from": "test-fixture",
+  "counts": {
+    "skills": 1,
+    "agents": 1,
+    "squads": 1
+  }
+}

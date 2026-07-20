@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -13,22 +14,105 @@ import (
 	"github.com/multica-ai/multica/server/internal/experimental"
 )
 
-// testManifestPath is the path PR 6's installer reads from. We point
-// it at a small on-disk fixture so install can run end-to-end inside
-// the test. Production sets MULTICA_RESOURCES_DIR to the bundled DMG
-// resource dir; the test fixture keeps the install deterministic
-// (1 skill / 1 agent / 1 squad) instead of the full 291-skill
-// manifest, which would balloon test setup time.
+// testManifestPath is the dir PR 6's installer reads from. The test
+// sets MULTICA_RESOURCES_DIR to it and the installer reads
+// <dir>/claude-science/manifest.json.
+//
+// 0.3.52: the fixture used to live at /tmp/multica-test-fixtures and was
+// a hand-maintained /tmp tree with the manifest missing — every CI run
+// would fail-loud with ErrManifestUnavailable. Replaced with a small
+// repo-tracked fixture (testdata/claude-science-fixture/) + a TestMain
+// step that symlinks the production asset trees (skills/, agents/)
+// from apps/desktop/resources/claude-science/ on top so the install
+// path can actually read real SKILL.md + .txt bodies. The manifest
+// itself is a 1-skill / 1-agent / 1-squad minimal copy so the install
+// round-trip runs in <1 s instead of inserting all 291 skills.
 //
 // Empty = test will skip the manifest-dependent paths.
-const testManifestPath = "/tmp/multica-test-fixtures"
+//
+// Production sets MULTICA_RESOURCES_DIR to the bundled DMG resource
+// dir; the test fixture keeps the install deterministic.
+func testManifestPath(t *testing.T) string {
+	t.Helper()
+	// Resolve relative to the package directory so the path works
+	// regardless of where `go test` was invoked from.
+	fixtureRoot, err := filepath.Abs(filepath.Join("testdata", "claude-science-fixture"))
+	if err != nil {
+		t.Fatalf("abs fixture root: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(fixtureRoot, "claude-science", "manifest.json")); err != nil {
+		t.Skipf("fixture manifest not present at %s: %v", fixtureRoot, err)
+	}
+	return fixtureRoot
+}
+
+// ensureFixtureSymlinks materialises skills/ + agents/ inside the
+// fixture by symlinking the production asset trees on top of the
+// tracked manifest.json. Called from TestMain (idempotent).
+//
+// The fixture itself only carries a minimal 1/1/1 manifest so the
+// install path walks the contract quickly. Symlinking (not copying)
+// keeps the repo lean — the full 291-skill + 5-agent + 5-squad trees
+// live only in apps/desktop/resources/claude-science/. Without the
+// symlinks, loadManifestAsset would return "" for every body / prompt
+// (silent degradation path — install still succeeds) but the test
+// would be less meaningful because no real SKILL.md body ever reaches
+// the DB.
+//
+// 0.3.52: returns an error rather than calling t.Fatalf because this
+// helper is also invoked from TestMain, where the supplied *testing.T
+// is a no-op stub — t.Fatalf on a non-running test deadlocks. The
+// TestMain call site logs and skips the suite; per-test call sites
+// still get the t.Fatalf behaviour via t.Skipf below.
+func ensureFixtureSymlinks(t *testing.T) (ok bool) {
+	t.Helper()
+	fixRoot, err := filepath.Abs(filepath.Join("testdata", "claude-science-fixture"))
+	if err != nil {
+		t.Logf("abs fixture root: %v", err)
+		return false
+	}
+	// Production asset root — derived relative to the server package.
+// server/internal/handler/testdata/claude-science-fixture →
+//   up 5 = repo root (multica-main) →
+//   apps/desktop/resources/claude-science
+prodRoot, err := filepath.Abs(filepath.Join(fixRoot, "..", "..", "..", "..", "..", "apps", "desktop", "resources", "claude-science"))
+	if err != nil {
+		t.Logf("abs prod root: %v", err)
+		return false
+	}
+	if _, err := os.Stat(prodRoot); err != nil {
+		t.Logf("production asset root not present at %s: %v", prodRoot, err)
+		return false
+	}
+
+	for _, name := range []string{"skills", "agents"} {
+		linkPath := filepath.Join(fixRoot, "claude-science", name)
+		target := filepath.Join(prodRoot, name)
+		// If linkPath exists and already points at the right target,
+		// skip — repeated TestMain invocations would otherwise error.
+		if existing, lerr := os.Readlink(linkPath); lerr == nil && existing == target {
+			continue
+		}
+		// Remove any stale file / dir / broken symlink before creating.
+		_ = os.Remove(linkPath)
+		if err := os.Symlink(target, linkPath); err != nil {
+			t.Logf("symlink %s → %s: %v", linkPath, target, err)
+			return false
+		}
+	}
+	return true
+}
 
 // withTestManifestEnv sets MULTICA_RESOURCES_DIR for the duration of
 // the test. Returns a cleanup function the caller must defer.
+//
+// 0.3.52: derives the path from a small repo-tracked fixture instead
+// of a hard-coded /tmp path. See testManifestPath for why.
 func withTestManifestEnv(t *testing.T) func() {
 	t.Helper()
 	prev := os.Getenv(ManifestResourceDirEnv)
-	if err := os.Setenv(ManifestResourceDirEnv, testManifestPath); err != nil {
+	path := testManifestPath(t)
+	if err := os.Setenv(ManifestResourceDirEnv, path); err != nil {
 		t.Fatalf("setenv %s: %v", ManifestResourceDirEnv, err)
 	}
 	return func() {
