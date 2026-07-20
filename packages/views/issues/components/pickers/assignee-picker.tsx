@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Lock, UserMinus } from "lucide-react";
+import { FlaskConical, Lock, UserMinus } from "lucide-react";
 import type { Agent, IssueAssigneeType, UpdateIssueRequest } from "@multica/core/types";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
@@ -299,14 +299,25 @@ export function AssigneePicker({
                   : null,
             });
             const allowed = decision.allowed;
+            // 0.3.56: lab-managed agents are auto-dispatched by their lab and
+            // must not be picked standalone — grey + disable + explain, same
+            // affordance as the permission gate above. The row still renders
+            // (not filtered out) so the lab/assignee model stays visible.
+            const labLocked = a.lab_managed === true;
+            const disabled = !allowed || labLocked;
+            const tooltip = labLocked
+              ? t(($) => $.pickers.assignee.lab_managed_tooltip)
+              : !allowed
+                ? decision.message
+                : undefined;
             return (
               <PickerItem
                 key={a.id}
                 selected={isSelected("agent", a.id)}
-                disabled={!allowed}
-                tooltip={!allowed ? decision.message : undefined}
+                disabled={disabled}
+                tooltip={tooltip}
                 onClick={() => {
-                  if (!allowed) return;
+                  if (disabled) return;
                   onUpdate({
                     assignee_type: "agent",
                     assignee_id: a.id,
@@ -315,10 +326,12 @@ export function AssigneePicker({
                 }}
               >
                 <ActorAvatar actorType="agent" actorId={a.id} size={18} showStatusDot />
-                <span className={`truncate ${allowed ? "" : "text-muted-foreground"}`}>{a.name}</span>
-                {a.visibility === "private" && (
+                <span className={`truncate ${disabled ? "text-muted-foreground" : ""}`}>{a.name}</span>
+                {labLocked ? (
+                  <FlaskConical className="ml-auto h-3 w-3 text-muted-foreground" />
+                ) : a.visibility === "private" ? (
                   <Lock className="ml-auto h-3 w-3 text-muted-foreground" />
-                )}
+                ) : null}
               </PickerItem>
             );
           })}
@@ -329,22 +342,38 @@ export function AssigneePicker({
           its leader agent on the backend. */}
       {filteredSquads.length > 0 && (
         <PickerSection label={t(($) => $.pickers.assignee.squads_group)}>
-          {filteredSquads.map((s) => (
-            <PickerItem
-              key={s.id}
-              selected={isSelected("squad", s.id)}
-              onClick={() => {
-                onUpdate({
-                  assignee_type: "squad",
-                  assignee_id: s.id,
-                });
-                setOpen(false);
-              }}
-            >
-              <ActorAvatar actorType="squad" actorId={s.id} size={18} />
-              <span className="truncate">{s.name}</span>
-            </PickerItem>
-          ))}
+          {filteredSquads.map((s) => {
+            // 0.3.56: lab-owned squads (e.g. the Claude Science / Mythos
+            // rosters) are reachable only by selecting the lab on an issue —
+            // grey + disable them here so they can't be assigned standalone.
+            const labLocked = s.lab_managed === true;
+            return (
+              <PickerItem
+                key={s.id}
+                selected={isSelected("squad", s.id)}
+                disabled={labLocked}
+                tooltip={
+                  labLocked
+                    ? t(($) => $.pickers.assignee.lab_managed_tooltip)
+                    : undefined
+                }
+                onClick={() => {
+                  if (labLocked) return;
+                  onUpdate({
+                    assignee_type: "squad",
+                    assignee_id: s.id,
+                  });
+                  setOpen(false);
+                }}
+              >
+                <ActorAvatar actorType="squad" actorId={s.id} size={18} />
+                <span className={`truncate ${labLocked ? "text-muted-foreground" : ""}`}>{s.name}</span>
+                {labLocked && (
+                  <FlaskConical className="ml-auto h-3 w-3 text-muted-foreground" />
+                )}
+              </PickerItem>
+            );
+          })}
         </PickerSection>
       )}
 

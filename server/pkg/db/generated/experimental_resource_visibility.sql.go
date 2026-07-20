@@ -79,3 +79,39 @@ func (q *Queries) ListHiddenResourceIDs(ctx context.Context, arg ListHiddenResou
 	}
 	return items, nil
 }
+
+const listLabManagedResourceIDs = `-- name: ListLabManagedResourceIDs :many
+SELECT resource_id FROM experimental_resource_visibility
+WHERE resource_type = $1
+`
+
+// 0.3.56: "lab-managed" marker source-of-truth. A row's EXISTENCE in the
+// visibility table means "this resource belongs to a Labs flag and is
+// infrastructure, not a standalone actor" — independent of the row's
+// `hidden` value and of whether the flag is currently on. ListAgents /
+// ListSquads use this to stamp `lab_managed` on the DTO so the frontend
+// can grey+disable the row in selection pickers and hide it from the
+// browse lists, while keeping the row in the list payload so the shared
+// useActorName name/avatar map still resolves it (a lab agent that is
+// auto-assigned as an issue leader, or that authors a comment, must keep
+// rendering by id). We do NOT filter by flag_key here on purpose: an
+// agent seeded by any flag is lab-managed regardless of which one.
+func (q *Queries) ListLabManagedResourceIDs(ctx context.Context, resourceType string) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listLabManagedResourceIDs, resourceType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var resource_id pgtype.UUID
+		if err := rows.Scan(&resource_id); err != nil {
+			return nil, err
+		}
+		items = append(items, resource_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

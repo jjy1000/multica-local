@@ -614,11 +614,11 @@ function ActorPicker({
   const query = filter.trim().toLowerCase();
 
   const filteredAgents = useMemo(
-    () => visibleAgents.filter((a) => a.name.toLowerCase().includes(query) || matchesPinyin(a.name, query)),
+    () => visibleAgents.filter((a) => !a.lab_managed && (a.name.toLowerCase().includes(query) || matchesPinyin(a.name, query))),
     [visibleAgents, query],
   );
   const filteredSquads = useMemo(
-    () => visibleSquads.filter((s) => s.name.toLowerCase().includes(query) || matchesPinyin(s.name, query)),
+    () => visibleSquads.filter((s) => !s.lab_managed && (s.name.toLowerCase().includes(query) || matchesPinyin(s.name, query))),
     [visibleSquads, query],
   );
 

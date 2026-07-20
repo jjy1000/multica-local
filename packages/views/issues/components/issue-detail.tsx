@@ -108,7 +108,7 @@ function SubscriberPopoverContent({
   t,
 }: {
   members: { user_id: string; name: string }[];
-  agents: { id: string; name: string; archived_at?: string | null }[];
+  agents: { id: string; name: string; archived_at?: string | null; lab_managed?: boolean }[];
   subscribers: { user_type: string; user_id: string }[];
   toggleSubscriber: (id: string, type: "member" | "agent", subscribed: boolean) => void;
   t: ActivityT;
@@ -123,8 +123,8 @@ function SubscriberPopoverContent({
     ? uniqueMembers.filter((m) => m.name.toLowerCase().includes(q) || matchesPinyin(m.name, q))
     : uniqueMembers;
   const filteredAgents = q
-    ? activeAgents.filter((a) => a.name.toLowerCase().includes(q) || matchesPinyin(a.name, q))
-    : activeAgents;
+    ? activeAgents.filter((a) => !a.lab_managed && (a.name.toLowerCase().includes(q) || matchesPinyin(a.name, q)))
+    : activeAgents.filter((a) => !a.lab_managed);
 
   return (
     <PopoverContent align="end" className="w-64 p-0">

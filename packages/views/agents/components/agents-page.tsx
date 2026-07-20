@@ -799,11 +799,18 @@ export function AgentsPage(_props: AgentsPageProps = {}) {
   const currentUser = useAuthStore((s) => s.user);
 
   const {
-    data: agents = [],
+    data: allAgents = [],
     isLoading,
     error: listError,
     refetch: refetchList,
   } = useQuery(agentListOptions(wsId));
+  // 0.3.56: lab-managed agents are infrastructure (auto-dispatched by their
+  // lab), not standalone actors the user manages — hide them from the browse
+  // list and its scope counts. They still resolve by id via useActorName, so
+  // an auto-assigned leader or a lab agent's comment keeps rendering.
+  // useMemo keeps a stable identity so the downstream scopeCounts/scopeRows
+  // memos don't recompute on every render.
+  const agents = useMemo(() => allAgents.filter((a) => !a.lab_managed), [allAgents]);
   const { data: runtimes = [], isLoading: runtimesLoading } = useQuery(
     runtimeListOptions(wsId),
   );

@@ -444,7 +444,8 @@
       "search_placeholder": "Assign to...",
       "members_group": "Members",
       "agents_group": "Agents",
-      "squads_group": "Squads"
+      "squads_group": "Squads",
+      "lab_managed_tooltip": "Managed by a lab — select the lab on the issue to use it"
     },
     "start_date": {
       "trigger_label": "Start date",

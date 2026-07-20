@@ -323,6 +323,18 @@ describe("SquadListSchema member preview drift", () => {
     expect(parsed[0]?.member_preview).toHaveLength(2);
     expect(parsed[0]?.member_preview?.[0]?.role).toBe("leader");
   });
+
+  // 0.3.56: lab-managed marker. Older backends / single-row endpoints omit
+  // it (→ false); list responses for lab-owned squads carry true so the
+  // browse list + pickers can hide / grey them.
+  it("marks lab-managed squads and defaults the flag to false", () => {
+    const parsed = SquadListSchema.parse([
+      baseSquad,
+      { ...baseSquad, id: "squad-2", lab_managed: true },
+    ]);
+    expect(parsed[0]?.lab_managed).toBe(false);
+    expect(parsed[1]?.lab_managed).toBe(true);
+  });
 });
 
 // The workspace dashboard and runtime-detail pages were re-pointed at the

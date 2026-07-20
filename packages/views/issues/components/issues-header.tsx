@@ -210,10 +210,10 @@ function ActorSubContent({
     m.name.toLowerCase().includes(query) || matchesPinyin(m.name, query),
   );
   const filteredAgents = agents.filter((a) =>
-    !a.archived_at && (a.name.toLowerCase().includes(query) || matchesPinyin(a.name, query)),
+    !a.archived_at && !a.lab_managed && (a.name.toLowerCase().includes(query) || matchesPinyin(a.name, query)),
   );
   const filteredSquads = squads.filter((s) =>
-    !s.archived_at && (s.name.toLowerCase().includes(query) || matchesPinyin(s.name, query)),
+    !s.archived_at && !s.lab_managed && (s.name.toLowerCase().includes(query) || matchesPinyin(s.name, query)),
   );
 
   const isSelected = (type: "member" | "agent" | "squad", id: string) =>

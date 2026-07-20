@@ -53,8 +53,8 @@ export function AgentPicker({
   const query = filter.trim().toLowerCase();
   const matches = (name: string) =>
     !query || name.toLowerCase().includes(query) || matchesPinyin(name, query);
-  const filteredAgents = activeAgents.filter((a) => matches(a.name));
-  const filteredSquads = activeSquads.filter((s) => matches(s.name));
+  const filteredAgents = activeAgents.filter((a) => !a.lab_managed && matches(a.name));
+  const filteredSquads = activeSquads.filter((s) => !s.lab_managed && matches(s.name));
 
   const isSelected = (type: AutopilotAssigneeType, id: string) =>
     assignee?.type === type && assignee?.id === id;

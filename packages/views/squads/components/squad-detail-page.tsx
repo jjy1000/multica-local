@@ -210,7 +210,7 @@ export function SquadDetailPage() {
     return <SquadDetailSkeleton />;
   }
 
-  const availableAgents = agents.filter((a: Agent) => !a.archived_at && !members.some((m) => m.member_type === "agent" && m.member_id === a.id));
+  const availableAgents = agents.filter((a: Agent) => !a.archived_at && !a.lab_managed && !members.some((m) => m.member_type === "agent" && m.member_id === a.id));
   const availableMembers = wsMembers.filter((m) => !members.some((sm) => sm.member_type === "member" && sm.member_id === m.user_id));
   const isLeader = (m: SquadMember) => m.member_type === "agent" && squad.leader_id === m.member_id;
   const isArchived = (m: SquadMember) =>

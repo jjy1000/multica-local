@@ -754,10 +754,16 @@ export function SquadsPage() {
   const rowLink = useRowLink();
   const currentUser = useAuthStore((s) => s.user);
 
-  const { data: squads = [], isLoading } = useQuery({
+  const { data: allSquads = [], isLoading } = useQuery({
     ...squadListOptions(wsId),
     enabled: !!wsId,
   });
+  // 0.3.56: hide lab-owned squads (Claude Science / Mythos rosters) from the
+  // browse list, scope counts and header badge — they're reachable only by
+  // selecting the owning lab on an issue. `agents` below stays unfiltered on
+  // purpose: it resolves leader / member names by id for the rows we DO show.
+  // useMemo keeps a stable identity for the downstream scope memos.
+  const squads = useMemo(() => allSquads.filter((s) => !s.lab_managed), [allSquads]);
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   const { data: members = [] } = useQuery(memberListOptions(wsId));
 

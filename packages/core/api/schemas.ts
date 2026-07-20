@@ -752,6 +752,10 @@ export const SquadSchema = z.object({
   archived_by: z.string().nullable().optional().transform((v) => v ?? null),
   member_count: z.number().default(0),
   member_preview: z.array(SquadMemberPreviewSchema).default([]),
+  // 0.3.56: lab-managed marker. Optional + defaulted to false so older
+  // backends (and single-row endpoints that don't stamp it) parse cleanly;
+  // the squads browse list + pickers read it to hide / grey lab squads.
+  lab_managed: z.boolean().optional().default(false),
 }).loose();
 
 export const SquadListSchema = z.array(SquadSchema);

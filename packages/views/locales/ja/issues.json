@@ -425,7 +425,8 @@
       "search_placeholder": "担当者を割り当て...",
       "members_group": "メンバー",
       "agents_group": "エージェント",
-      "squads_group": "スクワッド"
+      "squads_group": "スクワッド",
+      "lab_managed_tooltip": "ラボ管理下 · 使うには issue でラボを選択してください"
     },
     "start_date": {
       "trigger_label": "開始日",

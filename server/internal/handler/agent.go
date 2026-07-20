@@ -61,20 +61,32 @@ type AgentResponse struct {
 	// ThinkingLevel is the runtime-native reasoning/effort token persisted
 	// for this agent (empty = use runtime default). The picker is per-runtime
 	// per-model; the API never normalizes across providers. See MUL-2339.
-	ThinkingLevel string              `json:"thinking_level"`
+	ThinkingLevel string `json:"thinking_level"`
 	// SystemKey (0.3.51) — optional system-prompt binding, empty when
 	// the agent runs its own instructions verbatim. Currently only
 	// "constitution_agent_v1" is recognised (the constitution_agent
 	// runtime prepends the constitution Skill body when the key is set).
 	// The value is round-tripped through Create/Update so the agent
 	// creator studio can toggle the binding on saved agents.
-	SystemKey   string               `json:"system_key"`
-	OwnerID     *string              `json:"owner_id"`
-	Skills        []AgentSkillSummary `json:"skills"`
-	CreatedAt     string              `json:"created_at"`
-	UpdatedAt     string              `json:"updated_at"`
-	ArchivedAt    *string             `json:"archived_at"`
-	ArchivedBy    *string             `json:"archived_by"`
+	SystemKey  string              `json:"system_key"`
+	OwnerID    *string             `json:"owner_id"`
+	Skills     []AgentSkillSummary `json:"skills"`
+	CreatedAt  string              `json:"created_at"`
+	UpdatedAt  string              `json:"updated_at"`
+	ArchivedAt *string             `json:"archived_at"`
+	ArchivedBy *string             `json:"archived_by"`
+	// LabManaged (0.3.56) — true when this agent is Labs infrastructure
+	// (a row exists for it in experimental_resource_visibility, seeded by
+	// some flag's install handler). Such agents are auto-dispatched by
+	// their lab and must NOT be picked as a standalone assignee: the
+	// frontend greys+disables them in selection pickers and hides them
+	// from the agents browse list. The field is stamped only on list
+	// responses (ListAgents); single-row endpoints leave it false because
+	// display-only surfaces resolve the agent by id and never offer it as
+	// a choice — and keeping the row in the list payload is what lets the
+	// shared useActorName map still render an auto-assigned lab leader or
+	// a lab agent's comment by id.
+	LabManaged bool `json:"lab_managed"`
 }
 
 // runtimeConfigGatewayTokenMask is the placeholder the API substitutes for
@@ -367,7 +379,7 @@ type TaskAgentData struct {
 	// this and, when it matches a known Skill (e.g. "constitution_agent_v1"),
 	// prepends the Skill body to the agent's Instructions before sending
 	// to the provider. Empty = no binding (default).
-	SystemKey     string                      `json:"system_key,omitempty"`
+	SystemKey string `json:"system_key,omitempty"`
 	// RuntimeConfig is the agent's saved runtime_config JSON as-is. The
 	// daemon decodes it per-provider — e.g. the openclaw backend reads
 	// `mode` + `gateway.*` to choose between embedded and gateway routing
@@ -638,6 +650,9 @@ func (h *Handler) ListAgents(w http.ResponseWriter, r *http.Request) {
 	// to preserve A2A collaboration; members must be in allowed_principals
 	// (agent owner or workspace owner/admin) to see private agents.
 	actorType, actorID := h.resolveActor(r, userID, workspaceID)
+	// 0.3.56: stamp lab_managed so the UI can keep lab infrastructure out
+	// of standalone selection while still resolving its identity by id.
+	managed := labManagedSet(r.Context(), h.Queries, experimental.HideAgent)
 	visible := make([]AgentResponse, 0, len(agents))
 	for _, a := range agents {
 		if a.Visibility == "private" && actorType == "member" {
@@ -646,6 +661,7 @@ func (h *Handler) ListAgents(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		resp := agentToResponse(a)
+		_, resp.LabManaged = managed[a.ID.Bytes]
 		if skills, ok := skillMap[resp.ID]; ok {
 			resp.Skills = skills
 		}

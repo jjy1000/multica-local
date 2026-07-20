@@ -872,8 +872,8 @@ export function AgentDropdown({
   const query = filter.trim().toLowerCase();
   const matches = (name: string) =>
     !query || name.toLowerCase().includes(query) || matchesPinyin(name, query);
-  const filteredMine = mine.filter((agent) => matches(agent.name));
-  const filteredOthers = others.filter((agent) => matches(agent.name));
+  const filteredMine = mine.filter((agent) => !agent.lab_managed && matches(agent.name));
+  const filteredOthers = others.filter((agent) => !agent.lab_managed && matches(agent.name));
 
   const handlePick = (agent: Agent) => {
     onSelect(agent);

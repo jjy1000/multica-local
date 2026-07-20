@@ -23,6 +23,15 @@ export interface Squad {
   archived_by: string | null;
   member_count?: number;
   member_preview?: SquadMemberPreview[];
+  /**
+   * True when this squad is Labs infrastructure (seeded into the server's
+   * experimental_resource_visibility table by a flag's install handler).
+   * Lab-owned squads are hidden from the squads browse list and greyed+
+   * disabled in pickers; they are only usable by selecting the owning lab
+   * on an issue. Stamped only on `GET /api/squads` list responses; absent
+   * (treat as false) on single-row endpoints and older backends. 0.3.56.
+   */
+  lab_managed?: boolean;
 }
 
 export interface SquadMember {

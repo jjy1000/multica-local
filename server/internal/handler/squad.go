@@ -11,9 +11,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
+	"github.com/multica-ai/multica/server/internal/experimental"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/util"
-	"github.com/multica-ai/multica/server/internal/experimental"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
@@ -35,6 +35,11 @@ type SquadResponse struct {
 	ArchivedBy    *string                      `json:"archived_by"`
 	MemberCount   int                          `json:"member_count"`
 	MemberPreview []SquadMemberPreviewResponse `json:"member_preview"`
+	// LabManaged (0.3.56) — see AgentResponse.LabManaged. Stamped on list
+	// responses only (ListSquads) so the UI can hide lab-owned squads from
+	// the browse list and grey+disable them in pickers while the shared
+	// name/avatar map still resolves them by id.
+	LabManaged bool `json:"lab_managed"`
 }
 
 type SquadMemberPreviewResponse struct {
@@ -249,9 +254,11 @@ func (h *Handler) ListSquads(w http.ResponseWriter, r *http.Request) {
 		addSquadMemberPreview(summary, row.MemberType, row.MemberID, row.Role)
 	}
 
+	managed := labManagedSet(r.Context(), h.Queries, experimental.HideSquad)
 	resp := make([]SquadResponse, len(squads))
 	for i, s := range squads {
 		resp[i] = squadToResponse(s)
+		_, resp[i].LabManaged = managed[s.ID.Bytes]
 		applySquadMemberSummary(&resp[i], summaries[uuidToString(s.ID)])
 	}
 	writeJSON(w, http.StatusOK, resp)

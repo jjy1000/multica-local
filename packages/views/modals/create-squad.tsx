@@ -66,7 +66,7 @@ export function CreateSquadModal({ onClose }: { onClose: () => void }) {
   const { data: wsMembers = [] } = useQuery(memberListOptions(wsId));
 
   const activeAgents = useMemo(
-    () => agents.filter((a: Agent) => !a.archived_at && a.runtime_id),
+    () => agents.filter((a: Agent) => !a.archived_at && !a.lab_managed && a.runtime_id),
     [agents],
   );
 
@@ -256,13 +256,13 @@ function LeaderPicker({
   const [filter, setFilter] = useState("");
 
   const myAgents = useMemo(
-    () => (currentUserId ? agents.filter((a) => a.owner_id === currentUserId) : []),
+    () => (currentUserId ? agents.filter((a) => !a.lab_managed && a.owner_id === currentUserId) : []),
     [agents, currentUserId],
   );
   const otherAgents = useMemo(
     () =>
       currentUserId
-        ? agents.filter((a) => a.owner_id !== currentUserId)
+        ? agents.filter((a) => !a.lab_managed && a.owner_id !== currentUserId)
         : agents,
     [agents, currentUserId],
   );
@@ -421,7 +421,7 @@ function AdditionalMembersPicker({
   const myAgents = useMemo(
     () =>
       currentUserId
-        ? agents.filter((a) => a.owner_id === currentUserId && a.id !== leaderId)
+        ? agents.filter((a) => !a.lab_managed && a.owner_id === currentUserId && a.id !== leaderId)
         : [],
     [agents, currentUserId, leaderId],
   );
@@ -429,6 +429,7 @@ function AdditionalMembersPicker({
     () =>
       agents.filter(
         (a) =>
+          !a.lab_managed &&
           a.id !== leaderId &&
           (currentUserId ? a.owner_id !== currentUserId : true),
       ),

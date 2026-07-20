@@ -29,7 +29,7 @@ export function ProjectLeadPicker({ project, handleUpdate, renderTrigger, align 
   const leadQuery = leadFilter.toLowerCase();
 
   const filteredMembers = members.filter((m) => m.name.toLowerCase().includes(leadQuery) || matchesPinyin(m.name, leadQuery));
-  const filteredAgents = agents.filter((a) => !a.archived_at && (a.name.toLowerCase().includes(leadQuery) || matchesPinyin(a.name, leadQuery)));
+  const filteredAgents = agents.filter((a) => !a.archived_at && !a.lab_managed && (a.name.toLowerCase().includes(leadQuery) || matchesPinyin(a.name, leadQuery)));
 
   const leadId = project.lead_id;
   const leadType = project.lead_type;

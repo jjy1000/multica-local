@@ -126,3 +126,37 @@ func filterLabsHiddenByDefault[T any](
 	}
 	return filtered
 }
+
+// labManagedSet returns the resource IDs the visibility table marks as
+// lab-managed for the given resource type — resources that belong to some
+// Labs flag and must never be selectable as standalone actors. The set is
+// keyed by the raw 16-byte UUID so callers can test membership against a
+// sqlc pgtype.UUID's .Bytes without importing google/uuid. Flag-state and
+// `hidden`-column independent by design (see the ListLabManagedResourceIDs
+// query comment): a row's mere existence means "lab infrastructure".
+//
+// Fail-open, like the filter above: on lookup error we log and return an
+// empty set so the list degrades to today's behaviour (lab rows left
+// unmarked, still selectable) instead of erroring the whole list. The
+// marker is a UX affordance, not an authorization boundary.
+func labManagedSet(
+	ctx context.Context,
+	q *db.Queries,
+	kind experimental.HideableResource,
+) map[[16]byte]struct{} {
+	set := map[[16]byte]struct{}{}
+	if q == nil {
+		return set
+	}
+	rows, err := q.ListLabManagedResourceIDs(ctx, string(kind))
+	if err != nil {
+		slog.Warn("list lab-managed ids failed; leaving rows unmarked", "kind", string(kind), "err", err)
+		return set
+	}
+	for _, id := range rows {
+		if id.Valid {
+			set[id.Bytes] = struct{}{}
+		}
+	}
+	return set
+}

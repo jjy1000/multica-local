@@ -298,6 +298,17 @@ export interface Agent {
   thinking_level?: string;
   owner_id: string | null;
   skills: AgentSkillSummary[];
+  /**
+   * True when this agent is Labs infrastructure (a row exists for it in
+   * the server's experimental_resource_visibility table). Such agents are
+   * auto-dispatched by their lab and must not be picked as a standalone
+   * assignee — selection pickers grey+disable them and the agents browse
+   * list hides them. Stamped only on `GET /api/agents` list responses;
+   * absent (treat as false) on single-row endpoints and on older backends.
+   * The agent still appears in the list payload so the shared useActorName
+   * map can render it by id (auto-assigned leader, comment author). 0.3.56.
+   */
+  lab_managed?: boolean;
   created_at: string;
   updated_at: string;
   archived_at: string | null;

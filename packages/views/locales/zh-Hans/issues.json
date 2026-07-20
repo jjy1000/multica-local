@@ -430,7 +430,8 @@
       "search_placeholder": "分配给...",
       "members_group": "成员",
       "agents_group": "智能体",
-      "squads_group": "小队"
+      "squads_group": "小队",
+      "lab_managed_tooltip": "由实验室管理 · 在 issue 上选择实验室后自动使用"
     },
     "start_date": {
       "trigger_label": "开始日期",
