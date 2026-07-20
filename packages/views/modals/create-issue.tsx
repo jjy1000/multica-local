@@ -186,16 +186,19 @@ function CreateRunHint({
  *     (dialog falls back to its original slim layout, with zero
  *     extra rows).
  *   - When at least one flag is enabled → render the LabPicker
- *     inline. Picking a non-empty lab clears the current assignee
- *     because the lab owns the agent roster.
+ *     inline. Picking mythos_swarm in sole mode clears the current
+ *     assignee because that lab owns the agent roster; other labs
+ *     (and mythos enhancer mode) keep the manual assignee.
  */
 function LabPickerRow({
   labSource,
   setLabSource,
+  setLabMode,
   clearAssignee,
 }: {
   labSource: string | undefined;
   setLabSource: (next: string | undefined) => void;
+  setLabMode: (next: string | undefined) => void;
   /** Called when the user picks a non-empty lab so the issue never
    *  carries a stale assignee into a lab-owned run. Mirrors the
    *  same callback issue-detail.tsx wires into the issue-detail
@@ -231,6 +234,7 @@ function LabPickerRow({
         labSource={labSource}
         onUpdate={(u) => {
           setLabSource(u.lab_source ?? undefined);
+          setLabMode(u.lab_mode ?? undefined);
           // 0.3.33: only mythos_swarm reserves the agent roster
           // (and even then only in sole mode). Other labs
           // (claude_science_lab, pythia_oracle, llm_wiki_bridge,
@@ -381,6 +385,7 @@ export function ManualCreatePanel({
   const [startDatePickerOpen, setStartDatePickerOpen] = useState(false);
   // Lab source — associates the issue with an experimental lab.
   const [labSource, setLabSource] = useState<string | undefined>(undefined);
+  const [labMode, setLabMode] = useState<string | undefined>(undefined);
   // Children live as full Issue objects — the picker always returns the whole
   // object, and we never need to hydrate from an ID the way we do for parent.
   const [childIssues, setChildIssues] = useState<Issue[]>([]);
@@ -454,6 +459,7 @@ export function ManualCreatePanel({
     setParentIssueId(undefined);
     setStage(null);
     setLabSource(undefined);
+    setLabMode(undefined);
     setChildIssues([]);
     setDraft({
       title: "",
@@ -493,6 +499,7 @@ export function ManualCreatePanel({
         stage: parentIssueId && stage != null ? stage : undefined,
         project_id: projectId,
         lab_source: labSource,
+        lab_mode: labMode as "sole" | "enhancer" | undefined,
       });
 
       // 0.3.30.3: when the issue is tagged with lab_source =
@@ -807,6 +814,7 @@ export function ManualCreatePanel({
             <LabPickerRow
               labSource={labSource}
               setLabSource={setLabSource}
+              setLabMode={setLabMode}
               clearAssignee={() => updateAssignee(undefined, undefined)}
             />
 
@@ -828,9 +836,15 @@ export function ManualCreatePanel({
                 align="start"
               />
 
-              {/* Assignee — disabled (with tooltip) when a lab is selected.
-                  The lab owns the agent roster; flipping the lab off again
-                  re-enables picks via the lockedReason hook. */}
+              {/* Assignee — disabled (with tooltip) only when mythos_swarm
+                  is picked in sole mode, which reserves the agent roster.
+                  Every other lab (claude_science_lab / pythia_oracle /
+                  code_canvas) lets the user keep a manual assignee, and
+                  mythos enhancer mode REQUIRES one — it's the target the
+                  swarm supervises — so locking the picker there would
+                  trap the user out of a required field and guarantee the
+                  server-side "lab_mode=enhancer requires an assignee" 400.
+                  Mirrors issue-detail.tsx's lab_mode !== "enhancer" gate. */}
               <AssigneePicker
                 assigneeType={assigneeType ?? null}
                 assigneeId={assigneeId ?? null}
@@ -839,7 +853,7 @@ export function ManualCreatePanel({
                   u.assignee_id ?? undefined,
                 )}
                 lockedReason={
-                  labSource
+                  labSource === "mythos_swarm" && labMode !== "enhancer"
                     ? tIssues(($) => $.lab_section.clear_lab_first_tooltip)
                     : undefined
                 }

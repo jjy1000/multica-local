@@ -124,6 +124,20 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
   if (pythiaOracleEnabled) {
     return (
       <div className="flex h-full w-full flex-col">
+        {/* 0.3.54: when the user lands on the Pythia page without
+            pre-binding an issue, surface a one-line onboarding hint
+            that explains the issue-scoped prediction contract. The
+            hint shows above the report surface (which still renders
+            with its own issue picker below) so the user does not
+            think the page is empty when the report surface
+            "completes" without producing per-issue frames. */}
+        {!issueId && (
+          <div className="border-b border-border bg-muted/40 px-6 py-2 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/90">提示 · </span>
+            从「分配给」绑定的问题进入时,这里的报告会按 issue 出 10 轮多视角预测。
+            还没绑定?先到任务列表里给某个 issue 选 Pythia,再点上方「打开实验室面板」回来。
+          </div>
+        )}
         <Suspense
           fallback={
             <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">

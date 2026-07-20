@@ -446,3 +446,243 @@ func TestBatchUpdateIssuesLabSourceAutoAssignsLeader(t *testing.T) {
 		}
 	}
 }
+
+// ── 0.3.54 coverage ────────────────────────────────────────────────────────────
+//
+// defaultLabLeaderForKey was extended in 0.3.54 to cover every A-class
+// lab (`pythia_oracle` → `pythia_runtime`, `code_canvas` →
+// `code_canvas_worker`, plus the existing `mythos_swarm` no-op short
+// circuit). The three tests below pin the new mapping so a future
+// regression that swaps a leader name (or accidentally adds a leader
+// to mythos_swarm) fails loudly here instead of silently dispatching
+// the wrong agent.
+
+// ensureReadyLabLeader is the generic companion to
+// ensureReadyResearchAgent: it reads / creates an agent row with the
+// given name and binds a runtime + clears archived_at so WillEnqueueRun
+// treats it as ready. The leader might be installed by the lab
+// install handler in another test run; we never rely on that side
+// effect.
+func ensureReadyLabLeader(
+	t *testing.T,
+	wsID pgtype.UUID,
+	owner pgtype.UUID,
+	leaderName string,
+) pgtype.UUID {
+	t.Helper()
+	ctx := context.Background()
+
+	var runtimeID pgtype.UUID
+	if err := testPool.QueryRow(ctx, `SELECT id FROM agent_runtime LIMIT 1`).Scan(&runtimeID); err != nil {
+		t.Fatalf("no agent_runtime available: %v", err)
+	}
+
+	var id pgtype.UUID
+	err := testPool.QueryRow(ctx, `
+		SELECT id FROM agent
+		WHERE workspace_id = $1 AND name = $2
+		ORDER BY created_at ASC
+		LIMIT 1`,
+		wsID, leaderName,
+	).Scan(&id)
+	if err != nil {
+		id = mustCreateTestAgent(t, wsID, leaderName, owner)
+		t.Cleanup(func() {
+			_, _ = testPool.Exec(context.Background(), `DELETE FROM agent WHERE id = $1`, id)
+		})
+	}
+	if _, err := testPool.Exec(ctx,
+		`UPDATE agent SET runtime_id = $1, archived_at = NULL WHERE id = $2`,
+		runtimeID, id,
+	); err != nil {
+		t.Fatalf("bind %s agent runtime: %v", leaderName, err)
+	}
+	return id
+}
+
+// TestUpdateIssueLabSourcePythiaOracle — 0.3.54 leader coverage.
+//
+// Flipping lab_source onto pythia_oracle MUST auto-assign the
+// `pythia_runtime` leader agent (mirrors the claude_science_lab /
+// research contract for the new flag). Same shape as
+// TestUpdateIssueLabSourceDispatchesResearch so the regression read
+// is mechanical.
+func TestUpdateIssueLabSourcePythiaOracle(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	owner := mustCreateTestMember(t, wsUUID)
+	pythiaID := ensureReadyLabLeader(t, wsUUID, owner, "pythia_runtime")
+	pythiaIDStr := util.UUIDToString(pythiaID)
+
+	issue := createIssueForTest(t, map[string]any{
+		"title":  "lab-p054-pythia-oracle",
+		"status": "todo",
+	})
+
+	w := httptest.NewRecorder()
+	req := withURLParam(
+		newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{
+			"lab_source": "pythia_oracle",
+		}),
+		"id", issue.ID,
+	)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue failed: %d  body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		AssigneeType pgtype.Text  `json:"assignee_type"`
+		AssigneeID   pgtype.UUID  `json:"assignee_id"`
+		LabSource    *string      `json:"lab_source"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.LabSource == nil || *resp.LabSource != "pythia_oracle" {
+		t.Fatalf("expected lab_source=pythia_oracle on response, got=%v", resp.LabSource)
+	}
+	if !resp.AssigneeType.Valid || resp.AssigneeType.String != "agent" {
+		t.Fatalf("expected assignee_type=agent, got=%v", resp.AssigneeType)
+	}
+	if !resp.AssigneeID.Valid || util.UUIDToString(resp.AssigneeID) != pythiaIDStr {
+		t.Fatalf("expected assignee_id=%s (= pythia_runtime), got=%v",
+			pythiaIDStr, resp.AssigneeID)
+	}
+
+	// Dispatch: the issue must have at least one queued task on the
+	// pythia_runtime leader so the daemon will pick it up.
+	if got := taskCountFor(t, issue.ID, pythiaIDStr); got == 0 {
+		t.Errorf("expected at least 1 pythia_runtime task for issue %s after lab_source flip, got 0", issue.ID)
+	}
+}
+
+// TestUpdateIssueLabSourceCodeCanvas — 0.3.54 leader coverage.
+//
+// Same shape as PythiaOracle, but for code_canvas → code_canvas_worker.
+// Verified independently because each new leader mapping deserves its
+// own regression test (a future refactor that swaps a name will catch
+// a single test, not all four in one shot).
+func TestUpdateIssueLabSourceCodeCanvas(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	owner := mustCreateTestMember(t, wsUUID)
+	canvasID := ensureReadyLabLeader(t, wsUUID, owner, "code_canvas_worker")
+	canvasIDStr := util.UUIDToString(canvasID)
+
+	issue := createIssueForTest(t, map[string]any{
+		"title":  "lab-p054-code-canvas",
+		"status": "todo",
+	})
+
+	w := httptest.NewRecorder()
+	req := withURLParam(
+		newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{
+			"lab_source": "code_canvas",
+		}),
+		"id", issue.ID,
+	)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue failed: %d  body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		AssigneeType pgtype.Text `json:"assignee_type"`
+		AssigneeID   pgtype.UUID `json:"assignee_id"`
+		LabSource    *string     `json:"lab_source"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.LabSource == nil || *resp.LabSource != "code_canvas" {
+		t.Fatalf("expected lab_source=code_canvas, got=%v", resp.LabSource)
+	}
+	if !resp.AssigneeType.Valid || resp.AssigneeType.String != "agent" {
+		t.Fatalf("expected assignee_type=agent, got=%v", resp.AssigneeType)
+	}
+	if !resp.AssigneeID.Valid || util.UUIDToString(resp.AssigneeID) != canvasIDStr {
+		t.Fatalf("expected assignee_id=%s (= code_canvas_worker), got=%v",
+			canvasIDStr, resp.AssigneeID)
+	}
+	if got := taskCountFor(t, issue.ID, canvasIDStr); got == 0 {
+		t.Errorf("expected at least 1 code_canvas_worker task for issue %s after lab_source flip, got 0", issue.ID)
+	}
+}
+
+// TestUpdateIssueLabSourceMythosSoleModeNoAutoAssign — 0.3.54 pin of
+// the NO-leader short-circuit. The previous TestUpdateIssueLabSource
+// MythosSoleNoAutoAssign covers the same invariant; this one is the
+// 0.3.47 → 0.3.54 backward-compat guard so a future contributor
+// extending defaultLabLeaderForKey to mythos_swarm (e.g. accidentally
+// adding `mythos_prelude`) fails this test BEFORE the production
+// deployment starts racing the RDT runner.
+func TestUpdateIssueLabSourceMythosSoleModeNoAutoAssign(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	mustCreateTestMember(t, wsUUID)
+
+	// Pre-seed mythos_prelude as if the lab were installed — the
+	// update path must NOT pick it up because the helper returns
+	// ("", false) for mythos_swarm. We deliberately do NOT bind a
+	// runtime; if the helper is ever broken (returns mythos_prelude)
+	// the test would assert that the issue has been re-assigned to
+	// mythos_prelude and we'd see a runtime_id mismatch — fail
+	// loudly.
+	mustCreateTestAgent(t, wsUUID, "mythos_prelude", pgtype.UUID{})
+
+	issue := createIssueForTest(t, map[string]any{
+		"title":  "lab-p054-mythos-no-leader",
+		"status": "todo",
+	})
+
+	w := httptest.NewRecorder()
+	req := withURLParam(
+		newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{
+			"lab_source": "mythos_swarm",
+		}),
+		"id", issue.ID,
+	)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue failed: %d  body=%s", w.Code, w.Body.String())
+	}
+
+	var resp struct {
+		AssigneeType *pgtype.Text `json:"assignee_type"`
+		AssigneeID   *pgtype.UUID `json:"assignee_id"`
+		LabSource    *string      `json:"lab_source"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.LabSource == nil || *resp.LabSource != "mythos_swarm" {
+		t.Fatalf("expected lab_source=mythos_swarm, got=%v", resp.LabSource)
+	}
+	// The sole-mode mutex gate clears the assignee; the
+	// mythos-swarm no-leader short-circuit must keep it cleared.
+	if resp.AssigneeType != nil && resp.AssigneeType.Valid {
+		t.Fatalf("mythos_swarm must NOT auto-assign a leader; "+
+			"got assignee_type=%v (P0#4 mythos regression — someone "+
+			"added a leader to the helper map for mythos_swarm)",
+			resp.AssigneeType)
+	}
+}

@@ -286,6 +286,19 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
         {t(($) => $.run_form_blurb)}
       </p>
 
+      {/* 0.3.54: a subtler hint when the page is opened without an
+          issue binding. The Mythos RDT pipeline produces three
+          comments + sub-issues that should land on the bound
+          issue's timeline; without one the results surface on
+          no issue at all. */}
+      {!rootIssueId && (
+        <p className="mt-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+          提示 · 这一页开启后,产物会落在「分配给 Mythos」的 issue 评论区。
+          在任务列表的某个 issue 选 Mythos Swarm 后再点「打开实验室面板」,
+          报告会按 issue 归档;不绑定也能跑(产物在工作区水平日志里)。
+        </p>
+      )}
+
       <div className="mt-4 flex flex-col gap-4">
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-foreground">
@@ -464,8 +477,132 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
         </div>
 
         {result ? <RunResultCard result={result} /> : null}
+
+        {/* 0.3.55: finished runs for the bound issue. Pre-0.3.55 the
+            coda result was only the in-session POST /run response, so
+            a completed run vanished on unmount. The server now returns
+            durable run rows (problem / iterations / coda_conclusions /
+            final_issue_id) via GET /api/issues/{id}/mythos-runs; this
+            panel lists them so the finished result stays visible. */}
+        <PastRunsPanel rootIssueId={rootIssueId} wsId={wsId} />
       </div>
     </section>
+  );
+}
+
+// MythosPastRun mirrors the 0.3.55-enriched server MythosRunSummary
+// envelope (handler/mythos_supervise.go). coda_conclusions is the
+// durable JSONB the coda phase writes; final_issue_id is where the
+// run's conclusion issue landed.
+type MythosPastRun = {
+  run_id: string;
+  status: string;
+  mode: string;
+  started_at: string;
+  problem: string;
+  iterations: number;
+  completed_at?: string;
+  final_issue_id?: string;
+  coda_conclusions?: Array<{ key: string; value: string; confidence?: number; actionable?: boolean }>;
+};
+
+function PastRunsPanel({ rootIssueId, wsId }: { rootIssueId: string | null; wsId: string }) {
+  const [runs, setRuns] = useState<MythosPastRun[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!rootIssueId || !wsId) {
+      setRuns([]);
+      setExpandedId(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .rawRequest(
+        `/api/issues/${encodeURIComponent(rootIssueId)}/mythos-runs?workspace_id=${encodeURIComponent(wsId)}`,
+        { method: "GET" },
+      )
+      .then(async (res) =>
+        res.ok ? ((await res.json()) as MythosPastRun[]) : [],
+      )
+      .then((data) => {
+        if (!cancelled) setRuns(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setRuns([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [rootIssueId, wsId]);
+
+  if (!rootIssueId) return null;
+
+  const expanded = runs.find((r) => r.run_id === expandedId) ?? null;
+
+  return (
+    <div className="mt-4 rounded-md border border-border bg-card/30 p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-sm font-semibold text-foreground">历史运行</h3>
+        <span className="text-[11px] text-muted-foreground">共 {runs.length} 次</span>
+      </div>
+      {runs.length === 0 ? (
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          本 issue 还没有运行记录。在上面发起一次蜂群推演,完成后结果会存到这里,关掉页面也不会丢。
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-col gap-1.5">
+          {runs.map((run) => (
+            <button
+              key={run.run_id}
+              type="button"
+              onClick={() =>
+                setExpandedId((cur) => (cur === run.run_id ? null : run.run_id))
+              }
+              className={`flex items-center justify-between gap-2 rounded border px-2.5 py-1.5 text-left text-xs transition-colors ${
+                expandedId === run.run_id
+                  ? "border-primary/40 bg-primary/5"
+                  : "border-border/60 hover:bg-accent/50"
+              }`}
+            >
+              <span className="min-w-0 truncate text-foreground/90">
+                {run.problem || run.run_id}
+              </span>
+              <span className="flex shrink-0 items-center gap-2 text-muted-foreground">
+                <span className="rounded bg-muted px-1 py-0.5 text-[10px]">{run.mode}</span>
+                <span className="font-mono">{run.iterations} 轮</span>
+                <span className={run.status === "done" ? "text-emerald-600 dark:text-emerald-400" : ""}>
+                  {run.status}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {expanded ? (
+        <div className="mt-3 border-t border-border/60 pt-3">
+          {Array.isArray(expanded.coda_conclusions) && expanded.coda_conclusions.length > 0 ? (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
+              {expanded.coda_conclusions.map((c, i) => (
+                <span key={`${c.key}-${i}`} className="contents">
+                  <dt className="font-mono text-foreground">{c.key}:</dt>
+                  <dd className="text-foreground">{c.value}</dd>
+                </span>
+              ))}
+            </dl>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {expanded.status === "done" ? "该运行未写入结论。" : `运行状态:${expanded.status}`}
+            </p>
+          )}
+          {expanded.final_issue_id ? (
+            <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+              结论落在 issue {expanded.final_issue_id}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

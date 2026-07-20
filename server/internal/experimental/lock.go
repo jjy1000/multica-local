@@ -86,6 +86,17 @@ const (
 	// 0.3.27 B4: source for the agent_self_optimization lab. Same
 	// rationale as SourceConstitutionAgent.
 	SourceAgentSelfOptimization Source = "agent_self_optimization"
+	// 0.3.54: source for the pythia_oracle lab. Used by
+	// install_pythia.go which provisions a `pythia_runtime` leader
+	// agent bound to the multica-pythia skill. The Python process
+	// itself is started by the desktop manager-factory, not the
+	// server — the source here is the agent / skill / lock rows
+	// attached to the lab.
+	SourcePythiaOracle Source = "pythia_oracle"
+	// 0.3.54: source for the code_canvas internal pilot lab. Used
+	// by install_code_canvas.go which provisions a `code_canvas_worker`
+	// agent + the bundled run.sh /health stub subprocess.
+	SourceCodeCanvas Source = "code_canvas"
 )
 
 // AllSources is the developer-facing read-only list of every known
@@ -101,6 +112,8 @@ var AllSources = []Source{
 	SourceMythosSwarm,
 	SourceConstitutionAgent,
 	SourceAgentSelfOptimization,
+	SourcePythiaOracle,
+	SourceCodeCanvas,
 }
 
 // Valid reports whether s is in AllSources.

@@ -1,7 +1,7 @@
 import { FlaskConical } from "lucide-react";
 import { useExperimentalFlag } from "@multica/core/experimental";
 
-// CodeCanvasView (0.3.20 placeholder)
+// CodeCanvasView (0.3.20 placeholder; 0.3.54 onboarding hints)
 //
 // Internal P9 lab: a stub subprocess that exists to verify the
 // manifest → catalog → registry → IPC chain end-to-end. It is not a
@@ -9,6 +9,13 @@ import { useExperimentalFlag } from "@multica/core/experimental";
 // the user to do here. The view exists only so the sidebar link does
 // not 404 and so operators can see "this is a real, registered lab"
 // when triaging.
+//
+// 0.3.54: rendered a 0.3.54 install handler that provisions a
+// `code_canvas_worker` leader agent the daemon can dispatch to, so
+// the user can pick "Code Canvas" in an issue's LabPicker and have
+// the lab auto-assign. The view below mirrors that: the StatusCard
+// tells the user "you can pick me as a lab on any issue" so the
+// stub-ness of the underlying subprocess doesn't read as a bug.
 //
 // Keep this view dead-simple. The 0.3.20 stub manager (apps/desktop/
 // src/main/experimental/manager-factory.ts) reports status="idle" and
@@ -21,10 +28,31 @@ export function CodeCanvasView() {
       <Header />
       <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-10">
         <Intro />
+        {enabled && <OnboardingHint />}
         <StatusCard enabled={enabled} />
         <PurposeCard />
       </main>
     </div>
+  );
+}
+
+function OnboardingHint() {
+  return (
+    <section className="rounded-xl border border-amber-200/60 bg-amber-50/40 p-5 text-sm dark:border-amber-800 dark:bg-amber-950/30">
+      <p className="font-medium text-amber-900 dark:text-amber-200">
+        怎么开始用 code_canvas
+      </p>
+      <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs leading-relaxed text-amber-900/90 dark:text-amber-100/90">
+        <li>到主 issue 列表点「创建」</li>
+        <li>
+          在「分配给」一栏切到 <span className="font-mono">code_canvas</span> 实验室 →
+          你的 issue 绑定完成,multica 后台会自动派单到
+          <span className="font-mono">code_canvas_worker</span>
+        </li>
+        <li>工作进度在 issue 详情页右栏「正在本 issue 上运行的实验室」可见</li>
+        <li>完成后产物(viewable HTML / generated 图)会贴回 issue 评论里</li>
+      </ol>
+    </section>
   );
 }
 

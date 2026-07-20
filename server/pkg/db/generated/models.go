@@ -818,6 +818,16 @@ type ProjectResource struct {
 	CreatedBy    pgtype.UUID        `json:"created_by"`
 }
 
+type PythiaForecastRun struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	IssueID     pgtype.UUID        `json:"issue_id"`
+	Rounds      int32              `json:"rounds"`
+	Source      string             `json:"source"`
+	Envelopes   []byte             `json:"envelopes"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type RuntimeProfile struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`

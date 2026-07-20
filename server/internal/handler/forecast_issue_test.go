@@ -49,6 +49,35 @@ func TestClampIssueForecastRounds(t *testing.T) {
 	}
 }
 
+// TestForecastRunSource covers the 0.3.55 run-level source label that
+// lands in pythia_forecast_run.source. Uniform runs keep their
+// per-envelope provenance; a run whose rounds came from more than one
+// source collapses to "mixed"; an unknown / empty label falls back to
+// "synthetic" so the CHECK constraint never sees an unexpected value.
+func TestForecastRunSource(t *testing.T) {
+	t.Parallel()
+	env := func(src string) forecastEnvelope { return forecastEnvelope{LabSource: src} }
+	cases := []struct {
+		name string
+		in   []forecastEnvelope
+		want string
+	}{
+		{"nil defaults to synthetic", nil, "synthetic"},
+		{"all oracle", []forecastEnvelope{env("oracle"), env("oracle")}, "oracle"},
+		{"all synthetic", []forecastEnvelope{env("synthetic")}, "synthetic"},
+		{"all failover", []forecastEnvelope{env("synthetic_oracle_failover"), env("synthetic_oracle_failover")}, "synthetic_oracle_failover"},
+		{"oracle then failover is mixed", []forecastEnvelope{env("oracle"), env("synthetic_oracle_failover")}, "mixed"},
+		{"unknown label defaults to synthetic", []forecastEnvelope{env("weird")}, "synthetic"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := forecastRunSource(tc.in); got != tc.want {
+				t.Errorf("forecastRunSource = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestIssueForecastStreamEmitsEnvelopeWithIssueID confirms the SSE
 // handler emits at least one `prediction` event whose JSON envelope
 // carries `issue_id`, `scenario_context`, and `lab_source` fields.

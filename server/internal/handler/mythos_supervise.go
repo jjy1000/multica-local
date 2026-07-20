@@ -203,25 +203,46 @@ func (h *Handler) GetMythosRunsByIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]MythosRunSummary, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, MythosRunSummary{
-			RunID:     uuid.UUID(row.ID.Bytes).String(),
-			Status:    row.Status,
-			Mode:      row.Mode,
-			StartedAt: row.StartedAt.Time.Format(time.RFC3339),
-		})
+		summary := MythosRunSummary{
+			RunID:      uuid.UUID(row.ID.Bytes).String(),
+			Status:     row.Status,
+			Mode:       row.Mode,
+			StartedAt:  row.StartedAt.Time.Format(time.RFC3339),
+			Problem:    row.Problem,
+			Iterations: row.CurrentLoop,
+		}
+		if row.CompletedAt.Valid {
+			summary.CompletedAt = row.CompletedAt.Time.Format(time.RFC3339)
+		}
+		if row.FinalIssueID.Valid {
+			summary.FinalIssueID = uuid.UUID(row.FinalIssueID.Bytes).String()
+		}
+		if len(row.CodaConclusions) > 0 {
+			summary.CodaConclusions = json.RawMessage(row.CodaConclusions)
+		}
+		out = append(out, summary)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 // MythosRunSummary is the JSON envelope for the runs-by-issue list.
-// Trimmed to just the fields the renderer needs (run id, status, mode,
-// started_at) so the response stays small even for issues with
-// many historical runs.
+// The supervise panel reads only run_id/status/mode; the 0.3.55
+// finished-result fields (problem / iterations / completed_at /
+// final_issue_id / coda_conclusions) let the Mythos lab view render a
+// COMPLETED run's outcome instead of only the in-session POST /run
+// response — pre-0.3.55 a finished run was invisible the moment the
+// user left the page. Additive fields; existing consumers ignore them.
 type MythosRunSummary struct {
 	RunID     string `json:"run_id"`
 	Status    string `json:"status"`
 	Mode      string `json:"mode"`
 	StartedAt string `json:"started_at"`
+	// 0.3.55 finished-result surface.
+	Problem         string          `json:"problem"`
+	Iterations      int32           `json:"iterations"`
+	CompletedAt     string          `json:"completed_at,omitempty"`
+	FinalIssueID    string          `json:"final_issue_id,omitempty"`
+	CodaConclusions json.RawMessage `json:"coda_conclusions,omitempty"`
 }
 
 // utilParseUUID is a tiny shim so this file does not have to import

@@ -16,6 +16,11 @@ export interface CreateIssueRequest {
   stage?: number;
   /** Associate this issue with an experimental lab (flag key). */
   lab_source?: string;
+  /** Mythos swarm run mode; only meaningful when lab_source="mythos_swarm".
+   *  Kept off the create payload pre-0.3.55 meant the dialog's enhancer
+   *  choice was silently dropped (server defaulted to "sole") while the
+   *  assignee was preserved — landing on the server mutex 400. */
+  lab_mode?: "sole" | "enhancer";
   start_date?: string;
   due_date?: string;
   attachment_ids?: string[];

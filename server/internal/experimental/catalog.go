@@ -177,7 +177,7 @@ var Catalog = []Flag{
 		// /api/experimental/claude-science-runtime/* route prefix for
 		// wire-compat; its DefaultFor("claude_science_lab") gate replaces
 		// the old per-flag check.
-		RuntimeKind:                       "inline",
+		RuntimeKind:                     "inline",
 		HidesDeliverableInIssueTimeline: true,
 	},
 	{
@@ -197,9 +197,9 @@ var Catalog = []Flag{
 		// experimental_proxy.go via __experimental/upstream. Agents
 		// reach the API through the same Multica origin so the
 		// renderer can call /experimental/pythia/* same-origin.
-		RuntimeKind:                       "subprocess",
-		ProxyPrefix:                       "/experimental/pythia",
-		LoopbackService:                   "pythia_oracle",
+		RuntimeKind:                     "subprocess",
+		ProxyPrefix:                     "/experimental/pythia",
+		LoopbackService:                 "pythia_oracle",
 		HidesDeliverableInIssueTimeline: true,
 	},
 	{
@@ -228,7 +228,7 @@ var Catalog = []Flag{
 		// headless: Mythos runs entirely inside the agent runtime. The
 		// RDT three-stage runner (prelude / loop / coda) is invoked
 		// by the Skill adapter, not by a subprocess. No proxy.
-		RuntimeKind:                       "headless",
+		RuntimeKind:                     "headless",
 		HidesDeliverableInIssueTimeline: true,
 	},
 	{
@@ -259,7 +259,7 @@ var Catalog = []Flag{
 		// Infrastructure flag — agents use the bridge automatically once
 		// it's enabled. Picking it per-issue has no meaning, so the issue
 		// LabPicker does not offer it as a "实验插件" choice.
-		HideFromIssueLabPicker:           true,
+		HideFromIssueLabPicker:          true,
 		HidesDeliverableInIssueTimeline: true,
 	},
 	{
@@ -280,10 +280,10 @@ var Catalog = []Flag{
 			En: "Internal P9 pilot: a stub subprocess wired through every Labs platform layer. Off by default. Used to verify the manifest → catalog → registry → IPC pipeline end-to-end before real labs are added.",
 			Zh: "内部 P9 试点：通过 Labs 平台所有层的 stub 子进程。默认关闭。在真实实验加入前用于端到端验证 manifest → catalog → registry → IPC 链路。",
 		},
-		ManifestPath:    "experiments/code_canvas/manifest.json",
-		RuntimeKind:                       "subprocess",
-		ProxyPrefix:                       "/experimental/code-canvas",
-		LoopbackService:                   "code_canvas",
+		ManifestPath:                    "experiments/code_canvas/manifest.json",
+		RuntimeKind:                     "subprocess",
+		ProxyPrefix:                     "/experimental/code-canvas",
+		LoopbackService:                 "code_canvas",
 		HidesDeliverableInIssueTimeline: true,
 	},
 	{
@@ -317,7 +317,7 @@ var Catalog = []Flag{
 		// SkillOpt-Multica daily loop). The flag owns its own run
 		// cadence — picking it per-issue would imply the user can
 		// trigger a run by creating an issue, which is misleading.
-		HideFromIssueLabPicker:           true,
+		HideFromIssueLabPicker:          true,
 		HidesDeliverableInIssueTimeline: true,
 	},
 	{
@@ -349,7 +349,14 @@ var Catalog = []Flag{
 		// inline: pure visibility gate (HideableResource rows hide the
 		// agent / 3 autopilots / skill). Same shape as
 		// agent_self_optimization — no subprocess, no proxy.
-		RuntimeKind:                       "inline",
+		RuntimeKind: "inline",
+		// 0.3.55: constitution_agent is a B-class automation lab — its 3
+		// autopilots (CTR / CSIL / TAOL) run autonomously in the
+		// background and the runtime never consults issue.lab_source for
+		// it. Hide it from the issue LabPicker (same treatment as
+		// llm_wiki_bridge / agent_self_optimization) so picking it can't
+		// land on a dead-end issue binding.
+		HideFromIssueLabPicker:          true,
 		HidesDeliverableInIssueTimeline: true,
 	},
 	{

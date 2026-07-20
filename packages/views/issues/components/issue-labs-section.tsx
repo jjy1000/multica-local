@@ -81,9 +81,20 @@ export function IssueLabsSection({
   );
   const hasWorkspaceView = hidesDeliverable;
 
+  // 0.3.54: track the full live lifecycle, not just running/queued.
+  // Background agent_task rows surface in the renderer through
+  // `getAgentTaskSnapshot()`. A flip to `failed` or `cancelled`
+  // was previously invisible — the user saw the badge vanish and
+  // assumed the work was still in flight. The B-class automation
+  // flags (agent_self_optimization, constitution_agent,
+  // llm_wiki_bridge) drive their work entirely outside of an
+  // explicit task per issue, so the absence of any task should
+  // surface as an "auto-running" hint rather than disappear.
   const live = useMemo(() => {
     let running = false;
     let queued = false;
+    let failed = false;
+    let cancelled = false;
     for (const task of snapshot) {
       if (task.issue_id !== issueId) continue;
       if (task.status === "running") running = true;
@@ -93,9 +104,13 @@ export function IssueLabsSection({
         task.status === "waiting_local_directory"
       ) {
         queued = true;
+      } else if (task.status === "failed") {
+        failed = true;
+      } else if (task.status === "cancelled") {
+        cancelled = true;
       }
     }
-    return { running, queued };
+    return { running, queued, failed, cancelled };
   }, [snapshot, issueId]);
 
   const indicator = live.running
@@ -110,7 +125,19 @@ export function IssueLabsSection({
           label: t(($) => $.lab_section.queued_indicator),
           title: t(($) => $.lab_section.queued_tooltip),
         }
-      : null;
+      : live.failed
+        ? {
+            tone: "failed" as const,
+            label: t(($) => $.lab_section.failed_indicator),
+            title: t(($) => $.lab_section.failed_tooltip),
+          }
+        : live.cancelled
+          ? {
+              tone: "cancelled" as const,
+              label: t(($) => $.lab_section.cancelled_indicator),
+              title: t(($) => $.lab_section.cancelled_tooltip),
+            }
+          : null;
 
   return (
     <div>

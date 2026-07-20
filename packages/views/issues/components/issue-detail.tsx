@@ -1554,7 +1554,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 // assignee to be cleared before re-picking. Other
                 // labs ship their own runtime agents and the
                 // user is free to keep a manual assignee on top.
-                issue.lab_source === "mythos_swarm"
+                // 0.3.55: enhancer mode is the exception — the user
+                // picks the target assignee that mythos supervises,
+                // so the picker must stay unlocked (mirrors the
+                // LabPicker enhancer tab, which does not fire
+                // onClearAssignee). Locking it here would trap the
+                // user out of the very field enhancer mode exists
+                // to populate.
+                issue.lab_source === "mythos_swarm" &&
+                issue.lab_mode !== "enhancer"
                   ? t(($) => $.lab_section.clear_lab_first_tooltip)
                   : undefined
               }
@@ -1628,7 +1636,9 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               {issue.lab_source &&
                 labSourceRouteSuffix(issue.lab_source) && (
                   <AppLink
-                    href={`/experimental/${labSourceRouteSuffix(issue.lab_source)!}`}
+                    href={`/experimental/${labSourceRouteSuffix(issue.lab_source)!}${
+                      issue.id ? `?issue=${encodeURIComponent(issue.id)}` : ""
+                    }`}
                     aria-label={t(($) => $.lab_section.open_panel)}
                     className="inline-flex shrink-0 items-center text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
                   >

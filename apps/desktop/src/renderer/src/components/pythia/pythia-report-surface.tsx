@@ -725,6 +725,12 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
         </div>
       </section>
 
+      {/* 0.3.55: per-issue finished-result history. The live section
+          above streams the current deliberation; this panel lists the
+          persisted runs (server-side pythia_forecast_run) so the
+          finished result stays visible after the user navigates away. */}
+      <ForecastHistoryPanel issueId={props.issueId} />
+
       {/* What-if panel */}
       <WhatifPanel
         scenario={scenario}
@@ -903,6 +909,149 @@ function WhatifPanel(props: WhatifPanelProps) {
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// ForecastHistoryPanel — 0.3.55 per-issue finished-result history.
+// ---------------------------------------------------------------------------
+// Pre-0.3.55 the per-issue 10-round deliberation was SSE-live only: it
+// streamed and vanished on unmount, so the lab view had no finished
+// result to show ("结束后结果不可见" was the core Pythia gap). The
+// server now persists every completed run to pythia_forecast_run; this
+// panel lists those runs newest-first and re-renders a past
+// deliberation on click. HTTP goes through api.rawRequest (never a
+// bare fetch) so the desktop token-auth + base URL apply.
+
+interface ForecastRunSummary {
+  id: string;
+  rounds: number;
+  source: string;
+  created_at: string;
+  envelopes: PythiaReportEnvelope[];
+}
+
+function ForecastHistoryPanel({ issueId }: { issueId: string | null }) {
+  const [runs, setRuns] = useState<ForecastRunSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!issueId) {
+      setRuns([]);
+      setExpandedId(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    api
+      .rawRequest(
+        `/api/experimental/pythia-oracle/forecast/issue/runs?issue_id=${encodeURIComponent(issueId)}&limit=10`,
+        { method: "GET" },
+      )
+      .then(async (res) => {
+        if (!res.ok) return [] as ForecastRunSummary[];
+        return (await res.json()) as ForecastRunSummary[];
+      })
+      .then((data) => {
+        if (!cancelled) setRuns(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setRuns([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [issueId]);
+
+  if (!issueId) return null;
+
+  const expanded = runs.find((r) => r.id === expandedId) ?? null;
+
+  return (
+    <section className="rounded-lg border border-border bg-card/30 p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h3 className="text-sm font-semibold text-foreground">历史推演</h3>
+        <span className="text-[11px] text-muted-foreground">
+          {loading ? "加载中…" : `共 ${runs.length} 次`}
+        </span>
+      </div>
+      {runs.length === 0 ? (
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          还没有已完成的推演。在上方跑一次本 issue 的多视角推演,完成后会自动存到这里,关掉页面也不会丢。
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-col gap-1.5">
+          {runs.map((run) => (
+            <button
+              key={run.id}
+              type="button"
+              onClick={() =>
+                setExpandedId((cur) => (cur === run.id ? null : run.id))
+              }
+              className={`flex items-center justify-between gap-2 rounded border px-2.5 py-1.5 text-left text-xs transition-colors ${
+                expandedId === run.id
+                  ? "border-primary/40 bg-primary/5"
+                  : "border-border/60 hover:bg-accent/50"
+              }`}
+            >
+              <span className="text-foreground/90">
+                {formatRunTime(run.created_at)}
+              </span>
+              <span className="flex items-center gap-2 text-muted-foreground">
+                <span className="font-mono">{run.rounds} 轮</span>
+                <span className="rounded bg-muted px-1 py-0.5 text-[10px]">
+                  {run.source}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {expanded && (
+        <div className="mt-3 flex flex-col gap-3 border-t border-border/60 pt-3">
+          {(expanded.envelopes ?? []).map((env, i) => (
+            <article
+              key={env.id ?? `round-${i}`}
+              className="flex flex-col gap-1 border-l-2 border-primary/30 pl-3"
+            >
+              <div className="flex items-baseline gap-3 text-xs text-muted-foreground">
+                <span className="font-mono">第 {i + 1} 轮</span>
+                <span>·</span>
+                <span>{env.lab_source}</span>
+                <span>·</span>
+                <span>{env.persona}</span>
+              </div>
+              <div className="text-2xl font-mono font-semibold text-foreground">
+                {(env.probability * 100).toFixed(0)}%
+              </div>
+              <div className="text-sm font-medium text-foreground">
+                {env.scenario}
+              </div>
+              {env.narrative && (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {env.narrative}
+                </p>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatRunTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("zh-Hans", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 function dedupeById(envs: PythiaReportEnvelope[]): PythiaReportEnvelope[] {
   const byId = new Map<string, PythiaReportEnvelope>();

@@ -2794,7 +2794,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// 0.3.34 lab auto-dispatch: when the caller flips lab_source onto
 	// a value with a known leader agent (claude_science_lab → research,
-	// constitution_agent → constitution_leader, …) the issue's assignee
+	// constitution_agent → 宪法智能体, …) the issue's assignee
 	// must end up pointing at that leader. The auto-pickup path then
 	// runs through enqueueAgentTask downstream of the WS update broadcast.
 	//
@@ -2929,7 +2929,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 // assignDefaultLabAgentOnUpdate mirrors IssueService.assignDefaultLabAgent
 // for the Update path. Called when a PATCH flips lab_source onto a
 // value with a known leader agent (claude_science_lab → research,
-// constitution_agent → constitution_leader, …) and the existing
+// constitution_agent → 宪法智能体, …) and the existing
 // assignee does NOT already point at the leader (see
 // shouldRewriteAssigneeForLabLeader, 0.3.46 P0#4). We do not have
 // an IssueService handle here, so the helper goes directly through
@@ -2980,7 +2980,24 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 	case "claude_science_lab":
 		return "research", true
 	case "constitution_agent":
-		return "constitution_leader", true
+		// 0.3.55: the install handler upserts this agent under its
+		// localized name "宪法智能体" (install_constitution_agent.go),
+		// so the by-name lookup must use that exact string — the old
+		// "constitution_leader" never matched and the rewrite no-op'd.
+		return "宪法智能体", true
+	case "pythia_oracle":
+		// 0.3.54: Pythia oracle provisions a pythia_runtime leader
+		// agent bound to the multica-pythia skill. The Python
+		// service itself is started by the desktop manager-factory,
+		// not the server; the leader agent row is what the daemon
+		// auto-assigns task rows to.
+		return "pythia_runtime", true
+	case "code_canvas":
+		// 0.3.54: code_canvas provisions a code_canvas_worker
+		// leader that the daemon drives against the bundled
+		// run.sh stub subprocess. Real subprocess lifecycle is
+		// owned by manager-factory.ts.
+		return "code_canvas_worker", true
 	case "mythos_swarm":
 		// Mythos owns the roster via its own runner; auto-assign is
 		// intentionally suppressed (the sole-mutex gate above keeps

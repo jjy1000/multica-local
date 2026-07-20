@@ -250,7 +250,7 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 			OriginID:      p.OriginID,
 			Stage:         p.Stage,
 			LabSource:     p.LabSource,
-			LabMode:      p.LabMode,
+			LabMode:       p.LabMode,
 		})
 	} else {
 		issue, err = qtx.CreateIssue(ctx, db.CreateIssueParams{
@@ -285,7 +285,7 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 
 	// 0.3.34 lab auto-dispatch: a non-mythos lab with a known default
 	// leader agent (claude_science_lab → research, constitution_agent →
-	// constitution_leader, …) now writes the assignee + enqueues the
+	// 宪法智能体, …) now writes the assignee + enqueues the
 	// agent task on issue create, so the issue does not sit unassigned
 	// forever. The lab ↔ assignee mutex (handler/issue.go:2186-2220)
 	// has already verified the (lab_source, assignee) pair is internally
@@ -354,16 +354,27 @@ func (s *IssueService) linkAttachments(ctx context.Context, issue db.Issue, ids 
 // defaultLeaderAgentForLab returns the catalog-driven lookup table that
 // maps a `lab_source` value to the workspace's "leader" agent for that
 // lab. Only labs with a meaningful default agent are listed; everything
-// else (pythia_oracle is skill-driven, llm_wiki_bridge / code_canvas
-// need a human pick, chat_pin_ui has no agent) falls through to nil.
+// else (mythos_swarm runs via its 5-agent squad RDT, llm_wiki_bridge is
+// a background bridge with no per-issue agent, chat_pin_ui has no agent)
+// falls through to nil.
 //
 // The agent name comes from the upstream install handler so the same
 // string appears in `manage_claude_science` / `manage_mythos` etc.
 // Adding a new lab with a default agent means adding one entry here +
-// the matching install handler — both live in this package.
+// the matching install handler — both live in this package. The name
+// MUST match what the install handler upserts (constitution_agent's is
+// the localized "宪法智能体", install_constitution_agent.go), or the
+// by-name lookup silently no-ops.
 var defaultLeaderAgentForLab = map[string]string{
 	"claude_science_lab": "research", // claude_science SKILL helper leader
-	"constitution_agent": "constitution_leader",
+	"constitution_agent": "宪法智能体",
+	// 0.3.54: extend leader coverage to every issue-bound ("A 类")
+	// lab so a stale assignee when lab_source is flipped gets
+	// rewritten to the right agent (P0#4 contract). The install
+	// handlers in server/internal/handler/install_*.go write the
+	// underlying agent rows; the live lookup is by name.
+	"pythia_oracle": "pythia_runtime",
+	"code_canvas":   "code_canvas_worker",
 }
 
 // assignDefaultLabAgent writes a workspace-resident default agent

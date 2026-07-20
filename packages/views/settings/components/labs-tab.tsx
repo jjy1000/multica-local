@@ -265,6 +265,25 @@ export function LabsTab() {
                         {brokenReasonLabel(brokenEntry.reason, localized)}
                       </span>
                     ) : null}
+                    {/* 0.3.55: B-class automation labs (bridge /
+                        self-driven) are hidden from the issue
+                        LabPicker — they work globally in the
+                        background once enabled. Surface that here so
+                        enabling one doesn't read as "nothing
+                        happened". hide_from_issue_lab_picker is the
+                        catalog field that drives the picker hide. */}
+                    {flag.enabled && flag.hide_from_issue_lab_picker === true ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-md border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+                        title={
+                          localized === "zh"
+                            ? "该插件启用后自动在后台工作,无需在任务里手动选择"
+                            : "Runs automatically in the background once enabled — no per-issue selection needed"
+                        }
+                      >
+                        {localized === "zh" ? "自动后台运行" : "auto-background"}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">{description}</p>
                   {brokenEntry ? (

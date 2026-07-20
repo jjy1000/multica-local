@@ -48,6 +48,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -63,8 +64,17 @@ import (
 // onto the supplied chi router. The caller MUST gate this call on
 // experimental.DefaultFor("pythia_oracle") — when the flag is off the
 // route physically disappears.
+//
+// Two routes:
+//   - POST /forecast/issue        — run a deliberation, stream rounds,
+//     and (0.3.55) persist the completed run so it survives unmount.
+//   - GET  /forecast/issue/runs   — list persisted runs for an issue,
+//     newest first. Registered as a literal path (no {param}) so chi
+//     can never mis-route it onto the POST route (0.3.45.8 ordering
+//     lesson: literal before param).
 func RegisterPythiaIssueForecastRoutes(r chi.Router) {
 	r.Post("/api/experimental/pythia-oracle/forecast/issue", pythiaIssueForecast)
+	r.Get("/api/experimental/pythia-oracle/forecast/issue/runs", pythiaIssueForecastRuns)
 }
 
 // defaultIssueForecastRounds is the default number of forecast
@@ -221,11 +231,21 @@ func pythiaIssueForecastStream(w http.ResponseWriter, r *http.Request, rounds in
 
 	source := sourceForForecast(issueForecastContextLabSource(ifc), ifc)
 
+	collected := make([]forecastEnvelope, 0, rounds)
+	// 0.3.55: persist the deliberation so the lab view can surface it
+	// after the fact (pre-0.3.55 the rounds were SSE-live only and
+	// vanished on unmount). Deferred so every termination path —
+	// normal completion, upstream error, client disconnect — writes
+	// whatever rounds actually landed. A zero-round result is skipped
+	// inside the helper.
+	defer persistIssueForecastRun(r, ifc, collected)
+
 	emit := func(round int) error {
 		env, err := source(r.Context(), seed, ifc, round)
 		if err != nil {
 			return err
 		}
+		collected = append(collected, env)
 		return emitForecastFrameIssue(w, flusher, env)
 	}
 
@@ -246,6 +266,131 @@ func pythiaIssueForecastStream(w http.ResponseWriter, r *http.Request, rounds in
 		return
 	}
 	flusher.Flush()
+}
+
+// persistIssueForecastRun writes the completed (or partial, on early
+// exit) per-issue deliberation to pythia_forecast_run. Non-fatal: a
+// persistence failure logs and returns without affecting the SSE
+// response, which has already been streamed to the client.
+//
+// The write uses a detached context (context.WithoutCancel + a short
+// timeout) because the originating request context is frequently
+// already cancelled by the time the stream finishes — the client has
+// its frames and moved on — but the row must still land so the lab
+// view has a finished result to read.
+func persistIssueForecastRun(r *http.Request, ifc *issueForecastContext, envelopes []forecastEnvelope) {
+	if len(envelopes) == 0 || ifc == nil {
+		return
+	}
+	h, ok := forecastIssueHandlerFromCtx(r)
+	if !ok || h == nil || h.Queries == nil {
+		return
+	}
+	issueUUID, err := util.ParseUUID(ifc.IssueID)
+	if err != nil {
+		return
+	}
+	wsUUID, err := util.ParseUUID(ifc.WorkspaceID)
+	if err != nil {
+		return
+	}
+	payload, err := json.Marshal(envelopes)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
+	defer cancel()
+	if _, err := h.Queries.CreatePythiaForecastRun(ctx, dbpkg.CreatePythiaForecastRunParams{
+		WorkspaceID: wsUUID,
+		IssueID:     issueUUID,
+		Rounds:      int32(len(envelopes)),
+		Source:      forecastRunSource(envelopes),
+		Envelopes:   payload,
+	}); err != nil {
+		slog.Warn("pythia forecast: persist run failed",
+			"issue_id", ifc.IssueID,
+			"rounds", len(envelopes),
+			"error", err)
+	}
+}
+
+// forecastRunSource collapses the per-envelope `lab_source` provenance
+// into a single run-level source label for the pythia_forecast_run.source
+// CHECK column. Uniform runs keep their label; a run whose rounds came
+// from more than one source (e.g. oracle answered 4 rounds then failed
+// over to synthetic) is tagged "mixed".
+func forecastRunSource(envelopes []forecastEnvelope) string {
+	source := ""
+	for _, env := range envelopes {
+		if source == "" {
+			source = env.LabSource
+			continue
+		}
+		if env.LabSource != source {
+			return "mixed"
+		}
+	}
+	switch source {
+	case "oracle", "synthetic", "synthetic_oracle_failover":
+		return source
+	default:
+		return "synthetic"
+	}
+}
+
+// pythiaIssueForecastRuns serves
+// GET /api/experimental/pythia-oracle/forecast/issue/runs?issue_id=<id>&limit=N.
+// Returns persisted deliberations for the bound issue, newest first.
+// The issue is resolved through loadIssueForUser so workspace-membership
+// scope stays identical to the POST route — a foreign-workspace issue
+// is a 404, never a leak.
+func pythiaIssueForecastRuns(w http.ResponseWriter, r *http.Request) {
+	h, ok := forecastIssueHandlerFromCtx(r)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "handler unavailable")
+		return
+	}
+	issueID := r.URL.Query().Get("issue_id")
+	if strings.TrimSpace(issueID) == "" {
+		writeError(w, http.StatusBadRequest, "issue_id is required")
+		return
+	}
+	issue, ok := h.loadIssueForUser(w, r, issueID)
+	if !ok {
+		return
+	}
+	limit := 20
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	rows, err := h.Queries.ListPythiaForecastRunsByIssue(r.Context(), dbpkg.ListPythiaForecastRunsByIssueParams{
+		IssueID: issue.ID,
+		Limit:   int32(limit),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list forecast runs: "+err.Error())
+		return
+	}
+	type runSummary struct {
+		ID        string          `json:"id"`
+		Rounds    int32           `json:"rounds"`
+		Source    string          `json:"source"`
+		CreatedAt string          `json:"created_at"`
+		Envelopes json.RawMessage `json:"envelopes"`
+	}
+	out := make([]runSummary, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, runSummary{
+			ID:        util.UUIDToString(row.ID),
+			Rounds:    row.Rounds,
+			Source:    row.Source,
+			CreatedAt: row.CreatedAt.Time.Format(time.RFC3339),
+			Envelopes: json.RawMessage(row.Envelopes),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // forecastIssueHandlerCtxKey attaches the *Handler to the request so

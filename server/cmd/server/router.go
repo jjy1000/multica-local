@@ -550,6 +550,21 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallAgentSelfOptimization(context.Background(), userID, workspaceID)
 			})
+		// 0.3.54: pythia_oracle + code_canvas install handlers. Both
+		// follow the same shape as install_mythos.go: a single leader
+		// agent row is upserted and claimed under the lab's source.
+		// Real subprocess lifecycle (Python for Pythia, run.sh stub
+		// for code_canvas) is owned by the desktop manager-factory —
+		// the install handler only writes the DB rows that the daemon
+		// auto-dispatch path lands on.
+		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourcePythiaOracle),
+			func(userID, workspaceID string) error {
+				return hh.InstallPythia(context.Background(), userID, workspaceID)
+			})
+		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceCodeCanvas),
+			func(userID, workspaceID string) error {
+				return hh.InstallCodeCanvas(context.Background(), userID, workspaceID)
+			})
 	}
 
 	// 0.3.31: wire the Mythos supervise service so the HTTP tick /
