@@ -2197,7 +2197,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	// Originally every `lab_source` reserved the agent roster — that
 	// was over-restrictive. By 0.3.33 most labs (claude_science_lab,
 	// pythia_oracle, llm_wiki_bridge, code_canvas,
-	// agent_self_optimization, constitution_agent, chat_pin_ui)
+	// agent_self_optimization, chat_pin_ui)
 	// ship with their own runtime agents / skills / environments and
 	// no longer want manual assignees — pinning a single agent on
 	// top is meaningless and the gate just gets in the way of the
@@ -2794,7 +2794,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 
 	// 0.3.34 lab auto-dispatch: when the caller flips lab_source onto
 	// a value with a known leader agent (claude_science_lab → research,
-	// constitution_agent → 宪法智能体, …) the issue's assignee
+	// pythia_oracle → pythia_runtime, …) the issue's assignee
 	// must end up pointing at that leader. The auto-pickup path then
 	// runs through enqueueAgentTask downstream of the WS update broadcast.
 	//
@@ -2929,7 +2929,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 // assignDefaultLabAgentOnUpdate mirrors IssueService.assignDefaultLabAgent
 // for the Update path. Called when a PATCH flips lab_source onto a
 // value with a known leader agent (claude_science_lab → research,
-// constitution_agent → 宪法智能体, …) and the existing
+// pythia_oracle → pythia_runtime, …) and the existing
 // assignee does NOT already point at the leader (see
 // shouldRewriteAssigneeForLabLeader, 0.3.46 P0#4). We do not have
 // an IssueService handle here, so the helper goes directly through
@@ -2979,12 +2979,6 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 	switch labSource {
 	case "claude_science_lab":
 		return "research", true
-	case "constitution_agent":
-		// 0.3.55: the install handler upserts this agent under its
-		// localized name "宪法智能体" (install_constitution_agent.go),
-		// so the by-name lookup must use that exact string — the old
-		// "constitution_leader" never matched and the rewrite no-op'd.
-		return "宪法智能体", true
 	case "pythia_oracle":
 		// 0.3.54: Pythia oracle provisions a pythia_runtime leader
 		// agent bound to the multica-pythia skill. The Python

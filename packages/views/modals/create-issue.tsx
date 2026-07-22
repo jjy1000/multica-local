@@ -239,7 +239,7 @@ function LabPickerRow({
           // (and even then only in sole mode). Other labs
           // (claude_science_lab, pythia_oracle, llm_wiki_bridge,
           // code_canvas, agent_self_optimization,
-          // constitution_agent, chat_pin_ui) ship their own
+          // chat_pin_ui) ship their own
           // runtime agents / skills — the user is free to keep a
           // manual assignee on top. Clearing the old assignee
           // unconditionally would erase work the user did
@@ -274,7 +274,8 @@ const LAB_DISPLAY_LABELS: Record<string, string> = {
   llm_wiki_bridge: "LLM Wiki",
   code_canvas: "代码画布",
   agent_self_optimization: "智能体自优化",
-  constitution_agent: "宪法智能体",
+  // (0.3.57: constitution_agent removed alongside the lab
+  // retirement in migration 165.)
   chat_pin_ui: "聊天置顶",
 };
 
@@ -285,7 +286,7 @@ function labDisplayLabel(key: string): string | undefined {
 // experimentalLabRouteFor returns the desktop `/experimental/<flag>`
 // route that should receive a freshly-created lab issue, or null
 // for labs without a dedicated view (chat_pin_ui has no surface;
-// agent_self_optimization / constitution_agent / code_canvas /
+// agent_self_optimization / code_canvas /
 // llm_wiki_bridge are workspace-scoped surfaces with no per-issue
 // binding yet). The caller appends `?issue=<id>` to pre-select the
 // issue inside the panel — see ClaudeLabView / PythiaView /
@@ -293,22 +294,20 @@ function labDisplayLabel(key: string): string | undefined {
 function experimentalLabRouteFor(labSource: string | undefined): string | null {
   if (!labSource) return null;
   switch (labSource) {
-    case "claude_science_lab":
-      return "/experimental/claude-lab";
-    case "pythia_oracle":
-      return "/experimental/pythia";
-    case "mythos_swarm":
-      return "/experimental/mythos";
-    case "llm_wiki_bridge":
-      return "/experimental/llm-wiki";
-    case "code_canvas":
-      return "/experimental/code-canvas";
-    case "agent_self_optimization":
-      return "/experimental/agent-self-optimization";
-    case "constitution_agent":
-      return "/experimental/constitution-agent";
-    default:
-      return null;
+  case "claude_science_lab":
+    return "/experimental/claude-lab";
+  case "pythia_oracle":
+    return "/experimental/pythia";
+  case "mythos_swarm":
+    return "/experimental/mythos";
+  case "llm_wiki_bridge":
+    return "/experimental/llm-wiki";
+  case "code_canvas":
+    return "/experimental/code-canvas";
+  case "agent_self_optimization":
+    return "/experimental/agent-self-optimization";
+  default:
+    return null;
   }
 }
 

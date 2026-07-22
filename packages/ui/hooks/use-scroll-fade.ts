@@ -2,20 +2,47 @@ import { type RefObject, type CSSProperties, useEffect, useState, useCallback } 
 
 /**
  * Returns a dynamic maskImage style based on scroll position.
- * - At top → fade bottom only
- * - At bottom → fade top only
+ * - At top/start → fade end only
+ * - At bottom/end → fade start only
  * - In middle → fade both
  * - No overflow → undefined (no mask)
+ *
+ * The `axis` parameter selects between vertical (default, for chat /
+ * sidebar / dropdown lists) and horizontal (for tab bars and other
+ * row-scrolling surfaces). When the caller does not pass `axis`, the
+ * hook falls back to vertical to preserve the pre-0.3.58 contract.
  */
+export type ScrollFadeAxis = "vertical" | "horizontal";
+
 export function useScrollFade(
   ref: RefObject<HTMLElement | null>,
-  fadeSize = 32
+  fadeSize = 32,
+  axis: ScrollFadeAxis = "vertical"
 ): CSSProperties | undefined {
-  const [fade, setFade] = useState<"none" | "top" | "bottom" | "both">("none");
+  const [fade, setFade] = useState<"none" | "top" | "bottom" | "start" | "end" | "both">("none");
 
   const update = useCallback(() => {
     const el = ref.current;
     if (!el) return;
+
+    if (axis === "horizontal") {
+      const { scrollLeft, scrollWidth, clientWidth } = el;
+      const scrollable = scrollWidth - clientWidth;
+
+      if (scrollable <= 0) {
+        setFade("none");
+        return;
+      }
+
+      const atStart = scrollLeft <= 1;
+      const atEnd = scrollLeft >= scrollable - 1;
+
+      if (atStart && atEnd) setFade("none");
+      else if (atStart) setFade("end");
+      else if (atEnd) setFade("start");
+      else setFade("both");
+      return;
+    }
 
     const { scrollTop, scrollHeight, clientHeight } = el;
     const scrollable = scrollHeight - clientHeight;
@@ -32,7 +59,7 @@ export function useScrollFade(
     else if (atTop) setFade("bottom");
     else if (atBottom) setFade("top");
     else setFade("both");
-  }, [ref]);
+  }, [ref, axis]);
 
   useEffect(() => {
     const el = ref.current;
@@ -61,6 +88,24 @@ export function useScrollFade(
 
   if (fade === "none") return undefined;
 
+  if (axis === "horizontal") {
+    // start = left edge, end = right edge
+    const start =
+      fade === "start" || fade === "both" ? `transparent 0%, black ${fadeSize}px` : "black 0%";
+    const end =
+      fade === "end" || fade === "both"
+        ? `black calc(100% - ${fadeSize}px), transparent 100%`
+        : "black 100%";
+
+    const gradient = `linear-gradient(to right, ${start}, ${end})`;
+
+    return {
+      maskImage: gradient,
+      WebkitMaskImage: gradient,
+    };
+  }
+
+  // axis === "vertical" (default)
   const top = fade === "top" || fade === "both" ? `transparent 0%, black ${fadeSize}px` : "black 0%";
   const bottom =
     fade === "bottom" || fade === "both"

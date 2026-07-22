@@ -78,13 +78,9 @@ const (
 	// mythos-swarm workspace + 5 Mythos agents + 1 squad under this
 	// source.
 	SourceMythosSwarm Source = "mythos_swarm"
-	// 0.3.27 B4: source for the constitution_agent lab. Added so the
-	// install handler can run experimental.Claim(HideAgent) on the
-	// 宪法智能体 row; existing Source values stay frozen because
-	// they may be referenced by historical lock rows.
-	SourceConstitutionAgent Source = "constitution_agent"
 	// 0.3.27 B4: source for the agent_self_optimization lab. Same
-	// rationale as SourceConstitutionAgent.
+	// rationale as the deprecated SourceConstitutionAgent (retired in
+	// 0.3.57, migration 165).
 	SourceAgentSelfOptimization Source = "agent_self_optimization"
 	// 0.3.54: source for the pythia_oracle lab. Used by
 	// install_pythia.go which provisions a `pythia_runtime` leader
@@ -110,7 +106,6 @@ var AllSources = []Source{
 	SourceClaudeScience,
 	SourceClaudeScienceLab,
 	SourceMythosSwarm,
-	SourceConstitutionAgent,
 	SourceAgentSelfOptimization,
 	SourcePythiaOracle,
 	SourceCodeCanvas,

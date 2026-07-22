@@ -320,45 +320,12 @@ var Catalog = []Flag{
 		HideFromIssueLabPicker:          true,
 		HidesDeliverableInIssueTimeline: true,
 	},
-	{
-		// constitution_agent: hides the 宪法智能体 agent, its 3
-		// autopilots (CTR 三周评审 / CSIL 宪章自优化循环 / TAOL 任务
-		// 智能体优化循环), and the multica-constitution-agent Skill
-		// behind an opt-in toggle. Off by default — this agent enforces
-		// the workspace 《智能体宪章 v6》(CSIL + CTR + TAOL 三轨制)
-		// and runs autonomous review cycles, so the flag exists to
-		// keep it out of the visible agent team / automation / skill
-		// list until the user explicitly opts in. The agent row, the
-		// autopilot rows, and the SKILL.md content (charter body +
-		// CSIL/CTR/TAOL protocols) stay in the DB / resources tree so
-		// toggling the flag on restores everything without re-
-		// provisioning. Visibility is enforced via
-		// experimental_resource_visibility rows + autopilot scheduler
-		// skip — same pattern as agent_self_optimization.
-		Key:        "constitution_agent",
-		DefaultVal: false,
-		Title: LocalizedString{
-			En: "Constitution Agent (Charter Guardian)",
-			Zh: "宪法智能体（宪章守护）",
-		},
-		Description: LocalizedString{
-			En: "Hides the 宪法智能体 agent and its 3 autopilots (CTR 三周评审 / CSIL 宪章自优化 / TAOL 任务-智能体优化) behind an opt-in toggle. Off by default — this agent enforces the workspace constitution (charter v6, CSIL + CTR + TAOL tracks) and runs autonomous review cycles, so keep it hidden until you explicitly enable it. The agent row, autopilots, and SKILL.md content stay in the DB / resources tree so toggling on restores them without re-provisioning.",
-			Zh: "将「宪法智能体」与其 3 条 autopilot(CTR 三周评审 / CSIL 宪章自优化 / TAOL 任务-智能体优化)以及配套 skill 作为可选用插件暴露。默认关闭 —— 该智能体负责执行工作区宪章(charter v6,CSIL + CTR + TAOL 三轨制)并周期性自动评审,请在明确启用前保持隐藏。原始数据 / 资源 / 自动化保留在 DB 与 resources 中,启用 flag 即恢复,不重新创建。",
-		},
-		ManifestPath: "experiments/constitution_agent/manifest.json",
-		// inline: pure visibility gate (HideableResource rows hide the
-		// agent / 3 autopilots / skill). Same shape as
-		// agent_self_optimization — no subprocess, no proxy.
-		RuntimeKind: "inline",
-		// 0.3.55: constitution_agent is a B-class automation lab — its 3
-		// autopilots (CTR / CSIL / TAOL) run autonomously in the
-		// background and the runtime never consults issue.lab_source for
-		// it. Hide it from the issue LabPicker (same treatment as
-		// llm_wiki_bridge / agent_self_optimization) so picking it can't
-		// land on a dead-end issue binding.
-		HideFromIssueLabPicker:          true,
-		HidesDeliverableInIssueTimeline: true,
-	},
+// 0.3.57 catalog cleanup: the 0.3.20 constitution_agent flag is
+// RETIRED (see migration 165). Visibility constants in visibility.go
+// and the SourceConstitutionAgent enum value in lock.go were deleted
+// alongside the flag. The skill, autopilots, and agent row live on
+// past that point only via historical lock rows; existing tables were
+// not dropped because migration data must remain forward-compatible.
 	{
 		// agent_creation_studio (0.3.45): action-type lab distinct
 		// from the visibility-gated flags above. Instead of hiding or
@@ -371,8 +338,8 @@ var Catalog = []Flag{
 		// the entry point itself lives behind the lab toggle, keeping
 		// the "build a team" affordance out of the main product chrome.
 		//
-		// Unlike agent_self_optimization / constitution_agent (which
-		// are visibility gates with zero new HTTP routes), this flag
+		// Unlike agent_self_optimization (which
+		// is a visibility gate with zero new HTTP routes), this flag
 		// exposes no install handler, no HideableResource, no
 		// experimental_resource_lock rows. The only thing it ships is
 		// entry_points.issue_panel_action on the manifest and a
@@ -383,7 +350,7 @@ var Catalog = []Flag{
 		// — so the lab/assignee mutex, assignDefaultLabAgentOnUpdate,
 		// and the IssueLabsSection sidebar link all stay oblivious to
 		// the studio. This keeps the studio orthogonal to the existing
-		// 8-flag inline / visibility-gate pair.
+		// remaining inline / visibility-gate pairs.
 		Key:        "agent_creation_studio",
 		DefaultVal: false,
 		Title: LocalizedString{

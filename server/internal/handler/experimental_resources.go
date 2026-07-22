@@ -25,7 +25,6 @@ var installableSources = map[string]bool{
 	string(experimental.SourceClaudeScience):         true,
 	string(experimental.SourceClaudeScienceLab):     true,
 	string(experimental.SourceMythosSwarm):           true,
-	string(experimental.SourceConstitutionAgent):     true,
 	string(experimental.SourceAgentSelfOptimization): true,
 }
 

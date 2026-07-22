@@ -24,9 +24,9 @@ import {
 // no new sqlc).
 //
 // 0.3.45 CONTOUR:
-//   - Distinct from agent_self_optimization / constitution_agent
-//     (which are visibility gates that hide / reveal agents but
-//     don't author any from the UI).
+//   - Distinct from agent_self_optimization (which is a
+//     visibility gate that hides / reveals agents but doesn't
+//     author any from the UI).
 //   - Distinct from Claude Lab tabs (which are issue-bound panel
 //     surfaces that operate on already-existing resource rows).
 //   - Distinct from the regular Create-Agent dialog under
@@ -45,17 +45,12 @@ import {
 //     flag on. (Future: we may flip to render-gated if the
 //     `agent_creation_studio` flag stays a "discovery" toggle.)
 //
-// 0.3.51 wiring:
-//   - The "与智能体宪法兼容" checkbox is now live. Migration 161 added
-//     `agent.system_key TEXT`; CreateAgent + UpdateAgent handlers
-//     accept `system_key`; the daemon prepends the matching Skill
-//     body (multica-constitution-agent) to the agent's Instructions
-//     before dispatch when system_key="constitution_agent_v1".
-//   - Skill / Squad tabs still show the checkbox for visual parity,
-//     but their create handlers ignore system_key server-side (only
-//     CreateAgent accepts it today). The ResourceForm threads the
-//     toggle state through the onSubmit context so future Skill /
-//     Squad wiring can opt in without re-plumbing the toggle.
+// 0.3.51 wiring retired in 0.3.57: the "与智能体宪法兼容" toggle was
+// bound to system_key="constitution_agent_v1", which was retired
+// alongside the constitution_agent lab (migration 165). The server
+// field round-trips for forward compatibility, but the studio
+// no longer surfaces a UI toggle or threads system_key on submit.
+// Skill / Squad tabs continue to behave as before.
 
 type StudioTab = "agent" | "skill" | "squad";
 
@@ -145,43 +140,13 @@ function BackToIssueBanner({ issueId }: { issueId: string }) {
 
 // ---------------------------------------------------------------------------
 // 3 tab bodies — shared form scaffolding, each maps its inputs into the
-// corresponding api method. The "与智能体宪法兼容" checkbox is rendered on
-// every form as a placeholder for 0.3.45.1 system_key wiring.
+// corresponding api method. The system_key wiring for a future binding is
+// no longer surfaced (0.3.57 retired it alongside the constitution_agent
+// lab).
 // ---------------------------------------------------------------------------
-
-interface CompatToggleProps {
-  label: string;
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  hint?: string;
-}
-
-function CompatToggle({ label, checked, onChange, hint }: CompatToggleProps) {
-  return (
-    <label className="flex items-start gap-2 text-xs text-muted-foreground">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5"
-      />
-      <span>
-        <span className="font-medium text-foreground">{label}</span>
-        {hint && <span className="ml-1">— {hint}</span>}
-      </span>
-    </label>
-  );
-}
 
 interface ResourceFormContext {
   defaultRuntimeId: string | null;
-  // 0.3.51: the constitution_compat toggle state. Today only
-  // `CreateAgent` consumes this — Skill / Squad forms ignore it because
-  // their server-side create handlers don't accept `system_key`.
-  // Threading it through the context (rather than re-reading local
-  // state in each form) keeps the toggle source-of-truth in
-  // `ResourceForm` where the checkbox lives.
-  compatConstitution: boolean;
 }
 
 interface ResourceFormProps {
@@ -189,16 +154,11 @@ interface ResourceFormProps {
   fieldDescriptionLabel: string;
   namePlaceholder: string;
   descriptionPlaceholder: string;
-  compatLabel: string;
-  compatHint: string;
   submitLabel: string;
   onSubmit: (
     input: {
       name: string;
       description: string;
-      // 0.3.51: surfaced so agent-form callers can write system_key
-      // when compatConstitution is true. Skill / Squad forms ignore it.
-      systemKey?: string;
     },
     ctx: ResourceFormContext,
   ) => Promise<void>;
@@ -209,14 +169,11 @@ function ResourceForm({
   fieldDescriptionLabel,
   namePlaceholder,
   descriptionPlaceholder,
-  compatLabel,
-  compatHint,
   submitLabel,
   onSubmit,
 }: ResourceFormProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [compat, setCompat] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -253,17 +210,9 @@ function ResourceForm({
             {
               name: name.trim(),
               description: description.trim(),
-              // 0.3.51: only the agent form reads systemKey — the toggle
-              // is shown for visual parity across the three tabs but
-              // Skill / Squad forms drop it server-side anyway because
-              // their create handlers don't accept the field.
-              systemKey: compat
-                ? "constitution_agent_v1"
-                : undefined,
             },
             {
               defaultRuntimeId,
-              compatConstitution: compat,
             },
           );
           // success → onSubmit routed to a detail page; this line
@@ -303,12 +252,6 @@ function ResourceForm({
           className="mt-1"
         />
       </div>
-      <CompatToggle
-        label={compatLabel}
-        checked={compat}
-        onChange={setCompat}
-        hint={compatHint}
-      />
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex justify-end">
         <Button type="submit" disabled={!canSubmit}>
@@ -332,28 +275,16 @@ function CreateAgentForm() {
       }
       namePlaceholder="例: 财报分析"
       descriptionPlaceholder="一句话职责"
-      compatLabel={
-        t(($) => $.agent_creation_studio_view.compat_label) ??
-        "与智能体宪法兼容"
-      }
-      compatHint={
-        t(($) => $.agent_creation_studio_view.compat_hint) ??
-        "开启后,该智能体的 system_key 会设为 constitution_agent_v1,Daemon 在执行前会把 multica-constitution-agent Skill 正文 prepend 到 instructions 之前"
-      }
       submitLabel={
         t(($) => $.agent_creation_studio_view.submit_create) ?? "创建"
       }
-      onSubmit={async ({ name, description, systemKey }, ctx) => {
-        // 0.3.51: thread the constitution toggle through to the server.
-        // systemKey is undefined when the toggle is off so the server
-        // column stays NULL (default) rather than an empty string,
-        // matching the pre-0.3.51 semantics — agents run their own
-        // instructions verbatim.
+      onSubmit={async ({ name, description }, ctx) => {
+        // (0.3.57: system_key wiring retired alongside the
+        // constitution_agent lab. Future bindings may re-add it.)
         const agent = await api.createAgent({
           name,
           description,
           runtime_id: ctx.defaultRuntimeId!,
-          ...(systemKey ? { system_key: systemKey } : {}),
         });
         window.location.assign(`/agents/${agent.id}`);
       }}
@@ -373,14 +304,6 @@ function CreateSkillForm() {
       }
       namePlaceholder="例: OCR 发票"
       descriptionPlaceholder="一句话功能"
-      compatLabel={
-        t(($) => $.agent_creation_studio_view.compat_label) ??
-        "与智能体宪法兼容"
-      }
-      compatHint={
-        t(($) => $.agent_creation_studio_view.compat_hint) ??
-        "Skill / Squad 没有 system_key 字段,本开关仅对智能体生效(此表单下,开关会被服务端忽略)"
-      }
       submitLabel={
         t(($) => $.agent_creation_studio_view.submit_create) ?? "创建"
       }
@@ -407,14 +330,6 @@ function CreateSquadForm() {
       }
       namePlaceholder="例: 财报三件套"
       descriptionPlaceholder="一句话目标"
-      compatLabel={
-        t(($) => $.agent_creation_studio_view.compat_label) ??
-        "与智能体宪法兼容"
-      }
-      compatHint={
-        t(($) => $.agent_creation_studio_view.compat_hint) ??
-        "Skill / Squad 没有 system_key 字段,本开关仅对智能体生效(此表单下,开关会被服务端忽略)"
-      }
       submitLabel={
         t(($) => $.agent_creation_studio_view.submit_create) ?? "创建"
       }

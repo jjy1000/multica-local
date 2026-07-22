@@ -1417,15 +1417,13 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 
 			// 0.3.51: prepend the system-prompt binding (if any) to the
 			// agent's Instructions before the daemon dispatches the task.
-			// Today only "constitution_agent_v1" is recognised — the
-			// constitution_agent Skill body becomes the root system
-			// prompt, sitting above the agent's own Instructions so the
-			// user-authored text stays authoritative for general
-			// behaviour while the Skill enforces the workspace's hard
-			// constraints. Other keys are tolerated at the API surface
-			// (CreateAgent / UpdateAgent) but ignored here so adding a
-			// new system prompt later is a daemon-side change, not a
-			// schema change.
+			// Keys are tolerated at the API surface (CreateAgent /
+			// UpdateAgent) and resolved against the Skill catalogue here
+			// so adding a new system prompt later is a daemon-side
+			// change, not a schema change. The original
+			// `constitution_agent_v1` binding shipped in 0.3.51 and was
+			// retired in 0.3.57 alongside the constitution_agent lab;
+			// its body lookup now returns (zero, false) cleanly.
 			if resp.Agent != nil && resp.Agent.SystemKey != "" {
 				if body, ok := loadSystemPromptBinding(resp.Agent.SystemKey); ok {
 					if strings.TrimSpace(resp.Agent.Instructions) == "" {
@@ -3237,20 +3235,20 @@ func (h *Handler) GetTaskGCCheck(w http.ResponseWriter, r *http.Request) {
 // uninstalled Skill doesn't silently strip the binding.
 //
 // 0.3.51: initial wiring with one binding — constitution_agent_v1 →
-// multica-constitution-agent. The Skill body is loaded lazily via
-// the same loadBuiltinSkill helper used by the Skill catalogue so
-// adding more bindings does not require a new code path.
+// multica-constitution-agent. 0.3.57: that binding was retired
+// alongside the constitution_agent lab (migration 165); the case
+// stays here as an explicit (zero, false) so historical user-saved
+// agents carrying system_key="constitution_agent_v1" silently downgrade
+// to no binding rather than 500-ing. New bindings drop in here later
+// via the same loadBuiltinSkill helper used by the Skill catalogue.
 func loadSystemPromptBinding(key string) (string, bool) {
 	switch key {
 	case "constitution_agent_v1":
-		// Cache hits because the Skill catalogue already loads every
-		// builtin skill at boot — loadBuiltinSkill hits embed.FS which
-		// is in-memory, so the second call is just a path read.
-		skill, ok := service.LoadBuiltinSkillByName("multica-constitution-agent")
-		if !ok {
-			return "", false
-		}
-		return skill.Content, true
+		// 0.3.57: retired. The Skill file no longer ships in
+		// builtin_skills/multica-constitution-agent/, so this lookup
+		// resolves to (zero, false) and the daemon logs a one-time
+		// warning, then continues without the binding.
+		return "", false
 	default:
 		return "", false
 	}

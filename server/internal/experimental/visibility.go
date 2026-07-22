@@ -112,42 +112,12 @@ func AgentSelfOptimizationSkillID() uuid.UUID {
 	return agentSelfOptimizationIDs.skill
 }
 
-// constitutionAgentIDs is the canonical set of resources that the
-// 0.3.20 constitution_agent flag hides by default. These IDs are also
-// seeded in migration 153 — keep the two lists in sync; a divergent
-// migration is caught by ConstitutionAgentVisibilitySeeded.
-//
-// Hard-coded as constants (not pulled from the DB at startup) so the
-// catalog-only test below doesn't need a live PG connection to assert
-// the catalog has the flag.
-var constitutionAgentIDs = struct {
-	agent     uuid.UUID
-	autopilot []uuid.UUID
-}{
-	agent: uuid.MustParse("125890ef-a7a2-4f94-80e2-a4ecb03407b5"), // 宪法智能体
-	autopilot: []uuid.UUID{
-		uuid.MustParse("eb4f3a30-5604-47c4-919c-29757cf9bfa0"), // CTR 宪章三周评审
-		uuid.MustParse("e6bc3a0e-aac3-4b77-8f0f-5e85889369a5"), // CSIL 宪章自优化循环
-		uuid.MustParse("b3da8c47-81d0-45ae-94f7-152dc416c6cf"), // TAOL 任务-智能体优化循环
-	},
-}
-
-// ConstitutionAgentAgentID returns the 宪法智能体 agent UUID hidden
-// by the constitution_agent flag. Used by the autopilot scheduler
-// when checking whether to skip a tick.
-func ConstitutionAgentAgentID() uuid.UUID {
-	return constitutionAgentIDs.agent
-}
-
-// ConstitutionAgentAutopilotIDs returns the autopilot UUIDs hidden by
-// the constitution_agent flag. The autopilot scheduler calls this
-// once at construction and caches the result — the IDs are
-// deployment constants and never change at runtime.
-func ConstitutionAgentAutopilotIDs() []uuid.UUID {
-	out := make([]uuid.UUID, len(constitutionAgentIDs.autopilot))
-	copy(out, constitutionAgentIDs.autopilot)
-	return out
-}
+// constitutionAgentIDs (0.3.20 constitution_agent flag) was RETIRED
+// in 0.3.57 (migration 165). The flag and its visibility constants
+// (ConstitutionAgentAgentID / ConstitutionAgentAutopilotIDs) are gone;
+// historical visibility rows remain valid for any pre-retirement
+// installs that referenced the flag — they no longer gate anything
+// because the catalog no longer exposes a toggle to honour.
 
 // HiddenResourceIDsByFlag returns the set of resource UUIDs hidden by
 // the given flag for the given resource type. An empty result means

@@ -37,13 +37,14 @@ import (
 // hiddenAgentNames is the hardcoded safety net: even if the visibility
 // table is misconfigured for a flag, these names are always excluded
 // from the self-opt source set. Covers the 5 Mythos agents + the
-// agent_self_optimization leader agent + the constitution_agent +
+// agent_self_optimization leader agent +
 // claude_science_runtime-created agent (which historically shipped as
 // "智能体优化专家").
 //
 // This is intentionally a small allowlist, NOT a "names to include"
 // list — we filter OUT, never filter IN. New lab agent names land
-// here when the user adds a new lab.
+// here when the user adds a new lab. (0.3.57: constitution_agent /
+// 宪法智能体 was removed alongside the lab retirement in migration 165.)
 var hiddenAgentNames = []string{
 	// 0.3.17 + 0.3.27: 智能体优化专家 leader
 	"智能体优化专家",
@@ -54,9 +55,6 @@ var hiddenAgentNames = []string{
 	"mythos_loop_researcher",
 	"mythos_loop_analyst",
 	"mythos_coda",
-	// 0.3.20: constitution_agent (宪章守护)
-	"宪法智能体",
-	"constitution_agent",
 	// 0.3.31: pythia_oracle agents (when installed via claude_science_runtime)
 	"pythia_oracle",
 	"pythia_oracle_loop",

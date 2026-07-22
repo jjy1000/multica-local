@@ -47,17 +47,11 @@ var agentSelfOptimizationAutopilotIDs = func() map[pgtype.UUID]struct{} {
 	return out
 }()
 
-// constitutionAgentAutopilotIDs is the cached set of autopilot UUIDs
-// hidden by the constitution_agent flag. Same lifetime contract as
-// agentSelfOptimizationAutopilotIDs (deployment constants, no runtime
-// mutation). See experimental/visibility.go::constitutionAgentIDs.
-var constitutionAgentAutopilotIDs = func() map[pgtype.UUID]struct{} {
-	out := make(map[pgtype.UUID]struct{}, len(experimental.ConstitutionAgentAutopilotIDs()))
-	for _, id := range experimental.ConstitutionAgentAutopilotIDs() {
-		out[pgtype.UUID{Bytes: id, Valid: true}] = struct{}{}
-	}
-	return out
-}()
+// (constitutionAgentAutopilotIDs was retired in 0.3.57 alongside
+// the constitution_agent lab. The hidden set is gone — historical
+// autopilot rows seeded by the 0.3.20 install handler remain in the
+// DB but no longer match any gate here because the flag is no longer
+// in the catalog.)
 
 // DefaultAutopilotTriggerTimezone is the timezone used to render Autopilot
 // trigger output when a trigger has no configured timezone or the configured
@@ -861,16 +855,11 @@ func (s *AutopilotService) shouldSkipDispatch(ctx context.Context, ap db.Autopil
 			return "autopilot hidden by agent_self_optimization flag", true
 		}
 	}
-	// 0.3.20 Labs gate: same shape for constitution_agent. Skipping
-	// here (not just at list query time) is required because the
-	// autopilot scheduler tick can fire even when the autopilot is
-	// hidden from the visible list — visibility only filters GET
-	// responses, not the dispatcher loop.
-	if _, hidden := constitutionAgentAutopilotIDs[ap.ID]; hidden {
-		if !experimental.DefaultFor("constitution_agent") {
-			return "autopilot hidden by constitution_agent flag", true
-		}
-	}
+	// (The 0.3.20 constitution_agent gate was retired in 0.3.57 with
+	// migration 165. The autopilot scheduler no longer carries a
+	// per-flag hidden set for it; the 3 CTR/CSIL/TAOL autopilot rows
+	// seeded by the 0.3.20 install handler survive in the DB without
+	// any gate here.)
 	agent, squadResolved, err := s.resolveAutopilotLeader(ctx, ap)
 	if err != nil {
 		// Hard-skip the cases where another retry will produce the same

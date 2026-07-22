@@ -84,7 +84,7 @@ const staticFlagDescriptors: ReadonlyArray<ManagerFactoryDescriptor> = [
   { flagKey: "llm_wiki_bridge", kind: "subprocess", label: "experimental_llm_wiki_bridge" },
   { flagKey: "code_canvas", kind: "subprocess", label: "experimental_code_canvas" },
   { flagKey: "agent_self_optimization", kind: "inline", label: "experimental_agent_self_optimization" },
-  { flagKey: "constitution_agent", kind: "inline", label: "experimental_constitution_agent" },
+  // 0.3.57: constitution_agent retired alongside migration 165.
   { flagKey: "agent_creation_studio", kind: "inline", label: "experimental_agent_creation_studio" },
 ];
 

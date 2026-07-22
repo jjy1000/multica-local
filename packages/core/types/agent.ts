@@ -345,11 +345,12 @@ export interface CreateAgentRequest {
   /** Optional template slug used by the onboarding agent picker. Surfaced
    *  as the `template` property on the `agent_created` PostHog event. */
   template?: string;
-  /** Optional system-prompt binding (0.3.51). Today only
-   *  `"constitution_agent_v1"` is recognised — the daemon prepends the
-   *  matching builtin Skill body to the agent's Instructions before
-   *  dispatch. Empty / undefined = no binding (matches pre-0.3.51
-   *  behaviour). */
+  /** Optional system-prompt binding (0.3.51). The daemon reads this and,
+   *  when it matches a known Skill, prepends the Skill body to the
+   *  agent's Instructions before dispatch. The 0.3.51
+   *  `constitution_agent_v1` binding was retired in 0.3.57 alongside
+   *  the constitution_agent lab; the field is kept forward-compatible
+   *  for future bindings. Empty / undefined = no binding (default). */
   system_key?: string;
 }
 

@@ -40,9 +40,8 @@ import { AgentSelfOptimizationView } from "./pages/agent-self-optimization-view"
 // placeholder) — this view reads GET /api/experimental/self-opt/runs
 // and renders the per-run report markdown + prompt suggestions.
 import { SelfOptHistoryView } from "./pages/self-opt-history-view";
-import { ConstitutionAgentView } from "./pages/constitution-agent-view";
 // 0.3.45: action-type lab entry point — distinct from the existing
-// 8 flag-bound views (which all describe what a flag DOES once the
+// flag-bound views (which all describe what a flag DOES once the
 // issue is lab-tagged). The studio is an editor the user navigates
 // INTO from the issue picker; it drafts agent / skill / squad rows
 // and submits through the existing REST APIs.
@@ -168,11 +167,6 @@ export const appRoutes: RouteObject[] = [
         path: "experimental/self-opt-history",
         element: <SelfOptHistoryView />,
         handle: { title: "智能体自优化历史" },
-      },
-      {
-        path: "experimental/constitution-agent",
-        element: <ConstitutionAgentView />,
-        handle: { title: "Constitution Agent" },
       },
       {
         // 0.3.45: action-type lab. Pre-workspace route (no

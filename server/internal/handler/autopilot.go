@@ -372,14 +372,11 @@ func (h *Handler) ListAutopilots(w http.ResponseWriter, r *http.Request) {
 		"list autopilots: resolve hidden set failed",
 	)
 
-	// 0.3.20 Labs gate: drop the 3 CTR / CSIL / TAOL autopilots when
-	// the constitution_agent flag is off. Same fail-open semantics.
-	autopilots = filterLabsHiddenByDefault(
-		r.Context(), h.Queries, autopilots,
-		"constitution_agent", experimental.HideAutopilot,
-		func(row db.ListAutopilotsRow) pgtype.UUID { return row.Autopilot.ID },
-		"list autopilots: resolve constitution_agent hidden set failed",
-	)
+	// (the 3 CTR / CSIL / TAOL autopilots were hidden by the
+	// constitution_agent flag, retired in 0.3.57 with migration 165.
+	// See experimental/catalog.go — the flag is no longer in the Catalog;
+	// any pre-retirement visibility rows remain valid but no longer
+	// gate anything.)
 
 	resp := make([]AutopilotResponse, len(autopilots))
 	for i, row := range autopilots {

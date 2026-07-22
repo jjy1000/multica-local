@@ -24,7 +24,8 @@ import (
 const agentSelfOptSource = "agent_self_optimization"
 
 // InstallAgentSelfOptimization provisions the agent_self_optimization
-// lab. Same shape as InstallConstitutionAgent; the agents and auto-
+// lab. Same shape as the retired InstallConstitutionAgent (0.3.57,
+// migration 165); the agents and auto-
 // pilots are different (the lab owns a different roster).
 func (h *Handler) InstallAgentSelfOptimization(ctx context.Context, userID, workspaceID string) error {
 	if h == nil || h.Queries == nil {

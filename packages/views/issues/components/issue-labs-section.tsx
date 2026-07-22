@@ -28,7 +28,8 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   llm_wiki_bridge: "llm-wiki",
   code_canvas: "code-canvas",
   agent_self_optimization: "agent-self-optimization",
-  constitution_agent: "constitution-agent",
+  // (0.3.57: constitution_agent entry removed alongside the lab
+  // retirement in migration 165.)
   chat_pin_ui: "chat-pin",
 };
 
@@ -86,7 +87,7 @@ export function IssueLabsSection({
   // `getAgentTaskSnapshot()`. A flip to `failed` or `cancelled`
   // was previously invisible — the user saw the badge vanish and
   // assumed the work was still in flight. The B-class automation
-  // flags (agent_self_optimization, constitution_agent,
+  // flags (agent_self_optimization,
   // llm_wiki_bridge) drive their work entirely outside of an
   // explicit task per issue, so the absence of any task should
   // surface as an "auto-running" hint rather than disappear.

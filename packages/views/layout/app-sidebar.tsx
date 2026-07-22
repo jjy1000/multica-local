@@ -37,7 +37,6 @@ import {
   Network,
   Code2,
   Sparkles,
-  ScrollText,
   TestTubes,
   ClipboardList,
   Wrench,
@@ -182,7 +181,7 @@ const experimentalIconByKey: Record<string, typeof FlaskConical> = {
   llm_wiki_bridge: ClipboardList,
   code_canvas: Code2,
   agent_self_optimization: Wrench,
-  constitution_agent: ScrollText,
+  // (0.3.57: constitution_agent removed alongside the lab retirement.)
   chat_pin_ui: Pin,
 };
 

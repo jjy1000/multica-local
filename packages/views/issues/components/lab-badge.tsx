@@ -8,7 +8,6 @@ import {
   Code2,
   ClipboardList,
   Wrench,
-  ScrollText,
   Pin,
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
@@ -123,15 +122,8 @@ const LAB_BADGES: Record<string, LabBadgeSpec> = {
       "智能体自优化已绑定。本任务的执行 agent 在运行中持续整定自身的指令与策略。",
     ariaLabel: "智能体自优化已绑定",
   },
-  constitution_agent: {
-    label: "Constitution",
-    toneClassName: "border-indigo-300/70 text-indigo-700",
-    toneDarkClassName:
-      "dark:border-indigo-700/60 dark:text-indigo-300",
-    tooltip:
-      "宪法智能体已绑定。本任务的执行遵循组织宪法约束,并由 CTR/CSIL/TAOL 自动监督。",
-    ariaLabel: "宪法智能体已绑定",
-  },
+  // (0.3.57: constitution_agent entry removed alongside the lab
+  // retirement in migration 165.)
   chat_pin_ui: {
     label: "Chat Pin",
     toneClassName: "border-slate-300/70 text-slate-700",
@@ -155,7 +147,6 @@ const LAB_BADGES: Record<string, LabBadgeSpec> = {
  *   llm_wiki_bridge         → ClipboardList knowledge bridge / catalog
  *   code_canvas             → Code2       developer canvas / REPL
  *   agent_self_optimization → Scale       policy tuning / balance
- *   constitution_agent      → Scale       oversight / governance
  *   chat_pin_ui             → Pin         pinned chat session
  *
  * Unmapped future labs fall back to FlaskConical so the row stays
@@ -175,8 +166,6 @@ function labIcon(key: string) {
       return Code2;
     case "agent_self_optimization":
       return Wrench;
-    case "constitution_agent":
-      return ScrollText;
     case "chat_pin_ui":
       return Pin;
     default:

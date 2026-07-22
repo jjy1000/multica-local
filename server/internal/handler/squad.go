@@ -219,7 +219,7 @@ func (h *Handler) ListSquads(w http.ResponseWriter, r *http.Request) {
 	//
 	// 0.3.33: chained across every Labs squad-owning flag —
 	// claude_science_lab (5 squads), agent_self_optimization
-	// (when it ships a squad), constitution_agent. The helper
+	// (when it ships a squad). The helper
 	// short-circuits on flag-on OR empty-hidden-set so the cost
 	// stays one query total on the hot path.
 	queries := h.Queries
@@ -229,7 +229,7 @@ func (h *Handler) ListSquads(w http.ResponseWriter, r *http.Request) {
 		func(s db.Squad) pgtype.UUID { return s.ID },
 		"list squads: resolve hidden set failed",
 	)
-	for _, flagKey := range []string{"claude_science_lab", "agent_self_optimization", "constitution_agent"} {
+	for _, flagKey := range []string{"claude_science_lab", "agent_self_optimization"} {
 		squads = filterLabsHiddenByDefault(
 			r.Context(), queries, squads,
 			flagKey, experimental.HideSquad,

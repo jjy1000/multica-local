@@ -284,8 +284,8 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 	attachments := s.linkAttachments(ctx, issue, p.AttachmentIDs)
 
 	// 0.3.34 lab auto-dispatch: a non-mythos lab with a known default
-	// leader agent (claude_science_lab → research, constitution_agent →
-	// 宪法智能体, …) now writes the assignee + enqueues the
+	// leader agent (claude_science_lab → research, pythia_oracle →
+	// pythia_runtime, …) now writes the assignee + enqueues the
 	// agent task on issue create, so the issue does not sit unassigned
 	// forever. The lab ↔ assignee mutex (handler/issue.go:2186-2220)
 	// has already verified the (lab_source, assignee) pair is internally
@@ -361,13 +361,11 @@ func (s *IssueService) linkAttachments(ctx context.Context, issue db.Issue, ids 
 // The agent name comes from the upstream install handler so the same
 // string appears in `manage_claude_science` / `manage_mythos` etc.
 // Adding a new lab with a default agent means adding one entry here +
-// the matching install handler — both live in this package. The name
-// MUST match what the install handler upserts (constitution_agent's is
-// the localized "宪法智能体", install_constitution_agent.go), or the
-// by-name lookup silently no-ops.
+// the matching install handler — both live in this package.
+// (0.3.57: the 0.3.20 constitution_agent entry was removed alongside
+// the lab retirement in migration 165.)
 var defaultLeaderAgentForLab = map[string]string{
 	"claude_science_lab": "research", // claude_science SKILL helper leader
-	"constitution_agent": "宪法智能体",
 	// 0.3.54: extend leader coverage to every issue-bound ("A 类")
 	// lab so a stale assignee when lab_source is flipped gets
 	// rewritten to the right agent (P0#4 contract). The install

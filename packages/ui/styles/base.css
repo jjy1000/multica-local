@@ -288,4 +288,52 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .mythos-boost-pulse { animation: none; }
+  /* 0.3.58 cherry-pick from upstream 0.4.0: app-level keyframe animations
+     all opt out under reduced-motion so motion-sensitive users get
+     static rendering. The mythos pulse above is a fork-local Lab addition
+     and stays independent. */
+  .animate-entrance-spin,
+  .animate-onboarding-enter,
+  .animate-welcome-emoji-pop,
+  .animate-completion-badge,
+  .animate-completion-check,
+  .animate-chat-impulse,
+  .animate-chat-text-shimmer,
+  .animate-nav-progress-sweep {
+    animation: none;
+  }
+}
+
+/* 0.3.58 cherry-pick from upstream 0.4.0: sidebar resize follows the
+ * same cursor contract as react-resizable-panels — the resize cursor
+ * survives leaving the narrow rail and wins over descendants with
+ * their own cursor declarations. Live width is written directly to the
+ * two layout shells, so their toggle transitions must stay disabled
+ * until the gesture finishes. */
+html[data-sidebar-resizing="true"],
+html[data-sidebar-resizing="true"] * {
+  cursor: ew-resize !important;
+  user-select: none !important;
+}
+[data-sidebar-resizing="true"] [data-slot="sidebar-gap"],
+[data-sidebar-resizing="true"] [data-slot="sidebar-container"] {
+  transition: none !important;
+}
+[data-sidebar-resizing="true"] [data-sidebar="rail"]::after {
+  background-color: var(--sidebar-border);
+}
+
+/* 0.3.58 cherry-pick from upstream 0.4.0: in-page find (Cmd/Ctrl+F on
+ * the issue detail page). Matches are painted with the CSS Custom
+ * Highlight API — ranges only, no DOM mutation — so the tint layers
+ * cleanly over React-rendered markdown and the contenteditable
+ * title/description editors. The active match paints with a higher
+ * priority via the second ::highlight registration. */
+::highlight(multica-find) {
+  background-color: var(--find-match);
+  color: var(--find-match-foreground);
+}
+::highlight(multica-find-active) {
+  background-color: var(--find-match-active);
+  color: var(--find-match-foreground);
 }

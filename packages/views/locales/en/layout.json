@@ -54,14 +54,12 @@
     "llm_wiki_bridge_enabled_badge": "LLM Wiki enabled",
     "code_canvas_enabled_badge": "Code Canvas enabled",
     "agent_self_optimization_enabled_badge": "Self-Opt enabled",
-    "constitution_agent_enabled_badge": "Constitution enabled",
     "chat_pin_ui_enabled_badge": "Chat Pin enabled",
     "experimental_llm_wiki": "LLM Wiki",
     "experimental_llm_wiki_bridge": "LLM Wiki Bridge",
     "experimental_claude_science_runtime": "Claude Science Runtime",
     "experimental_claude_science_lab": "Claude Research Lab",
     "experimental_code_canvas": "Code Canvas",
-    "experimental_agent_self_optimization": "Agent Self-Optimization",
-    "experimental_constitution_agent": "Constitution Agent"
+    "experimental_agent_self_optimization": "Agent Self-Optimization"
   }
 }

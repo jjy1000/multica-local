@@ -3,14 +3,16 @@ package service
 // PR-3 autopilot flag-ON silent scheduler. The DB-backed scheduler
 // (internal/scheduler.AutopilotScheduleDispatchJob) owns the actual
 // ticking; this file nails down the *contract* the scheduler relies on
-// for the two Labs flags (agent_self_optimization, constitution_agent):
+// for the agent_self_optimization Labs flag:
 //
 //   - flag = OFF completely bypasses the dispatch path. The single
 //     chokepoint is shouldSkipDispatch in service/autopilot.go — when
-//     the autopilot UUID is in one of the flag-gated hidden sets and
+//     the autopilot UUID is in the flag's hidden set and
 //     experimental.DefaultFor returns false, dispatch short-circuits
-//     with a stable skip reason that the failure monitor and dashboards
-//     already group on (substring match).
+//     with a stable skip reason that the failure monitor and
+//     dashboards already group on (substring match). (0.3.57: the
+//     constitution_agent flag was retired alongside migration 165;
+//     that gate is gone.)
 //
 //   - flag = ON lets the dispatch proceed. The scheduler picks the
 //     occurrence to fire via service.NextOccurrencesUTC; the (trigger_id,
@@ -83,41 +85,22 @@ func TestAutopilotTickFlagOffShortCircuits(t *testing.T) {
 	}
 }
 
-// TestAutopilotTickFlagOffConstitutionGate exercises the same short-
-// circuit for the constitution_agent flag.
-func TestAutopilotTickFlagOffConstitutionGate(t *testing.T) {
-	if !experimentalFlagKeyKnown("constitution_agent") {
-		t.Skipf("catalog no longer declares constitution_agent; assertion obsolete")
-	}
-	hidden := experimentalHiddenAutopilotUUIDs(t, "constitution_agent")
-	if len(hidden) == 0 {
-		t.Fatalf("constitution_agent hidden autopilot set is empty")
-	}
-
-	svc := newTickTestService(t)
-	ap := db.Autopilot{
-		ID:          pgtypeUUID(t, hidden[0]),
-		WorkspaceID: pgtype.UUID{},
-		AssigneeID:  pgtypeUUID(t, uuid.New()),
-	}
-
-	reason, skip := svc.shouldSkipDispatch(context.Background(), ap)
-	if !skip {
-		t.Fatalf("flag-OFF autopilot must be skipped at the admission gate; reason=%q", reason)
-	}
-	if reason != "autopilot hidden by constitution_agent flag" {
-		t.Fatalf("unexpected skip reason for constitution_agent gate: %q", reason)
-	}
-}
+// TestAutopilotTickFlagOffConstitutionGate was retired in 0.3.57
+// alongside the constitution_agent lab (migration 165). The
+// corresponding flag-gate code in service/autopilot.go::shouldSkipDispatch
+// is gone, so this test has no producer to assert against. The
+// remaining agent_self_optimization gate above continues to pin the
+// short-circuit behaviour for the surviving Labs flag.
 
 // TestAutopilotTickNonHiddenAutopilotNotAffectedByFlag ensures the
 // flag-gated hidden sets do not bleed into non-lab autopilots. A
-// random autopilot UUID must NEVER be skipped by either flag's gate.
+// random autopilot UUID must NEVER be skipped by the
+// agent_self_optimization gate.
 func TestAutopilotTickNonHiddenAutopilotNotAffectedByFlag(t *testing.T) {
 	svc := newTickTestService(t)
 	// Random autopilot UUID with a zero assignee — the gate must reach
-	// the "no assignee" check (a different, ALWAYS-on gate), NOT one of
-	// the Labs hidden-set gates.
+	// the "no assignee" check (a different, ALWAYS-on gate), NOT the
+	// agent_self_optimization hidden-set gate.
 	random := uuid.New()
 	ap := db.Autopilot{
 		ID:          pgtypeUUID(t, random),
@@ -129,8 +112,7 @@ func TestAutopilotTickNonHiddenAutopilotNotAffectedByFlag(t *testing.T) {
 	if !skip {
 		t.Fatalf("zero-assignee autopilot should still be skipped by the assignee gate, not the Labs gate; reason=%q", reason)
 	}
-	if reason == "autopilot hidden by agent_self_optimization flag" ||
-		reason == "autopilot hidden by constitution_agent flag" {
+	if reason == "autopilot hidden by agent_self_optimization flag" {
 		t.Fatalf("random autopilot was matched by a Labs hidden set; reason=%q", reason)
 	}
 }
@@ -276,13 +258,13 @@ func experimentalFlagKeyKnown(key string) bool {
 // experimentalHiddenAutopilotUUIDs returns the canonical set of
 // autopilot UUIDs the flag hides by default. Pulled from
 // internal/experimental/visibility.go via the public accessors.
+// (0.3.57: constitution_agent case removed alongside the lab
+// retirement in migration 165.)
 func experimentalHiddenAutopilotUUIDs(t *testing.T, key string) []uuid.UUID {
 	t.Helper()
 	switch key {
 	case "agent_self_optimization":
 		return experimental.AgentSelfOptimizationAutopilotIDs()
-	case "constitution_agent":
-		return experimental.ConstitutionAgentAutopilotIDs()
 	default:
 		t.Fatalf("unknown flag key %q", key)
 		return nil
@@ -299,13 +281,8 @@ func allCatalogFlags() []string {
 // hiddenAutopilotUUIDsForAgentSelfOpt returns the hidden-set accessor
 // for agent_self_optimization. Direct passthrough today; named so a
 // future override (e.g. for tests that need to inject a custom set)
-// stays local to this file.
+// stays local to this file. (0.3.57: the constitution_agent sibling
+// was removed alongside the lab retirement in migration 165.)
 func hiddenAutopilotUUIDsForAgentSelfOpt() []uuid.UUID {
 	return experimental.AgentSelfOptimizationAutopilotIDs()
-}
-
-// hiddenAutopilotUUIDsForConstitutionAgent returns the hidden-set
-// accessor for constitution_agent. See hiddenAutopilotUUIDsForAgentSelfOpt.
-func hiddenAutopilotUUIDsForConstitutionAgent() []uuid.UUID {
-	return experimental.ConstitutionAgentAutopilotIDs()
 }

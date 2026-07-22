@@ -63,9 +63,10 @@ type AgentResponse struct {
 	// per-model; the API never normalizes across providers. See MUL-2339.
 	ThinkingLevel string `json:"thinking_level"`
 	// SystemKey (0.3.51) — optional system-prompt binding, empty when
-	// the agent runs its own instructions verbatim. Currently only
-	// "constitution_agent_v1" is recognised (the constitution_agent
-	// runtime prepends the constitution Skill body when the key is set).
+	// the agent runs its own instructions verbatim. Reserved for
+	// future system-prompt bindings — see daemon.go::loadSystemPromptBinding
+	// for the runtime consumer. The 0.3.51 `constitution_agent_v1`
+	// binding was retired alongside the constitution_agent lab in 0.3.57.
 	// The value is round-tripped through Create/Update so the agent
 	// creator studio can toggle the binding on saved agents.
 	SystemKey  string              `json:"system_key"`
@@ -376,9 +377,12 @@ type TaskAgentData struct {
 	Model         string                      `json:"model,omitempty"`
 	ThinkingLevel string                      `json:"thinking_level,omitempty"`
 	// SystemKey (0.3.51) — system-prompt binding key. The daemon reads
-	// this and, when it matches a known Skill (e.g. "constitution_agent_v1"),
-	// prepends the Skill body to the agent's Instructions before sending
-	// to the provider. Empty = no binding (default).
+	// this and, when it matches a known Skill, prepends the Skill
+	// body to the agent's Instructions before sending to the provider.
+	// Empty = no binding (default). The initial
+	// `constitution_agent_v1` binding was retired in 0.3.57 alongside
+	// the constitution_agent lab; the field is kept forward-compatible
+	// so a future binding key can land without a schema migration.
 	SystemKey string `json:"system_key,omitempty"`
 	// RuntimeConfig is the agent's saved runtime_config JSON as-is. The
 	// daemon decodes it per-provider — e.g. the openclaw backend reads
@@ -574,7 +578,7 @@ func (h *Handler) ListAgents(w http.ResponseWriter, r *http.Request) {
 
 	// 0.3.33: route every list call through the visibility-filtered
 	// query so lab-bound agents (Claude Science research / biology /
-	// physics / ml, mythos 5-agent roster, constitution_agent / agent
+	// physics / ml, mythos 5-agent roster, agent
 	// self-optimization install-time installs) do not pollute the
 	// user-facing picker. The hidden rows are still in the DB —
 	// the lab owns them — but their IDs are excluded from the
@@ -741,11 +745,11 @@ type CreateAgentRequest struct {
 	MaxConcurrentTasks int32             `json:"max_concurrent_tasks"`
 	Model              string            `json:"model"`
 	ThinkingLevel      string            `json:"thinking_level"`
-	// SystemKey (0.3.51) — optional system-prompt binding. Today only
-	// `constitution_agent_v1` is recognised; empty/NULL means the agent
-	// runs its own instructions verbatim. The constitution_agent runtime
-	// uses this to know whether to prepend the constitution Skill body
-	// before the daemon executes the agent's task.
+	// SystemKey (0.3.51) — optional system-prompt binding. Empty/NULL
+	// means the agent runs its own instructions verbatim. Forward-
+	// compatible: a future binding key can be added without a schema
+	// migration. The 0.3.51 `constitution_agent_v1` binding was
+	// retired in 0.3.57 (constitution_agent lab retirement).
 	SystemKey string `json:"system_key"`
 	// Template records which template slug was used to seed this agent
 	// (e.g. "coding" / "planning" / "writing" / "assistant"). Empty when
@@ -1033,9 +1037,10 @@ type UpdateAgentRequest struct {
 	// SystemKey (0.3.51) follows the same tri-state pattern as
 	// ThinkingLevel: omitted → no change, present with "" → explicit
 	// clear (back to NULL / no system prompt), present with non-empty →
-	// set (e.g. "constitution_agent_v1"). Today only the constitution
-	// flag uses this; the runtime resolves the key against the
-	// Skill catalogue before prepending it to the agent's instructions.
+	// set. The runtime resolves the key against the Skill catalogue
+	// before prepending it to the agent's instructions; unknown keys
+	// are tolerated so a future system_prompt can ship without a
+	// schema change.
 	SystemKey *string `json:"system_key"`
 }
 
@@ -1325,10 +1330,10 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	// 0.3.51: system_key follows the tri-state pointer pattern.
 	//   omitted → no change (COALESCE keeps existing value)
 	//   ""      → explicit clear (set NULL, agent runs plain instructions)
-	//   value   → set (currently only "constitution_agent_v1" is recognised;
-	//              an unknown key is still accepted — the runtime treats it
-	//              as "no binding" rather than 400 so the schema doesn't
-	//              break when a new system_prompt is added later).
+	//   value   → set. Unknown keys are still accepted — the runtime
+	//              treats them as "no binding" rather than 400 so the
+	//              schema doesn't break when a new system_prompt is
+	//              added later.
 	if req.SystemKey != nil {
 		params.SystemKey = pgtype.Text{String: *req.SystemKey, Valid: *req.SystemKey != ""}
 	}

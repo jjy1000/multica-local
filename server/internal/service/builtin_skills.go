@@ -46,7 +46,7 @@ func (s *TaskService) BuiltinSkills() []AgentSkillData {
 }
 
 // LoadBuiltinSkillByName resolves a builtin Skill by its directory
-// name (e.g. "multica-constitution-agent"). Returns (skill, true) on
+// name. Returns (skill, true) on
 // hit; (zero, false) when the Skill is not embedded or has no
 // SKILL.md. Used by the 0.3.51 system-prompt binding layer in
 // daemon.go::loadSystemPromptBinding to look up the body that should

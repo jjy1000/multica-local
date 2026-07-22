@@ -5,8 +5,8 @@
     "tab_squad": "团队",
     "field_name": "名称",
     "field_description": "描述",
-    "compat_label": "与智能体宪法兼容",
-    "compat_hint": "开启后,该智能体的 system_key 会设为 constitution_agent_v1,Daemon 在执行前会把 multica-constitution-agent Skill 正文 prepend 到 instructions 之前",
+    "compat_label": "",
+    "compat_hint": "",
     "submit_create": "创建"
   },
   "self_opt_history_view": {

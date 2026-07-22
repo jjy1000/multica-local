@@ -54,14 +54,12 @@
     "llm_wiki_bridge_enabled_badge": "LLM Wiki 有効",
     "code_canvas_enabled_badge": "コードキャンバス有効",
     "agent_self_optimization_enabled_badge": "自己最適化有効",
-    "constitution_agent_enabled_badge": "憲法エージェント有効",
     "chat_pin_ui_enabled_badge": "チャットピン有効",
     "experimental_llm_wiki": "LLM Wiki",
     "experimental_llm_wiki_bridge": "LLM Wiki ブリッジ",
     "experimental_claude_science_runtime": "Claude Science ランタイム",
     "experimental_claude_science_lab": "Claude 研究ラボ",
     "experimental_code_canvas": "コードキャンバス",
-    "experimental_agent_self_optimization": "エージェント自己最適化",
-    "experimental_constitution_agent": "憲法エージェント"
+    "experimental_agent_self_optimization": "エージェント自己最適化"
   }
 }

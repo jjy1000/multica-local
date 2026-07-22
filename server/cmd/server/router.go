@@ -538,14 +538,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallMythos(context.Background(), userID, workspaceID)
 			})
-		// 0.3.27 B4: constitution_agent + agent_self_optimization
-		// install handlers. The Install* functions idempotently
-		// provision the agent + autopilots; once they exist the
-		// scheduler's shouldSkipDispatch gate is no longer dead code.
-		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceConstitutionAgent),
-			func(userID, workspaceID string) error {
-				return hh.InstallConstitutionAgent(context.Background(), userID, workspaceID)
-			})
+		// 0.3.27 B4: agent_self_optimization install handler. The
+		// Install* function idempotently provisions the agent +
+		// autopilots; once they exist the scheduler's shouldSkipDispatch
+		// gate is no longer dead code. (The 0.3.20 constitution_agent
+		// sibling was retired in 0.3.57 with migration 165.)
 		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceAgentSelfOptimization),
 			func(userID, workspaceID string) error {
 				return hh.InstallAgentSelfOptimization(context.Background(), userID, workspaceID)

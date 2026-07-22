@@ -299,11 +299,9 @@ func (h *Handler) ListSkills(w http.ResponseWriter, r *http.Request) {
 		"list skills: resolve hidden set failed",
 	)
 
-	// 0.3.20 Labs gate: the constitution_agent Skill content ships
-	// via the experiment boot loader (server/internal/service/
-	// builtin_skills.go::scanExperimentSkills) and is not stored in
-	// the workspace skill table, so this list gate is a no-op for
-	// now. Touching the loader would be a 0.3.21+ task.
+	// (the constitution_agent Skill content shipped via the experiment
+	// boot loader (server/internal/service/builtin_skills.go). The flag
+	// was retired in 0.3.57 (migration 165) and the Skill is gone.)
 
 	resp := make([]SkillSummaryResponse, len(skills))
 	for i, s := range skills {

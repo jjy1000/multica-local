@@ -110,18 +110,9 @@ function WarningCard() {
   );
 }
 
-// CrossLinkSection — when self-optimization is enabled, mention the
-// `constitution_agent` lab as the reviewer side of the loop. Skill
-// edits are gated by CSIL — see constitution-agent-view.tsx for the
-// reverse direction.
+// CrossLinkSection was retired in 0.3.57 alongside the
+// constitution_agent lab (migration 165). The reverse direction
+// previously lived in constitution-agent-view.tsx.
 function CrossLinkSection() {
-  return (
-    <section className="rounded-xl border border-border bg-card p-6">
-      <h2 className="text-base font-semibold text-foreground">与「宪法智能体」的关系</h2>
-      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-        宪法智能体（<code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">constitution_agent</code>）是本循环的 reviewer — SkillOpt-Multica 每次提议修改,CSIL 都会核对是否违反宪章。建议同时启用两个 flag,
-        形成「提议 + 审查」的闭环。
-      </p>
-    </section>
-  );
+  return null;
 }
