@@ -146,7 +146,7 @@ const LAB_BADGES: Record<string, LabBadgeSpec> = {
  *   pythia_oracle           → Sparkles    stochastic prediction / oracle
  *   llm_wiki_bridge         → ClipboardList knowledge bridge / catalog
  *   code_canvas             → Code2       developer canvas / REPL
- *   agent_self_optimization → Scale       policy tuning / balance
+ *   agent_self_optimization → Wrench     policy tuning / balance
  *   chat_pin_ui             → Pin         pinned chat session
  *
  * Unmapped future labs fall back to FlaskConical so the row stays
