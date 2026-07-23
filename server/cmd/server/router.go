@@ -564,6 +564,53 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			})
 	}
 
+	// 0.3.60: boot-time user plugin loading. Merge active user plugins
+	// from the DB into the experimental registry so they appear in Labs
+	// alongside the built-in catalog flags. Non-fatal: a transient DB
+	// failure on boot must not block startup.
+	// 0.3.62: guard with a defer/recover so test harnesses that pass a
+	// nil pgxpool.Pool (queries.New(nil) returns a non-nil struct whose
+	// inner DBTX is nil and panics on Acquire) don't take down the
+	// router. The boot-time load is a UX nicety, not a correctness
+	// invariant — failure here must never block startup.
+	if h.ExperimentRegistry != nil {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Warn("user plugins boot-time load skipped (nil DB pool)", "recover", r)
+				}
+			}()
+			rows, err := h.Queries.ListActiveUserPlugins(context.Background())
+			if err != nil {
+				slog.Warn("failed to load user plugins at boot", "err", err)
+				return
+			}
+			pluginRows := make([]experimental.UserPluginRow, 0, len(rows))
+			for _, row := range rows {
+				manifestStr := "{}"
+				if len(row.ManifestJson) > 0 {
+					manifestStr = string(row.ManifestJson)
+				}
+				pluginRows = append(pluginRows, experimental.UserPluginRow{
+					Slug:          row.Slug,
+					FlagKey:       row.FlagKey,
+					TitleEn:       row.TitleEn,
+					TitleZh:       row.TitleZh,
+					DescriptionEn: row.DescriptionEn,
+					DescriptionZh: row.DescriptionZh,
+					ManifestJSON:  manifestStr,
+					TriggerMode:   row.TriggerMode,
+					RuntimeKind:   row.RuntimeKind,
+					Status:        row.Status,
+				})
+			}
+			userFlags := experimental.UserPluginsToFlags(pluginRows)
+			experimental.RegisterUserPlugins(userFlags)
+			h.ExperimentRegistry.MergeUserPlugins(userFlags)
+			slog.Info("user plugins loaded at boot", "count", len(userFlags))
+		}()
+	}
+
 	// 0.3.31: wire the Mythos supervise service so the HTTP tick /
 	// get-state handlers can drive a synchronous tick. The supervise
 	// goroutines themselves are launched lazily by Service.Run when
@@ -1293,6 +1340,26 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/", h.ListExperimentalFlags)
 				r.Patch("/{key}", h.UpdateExperimentalFlag)
 			})
+
+			// User plugin CRUD (0.3.60 Labs sandbox). Always available
+			// to authenticated users — no RequireExperimentalFlag gate.
+			r.Get("/api/user-plugins", h.ListUserPlugins)
+			r.Post("/api/user-plugins", h.CreateUserPlugin)
+			r.Put("/api/user-plugins/{slug}", h.UpdateUserPlugin)
+			r.Delete("/api/user-plugins/{slug}", h.DeleteUserPlugin)
+
+			// User plugin runtime (execution loop). Runs the plugin's
+			// inline code in its persistent env dir and ingests emitted
+			// files as artifacts. runtime_kind gates dispatch:
+			// inline runs, subprocess → 501, none → 400.
+			r.Post("/api/user-plugins/{slug}/run", h.RunUserPlugin)
+
+			// User plugin artifact storage (0.3.60). Filesystem-backed
+			// artifact index under ~/.multica/plugins/<slug>/artifacts/.
+			r.Get("/api/user-plugins/{slug}/artifacts", h.ListPluginArtifacts)
+			r.Post("/api/user-plugins/{slug}/artifacts", h.UploadPluginArtifact)
+			r.Get("/api/user-plugins/{slug}/artifacts/{artifactID}/raw", h.ServePluginArtifactRaw)
+			r.Delete("/api/user-plugins/{slug}/artifacts/{artifactID}", h.DeletePluginArtifact)
 
 			// 0.3.15: experimental-resource install / rollback endpoints.
 			// Drives the per-lab lock table (PR 1) so the renderer can
