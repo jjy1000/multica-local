@@ -1233,6 +1233,8 @@ export const ExperimentalFlagSchema = z.object({
   // belongs in the lab's workspace-scoped view — Claude Lab Artifact
   // tab, Mythos Swarm reflection panel).
   hides_deliverable_in_issue_timeline: z.boolean().optional(),
+  // 0.3.60: true for user-created plugins merged into the flag list.
+  is_user_plugin: z.boolean().optional(),
 }).loose();
 
 // Server wire shape (handler/experimental_flags.go:62-76) wraps the array

@@ -9,6 +9,19 @@
     "compat_hint": "0.3.45 UI プレースホルダ — 0.3.45.1 で system_key フィールドを接続",
     "submit_create": "作成"
   },
+  "user_plugins": {
+    "title": "ユーザープラグイン",
+    "create": "プラグイン作成",
+    "create_lab": "実験室作成",
+    "delete_confirm": "このプラグインを削除しますか？",
+    "empty": "ユーザープラグインなし",
+    "trigger_auto": "自動駆動",
+    "trigger_issue": "タスク連動",
+    "artifacts_empty": "成果物なし",
+    "upload": "アップロード",
+    "settings": "設定",
+    "select_agent_hint": "エージェントを選択してラボプラグインを作成"
+  },
   "self_opt_history_view": {
     "header_label": "エージェント自己最適化履歴",
     "page_title": "エージェント自己最適化履歴",

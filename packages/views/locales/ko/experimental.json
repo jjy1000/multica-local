@@ -9,6 +9,19 @@
     "compat_hint": "0.3.45 UI 자리표시자 — 0.3.45.1에서 system_key 필드 연결",
     "submit_create": "만들기"
   },
+  "user_plugins": {
+    "title": "사용자 플러그인",
+    "create": "플러그인 생성",
+    "create_lab": "실험실 생성",
+    "delete_confirm": "이 플러그인을 삭제하시겠습니까?",
+    "empty": "사용자 플러그인 없음",
+    "trigger_auto": "자동 실행",
+    "trigger_issue": "작업 연동",
+    "artifacts_empty": "산출물 없음",
+    "upload": "업로드",
+    "settings": "설정",
+    "select_agent_hint": "에이전트를 선택하여 실험실 플러그인을 생성"
+  },
   "self_opt_history_view": {
     "header_label": "에이전트 자기 최적화 기록",
     "page_title": "에이전트 자기 최적화 기록",

@@ -20,6 +20,8 @@
 // does nothing, which users will rightly treat as a bug.
 package experimental
 
+import "sync"
+
 // LocalizedString is a minimal en+zh bilingual pair used for flag titles
 // and descriptions. The HTTP API returns both fields so the client can
 // pick by its current locale without a server-side i18n hop. Languages
@@ -320,12 +322,12 @@ var Catalog = []Flag{
 		HideFromIssueLabPicker:          true,
 		HidesDeliverableInIssueTimeline: true,
 	},
-// 0.3.57 catalog cleanup: the 0.3.20 constitution_agent flag is
-// RETIRED (see migration 165). Visibility constants in visibility.go
-// and the SourceConstitutionAgent enum value in lock.go were deleted
-// alongside the flag. The skill, autopilots, and agent row live on
-// past that point only via historical lock rows; existing tables were
-// not dropped because migration data must remain forward-compatible.
+	// 0.3.57 catalog cleanup: the 0.3.20 constitution_agent flag is
+	// RETIRED (see migration 165). Visibility constants in visibility.go
+	// and the SourceConstitutionAgent enum value in lock.go were deleted
+	// alongside the flag. The skill, autopilots, and agent row live on
+	// past that point only via historical lock rows; existing tables were
+	// not dropped because migration data must remain forward-compatible.
 	{
 		// agent_creation_studio (0.3.45): action-type lab distinct
 		// from the visibility-gated flags above. Instead of hiding or
@@ -369,17 +371,72 @@ var Catalog = []Flag{
 	},
 }
 
-// IsKnownKey reports whether key matches a Catalog entry. The HTTP
-// handler uses this to reject PATCH calls for unknown keys, preventing
-// users from accidentally creating a typo-bound row in experimental_pref
-// that the Labs UI then has no way to surface or clear.
-func IsKnownKey(key string) bool {
+// userPluginMu guards the dynamic user plugin layer. Built-in flags
+// in Catalog are immutable after init; user plugins are loaded at
+// boot from the DB and optionally from ~/.multica/plugins/.
+var (
+	userPluginMu sync.RWMutex
+	userPlugins  = map[string]Flag{}
+)
+
+// RegisterUserPlugins merges user-created plugin flags into the
+// dynamic layer. Called at boot after the DB is available. Flags
+// whose keys collide with built-in Catalog entries are silently
+// skipped — built-in flags always win.
+func RegisterUserPlugins(flags []Flag) {
+	userPluginMu.Lock()
+	defer userPluginMu.Unlock()
+	for _, f := range flags {
+		// skip collisions with built-in catalog
+		if isBuiltinKey(f.Key) {
+			continue
+		}
+		userPlugins[f.Key] = f
+	}
+}
+
+// UnregisterUserPlugin removes a single user plugin flag from the
+// dynamic layer. Called when a user deletes a plugin.
+func UnregisterUserPlugin(key string) {
+	userPluginMu.Lock()
+	defer userPluginMu.Unlock()
+	delete(userPlugins, key)
+}
+
+// isBuiltinKey checks only the static Catalog.
+func isBuiltinKey(key string) bool {
 	for _, f := range Catalog {
 		if f.Key == key {
 			return true
 		}
 	}
 	return false
+}
+
+// UserPluginFlags returns a snapshot of all registered user plugin
+// flags. The caller may iterate freely; the returned slice is a copy.
+func UserPluginFlags() []Flag {
+	userPluginMu.RLock()
+	defer userPluginMu.RUnlock()
+	out := make([]Flag, 0, len(userPlugins))
+	for _, f := range userPlugins {
+		out = append(out, f)
+	}
+	return out
+}
+
+// IsKnownKey reports whether key matches a Catalog entry. The HTTP
+// handler uses this to reject PATCH calls for unknown keys, preventing
+// users from accidentally creating a typo-bound row in experimental_pref
+// that the Labs UI then has no way to surface or clear.
+func IsKnownKey(key string) bool {
+	if isBuiltinKey(key) {
+		return true
+	}
+	userPluginMu.RLock()
+	defer userPluginMu.RUnlock()
+	_, ok := userPlugins[key]
+	return ok
 }
 
 // AllFlagKeys returns every flag key in the catalog as a fresh slice.
@@ -392,6 +449,11 @@ func AllFlagKeys() []string {
 	keys := make([]string, 0, len(Catalog))
 	for _, f := range Catalog {
 		keys = append(keys, f.Key)
+	}
+	userPluginMu.RLock()
+	defer userPluginMu.RUnlock()
+	for k := range userPlugins {
+		keys = append(keys, k)
 	}
 	return keys
 }
@@ -414,10 +476,13 @@ func DefaultFor(key string) bool {
 	if _, broken := IsBroken(key); broken {
 		return false
 	}
-	for _, f := range Catalog {
-		if f.Key == key {
-			return f.DefaultVal
+	if isBuiltinKey(key) {
+		for _, f := range Catalog {
+			if f.Key == key {
+				return f.DefaultVal
+			}
 		}
 	}
+	// user plugins default to false (opt-in)
 	return false
 }

@@ -84,8 +84,47 @@ export interface ExperimentalFlag {
   hides_deliverable_in_issue_timeline?: boolean;
   /** PR 7: present when the flag has installable backing resources. */
   installation?: ExperimentalFlagInstallation;
+  /** 0.3.60: true when the flag originates from a user-created plugin
+   *  rather than the developer catalog. The Labs tab renders user
+   *  plugins in a separate section below the catalog flags. */
+  is_user_plugin?: boolean;
 }
 
 export interface ExperimentalFlagsList {
   flags: ExperimentalFlag[];
+}
+
+// 0.3.60 Labs sandbox: user-created plugin wire shape. Mirrors the
+// server-side UserPluginResponse struct. CRUD endpoints live at
+// /api/user-plugins; the GET /api/experimental-flags list merges
+// active user plugins with is_user_plugin: true.
+export interface UserPluginResponse {
+  id: string;
+  slug: string;
+  flag_key: string;
+  title: LocalizedString;
+  description: LocalizedString;
+  trigger_mode: "auto" | "issue_select";
+  runtime_kind: "none" | "inline" | "subprocess";
+  status: "active" | "disabled" | "deleted";
+  manifest?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+// 0.3.60 Labs sandbox: a single artifact produced by a user plugin run.
+// Mirrors the server-side artifact metadata wire shape returned by
+// GET /api/user-plugins/:slug/artifacts. The renderer dispatches on
+// `type` to pick a viewer (image / chart / table / html / code / file /
+// text); `data` carries inline payloads (chart/table/code/text) while
+// `url` points at binary blobs (image/file) served by the backend.
+export interface ArtifactMeta {
+  id: string;
+  type: "image" | "chart" | "table" | "html" | "code" | "file" | "text";
+  title: string;
+  mime_type?: string;
+  size?: number;
+  data?: unknown;
+  url?: string;
+  created_at: string;
 }

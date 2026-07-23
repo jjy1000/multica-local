@@ -76,8 +76,10 @@ type ProxyRoute struct {
 // Concurrent use: Registry is read-mostly after boot. InstallHandler
 // and UnregisterHandler may be added during boot only — runtime
 // mutation is not supported and would race. The mutex guards the
-// loopback URL map (SetLoopbackURL / GetLoopbackURL) which is the
-// only field mutated after boot.
+// loopback URL map (SetLoopbackURL / GetLoopbackURL) and the flags
+// map, which gains user-plugin entries at runtime via
+// MergeUserPlugins / RemoveUserPlugin (0.3.60). All flags readers
+// (Flags / Flag / ProxyRoutes / SidebarEntries) take the read lock.
 type Registry struct {
 	mu sync.RWMutex
 
@@ -120,6 +122,8 @@ func NewRegistry() *Registry {
 // Returned slice is a defensive copy; callers may iterate without
 // locking.
 func (r *Registry) Flags() []Flag {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]Flag, 0, len(r.flags))
 	for _, f := range r.flags {
 		out = append(out, f)
@@ -131,8 +135,30 @@ func (r *Registry) Flags() []Flag {
 // Equivalent to IsKnownKey but returns the full Flag for callers
 // that need the manifest fields.
 func (r *Registry) Flag(key string) (Flag, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	f, ok := r.flags[key]
 	return f, ok
+}
+
+// MergeUserPlugins adds user-created plugin flags to the registry's
+// flag map. Called at boot after RegisterUserPlugins populates the
+// catalog's dynamic layer. Proxy routes and sidebar entries for user
+// plugins are derived from their Flag fields the same way built-in
+// flags are.
+func (r *Registry) MergeUserPlugins(flags []Flag) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, f := range flags {
+		r.flags[f.Key] = f
+	}
+}
+
+// RemoveUserPlugin removes a user plugin flag from the registry.
+func (r *Registry) RemoveUserPlugin(key string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.flags, key)
 }
 
 // IsInstallable reports whether key has an install handler bound.
@@ -211,6 +237,8 @@ func (r *Registry) LoopbackURL(service string) string {
 // routes — adding a new subprocess flag requires only the manifest
 // and catalog edit, not a router change.
 func (r *Registry) ProxyRoutes() []ProxyRoute {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]ProxyRoute, 0)
 	for _, f := range r.flags {
 		if f.RuntimeKind != "subprocess" {
@@ -272,7 +300,14 @@ type SidebarEntry struct {
 // first call parses the manifest, subsequent calls reuse the
 // in-memory snapshot. A parse failure returns nil so the wire
 // response degrades gracefully.
+//
+// Holds the write lock for the whole call because it may mutate
+// r.flags to cache the loaded Sidebar rows; this must not race with
+// MergeUserPlugins / RemoveUserPlugin. LoadManifest reads a small
+// local file, so the critical section is short.
 func (r *Registry) SidebarEntries(flagKey string) []SidebarEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	f, ok := r.flags[flagKey]
 	if !ok || f.Sidebar != nil || f.ManifestPath == "" {
 		// unknown key, already loaded, or no manifest → return what we have.

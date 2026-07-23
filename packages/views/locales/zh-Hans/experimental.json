@@ -9,6 +9,19 @@
     "compat_hint": "",
     "submit_create": "创建"
   },
+  "user_plugins": {
+    "title": "用户插件",
+    "create": "创建插件",
+    "create_lab": "创建实验室",
+    "delete_confirm": "确认删除此插件？",
+    "empty": "暂无用户插件",
+    "trigger_auto": "自驱",
+    "trigger_issue": "任务绑定",
+    "artifacts_empty": "暂无产物",
+    "upload": "上传",
+    "settings": "设置",
+    "select_agent_hint": "选择一个智能体来创建实验室插件"
+  },
   "self_opt_history_view": {
     "header_label": "智能体自优化历史",
     "page_title": "智能体自优化历史",

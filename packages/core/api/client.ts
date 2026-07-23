@@ -75,6 +75,8 @@ import type {
   SendChatMessageResponse,
   CancelTaskResponse,
   ExperimentalFlag,
+  UserPluginResponse,
+  ArtifactMeta,
   Project,
   CreateProjectRequest,
   UpdateProjectRequest,
@@ -1914,6 +1916,84 @@ export class ApiClient {
     await this.fetch(`/api/experimental-flags/${encodeURIComponent(key)}`, {
       method: "PATCH",
       body: JSON.stringify({ enabled }),
+    });
+  }
+
+  // ---- User Plugins (0.3.60 Labs sandbox) ----
+
+  async listUserPlugins(): Promise<UserPluginResponse[]> {
+    return this.fetch<UserPluginResponse[]>("/api/user-plugins");
+  }
+
+  async createUserPlugin(body: {
+    slug: string;
+    title: { en: string; zh: string };
+    description: { en: string; zh: string };
+    trigger_mode: "auto" | "issue_select";
+    runtime_kind: "none" | "inline" | "subprocess";
+    manifest?: Record<string, unknown>;
+  }): Promise<UserPluginResponse> {
+    return this.fetch<UserPluginResponse>("/api/user-plugins", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async updateUserPlugin(
+    slug: string,
+    body: Partial<{
+      title: { en: string; zh: string };
+      description: { en: string; zh: string };
+      trigger_mode: string;
+      runtime_kind: string;
+      manifest: Record<string, unknown>;
+    }>,
+  ): Promise<UserPluginResponse> {
+    return this.fetch<UserPluginResponse>(
+      `/api/user-plugins/${encodeURIComponent(slug)}`,
+      { method: "PUT", body: JSON.stringify(body) },
+    );
+  }
+
+  async deleteUserPlugin(slug: string): Promise<void> {
+    await this.fetch(`/api/user-plugins/${encodeURIComponent(slug)}`, {
+      method: "DELETE",
+    });
+  }
+
+  async listPluginArtifacts(slug: string): Promise<ArtifactMeta[]> {
+    return this.fetch<ArtifactMeta[]>(
+      `/api/user-plugins/${encodeURIComponent(slug)}/artifacts`,
+    );
+  }
+
+  async deletePluginArtifact(slug: string, artifactId: string): Promise<void> {
+    await this.fetch(
+      `/api/user-plugins/${encodeURIComponent(slug)}/artifacts/${encodeURIComponent(artifactId)}`,
+      {
+        method: "DELETE",
+      },
+    );
+  }
+
+  // Execute a plugin's inline runtime. The server runs the plugin's
+  // entry.py in its persistent env dir and ingests emitted files as
+  // artifacts; callers invalidate ["user-plugin-artifacts", slug] to
+  // re-render the gallery. An empty body re-runs the persisted entry.py.
+  async runUserPlugin(
+    slug: string,
+    body?: { code?: string; timeout_ms?: number },
+  ): Promise<{
+    status: string;
+    exit_code: number;
+    stdout: string;
+    stderr: string;
+    duration_ms: number;
+    artifacts: ArtifactMeta[];
+  }> {
+    return this.fetch(`/api/user-plugins/${encodeURIComponent(slug)}/run`, {
+      method: "POST",
+      body: JSON.stringify(body ?? {}),
     });
   }
 

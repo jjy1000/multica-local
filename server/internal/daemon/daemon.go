@@ -3624,6 +3624,21 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		"MULTICA_AGENT_ID":     task.AgentID,
 		"MULTICA_TASK_ID":      task.ID,
 		"MULTICA_TASK_SLOT":    strconv.Itoa(slot),
+		// MULTICA_API_TOKEN is an alias of the same task-scoped mat_
+		// token, injected so the experimental / Labs surface works
+		// out-of-the-box inside the agent runtime. The `multica
+		// experimental ...` CLI commands (experimentalToken() in
+		// cmd_experimental.go) and the `multica-lab-builder` skill's
+		// raw curl calls authenticate via MULTICA_API_TOKEN, NOT
+		// MULTICA_TOKEN. Without this alias an agent that picks up a
+		// `[实验室创建]` issue hits 401 on every /api/user-plugins and
+		// /api/experimental-flags call — the lab-creation loop can
+		// never close. Same credential, no privilege expansion; it
+		// only bridges the two env-var namespaces. The local backend
+		// default (127.0.0.1:8090 via experimentalAPIURL) already
+		// matches the co-located desktop server, so no URL override
+		// is needed here.
+		"MULTICA_API_TOKEN":    agentToken,
 	}
 	if task.AutopilotRunID != "" {
 		agentEnv["MULTICA_AUTOPILOT_RUN_ID"] = task.AutopilotRunID

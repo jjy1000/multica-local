@@ -204,6 +204,14 @@ check: ## Run typecheck, TS tests, Go tests, and Playwright E2E for the current 
 	$(REQUIRE_ENV)
 	@ENV_FILE="$(ENV_FILE)" bash scripts/check.sh
 
+# Fast feedback tier for a bounded change: runs only the TypeScript-side checks
+# (typecheck + Vitest unit tests + lint) for packages affected since `main`, with
+# no database, servers, Go tests, or Playwright E2E. Use this while iterating; run
+# the full `make check` before delivery. Override the diff base with
+# TURBO_SCM_BASE (e.g. TURBO_SCM_BASE=origin/main).
+check-fast: ## Fast affected TS checks (typecheck + unit + lint); no DB/servers/Go/E2E
+	pnpm exec turbo run typecheck test lint --affected --filter=!@multica/mobile
+
 db-up: ## Start the shared PostgreSQL container used by main and worktrees
 	@$(COMPOSE) up -d postgres
 

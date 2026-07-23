@@ -22,6 +22,7 @@ import {
 } from "@multica/core/experimental";
 import { useT } from "../../i18n";
 import { LabsFlagSidePanel } from "./labs-flag-side-panel";
+import { UserPluginsSection } from "./user-plugins-section";
 
 // 0.3.18 Labs safety net wire shape. The renderer must use this
 // exact field set — server/internal/experimental/safety.go defines
@@ -332,6 +333,9 @@ export function LabsTab() {
           </Card>
         );
       })}
+
+      {/* 0.3.60: user-created plugins section below catalog flags */}
+      <UserPluginsSection />
     </div>
   );
 }

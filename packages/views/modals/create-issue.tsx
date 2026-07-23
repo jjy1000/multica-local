@@ -15,6 +15,7 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  Plus,
   X as XIcon,
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
@@ -195,6 +196,8 @@ function LabPickerRow({
   setLabSource,
   setLabMode,
   clearAssignee,
+  isLabCreation,
+  onToggleLabCreation,
 }: {
   labSource: string | undefined;
   setLabSource: (next: string | undefined) => void;
@@ -206,6 +209,13 @@ function LabPickerRow({
    *  server-side mutex gate ("lab_source and assignee are
    *  mutually exclusive") and the user sees a 400 toast. */
   clearAssignee: () => void;
+  /** 0.3.60: lab-plugin creation request mode. When true the user
+   *  is picking an agent who will AUTHOR a new lab plugin via the
+   *  multica-lab-builder skill — this is a creation request, NOT a
+   *  lab_source binding, so the issue keeps its manual assignee and
+   *  lab_source stays unset. */
+  isLabCreation: boolean;
+  onToggleLabCreation: () => void;
 }) {
   const { data: flags } = useExperimentalFlags();
   // Wait for the flag query to settle. Skipping the placeholder while
@@ -235,6 +245,11 @@ function LabPickerRow({
         onUpdate={(u) => {
           setLabSource(u.lab_source ?? undefined);
           setLabMode(u.lab_mode ?? undefined);
+          // 0.3.60: binding an existing lab ends the "create a new
+          // lab plugin" request — the two are mutually exclusive.
+          if (u.lab_source && isLabCreation) {
+            onToggleLabCreation();
+          }
           // 0.3.33: only mythos_swarm reserves the agent roster
           // (and even then only in sole mode). Other labs
           // (claude_science_lab, pythia_oracle, llm_wiki_bridge,
@@ -263,6 +278,24 @@ function LabPickerRow({
         }
         align="start"
       />
+      {/* 0.3.60: "创建实验室" — ask a picked agent to author a NEW
+          lab plugin via the multica-lab-builder skill. Orthogonal
+          to lab_source: this never binds the issue to an existing
+          lab; it sets a creation hint + keeps the manual assignee. */}
+      <PillButton
+        onClick={onToggleLabCreation}
+        className={cn(
+          isLabCreation && "bg-accent text-accent-foreground",
+        )}
+      >
+        <Plus className="size-3" />
+        创建实验室
+      </PillButton>
+      {isLabCreation && (
+        <span className="text-[10px] text-muted-foreground select-none">
+          选择一个智能体或团队来创建实验室插件
+        </span>
+      )}
     </div>
   );
 }
@@ -280,6 +313,13 @@ const LAB_DISPLAY_LABELS: Record<string, string> = {
 };
 
 function labDisplayLabel(key: string): string | undefined {
+  // 0.3.60: user plugins (user_* prefix) have no static label — prettify
+  // the slug into a Title Case display name (user_foo_bar → "Foo Bar").
+  if (key.startsWith("user_")) {
+    const slug = key.slice(5).replace(/[_-]+/g, " ").trim();
+    if (!slug) return undefined;
+    return slug.replace(/\b\w/g, (c) => c.toUpperCase());
+  }
   return LAB_DISPLAY_LABELS[key];
 }
 
@@ -293,6 +333,11 @@ function labDisplayLabel(key: string): string | undefined {
 // MythosView's useSearchParams hooks.
 function experimentalLabRouteFor(labSource: string | undefined): string | null {
   if (!labSource) return null;
+  // 0.3.60: user plugins (user_* prefix) route to the generic shell.
+  if (labSource.startsWith("user_")) {
+    const slug = labSource.slice(5); // strip "user_" prefix
+    return `/experimental/plugin/${slug}`;
+  }
   switch (labSource) {
   case "claude_science_lab":
     return "/experimental/claude-lab";
@@ -385,6 +430,20 @@ export function ManualCreatePanel({
   // Lab source — associates the issue with an experimental lab.
   const [labSource, setLabSource] = useState<string | undefined>(undefined);
   const [labMode, setLabMode] = useState<string | undefined>(undefined);
+  // 0.3.60: lab-plugin creation request. When true the picked agent
+  // is asked to AUTHOR a new lab plugin (multica-lab-builder skill);
+  // the issue keeps its manual assignee and lab_source stays unset.
+  const [isLabCreation, setIsLabCreation] = useState(false);
+  const toggleLabCreation = () => {
+    const next = !isLabCreation;
+    setIsLabCreation(next);
+    if (next) {
+      // A creation request is not a lab binding — drop any picked lab
+      // so submit never carries a stale lab_source into the mutex gate.
+      setLabSource(undefined);
+      setLabMode(undefined);
+    }
+  };
   // Children live as full Issue objects — the picker always returns the whole
   // object, and we never need to hydrate from an ID the way we do for parent.
   const [childIssues, setChildIssues] = useState<Issue[]>([]);
@@ -459,6 +518,7 @@ export function ManualCreatePanel({
     setStage(null);
     setLabSource(undefined);
     setLabMode(undefined);
+    setIsLabCreation(false);
     setChildIssues([]);
     setDraft({
       title: "",
@@ -483,9 +543,27 @@ export function ManualCreatePanel({
       const activeAttachmentIds = draftAttachments
         .filter((a) => contentReferencesAttachment(description ?? "", a))
         .map((a) => a.id);
+      // 0.3.60: a lab-creation request tags the title + description so the
+      // assigned agent (or squad) knows to author a lab plugin via the
+      // multica-lab-builder skill rather than treat this as an ordinary
+      // issue. lab_source is intentionally left unset — this is a creation
+      // request, not a binding. The hint tells the assignee to FIRST survey
+      // the current lab landscape (built-in flags + existing user plugins)
+      // so it knows what already exists before deciding what to build.
+      const LAB_CREATION_HINT =
+        "[实验室创建] 请为此工作区创建一个实验室插件。请先用 multica-lab-builder 技能了解当前实验室现状：" +
+        "读取 GET /api/experimental-flags（含内置实验室与已有用户插件）与 GET /api/user-plugins（已有插件清单），" +
+        "弄清目前有哪些实验室、还缺什么，再决定创建何种插件并完成创建与回报。";
+      const finalTitle =
+        isLabCreation && !title.trim().startsWith("[实验室创建]")
+          ? `[实验室创建] ${title.trim()}`
+          : title.trim();
+      const finalDescription = isLabCreation
+        ? (description ? `${LAB_CREATION_HINT}\n\n${description}` : LAB_CREATION_HINT)
+        : description;
       const issue = await createIssueMutation.mutateAsync({
-        title: title.trim(),
-        description,
+        title: finalTitle,
+        description: finalDescription,
         status,
         priority,
         assignee_type: assigneeType,
@@ -497,8 +575,8 @@ export function ManualCreatePanel({
         // Stage is only meaningful for a sub-issue (relative to its siblings).
         stage: parentIssueId && stage != null ? stage : undefined,
         project_id: projectId,
-        lab_source: labSource,
-        lab_mode: labMode as "sole" | "enhancer" | undefined,
+        lab_source: isLabCreation ? undefined : labSource,
+        lab_mode: isLabCreation ? undefined : (labMode as "sole" | "enhancer" | undefined),
       });
 
       // 0.3.30.3: when the issue is tagged with lab_source =
@@ -815,6 +893,8 @@ export function ManualCreatePanel({
               setLabSource={setLabSource}
               setLabMode={setLabMode}
               clearAssignee={() => updateAssignee(undefined, undefined)}
+              isLabCreation={isLabCreation}
+              onToggleLabCreation={toggleLabCreation}
             />
 
             {/* Property toolbar */}

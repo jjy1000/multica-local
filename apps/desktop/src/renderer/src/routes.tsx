@@ -46,6 +46,10 @@ import { SelfOptHistoryView } from "./pages/self-opt-history-view";
 // INTO from the issue picker; it drafts agent / skill / squad rows
 // and submits through the existing REST APIs.
 import { AgentCreationStudioView } from "./pages/agent-creation-studio-view";
+// 0.3.60: generic user-plugin shell route wrapper. Manifest-driven
+// tab layout for user_* lab plugins (see experimentalLabRouteFor in
+// packages/views/modals/create-issue.tsx).
+import { PluginShellPage } from "./pages/plugin-shell-page";
 
 /**
  * Wraps `SettingsPage` so the desktop-only extra tabs can still pull
@@ -179,6 +183,14 @@ export const appRoutes: RouteObject[] = [
         path: "experimental/agent-creation-studio",
         element: <AgentCreationStudioView />,
         handle: { title: "Agent Creation Studio" },
+      },
+      {
+        // 0.3.60: generic user plugin shell. The slug comes from the URL
+        // param; the view fetches plugin info from /api/user-plugins and
+        // renders the manifest-driven tab layout.
+        path: "experimental/plugin/:pluginSlug",
+        element: <PluginShellPage />,
+        handle: { title: "实验室插件" },
       },
       {
         path: ":workspaceSlug",

@@ -9,6 +9,19 @@
     "compat_hint": "0.3.45 UI placeholder — 0.3.45.1 wires system_key",
     "submit_create": "Create"
   },
+  "user_plugins": {
+    "title": "User Plugins",
+    "create": "Create Plugin",
+    "create_lab": "Create Lab",
+    "delete_confirm": "Delete this plugin?",
+    "empty": "No user plugins",
+    "trigger_auto": "Self-driven",
+    "trigger_issue": "Issue-bound",
+    "artifacts_empty": "No artifacts yet",
+    "upload": "Upload",
+    "settings": "Settings",
+    "select_agent_hint": "Select an agent to create a lab plugin"
+  },
   "self_opt_history_view": {
     "header_label": "Agent Self-Optimization History",
     "page_title": "Agent Self-Optimization History",

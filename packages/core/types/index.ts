@@ -90,6 +90,8 @@ export type {
   ExperimentalFlag,
   ExperimentalFlagsList,
   LocalizedString,
+  UserPluginResponse,
+  ArtifactMeta,
 } from "./experimental";
 export type {
   Project,

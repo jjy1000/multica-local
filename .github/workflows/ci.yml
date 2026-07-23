@@ -166,6 +166,16 @@ jobs:
       - name: Build
         run: cd server && go build ./...
 
+      - name: Verify sqlc generated code is up to date
+        # Re-runs sqlc against the checked-in queries/schema and fails on
+        # any drift from the committed generated package. Keeps
+        # server/pkg/db/generated in sync with server/sqlc.yaml so a stale
+        # regen can't slip through. Pinned to match the local toolchain.
+        run: |
+          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+          cd server && "$(go env GOPATH)/bin/sqlc" generate
+          git diff --exit-code -- server/pkg/db/generated
+
       - name: Run migrations
         run: cd server && go run ./cmd/migrate up
 

@@ -56,6 +56,9 @@ type ExperimentalFlagResponse struct {
 	// renderer-side hardcoded `VIEW_LAB_SOURCES` set; the migration
 	// moved the source of truth into the catalog.
 	HidesDeliverableInIssueTimeline bool `json:"hides_deliverable_in_issue_timeline,omitempty"`
+	// IsUserPlugin marks flags created by the user through the plugin
+	// sandbox (0.3.60+). Built-in flags omit this field (false).
+	IsUserPlugin bool `json:"is_user_plugin,omitempty"`
 }
 
 // ExperimentalFlagsListResponse wraps the list so future metadata
@@ -95,19 +98,23 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 		prefByKey[p.FlagKey] = p.Enabled
 	}
 
+	// User-created plugins (0.3.60 Labs sandbox) are merged in after the
+	// built-in catalog. Bind once so the capacity buffer and the append
+	// loop agree on the same snapshot.
+	userFlags := experimental.UserPluginFlags()
 	resp := ExperimentalFlagsListResponse{
-		Flags: make([]ExperimentalFlagResponse, 0, len(experimental.Catalog)),
+		Flags: make([]ExperimentalFlagResponse, 0, len(experimental.Catalog)+len(userFlags)),
 	}
 	for _, f := range experimental.Catalog {
 		enabled, hasOverride := prefByKey[f.Key]
 		flag := ExperimentalFlagResponse{
-			Key:                          f.Key,
-			Enabled:                      pickEnabled(f.DefaultVal, enabled, hasOverride),
-			DefaultEnabled:               f.DefaultVal,
-			Title:                        f.Title,
-			Description:                  f.Description,
-			RuntimeKind:                  f.RuntimeKind,
-			HideFromIssueLabPicker:       f.HideFromIssueLabPicker,
+			Key:                             f.Key,
+			Enabled:                         pickEnabled(f.DefaultVal, enabled, hasOverride),
+			DefaultEnabled:                  f.DefaultVal,
+			Title:                           f.Title,
+			Description:                     f.Description,
+			RuntimeKind:                     f.RuntimeKind,
+			HideFromIssueLabPicker:          f.HideFromIssueLabPicker,
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 		}
 		// 0.3.20: surface manifest entry_points.sidebar so the renderer's
@@ -131,6 +138,32 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			manifest, err := readInstallStatus(r.Context(), h.Queries, experimental.Source(f.Key))
 			if err == nil {
 				flag.Installation = &manifest
+			}
+		}
+		resp.Flags = append(resp.Flags, flag)
+	}
+
+	// Append user-created plugins (0.3.60 Labs sandbox). These are
+	// stored in the user_plugin table and merged into the catalog's
+	// dynamic layer at boot. The frontend renders them identically to
+	// built-in flags; the "user_" prefix on the key is the only
+	// distinguishing signal.
+	for _, f := range userFlags {
+		enabled, hasOverride := prefByKey[f.Key]
+		flag := ExperimentalFlagResponse{
+			Key:                             f.Key,
+			Enabled:                         pickEnabled(f.DefaultVal, enabled, hasOverride),
+			DefaultEnabled:                  f.DefaultVal,
+			Title:                           f.Title,
+			Description:                     f.Description,
+			RuntimeKind:                     f.RuntimeKind,
+			HideFromIssueLabPicker:          f.HideFromIssueLabPicker,
+			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
+			IsUserPlugin:                    true,
+		}
+		if reg := h.ExperimentRegistry; reg != nil {
+			if entries := reg.SidebarEntries(f.Key); len(entries) > 0 {
+				flag.SidebarEntries = entries
 			}
 		}
 		resp.Flags = append(resp.Flags, flag)

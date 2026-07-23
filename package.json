@@ -28,6 +28,9 @@
     "generate:reserved-slugs": "node scripts/generate-reserved-slugs.mjs"
   },
   "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=22"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",

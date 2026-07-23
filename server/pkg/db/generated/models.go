@@ -1004,6 +1004,23 @@ type User struct {
 	Timezone pgtype.Text `json:"timezone"`
 }
 
+type UserPlugin struct {
+	ID            pgtype.UUID        `json:"id"`
+	Slug          string             `json:"slug"`
+	FlagKey       string             `json:"flag_key"`
+	TitleEn       string             `json:"title_en"`
+	TitleZh       string             `json:"title_zh"`
+	DescriptionEn string             `json:"description_en"`
+	DescriptionZh string             `json:"description_zh"`
+	ManifestJson  []byte             `json:"manifest_json"`
+	TriggerMode   string             `json:"trigger_mode"`
+	RuntimeKind   string             `json:"runtime_kind"`
+	Status        string             `json:"status"`
+	CreatedBy     pgtype.UUID        `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
 type VerificationCode struct {
 	ID        pgtype.UUID        `json:"id"`
 	Email     string             `json:"email"`

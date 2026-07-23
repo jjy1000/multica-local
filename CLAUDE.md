@@ -23,6 +23,16 @@ Do **not** re-add any of the above.
   2. `packages/views/eslint.config.mjs` — `no-restricted-syntax` rule blocks `t(($) => { ... })` and `useT(($) => { ... })` at build time.
   3. `packages/views/layout/app-sidebar.tsx` — `AppSidebar` is wrapped in `@multica/ui/components/common/error-boundary` with a "Sidebar failed to render / Retry" fallback so any future selector crash stays scoped to the sidebar panel.
 
+- **i18n selector rule (quick reference):** use arrow-expression selectors ONLY. `t(($) => $.foo.bar)` ✓. `t(($) => { return $.foo.bar; })` ✗ — block body returns a plain string, `[PATH_KEY]` becomes undefined, throws `TypeError`. ESLint blocks both forms via `no-restricted-syntax` in `packages/views/eslint.config.mjs`.
+
+## Retired Features (do NOT re-add)
+
+These were intentionally removed in 0.3.x. Future sessions must not re-introduce them even if upstream ships them — the fork's localization contract is deliberate:
+
+- **`constitution_agent` lab** (retired 0.3.57, migration 165). Removed the `宪法智能体` agent, 3 autopilots (CTR/CSIL/TAOL), 4 `experimental_resource_visibility` rows, and the bundled `multica-constitution-agent` skill. If upstream re-adds a constitution lab, do NOT cherry-pick it back — the fork user explicitly rejected it.
+- **Username-only login user-creation side effects**: `POST /auth/login` still upserts a new user row on every unseen name (no auto-bind to existing workspaces). Do NOT "fix" by binding workspaces across logins — see incident `.omc/incidents/2026-06-27-username-only-login-loses-workspaces.md`.
+- **Inline lab workspace panel on issue detail** (removed 0.3.38). `LabWorkspacePanel`, `pickLabInlineView`, `IssueDetailProps.renderLabInline`, and the `*Inline` view wrappers (`ClaudeLabInline` / `PythiaInline` / `MythosInline` / `LLMWikiBridgeInline`) are all gone. Lab surfaces are reachable ONLY via `/experimental/<suffix>` from the sidebar or `<IssueLabsSection>` "open panel" link.
+
 - **BrowserWindow off-screen guard.** Electron 39 on macOS restores stale bounds from system window-state cache; if the bounds fall outside every connected display's workArea the window is invisible. `apps/desktop/src/main/index.ts` clamps bounds in `ensureWindowOnscreen()` — called synchronously after `new BrowserWindow(...)`, again on `ready-to-show`, and on every `move` / `resize` / `display-removed`.
 
 - **Pythia engine source-of-truth is `apps/desktop/vendor/pythia-src/engine/`, NOT `apps/desktop/resources/pythia/engine/`.** The `bundle-cli` script (`apps/desktop/scripts/bundle-cli.mjs:281-283`) wipes `resources/pythia/` and re-copies from `vendor/pythia-src/` on every run. Any prompt or code change made directly under `resources/pythia/engine/*.py` is silently overwritten at bundle time. Edit the vendor copy, then re-run `pnpm --filter @multica/desktop bundle-cli` so the staged resources get the new content. This bit the 0.3.21 Pythia i18n pass — three rounds of `Edit` to `resources/pythia/engine/{swarm,brief,oracle}.py` all looked successful until a re-bundle reverted every change.
@@ -175,7 +185,7 @@ Do NOT run `chown -R $USER:admin` (broken in zsh sandbox, memory `multica-dmg-re
 
 ### Version source
 
-This fork is **not a git repository**. `bundle-cli.mjs` reads the version from `apps/desktop/package.json` → `version` field. `git describe` is tried first but always fails; `package.json` is the canonical source. Bump `apps/desktop/package.json` only.
+This checkout **is** a git repository, but its tags are `pre-update-*` snapshot markers, not release tags — so `git describe --tags` returns a marker like `pre-update-...-gfa6fb31`, not a usable release version. `bundle-cli.mjs` runs `git describe` first, then falls back to `apps/desktop/package.json` → `version` whenever the result is empty or a `pre-update-` marker (see `apps/desktop/scripts/bundle-cli.mjs`). `apps/desktop/package.json` is the canonical version source. Bump `apps/desktop/package.json` only.
 
 ## Authentication
 
@@ -364,9 +374,41 @@ Do not claim verification passed unless you ran it. If you skip checks because t
 ## Commits and Releases
 
 - Atomic commits with conventional prefixes: `feat(scope)`, `fix(scope)`, `refactor(scope)`, `docs`, `test(scope)`, `chore(scope)`.
-- This fork is **not** a git repository (see "Version source" above); release tagging via `git tag v0.x.x` does not work. For local releases, bump `apps/desktop/package.json` `version` field and document the change in `.omc/release-notes-<ver>.md`.
-- The desktop DMG repackage is currently blocked by Electron 39 NSAlert — see `.omc/plans/0.2.89.4-vs-0.2.88-regression-report.md`. Workaround: `pnpm --filter @multica/desktop build` + ship the `.app` directly.
+- This checkout is a git repository, but releases are **not** tagged as `v0.x.x` (existing tags are `pre-update-*` snapshots; see "Version source" above), so `git describe` never yields a release version. For local releases, bump `apps/desktop/package.json` `version` field and document the change in `.omc/release-notes-<ver>.md` rather than creating a release tag.
+- **DMG creation hangs on create-dmg 1.2.3** (`electron-builder --mac` produces no `.dmg` on this fork). Use `pnpm exec electron-builder --mac --dir` to produce `dist/mac-arm64/Multica.app` directly and ship that. Every 0.3.x release ships via the `--dir` path. **Mandatory**: `pnpm build` does NOT run electron-builder; the asar replacement is silent if this step is skipped. Verify with `grep -c rawRequest apps/desktop/dist/mac-arm64/Multica.app/Contents/Resources/app.asar` after each build.
 - Bump patch by default unless the user specifies a version.
+
+## Ship chain (canonical order)
+
+Mandatory steps in order. Skipping any step risks data loss or a broken `.app`:
+
+```bash
+# 1. Snapshot — refuses to proceed if data-safety invariants fail
+bash ~/.multica/scripts/pre-update-snapshot.sh
+
+# 2. Apply pending migrations BEFORE bundle-cli (so SQL errors surface at build time)
+cd server && go run ./cmd/migrate up && cd ..
+
+# 3. Bundle Go binaries + stage PG/Pythia/OpenScience/manifests into resources/
+pnpm --filter @multica/desktop bundle-cli
+
+# 4. Build renderer via electron-vite
+pnpm --filter @multica/desktop build
+
+# 5. Package — DMG creation is broken in create-dmg 1.2.3 on this version (see
+#    stability note below). Use --dir and ship the .app directly:
+pnpm exec electron-builder --mac --dir
+cp -R dist/mac-arm64/Multica.app /Applications/
+
+# 6. Verify cold start (three-check pass + row parity)
+pkill -f "multica daemon" ; pkill -f "Multica.app/Contents/MacOS/Multica"
+open /Applications/Multica.app
+bash ~/.multica/scripts/verify-desktop-cold-start.sh
+```
+
+Write a release note at `.omc/release-notes-<ver>.md` and a ship log at
+`.omc/0.3.<ver>-ship-<date>.md` (one-line header, ship steps, risk vs outcome,
+row parity numbers).
 
 ## Labs Platform (0.3.31, current model)
 
@@ -519,6 +561,45 @@ The `LabPicker` renders a second-level TabsList (sole/enhancer) when the selecte
 ### When flag graduation is appropriate
 
 A flag's catalog `DefaultVal` may flip to `true` after the opt-in rate stabilises above a threshold you and the user agree on. Edit the catalog, write a release note explaining the graduation, ship as a regular version bump. Keep the toggle point in place so users who relied on opt-in can still find the override under Labs.
+
+### User Plugin System (0.3.60)
+
+Hard constraint #2 modified: built-in flags remain developer-only; user-created plugins use the `user_*` namespace, stored in the `user_plugin` table (migration 166), merged into the Registry at boot via `RegisterUserPlugins()` + `MergeUserPlugins()`.
+
+**Architecture:** dual-layer catalog — `catalog.go` static `Catalog` slice (8 built-in flags) + dynamic `userPlugins map[string]Flag` guarded by `userPluginMu`. `IsKnownKey()` / `DefaultFor()` / `AllFlagKeys()` check both layers. Built-in flags always win on key collision.
+
+**API endpoints** (all authenticated, no flag gate):
+- `GET/POST /api/user-plugins` — list / create (slug: `^[a-z0-9]+(?:-[a-z0-9]+)*$`, 2-64 chars; `flag_key = "user_" + slug`; 409 on duplicate)
+- `PUT/DELETE /api/user-plugins/{slug}` — partial update / soft-delete (status='deleted' + pref cleanup + Registry removal)
+- `GET/POST /api/user-plugins/{slug}/artifacts` — list / upload (multipart or JSON inline)
+- `GET /api/user-plugins/{slug}/artifacts/{id}/raw` — serve raw file
+- `DELETE /api/user-plugins/{slug}/artifacts/{id}`
+- `POST /api/user-plugins/{slug}/run` — execute the plugin runtime (see below)
+
+**Artifact storage:** `~/.multica/plugins/<slug>/artifacts/` — `index.json` (atomic tmp+rename) + files. Seven types: image / chart / table / html / code / text / file.
+
+**Execution runtime** (`user_plugin_runtime.go`, closes the run loop): `POST /run` dispatches on the `runtime_kind` column — `none` → 400, `subprocess` → 501 (reserved upgrade slot), `inline` → runs `python3 -I entry.py` (mirrors `claude_science_runtime.go`; reuses `probePython3`/`kindFromName`/`mimeForKind` + the artifact index helpers, no re-declaration). Missing plugin → 404, non-`active` → 409. Persistent per-plugin env at `~/.multica/plugins/<slug>/env/` (the future container mount point). Code source priority: request body `code` → `manifest.runtime.entry_code` → existing `env/entry.py`. Emitted files are diffed by mtime and ingested as artifacts (mapped png/svg → image / html → html / else → file), copied into the artifact store, and surfaced in the panel's Artifacts tab (client invalidates `["user-plugin-artifacts", slug]`). Run history: `~/.multica/plugins/<slug>/runs.json` (atomic, last 50). Limits reuse the claude constants: 64 KiB code, 30s default / 120s max timeout. `manifest.runtime = {kind, entry_code?, timeout_ms?}` is a pure-additive convention — `normalizeManifest` only validates legal JSON; the `runtime_kind` column stays authoritative.
+
+**Container-like environment (on-demand, no Docker):** the run is on-demand (spawned when an agent/user triggers it, never a long-running container) but its `env/` dir persists, giving each lab a private, stateful workspace — Multica ships as a standalone installer, so there is no external Docker dependency. The process env carries the platform contract: `MULTICA_PLUGIN_SLUG`, `MULTICA_PLUGIN_ENV` (= cwd), and `MULTICA_PLUGIN_DB` (= `env/data.db`). The **database is the stdlib `sqlite3` module against that path** — zero install, per-plugin isolated, state accumulates across runs (e.g. a keymap graph a lab stores then renders next run). Ingestion excludes private data via `isIngestableName` (the DB + its `-wal`/`-shm`/`-journal` sidecars, `.sqlite*`, `.pyc`, dotfiles, `entry.py`) so persistent state never leaks into the Artifacts tab. Interactivity is delivered through `html` artifacts rendered in a `sandbox="allow-scripts"` iframe; the same `env/` becomes the mount point when the `subprocess`/container upgrade lands.
+
+**Visibility:** `CreateUserPlugin` seeds `experimental_resource_visibility` rows for agents/squads declared in `manifest.capabilities` — hidden from regular pickers by default.
+
+**Plugin Shell:** `packages/views/experimental/components/plugin-shell-view.tsx` — manifest-driven tabs (chat via `ExperimentalChatPane` / artifacts gallery / table / iframe / code / settings). Desktop route: `/experimental/plugin/:pluginSlug` (`plugin-shell-page.tsx`).
+
+**Built-in skill:** `server/internal/service/builtin_skills/multica-lab-builder/SKILL.md` — teaches agents to first survey the current lab landscape (Step 0: `GET /api/experimental-flags` + `GET /api/user-plugins`, mapped in `references/api-source-map.md`) and then run the full plugin CRUD lifecycle via curl against `http://localhost:8090/api/user-plugins`.
+
+**Issue creation:** `create-issue.tsx` LabPickerRow has a 「创建实验室」button — sets `[实验室创建]` title prefix + the selected agent **or squad** as assignee; the assignee uses the `multica-lab-builder` skill to first survey the current lab landscape (`GET /api/experimental-flags` + `GET /api/user-plugins`) and then create the plugin. Mutually exclusive with LabPicker selection.
+
+**Boot loading:** `router.go` after install-handler registration: `ListActiveUserPlugins` → `UserPluginsToFlags` → `RegisterUserPlugins` + `MergeUserPlugins`. Error is `slog.Warn`, non-fatal.
+
+**Agent-runtime auth bridge (0.3.61):** the daemon injects `MULTICA_API_TOKEN` (an alias of the task-scoped `mat_` `MULTICA_TOKEN`) into every agent env in `daemon.go`. The `multica experimental …` CLI (`experimentalToken()`/`experimentalAPIURL()` in `cmd_experimental.go`) and the `multica-lab-builder` skill's raw curl authenticate via `MULTICA_API_TOKEN` (default base `http://127.0.0.1:8090`), NOT `MULTICA_TOKEN` — without the alias, an agent working a `[实验室创建]` issue would 401 on every `/api/user-plugins` and `/api/experimental-flags` call and the lab-creation loop could never close. Same credential, no privilege expansion. All `MULTICA_*` keys are blocked from user `CustomEnv` override (`isBlockedEnvKey`).
+
+**Adding a user plugin (agent or API):**
+1. `POST /api/user-plugins` with slug, title, description, `trigger_mode` (`"auto"` = self-driven / `"issue_select"` = task-bound), `runtime_kind` (`"none"` / `"inline"` / `"subprocess"`), optional `manifest`.
+2. Plugin appears in Labs tab 「用户插件」section and (if `issue_select`) in LabPicker.
+3. `trigger_mode: "auto"` sets `HideFromIssueLabPicker: true` — no per-issue selection.
+4. Delete = `DELETE /api/user-plugins/{slug}` (soft-delete; visibility rows and pref rows cleaned up).
+5. Run an `inline` plugin: `POST /api/user-plugins/{slug}/run` (empty body re-runs persisted `env/entry.py`); artifacts appear in the panel Artifacts tab. See `multica-lab-builder/references/runtime-example.md` for a full walkthrough.
 
 ## Lab ↔ Assignee Mutex (0.3.31+)
 
@@ -682,6 +763,21 @@ that competes with an existing `{param}` route, the new literal
 **must** register FIRST. Comment the order rationale inline so the
 next reader doesn't reorder for "alphabetical consistency".
 
+### 4. `lab_managed` DTO marker — hide retired-lab agents/squads from regular pickers (0.3.56)
+
+Hard contract: when an `experimental_resource_visibility` row exists for a flag, ALL agents/squads owned by that flag must be hidden from regular selection surfaces (assignee picker, project lead picker, quick-create issue, squad member picker, issues-header filter, issue-detail subscribers, etc.). Hiding at the catalog level is NOT enough — the row-level filter `filterLabsHiddenByDefault` is one layer; the renderer also gates selection surfaces on `lab_managed`.
+
+Mechanism:
+
+- **Server** — `agent.go::ListAgents` and `squad.go::ListSquads` stamp `lab_managed?: boolean` on each DTO (derived from `experimental_resource_visibility` set-contains, NOT from a column). Schema: `lab_managed: z.boolean().optional().default(false)` in `packages/core/api/schemas.ts`. Types: `packages/core/types/agent.ts` and `squad.ts`.
+- **Renderer** — every selection surface (assignee picker, project lead, quick-create, squad member, filter chips, subscribers list) MUST pass `lab_managed: false` to its query hook OR filter the resulting list with `.filter(a => !a.lab_managed)`. Set `disabled` on the trigger + render a Tooltip with `pickers.assignee.lab_managed_tooltip` (4 locales).
+
+Audit methodology when adding a new agent/squad picker: enumerate all `agentListOptions` / `squadListOptions` consumers, classify each as *selection* vs *display*. Selection surfaces without `lab_managed` filtering are bugs. Past audit (0.3.56) caught 6 missed surfaces in one pass — re-audit on any new picker.
+
+**Do NOT remove the `ListAgents` lab_managed stamp even if `useActorName` shares the same query** — display paths need full lists (comment authors, member names), but selection paths need the filter. The cleanest pattern is `useActorName` calling a `with_archived=true, include_lab=true` variant while pickers call the default-filtered variant.
+
+Reference: memory `0.3.56-lab-managed-marker-2026-07-20.md`.
+
 ## Known Stability Surfaces
 
 Real failure modes that took non-trivial debugging. NOT obvious from reading the code, so do not skip them when touching the relevant subsystems:
@@ -709,6 +805,11 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 - `0.3.45.8-ship-log-2026-07-19.md` — Claude Lab UX cleanup: by-issue route (chi 路由顺序 lesson) + LabPicker 隐藏基础设施/自驱动 flag + Claude Lab 视图删 LabAgentLockBar + ExecutionLogSection autoOpen 最新 past run transcript. Read before touching `claude_science_runtime.go` route order, `catalog.Flag.HideFromIssueLabPicker`, or any lab-view agent wiring.
 - `0.3.45.9-ship-log-2026-07-19.md` — 5s polling fallback 通用模式(autopilot / squad member / runtime session / self-opt run 4 个 sibling query key);3 idle 决策模式(false / 30s / 60s)。Read before adding any lab-class query key without WS coverage.
 - `0.3.46-ship-log-2026-07-19.md` — **P0#4** lab leader rewrite:`shouldRewriteAssigneeForLabLeader` + `assignDefaultLabAgentOnUpdate` 4-case 决策表;Mythos enhancer 不动;4 tests 全过。Read before touching any code path that mutates `issue.lab_source`.
+- `0.3.56-lab-managed-marker-2026-07-20.md` — `lab_managed` DTO marker contract: server stamps `lab_managed?: boolean` on `Agent`/`Squad` DTOs derived from `experimental_resource_visibility`; every selection surface MUST filter. Audit methodology + 6 missed surfaces catalogued. Read before adding ANY new agent/squad picker.
+- `0.3.57-ship-2026-07-22.md` — constitution_agent retirement (migration 165). Read before re-introducing any charter/constitution agent or autopilot.
+- `0.3.58-ship-2026-07-22.md` — UI cherry-picks (5 surface-system tokens / sidebar resize cursor / 8 reduced-motion opt-outs / in-page find highlight / horizontal scroll-fade axis). Pure CSS + hook work.
+- `0.3.59-ship-2026-07-22.md` — Cleanup (lab-badge icon consistency + delete 2 placeholder manifests).
+- `0.3.61-ship-2026-07-23.md` — Squad-as-subscriber / squad-as-recipient schema fix (migration 167): widens `issue_subscriber.user_type` + `inbox_item.recipient_type` CHECK to allow `'squad'`; relaxes `agent_task_queue_accountable_matches_originator` to allow both columns independently nullable. Verified upstream `/Users/jiangjianyan/Downloads/multica-main` has identical bug (zero-byte diff on `subscriber_listeners.go` / `notification_listeners.go`), so this is fork-local patch.
 
 **Per-subsystem memory (read before touching the relevant code):**
 - `multica-0.3.0-standalone-2026-07-02.md` — P0 destructive-migration incident; read before touching `pg-bootstrap.ts` / `server-manager.ts` migrate logic.
@@ -741,3 +842,7 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 - **Mythos supervise goroutine lifecycle**: `Service.Run` launches a per-run supervise goroutine for enhancer-mode runs. The goroutine writes `mythos_run.supervision_state` every 30s tick and self-terminates at 24h max lifetime. Daemon bootstrap (`newMythosService` in `router.go`) calls `ResumeSupervision` for every workspace to recover orphaned goroutines after a restart. Flag-off cancels all in-flight supervises via `Service.Stop()`. **Do NOT add any flag gating inside the supervise goroutine itself** — the goroutine reads the issue's current `lab_mode` from the run row; if the user flips the flag off after a run started, the goroutine exits cleanly via the cancel func.
 - **Issue `lab_source` column** (nullable TEXT, added migration 155) + **`lab_mode` column** (nullable TEXT, added migration 157, CHECK `'sole'|'enhancer'`). `lab_source` associates an issue with an experimental lab flag key. `lab_mode` is currently meaningful only for `mythos_swarm` — `'sole'` means the lab owns the issue end-to-end; `'enhancer'` means the lab preludes + supervises while the user-picked assignee executes. The `LabPicker` component renders a sub-tab (sole/enhancer) when `labSource === 'mythos_swarm'`. When adding a new lab with per-issue mode semantics, extend the CHECK constraint in a migration and add the mode handling to the lab's runner + frontend picker.
 - **Explicit-column-list queries in `queries/issue.sql`**: `ListIssues`, `ListOpenIssues`, `CreateIssue`, and `CreateIssueWithOrigin` enumerate columns manually (they omit heavy fields like `acceptance_criteria`, `context_refs`). When adding a new column to `issue` table, update ALL of these SELECTs/INSERTs + their generated Row structs + Scan/args calls. Other queries use `SELECT *` / `RETURNING *` and are handled automatically by `sqlc generate`.
+- **User plugin flag keys** always carry the `user_` prefix (`plugin_scanner.go::IsUserPluginKey()`). `GET /api/experimental-flags` returns user plugins with `is_user_plugin: true` — the Labs tab and LabPicker use this to distinguish them from built-in flags. User plugin `DefaultVal` is always `false` (opt-in). Deleting a user plugin soft-deletes the DB row (`status='deleted'`), removes the flag from the in-memory Registry, and cleans up the caller's `experimental_pref` row. The `user_plugin` table (migration 166) has `slug` and `flag_key` UNIQUE constraints — slug is immutable after creation.
+- **Server log lives at `~/.multica/profiles/<profile>/server.log`, NOT `~/.multica/server.log`.** `server-manager.ts::serverLogPath()` writes stdout+stderr into the profile dir. The legacy `~/.multica/server.log` (if any) is from a pre-0.3.0 dev run and stays frozen at its last mtime. Always diagnose ship-post behavior from the profile-local log; the daemon/CLI/desktop activity you want to see lives there.
+- **Squad-as-subscriber / squad-as-recipient schema — migration 167 (0.3.61)** extended `issue_subscriber.user_type` and `inbox_item.recipient_type` CHECK constraints to allow `'squad'`, and relaxed `agent_task_queue_accountable_matches_originator` so both columns are independently nullable (only equal-required when both set). The fix matches the upstream latent bug present in `/Users/jiangjianyan/Downloads/multica-main` (verified by zero-byte diff on `subscriber_listeners.go` / `notification_listeners.go`). When reviewing or writing squad assignee paths, schema no longer blocks; if you discover a new place that should *not* subscribe/notify a squad (e.g. squad-as-recipient showing up in a personal inbox), filter at the handler layer (`subscriber_listeners.go:36` / `notification_listeners.go:564`) — do NOT re-tighten the CHECK constraints and re-introduce the upstream regression.
+- **`AgentCreationStudioView` / `plugin-shell-view.tsx` are distinct surfaces.** The studio (route `/experimental/agent-creation-studio`) is for ad-hoc creation of agent/skill/squad rows through the existing REST APIs — no new mutation hook, no new sqlc, no schema column. The plugin shell (route `/experimental/plugin/:pluginSlug`) is for `user_*` lab plugins with manifest-driven tabs. Don't conflate them when routing new lab work; the studio edits *built-in* schema, the shell renders *user* artifacts.
