@@ -97,6 +97,9 @@ func TestIsBlockedEnvKey(t *testing.T) {
 		{key: "cursor_data_dir", want: true},
 		{key: "OPENCLAW_CONFIG_PATH", want: true},
 		{key: "OPENCLAW_INCLUDE_ROOTS", want: true},
+		{key: "PYTHONPATH", want: true},
+		{key: "PYTHONSTARTUP", want: true},
+		{key: "pythonpath", want: true},
 		{key: "ANTHROPIC_API_KEY", want: false},
 		{key: "CURSOR_AGENT", want: false},
 	}

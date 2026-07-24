@@ -41,6 +41,29 @@ type UserPluginRow struct {
 	Status        string // "active" | "disabled" | "deleted"
 }
 
+// UserPluginLeader extracts the lab's leader agent name from a plugin
+// manifest's capabilities block. The leader is the (typically hidden)
+// lab agent auto-assigned to issues bound to this lab, mirroring the
+// built-in claude_science_lab→research dispatch. Returns ("", false)
+// when the manifest is empty, malformed, or declares no leader.
+func UserPluginLeader(manifestJSON []byte) (string, bool) {
+	if len(manifestJSON) == 0 {
+		return "", false
+	}
+	var doc struct {
+		Capabilities struct {
+			Leader string `json:"leader"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(manifestJSON, &doc); err != nil {
+		return "", false
+	}
+	if doc.Capabilities.Leader == "" {
+		return "", false
+	}
+	return doc.Capabilities.Leader, true
+}
+
 // UserPluginToFlag converts a DB row into a catalog Flag. The
 // resulting Flag can be merged into the Registry via MergeUserPlugins.
 func UserPluginToFlag(row UserPluginRow) Flag {

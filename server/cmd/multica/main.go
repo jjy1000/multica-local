@@ -99,6 +99,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(pythiaCmd)
 	rootCmd.AddCommand(claudeScienceCmd)
+	rootCmd.AddCommand(labCmd)
 
 	initHelp(rootCmd)
 }

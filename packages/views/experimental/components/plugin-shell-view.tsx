@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Puzzle, Trash2, Play, Loader2 } from "lucide-react";
+import { Puzzle, Trash2, Play, Loader2, Pencil } from "lucide-react";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Label } from "@multica/ui/components/ui/label";
 import { Switch } from "@multica/ui/components/ui/switch";
@@ -24,6 +24,7 @@ import { getCurrentWsId } from "@multica/core/platform";
 import type { UserPluginResponse } from "@multica/core/types";
 import { ChatWindow } from "../../chat/components/chat-window";
 import { ArtifactGallery } from "./artifact-gallery";
+import { UserPluginFormDialog } from "./user-plugin-form-dialog";
 
 // 0.3.60 Labs sandbox — generic plugin shell view.
 //
@@ -114,6 +115,7 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
   const wsId = useCurrentWsIdPoll();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [running, setRunning] = useState(false);
 
@@ -256,7 +258,18 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
       </Tabs>
 
       {/* Settings controls live in the settings tab via renderTabContent;
-          delete confirmation is hoisted here so it survives tab switches. */}
+          the edit + delete dialogs are hoisted here so they survive tab
+          switches. */}
+      <UserPluginFormDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        mode="edit"
+        plugin={plugin}
+        onSuccess={() => {
+          qc.invalidateQueries({ queryKey: ["user-plugins"] });
+          qc.invalidateQueries({ queryKey: ["experimental-flags"] });
+        }}
+      />
       <SettingsDialogs
         plugin={plugin}
         deleteOpen={deleteOpen}
@@ -324,6 +337,7 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
             plugin={p}
             onToggle={handleToggle}
             togglePending={updateFlag.isPending}
+            onEditClick={() => setEditOpen(true)}
             onDeleteClick={() => setDeleteOpen(true)}
           />
         );
@@ -340,10 +354,11 @@ interface SettingsTabProps {
   plugin: UserPluginResponse;
   onToggle: (next: boolean) => void;
   togglePending: boolean;
+  onEditClick: () => void;
   onDeleteClick: () => void;
 }
 
-function SettingsTab({ plugin, onToggle, togglePending, onDeleteClick }: SettingsTabProps) {
+function SettingsTab({ plugin, onToggle, togglePending, onEditClick, onDeleteClick }: SettingsTabProps) {
   const rows: Array<[string, string]> = [
     ["Slug", plugin.slug],
     ["触发模式", TRIGGER_MODE_LABELS[plugin.trigger_mode] ?? plugin.trigger_mode],
@@ -376,7 +391,16 @@ function SettingsTab({ plugin, onToggle, togglePending, onDeleteClick }: Setting
             />
           </div>
 
-          <div className="flex justify-end border-t border-border pt-4">
+          <div className="flex justify-end gap-2 border-t border-border pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onEditClick}
+            >
+              <Pencil className="h-3.5 w-3.5" aria-hidden />
+              编辑插件
+            </Button>
             <Button
               type="button"
               variant="ghost"

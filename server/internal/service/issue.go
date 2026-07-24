@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/issueguard"
 	"github.com/multica-ai/multica/server/internal/issueposition"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
@@ -375,6 +376,26 @@ var defaultLeaderAgentForLab = map[string]string{
 	"code_canvas":   "code_canvas_worker",
 }
 
+// resolveLabLeader resolves the leader agent name for a lab_source.
+// Built-in labs use the static defaultLeaderAgentForLab table; user
+// plugins ("user_<slug>" flag keys) resolve their leader from the
+// stored manifest's capabilities.leader field so a runtime-created
+// lab can auto-dispatch just like the built-ins. Missing plugin or
+// manifest without a leader falls through to ("", false).
+func (s *IssueService) resolveLabLeader(ctx context.Context, labSource string) (string, bool) {
+	if name, ok := defaultLeaderAgentForLab[labSource]; ok {
+		return name, true
+	}
+	if experimental.IsUserPluginKey(labSource) {
+		plugin, err := s.Queries.GetUserPluginByFlagKey(ctx, labSource)
+		if err != nil {
+			return "", false
+		}
+		return experimental.UserPluginLeader(plugin.ManifestJson)
+	}
+	return "", false
+}
+
 // assignDefaultLabAgent writes a workspace-resident default agent
 // onto a freshly-created issue when the user picked no assignee and
 // the lab has a known leader agent installed.
@@ -394,7 +415,7 @@ var defaultLeaderAgentForLab = map[string]string{
 // strictly better than failing the whole create over a stale
 // experimental agent row.
 func (s *IssueService) assignDefaultLabAgent(ctx context.Context, issue *db.Issue, labSource string) {
-	leaderName, ok := defaultLeaderAgentForLab[labSource]
+	leaderName, ok := s.resolveLabLeader(ctx, labSource)
 	if !ok {
 		return
 	}

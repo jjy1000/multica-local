@@ -75,6 +75,25 @@ func resolveToken(cmd *cobra.Command) string {
 	if v := strings.TrimSpace(os.Getenv("MULTICA_TOKEN")); v != "" {
 		return v
 	}
+	// MULTICA_API_TOKEN (and its *_FILE sibling) is the alias of the task-
+	// scoped mat_ token that the daemon injects into an agent process
+	// (see server/internal/daemon/daemon.go — "MULTICA_API_TOKEN"). It IS
+	// the correct task-scoped credential to use inside a running task, so
+	// honor it before the agent short-circuit below. Without this, agent-
+	// facing subcommands that build their client via newAPIClient →
+	// resolveToken (e.g. `multica lab delegate`) fail closed inside an
+	// agent task even though the daemon supplied a valid token. This
+	// mirrors experimentalToken() in cmd_experimental.go. See 0.3.63.
+	if v := strings.TrimSpace(os.Getenv("MULTICA_API_TOKEN")); v != "" {
+		return v
+	}
+	if path := strings.TrimSpace(os.Getenv("MULTICA_API_TOKEN_FILE")); path != "" {
+		if b, err := os.ReadFile(path); err == nil {
+			if v := strings.TrimSpace(string(b)); v != "" {
+				return v
+			}
+		}
+	}
 	if inAgentExecutionContext() {
 		return ""
 	}

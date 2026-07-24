@@ -386,6 +386,15 @@ func notifyDirect(
 		return
 	}
 
+	// Skip squad recipients. Migration 167 widened inbox_item.recipient_type
+	// to allow 'squad', but squads are not human inbox owners and there is
+	// no squad-inbox reader; a squad-routed row only risks surfacing in
+	// ListInbox for a human member of that squad. Squad notification
+	// routing is deferred by design (see CLAUDE.md §0.3.61). See 0.3.63.
+	if recipientType == "squad" {
+		return
+	}
+
 	// Check notification preferences for member recipients.
 	if recipientType == "member" {
 		prefs := loadUserPrefs(ctx, queries, workspaceID, []string{recipientID})

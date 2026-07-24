@@ -4,6 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > Keep this file short and authoritative: rules here should be hard to infer from code or easy to get wrong.
 
+## Sub-domain Guides (read the nearby file when working in a sub-domain)
+
+Each large sub-domain has a co-located `CLAUDE.md` with its own boundaries,
+commands, and common pitfalls. When your work is scoped to one of these, that
+nearby file is sufficient — you do not need to read this whole root file. This
+root file is the navigation route plus cross-cutting product/ship/desktop rules.
+
+| Working in | Read first |
+| --- | --- |
+| `server/` (Go backend, handlers, migrations, experimental catalog) | [`server/CLAUDE.md`](server/CLAUDE.md) |
+| `packages/` (`core` / `ui` / `views` shared FE) | [`packages/CLAUDE.md`](packages/CLAUDE.md) |
+| `apps/mobile/` (Expo / React Native) | [`apps/mobile/CLAUDE.md`](apps/mobile/CLAUDE.md) |
+
 ## Localized Fork
 
 This is a **fully localized, single-user fork** of Multica. The primary target is the macOS desktop app. Key differences from upstream:
@@ -79,6 +92,8 @@ Keep server state and client state separate.
 - Hooks that need workspace context should accept `wsId`; do not call `useWorkspaceId()` internally unless guaranteed to run under the provider.
 
 ## Package Boundaries
+
+> Full boundaries, state model, and testing rules for `core`/`ui`/`views`: [`packages/CLAUDE.md`](packages/CLAUDE.md).
 
 Hard constraints:
 
@@ -206,6 +221,8 @@ Frontend code must survive backend response drift, especially in installed deskt
 
 ## Backend UUID Rules
 
+> Full backend boundaries, commands, and pitfalls: [`server/CLAUDE.md`](server/CLAUDE.md).
+
 In `server/internal/handler/`, always know where a UUID came from before using it in write queries.
 
 - Resource path params that may be UUIDs or human-readable IDs must be resolved through loaders (`loadIssueForUser`, `loadSkillForUser`, `loadAgentForUser`, `requireDaemonRuntimeAccess`); subsequent writes use the resolved `entity.ID`.
@@ -238,6 +255,8 @@ When adding a shared page or feature for web and desktop:
 6. Hooks that need workspace context should accept `wsId`.
 
 CSS for web/desktop is shared from `packages/ui/styles/`. Use semantic tokens (`bg-background`, `text-muted-foreground`); avoid hardcoded Tailwind colors and duplicated base styles.
+
+When reviewing or auditing UI code — accessibility, UX, visual design, or "does this look right" — invoke the `web-design-guidelines` skill (`.agents/skills/web-design-guidelines/SKILL.md`). Triggers: "review my UI", "check accessibility", "audit design", "review UX", "check against best practices". It fetches the Web Interface Guidelines and returns terse `file:line` findings with a summary.
 
 ## Mobile Rules
 
@@ -400,6 +419,17 @@ pnpm --filter @multica/desktop build
 pnpm exec electron-builder --mac --dir
 cp -R dist/mac-arm64/Multica.app /Applications/
 
+# 5a. Re-sign nested Go binaries in app.asar.unpacked/ (macOS 27 Gatekeeper
+#     kills fork+exec if these lack self-contained ad-hoc signatures).
+#     Without this step, GUI Helper processes come up but `multica --help`
+#     returns exit 137 (SIGKILL) and the server never binds :8090.
+codesign --force --deep --sign - /Applications/Multica.app
+codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica
+codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/server
+codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/migrate
+/Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica --help >/dev/null 2>&1
+# Must exit 0; exit 137 means the re-sign missed a binary.
+
 # 6. Verify cold start (three-check pass + row parity)
 pkill -f "multica daemon" ; pkill -f "Multica.app/Contents/MacOS/Multica"
 open /Applications/Multica.app
@@ -425,9 +455,9 @@ Unified experiment-development platform: manifest → catalog → registry → I
 ### Architecture (10 PRs, shipped)
 
 - **Manifest** (`apps/desktop/resources/experiments/<flagKey>/manifest.json`): `apiVersion: multica.dev/experiment/v1`, `kind: Experiment`. Declares workspace, capabilities, entry_points, runtime (kind + binary + health_path), surface (proxy_prefix + loopback_service), resources, safety, graduation.
-- **Catalog** (`server/internal/experimental/catalog.go`): `Flag` struct with `ManifestPath`, `RuntimeKind`, `ProxyPrefix`, `LoopbackService`, `Sidebar`. 8 flags registered (0.3.22+ consolidated set: chat_pin_ui, claude_science_lab, pythia_oracle, mythos_swarm, llm_wiki_bridge, code_canvas, agent_self_optimization, constitution_agent). `claude_science` and `claude_science_runtime` were removed in 0.3.22 — see "Lab Consolidation" below.
+- **Catalog** (`server/internal/experimental/catalog.go`): `Flag` struct with `ManifestPath`, `RuntimeKind`, `ProxyPrefix`, `LoopbackService`, `Sidebar`. 8 flags registered (current set: `chat_pin_ui`, `claude_science_lab`, `pythia_oracle`, `mythos_swarm`, `llm_wiki_bridge`, `code_canvas`, `agent_self_optimization`, `agent_creation_studio`). `constitution_agent` was retired in 0.3.57 (see Retired Features). `claude_science` and `claude_science_runtime` were removed in 0.3.22 — see "Lab Consolidation" below.
 - **Registry** (`server/internal/experimental/registry.go`): singleton replacing scattered registries. `ProxyRoutes()`, `LoopbackURL()`, `RegisterInstallHandler()`, `RunInstall()`, `RunRollback()`, `SidebarEntries()`.
-- **RuntimeKind** enum: `none` (UI toggle only), `inline` (claude_science_lab, llm_wiki_bridge, mythos_swarm, agent_self_optimization, constitution_agent), `subprocess` (pythia_oracle, code_canvas — separate process with health check), `headless` (agent runtime). `ManagerFactory` (`apps/desktop/src/main/experimental/manager-factory.ts`) dispatches per flag key, with `loadFlagDescriptors()` boot-time sync that pulls from `/api/experimental-flags`.
+- **RuntimeKind** enum: `none` (UI toggle only), `inline` (claude_science_lab, llm_wiki_bridge, mythos_swarm, agent_self_optimization, agent_creation_studio), `subprocess` (pythia_oracle, code_canvas — separate process with health check), `headless` (agent runtime). `ManagerFactory` (`apps/desktop/src/main/experimental/manager-factory.ts`) dispatches per flag key, with `loadFlagDescriptors()` boot-time sync that pulls from `/api/experimental-flags`.
 - **IPC channels**: `experimental:<flagKey>:<verb>` (get-status, get-url, ensure-up, stop). `setupExperimentalIPC` iterates catalog entries.
 - **LifecycleMarker** (`server/internal/experimental/lock.go`): SHA-256-derived UUID per flag key (prefix `0xEC`).
 - **Safety auto-mount** (`server/internal/handler/experimental_proxy.go`): `injectExperimentalFlagHeader` middleware injects `X-Experimental-Flag` for the safety-net burst breaker.
@@ -446,7 +476,7 @@ The 0.3.20 pair `claude_science` + `claude_science_runtime` is **deprecated and 
 - `server/internal/experimental/lock.go::SourceClaudeScience` is now deprecated; new code uses `SourceClaudeScienceLab`. The `Source*` constants live alongside the catalog so the SQL enum and the Go constant stay in sync.
 - `apps/desktop/src/renderer/src/pages/claude-lab-view.tsx` is the single-pane lab view with six tabs (Plan / Chat / Artifact / Forecast / Code / Knowledge). The Forecast tab reuses `<PythiaDashboard />` (forceSample). The Chat tab uses `<ExperimentalChatPane />` (see "Pre-workspace Lab surfaces" below).
 - The bundled Skill is `multica-claude-science`; the bundled Skill catalogue is `/api/experimental/claude-science/skills` (public to any signed-in user, filtered by `handler.claude_science_skills.go::Visible*`).
-- The vendor data dir `apps/desktop/resources/claude-science/` and `apps/desktop/vendor/claude-science-manifest/` are still bundled by `bundle-cli` because `install_claude_science.go` still reads the vendored manifest. 0.3.25 PR-C drops both (saves ~150 MB from the DMG).
+- The vendor data dir `apps/desktop/resources/claude-science/` and `apps/desktop/vendor/claude-science-manifest/` are still bundled by `bundle-cli` (see `apps/desktop/scripts/bundle-cli.mjs:394-418`) because `server/internal/handler/install_claude_science.go` still reads the vendored manifest. Cleanup is a future PR — when it ships, expect to drop the bundle-cli step and `install_claude_science.go` together.
 
 ### Pre-workspace Lab surfaces (0.3.23+)
 
@@ -592,7 +622,9 @@ Hard constraint #2 modified: built-in flags remain developer-only; user-created 
 
 **Boot loading:** `router.go` after install-handler registration: `ListActiveUserPlugins` → `UserPluginsToFlags` → `RegisterUserPlugins` + `MergeUserPlugins`. Error is `slog.Warn`, non-fatal.
 
-**Agent-runtime auth bridge (0.3.61):** the daemon injects `MULTICA_API_TOKEN` (an alias of the task-scoped `mat_` `MULTICA_TOKEN`) into every agent env in `daemon.go`. The `multica experimental …` CLI (`experimentalToken()`/`experimentalAPIURL()` in `cmd_experimental.go`) and the `multica-lab-builder` skill's raw curl authenticate via `MULTICA_API_TOKEN` (default base `http://127.0.0.1:8090`), NOT `MULTICA_TOKEN` — without the alias, an agent working a `[实验室创建]` issue would 401 on every `/api/user-plugins` and `/api/experimental-flags` call and the lab-creation loop could never close. Same credential, no privilege expansion. All `MULTICA_*` keys are blocked from user `CustomEnv` override (`isBlockedEnvKey`).
+**Agent-runtime auth bridge (0.3.61, hardened 0.3.63):** the daemon injects `MULTICA_API_TOKEN` (an alias of the task-scoped `mat_` `MULTICA_TOKEN`) into every agent env in `daemon.go`. The `multica experimental …` CLI (`experimentalToken()`/`experimentalAPIURL()` in `cmd_experimental.go`), the `multica lab delegate` CLI (via `resolveToken()` in `cmd_auth.go`, added 0.3.63), and the `multica-lab-builder` skill's raw curl all authenticate via `MULTICA_API_TOKEN` (default base `http://127.0.0.1:8090`), NOT `MULTICA_TOKEN` — without the alias, an agent working a `[实验室创建]` issue would 401 on every `/api/user-plugins` and `/api/experimental-flags` call and the lab-creation loop could never close. Same credential, no privilege expansion. **0.3.63:** `resolveToken()` now honors `MULTICA_API_TOKEN` / `MULTICA_API_TOKEN_FILE` (ahead of the `inAgentExecutionContext()` short-circuit) so `multica lab delegate` works from inside an agent task, and `experimentalAuthToken()` fails loudly when the token is missing inside an agent context instead of firing an unsigned request. All `MULTICA_*` keys — plus `PYTHON*` (0.3.63) — are blocked from user `CustomEnv` override (`isBlockedEnvKey`).
+
+**User-plugin inline runtime sandbox (0.3.60, hardened 0.3.63):** `pluginRuntimeEnv()` in `user_plugin_runtime.go` builds an explicit **minimal** env (`PATH`, `HOME` pinned to the plugin env dir, `LANG`/`LC_ALL`, `MULTICA_PLUGIN_*`) and no longer inherits `os.Environ()`. In desktop co-resident mode the server is the daemon's child and carries `MULTICA_API_TOKEN` + the user's profile-bearing `HOME`; the old `append(os.Environ(), …)` leaked both into every `python3 -I` plugin run (a malicious `entry.py` could read the JWT via `HOME` → `~/.multica/profiles/<name>/config.json` or replay the task token). The minimal env also carries no `PYTHONPATH`/`PYTHONSTARTUP`, closing the module-shadowing / startup-hook vectors that `-I` alone does not.
 
 **Adding a user plugin (agent or API):**
 1. `POST /api/user-plugins` with slug, title, description, `trigger_mode` (`"auto"` = self-driven / `"issue_select"` = task-bound), `runtime_kind` (`"none"` / `"inline"` / `"subprocess"`), optional `manifest`.
@@ -600,6 +632,25 @@ Hard constraint #2 modified: built-in flags remain developer-only; user-created 
 3. `trigger_mode: "auto"` sets `HideFromIssueLabPicker: true` — no per-issue selection.
 4. Delete = `DELETE /api/user-plugins/{slug}` (soft-delete; visibility rows and pref rows cleaned up).
 5. Run an `inline` plugin: `POST /api/user-plugins/{slug}/run` (empty body re-runs persisted `env/entry.py`); artifacts appear in the panel Artifacts tab. See `multica-lab-builder/references/runtime-example.md` for a full walkthrough.
+
+### Two plugin archetypes: tool-lab vs. agent-lab (0.3.63)
+
+The `manifest.capabilities` slots now support two complementary plugin shapes; both are usable by ANY Multica agent, and both are pure user-plugin-layer additions (the 8 built-in labs are untouched).
+
+**Type 1 — tool-lab (no agent, skills auto-bind globally).** A composite of `skills` + optional `autopilots` + optional inline runtime, with empty `agents`/`leader`. Previously `capabilities.skills` was a hollow contract: the docs said "any agent can call them" but a skill only loaded if bound via an `agent_skill` row. Closed in 0.3.63 by **dynamic global injection at task-claim time**:
+
+- `server/internal/service/task.go::LoadAgentSkillsForClaim` replaces the direct `LoadAgentSkills` call on the claim path. It appends, via `appendEnabledPluginSkills` → `enabledPluginSkillNames`, every skill name declared in the `capabilities.skills` of any **enabled** user plugin — so those skills load for **every agent in the workspace** while the plugin flag is on, with no per-agent binding row. Disable the plugin and the injection stops.
+- "Enabled" is resolved by the new query `ListEnabledFlagKeys` (`queries/experimental_pref.sql`, `SELECT DISTINCT flag_key ... WHERE enabled = true`). In this single-user fork this is "the user's enabled flags"; the `DISTINCT` keeps it correct if a second user ever exists.
+- The skill name must match a real workspace skill row (provision via `multica skill create` first). Missing rows are skipped silently — injection never fails a claim.
+
+**Type 2 — agent-lab (delegation target).** Declares one or more hidden `agents` + a `leader`. Any team/agent can hand it a self-contained sub-task and block for the result via the new CLI verb:
+
+- `multica lab delegate <lab> "<task>"` (`server/cmd/multica/cmd_lab.go`, group `groupExperimental`) — synchronous blocking delegation. `<lab>` is the slug or `user_<slug>` flag key. Flags: `--title`, `--status` (default `todo`; must be non-backlog so the run dispatches), `--timeout` (default 15m), `--poll-interval` (default 3s), `--output` (`json`|`plain`).
+- **Zero new server endpoint.** It composes existing primitives: (1) `POST /api/issues` with `lab_source=user_<slug>` — the create path resolves the plugin leader and enqueues via `assignDefaultLabAgent` → `maybeEnqueueOnAssign`; (2) poll `GET /api/issues/{id}/task-runs` to a terminal state; (3) read `result.output` and print it. The delegated run is a normal issue-bound task (full transcript/usage in the UI) — delegation is observable, not a hidden RPC.
+- **User-plugin leader resolution** (the backend groundwork that lets a user-plugin lab auto-dispatch like a built-in): `experimental.UserPluginLeader(manifestJSON)` extracts `capabilities.leader`; both `IssueService.resolveLabLeader` (create path) and `handler.(*Handler).resolveLabLeader` (update path) fall through to it for `user_<slug>` keys after the built-in `defaultLabLeaderForKey`/`defaultLeaderAgentForLab` tables miss. `ListAutopilots` filtering was widened to all flag keys so hidden user-plugin resources stay hidden.
+- **Prerequisite (fails fast, never hangs):** the target lab must be enabled, declare `capabilities.leader`, and that leader agent must be bound to a running daemon runtime. If no run dispatches within ~30s the command errors with a clear "not dispatched (plugin disabled / no leader / no runtime)" message rather than blocking to `--timeout`.
+
+Full authoring guidance (both archetypes + the delegate verb) is in `multica-lab-builder/SKILL.md`.
 
 ## Lab ↔ Assignee Mutex (0.3.31+)
 
@@ -786,6 +837,14 @@ Real failure modes that took non-trivial debugging. NOT obvious from reading the
 - **Spawning the multica daemon from a Bash harness kills the daemon when the harness exits.** macOS bash does not support `setsid`; `nohup ... &` is fragile outside of an interactive shell. The only reliable detach on macOS is zsh's `&!` operator (or launchd). Use `~/.multica/scripts/multica-spawn-daemon.zsh` for any manual daemon launch — do not roll your own.
 - **code_canvas is auto-mounted via registry (0.3.20+), DO NOT add a manual `setupCodeCanvasManager` in router.go.** `server/internal/handler/experimental_proxy.go::MountExperimentalProxies` walks `h.ExperimentRegistry.ProxyRoutes()` (registry.go:206-227) and auto-mounts every `RuntimeKind=="subprocess"` catalog entry whose `ProxyPrefix` + `LoopbackService` are non-empty. `code_canvas` already fills both in `catalog.go:265-279`, so `router.go:503` `MountExperimentalProxies(r, h)` is sufficient — adding a manual handler would double-register. Before assuming any subprocess flag needs router.go wiring, grep `MountExperimentalProxies` and `ProxyRoutes` first. **0.3.25**: `code_canvas` is `installable: false` in its manifest (it provisions no skills/agents/squads, so there is nothing to install) — do not flip it back to `true` without also registering a `code_canvas_install` handler in router.go, or the install POST returns 404 against a manifest that claims otherwise. Its `run.sh` stub (`resources/code-canvas/run.sh`) is a real 30-line python `/health` server; the only missing piece for a live subprocess is a manifest-driven generic spawner in `manager-factory.ts` (pythia is currently the only subprocess with a dedicated manager).
 - **`launchctl bootstrap gui/$UID/...` rejects the multica daemon binary with `OS_REASON_CODESIGNING | embedded signature doesn't match attached signature`** if the binary was hot-patched into `Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/` via `cp`. The codesign manifest in the .app bundle does not match the replaced binary. Fix: repackage the .app via `pnpm --filter @multica/desktop package` (which re-signs) or resign with `codesign --force --deep --sign - Multica.app`.
+- **`pnpm --filter @multica/desktop package --dir` does NOT sign nested binaries (0.3.62 ship-blocker).** The `app.asar.unpacked/resources/bin/{multica,server,migrate}` Go binaries ship with ad-hoc signatures from `bundle-cli`, but `electron-builder --dir` only re-signs the top-level `.app` bundle. macOS 27 Gatekeeper treats unpacked binaries as bundle parts and kills any fork+exec with SIGKILL (`exit 137`). Symptom: `Multica.app` cold-starts, the GUI Helper processes come up, but `multica --help` returns 137, daemon.log reports `signal: 'SIGKILL', cmd: '...multica version --output json'`, and the server binary never binds `:8090` because the daemon can't spawn its bundled CLI. Crash reports show `namespace=CODESIGNING indicator=Taskgated Invalid Signature`. Diagnostic trick: `cp <unpacked_binary> /tmp/<bin> && /tmp/<bin> --help` succeeds — the SIGKILL only fires inside `.app/Contents/Resources/app.asar.unpacked/`. **Fix**: after `cp -R dist/mac-arm64/Multica.app /Applications/`, sign each unpacked binary individually:
+  ```bash
+  codesign --force --deep --sign - /Applications/Multica.app
+  codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica
+  codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/server
+  codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/migrate
+  ```
+  Then smoke-test `/Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica --help` — must return `exit=0` (NOT `137`). **This step belongs in ship chain between `cp -R` and `verify-desktop-cold-start.sh`**; consider adding it to `bundle-cli.mjs` post-build hook so it's automatic. Full prevention contract in memory `multica-0.3.62-codesign-nested-binary-2026-07-23.md`.
 - **Bundle-cli "version source"**: `apps/desktop/package.json` is the only version file; `git describe` is tried first and fails silently. Never bump anywhere else.
 - **Pre-update snapshot before any DMG rebuild** is mandatory — the script checks `apps/desktop/package.json` version against the running app and refuses to proceed if the data-safety invariants don't hold.
 - **Ship chain must run `migrate up` before `bundle-cli`** — the `.app` cold start auto-applies pending migrations, but SQL errors should surface at build time, not first user launch. (Lesson from 0.3.20 ship where migration 153 was missed and had to be applied manually post-install.)
@@ -810,6 +869,7 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 - `0.3.58-ship-2026-07-22.md` — UI cherry-picks (5 surface-system tokens / sidebar resize cursor / 8 reduced-motion opt-outs / in-page find highlight / horizontal scroll-fade axis). Pure CSS + hook work.
 - `0.3.59-ship-2026-07-22.md` — Cleanup (lab-badge icon consistency + delete 2 placeholder manifests).
 - `0.3.61-ship-2026-07-23.md` — Squad-as-subscriber / squad-as-recipient schema fix (migration 167): widens `issue_subscriber.user_type` + `inbox_item.recipient_type` CHECK to allow `'squad'`; relaxes `agent_task_queue_accountable_matches_originator` to allow both columns independently nullable. Verified upstream `/Users/jiangjianyan/Downloads/multica-main` has identical bug (zero-byte diff on `subscriber_listeners.go` / `notification_listeners.go`), so this is fork-local patch.
+- `0.3.62-ship-2026-07-23.md` — Consolidated 0.3.60 user-plugin runtime closure + 0.3.61 squad-subscriber schema fix into one 0.3.62 ship (3 atomic commits, 47 files). **Critical**: ship-blocker discovered during this session — macOS 27 Gatekeeper kills `app.asar.unpacked/resources/bin/*` with SIGKILL because `electron-builder --dir` only signs the top-level bundle; manual `codesign --force --sign -` on each nested binary is now a mandatory ship step. Plus: `TestMainRouterDoesNotExposePrometheusMetrics` panic from `db.New(nil)` returning non-nil struct with nil inner DBTX — fixed via defer/recover guard around the 0.3.60 boot-time user-plugin loader.
 
 **Per-subsystem memory (read before touching the relevant code):**
 - `multica-0.3.0-standalone-2026-07-02.md` — P0 destructive-migration incident; read before touching `pg-bootstrap.ts` / `server-manager.ts` migrate logic.
@@ -833,6 +893,7 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 - `multica-launch-via-open.md` — App verification via `osascript` (not `open --version`).
 - `pre-update-data-safety.md` — `~/.multica/scripts/pre-update-snapshot.sh` mandatory before DMG rebuild.
 - `multica-version-upgrade-compat.md` — DB volume / config / workspace upgrade immutability contract.
+- `multica-0.3.62-codesign-nested-binary-2026-07-23.md` — `pnpm package --dir` does NOT sign unpacked Go binaries; macOS 27 Gatekeeper kills fork+exec with SIGKILL. Re-sign step must run between `cp -R` and `verify-desktop-cold-start.sh`. Read before any 0.3.62+ ship.
 
 ## Domain Reminders
 
@@ -844,5 +905,5 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 - **Explicit-column-list queries in `queries/issue.sql`**: `ListIssues`, `ListOpenIssues`, `CreateIssue`, and `CreateIssueWithOrigin` enumerate columns manually (they omit heavy fields like `acceptance_criteria`, `context_refs`). When adding a new column to `issue` table, update ALL of these SELECTs/INSERTs + their generated Row structs + Scan/args calls. Other queries use `SELECT *` / `RETURNING *` and are handled automatically by `sqlc generate`.
 - **User plugin flag keys** always carry the `user_` prefix (`plugin_scanner.go::IsUserPluginKey()`). `GET /api/experimental-flags` returns user plugins with `is_user_plugin: true` — the Labs tab and LabPicker use this to distinguish them from built-in flags. User plugin `DefaultVal` is always `false` (opt-in). Deleting a user plugin soft-deletes the DB row (`status='deleted'`), removes the flag from the in-memory Registry, and cleans up the caller's `experimental_pref` row. The `user_plugin` table (migration 166) has `slug` and `flag_key` UNIQUE constraints — slug is immutable after creation.
 - **Server log lives at `~/.multica/profiles/<profile>/server.log`, NOT `~/.multica/server.log`.** `server-manager.ts::serverLogPath()` writes stdout+stderr into the profile dir. The legacy `~/.multica/server.log` (if any) is from a pre-0.3.0 dev run and stays frozen at its last mtime. Always diagnose ship-post behavior from the profile-local log; the daemon/CLI/desktop activity you want to see lives there.
-- **Squad-as-subscriber / squad-as-recipient schema — migration 167 (0.3.61)** extended `issue_subscriber.user_type` and `inbox_item.recipient_type` CHECK constraints to allow `'squad'`, and relaxed `agent_task_queue_accountable_matches_originator` so both columns are independently nullable (only equal-required when both set). The fix matches the upstream latent bug present in `/Users/jiangjianyan/Downloads/multica-main` (verified by zero-byte diff on `subscriber_listeners.go` / `notification_listeners.go`). When reviewing or writing squad assignee paths, schema no longer blocks; if you discover a new place that should *not* subscribe/notify a squad (e.g. squad-as-recipient showing up in a personal inbox), filter at the handler layer (`subscriber_listeners.go:36` / `notification_listeners.go:564`) — do NOT re-tighten the CHECK constraints and re-introduce the upstream regression.
+- **Squad-as-subscriber / squad-as-recipient schema — migration 167 (0.3.61)** extended `issue_subscriber.user_type` and `inbox_item.recipient_type` CHECK constraints to allow `'squad'`, and relaxed `agent_task_queue_accountable_matches_originator` so both columns are independently nullable (only equal-required when both set). The fix matches the upstream latent bug present in `/Users/jiangjianyan/Downloads/multica-main` (verified by zero-byte diff on `subscriber_listeners.go` / `notification_listeners.go`). When reviewing or writing squad assignee paths, schema no longer blocks; if you discover a new place that should *not* subscribe/notify a squad (e.g. squad-as-recipient showing up in a personal inbox), filter at the handler layer — do NOT re-tighten the CHECK constraints and re-introduce the upstream regression. **0.3.63:** the handler-layer squad filter has now landed — `subscriber_listeners.go` skips `*issue.AssigneeType == "squad"` in both the `issue:created` and `issue:updated` assignee-subscription paths, and `notification_listeners.go::notifyDirect` early-returns on `recipientType == "squad"`. This prevents squad-routed subscriber/inbox rows from surfacing in a human member's `ListInbox`. Squads still receive task dispatch via the queue path (unaffected); only the personal-inbox subscription/notification fan-out is short-circuited.
 - **`AgentCreationStudioView` / `plugin-shell-view.tsx` are distinct surfaces.** The studio (route `/experimental/agent-creation-studio`) is for ad-hoc creation of agent/skill/squad rows through the existing REST APIs — no new mutation hook, no new sqlc, no schema column. The plugin shell (route `/experimental/plugin/:pluginSlug`) is for `user_*` lab plugins with manifest-driven tabs. Don't conflate them when routing new lab work; the studio edits *built-in* schema, the shell renders *user* artifacts.

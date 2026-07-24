@@ -60,6 +60,7 @@
     "experimental_claude_science_runtime": "Claude Science 런타임",
     "experimental_claude_science_lab": "Claude 연구실",
     "experimental_code_canvas": "코드 캔버스",
-    "experimental_agent_self_optimization": "에이전트 자체 최적화"
+    "experimental_agent_self_optimization": "에이전트 자체 최적화",
+    "experimental_self_opt_history": "에이전트 자체 최적화 기록"
   }
 }

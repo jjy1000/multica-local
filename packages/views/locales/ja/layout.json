@@ -60,6 +60,7 @@
     "experimental_claude_science_runtime": "Claude Science ランタイム",
     "experimental_claude_science_lab": "Claude 研究ラボ",
     "experimental_code_canvas": "コードキャンバス",
-    "experimental_agent_self_optimization": "エージェント自己最適化"
+    "experimental_agent_self_optimization": "エージェント自己最適化",
+    "experimental_self_opt_history": "エージェント自己最適化履歴"
   }
 }

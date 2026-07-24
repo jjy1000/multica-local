@@ -198,6 +198,7 @@ function LabPickerRow({
   clearAssignee,
   isLabCreation,
   onToggleLabCreation,
+  hasAssignee,
 }: {
   labSource: string | undefined;
   setLabSource: (next: string | undefined) => void;
@@ -216,6 +217,13 @@ function LabPickerRow({
    *  lab_source stays unset. */
   isLabCreation: boolean;
   onToggleLabCreation: () => void;
+  /** 0.3.62: whether the issue already carries a manual assignee
+   *  (agent or squad). Used to flip the lab-creation hint from a
+   *  prompt ("pick an agent/squad") to a confirmation once the user
+   *  HAS picked one — otherwise the static "选择一个智能体或团队" copy
+   *  keeps nagging even after a squad is selected, and the user reads
+   *  it as "my selection didn't register". */
+  hasAssignee: boolean;
 }) {
   const { data: flags } = useExperimentalFlags();
   // Wait for the flag query to settle. Skipping the placeholder while
@@ -293,7 +301,9 @@ function LabPickerRow({
       </PillButton>
       {isLabCreation && (
         <span className="text-[10px] text-muted-foreground select-none">
-          选择一个智能体或团队来创建实验室插件
+          {hasAssignee
+            ? "✓ 已选负责人，创建后由其创建实验室插件"
+            : "选择一个智能体或团队来创建实验室插件"}
         </span>
       )}
     </div>
@@ -547,13 +557,23 @@ export function ManualCreatePanel({
       // assigned agent (or squad) knows to author a lab plugin via the
       // multica-lab-builder skill rather than treat this as an ordinary
       // issue. lab_source is intentionally left unset — this is a creation
-      // request, not a binding. The hint tells the assignee to FIRST survey
-      // the current lab landscape (built-in flags + existing user plugins)
-      // so it knows what already exists before deciding what to build.
+      // request, not a binding.
+      //
+      // 0.3.62: the hint now opens with an environment/capability briefing so
+      // the assignee understands (a) it is operating INSIDE the Labs sandbox,
+      // (b) it holds the full plugin lifecycle — survey / create / edit /
+      // delete / enable-disable (pause) — over the local API, and (c) the
+      // built-in-vs-user-plugin boundary. Then it is told to FIRST survey the
+      // current lab landscape before deciding what to build.
       const LAB_CREATION_HINT =
-        "[实验室创建] 请为此工作区创建一个实验室插件。请先用 multica-lab-builder 技能了解当前实验室现状：" +
-        "读取 GET /api/experimental-flags（含内置实验室与已有用户插件）与 GET /api/user-plugins（已有插件清单），" +
-        "弄清目前有哪些实验室、还缺什么，再决定创建何种插件并完成创建与回报。";
+        "[实验室创建] 你现在处于 Multica 实验室环境（Labs sandbox），已被指派专门处理实验室插件工作，" +
+        "拥有对用户插件的完整生命周期能力：了解(survey)、创建、编辑、删除、启用/停用(暂停)。请用 multica-lab-builder 技能操作。" +
+        "第一步先了解现状：读取 GET /api/experimental-flags（含内置实验室与已有用户插件及其启用状态）与 " +
+        "GET /api/user-plugins（已有插件清单与完整 manifest），弄清目前有哪些实验室、哪些已启用、还缺什么。" +
+        "重要：survey 只是起点，不是终点——除非任务明确只要求调研，否则你应主动通过 POST/PUT/DELETE /api/user-plugins " +
+        "实际创建、编辑或删除用户插件来完成需求，不要在调研后就停下或声称自己没有权限。创建时 slug 用纯小写字母/数字/连字符（如 my-plugin，不加 user_ 前缀，前缀由服务端自动添加），完成后在本 issue 上回报改动。" +
+        "所有操作走本机 http://localhost:8090，鉴权用环境变量 MULTICA_API_TOKEN（已注入，勿硬编码、勿访问外网）。" +
+        "边界：仅 8 个内置实验室由开发者维护、你只能启用/停用而不能增删改其定义；用户插件是你可自由完整增删改的对象，请放手操作。";
       const finalTitle =
         isLabCreation && !title.trim().startsWith("[实验室创建]")
           ? `[实验室创建] ${title.trim()}`
@@ -895,6 +915,7 @@ export function ManualCreatePanel({
               clearAssignee={() => updateAssignee(undefined, undefined)}
               isLabCreation={isLabCreation}
               onToggleLabCreation={toggleLabCreation}
+              hasAssignee={!!assigneeType}
             />
 
             {/* Property toolbar */}

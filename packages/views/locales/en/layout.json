@@ -60,6 +60,7 @@
     "experimental_claude_science_runtime": "Claude Science Runtime",
     "experimental_claude_science_lab": "Claude Research Lab",
     "experimental_code_canvas": "Code Canvas",
-    "experimental_agent_self_optimization": "Agent Self-Optimization"
+    "experimental_agent_self_optimization": "Agent Self-Optimization",
+    "experimental_self_opt_history": "Agent Self-Optimization History"
   }
 }

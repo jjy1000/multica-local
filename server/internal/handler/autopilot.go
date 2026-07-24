@@ -362,15 +362,20 @@ func (h *Handler) ListAutopilots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 0.3.17 Labs gate: filter out autopilots whose IDs are hidden by
-	// the agent_self_optimization flag when the flag is off (catalog
-	// default). When the user opts in, the flag returns true and we
-	// pass an empty hidden set so the full roster is returned.
-	autopilots = filterLabsHiddenByDefault(
-		r.Context(), h.Queries, autopilots,
-		"agent_self_optimization", experimental.HideAutopilot,
-		func(row db.ListAutopilotsRow) pgtype.UUID { return row.Autopilot.ID },
-		"list autopilots: resolve hidden set failed",
-	)
+	// any Labs flag whose visibility table hides autopilots and whose
+	// flag is currently off (catalog default). We iterate AllFlagKeys()
+	// — not just the hard-coded agent_self_optimization — so user plugin
+	// labs that seed hidden autopilot rows ("user_<slug>") keep their
+	// automation out of the regular list, mirroring the ListAgents gate.
+	// When a flag is on the user opted in and its rows are not hidden.
+	for _, key := range experimental.AllFlagKeys() {
+		autopilots = filterLabsHiddenByDefault(
+			r.Context(), h.Queries, autopilots,
+			key, experimental.HideAutopilot,
+			func(row db.ListAutopilotsRow) pgtype.UUID { return row.Autopilot.ID },
+			"list autopilots: resolve hidden set failed for "+key,
+		)
+	}
 
 	// (the 3 CTR / CSIL / TAOL autopilots were hidden by the
 	// constitution_agent flag, retired in 0.3.57 with migration 165.

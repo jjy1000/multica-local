@@ -2936,7 +2936,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 // h.Queries. Errors are logged and swallowed — a stale experimental
 // agent row must not 500 an issue update.
 func (h *Handler) assignDefaultLabAgentOnUpdate(ctx context.Context, issue *db.Issue, labSource string) {
-	leaderName, ok := defaultLabLeaderForKey(labSource)
+	leaderName, ok := h.resolveLabLeader(ctx, labSource)
 	if !ok {
 		return
 	}
@@ -3002,6 +3002,26 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 	}
 }
 
+// resolveLabLeader is the handler-side leader resolver used by the
+// Update path. Built-in labs resolve through defaultLabLeaderForKey;
+// user plugins ("user_<slug>" flag keys) resolve their leader from the
+// stored manifest's capabilities.leader field, mirroring
+// IssueService.resolveLabLeader on the create path. Missing plugin or
+// manifest without a leader falls through to ("", false).
+func (h *Handler) resolveLabLeader(ctx context.Context, labSource string) (string, bool) {
+	if name, ok := defaultLabLeaderForKey(labSource); ok {
+		return name, true
+	}
+	if experimental.IsUserPluginKey(labSource) {
+		plugin, err := h.Queries.GetUserPluginByFlagKey(ctx, labSource)
+		if err != nil {
+			return "", false
+		}
+		return experimental.UserPluginLeader(plugin.ManifestJson)
+	}
+	return "", false
+}
+
 // shouldRewriteAssigneeForLabLeader — 0.3.46 (P0#4) companion helper.
 // Returns true when the caller is flipping lab_source onto a value
 // with a known leader AND the current issue.assignee does NOT already
@@ -3012,7 +3032,7 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 // "no leader installed". assignDefaultLabAgentOnUpdate logs the
 // miss and proceeds; this gate just keeps the auto-rewrite honest.
 func (h *Handler) shouldRewriteAssigneeForLabLeader(ctx context.Context, issue *db.Issue, labSource string) bool {
-	leaderName, ok := defaultLabLeaderForKey(labSource)
+	leaderName, ok := h.resolveLabLeader(ctx, labSource)
 	if !ok {
 		return false
 	}

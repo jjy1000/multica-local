@@ -37,3 +37,26 @@ When a user provides a file or pattern argument:
 4. Output findings using the format specified in the guidelines
 
 If no files specified, ask the user which files to review.
+
+## Output
+
+Report findings as a terse list, one per line, in `file:line — issue (rule)` form:
+
+- `packages/ui/button.tsx:42 — icon button has no accessible label (WCAG 4.1.2)`
+
+Rules:
+
+- Group findings by file; omit files that have no findings.
+- Cite the specific guideline each finding violates; do not restate the full guidelines.
+- End with a one-line summary of files reviewed and finding counts, or `No issues found` when the code is compliant.
+
+## Validation
+
+Before returning, confirm the review is complete and trustworthy:
+
+- Guidelines were fetched fresh from the source URL this run (not from memory).
+- Every file in the requested file/pattern was read and checked.
+- Each finding names a concrete `file:line` and the specific rule it breaks.
+- The summary line is present and its counts match the listed findings.
+
+If any check fails (e.g. the fetch failed or a file was unreadable), say so explicitly instead of returning a partial review as if it were complete.

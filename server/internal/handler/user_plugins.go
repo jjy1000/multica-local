@@ -378,6 +378,16 @@ func (h *Handler) UpdateUserPlugin(w http.ResponseWriter, r *http.Request) {
 		h.ExperimentRegistry.MergeUserPlugins([]experimental.Flag{userPluginToFlag(updated)})
 	}
 
+	// Re-seed visibility when the manifest changed. The common lab-builder
+	// flow creates a plugin with empty capabilities, provisions its
+	// agents/autopilots/squads via the CLI, then PUTs the filled manifest
+	// here — so without this the lab roster would never be hidden. Seeding
+	// is additive and idempotent (INSERT ... ON CONFLICT DO NOTHING); it
+	// does not un-hide resources dropped from the manifest.
+	if len(body.Manifest) > 0 {
+		h.seedPluginVisibility(r.Context(), flagKey, manifest)
+	}
+
 	writeJSON(w, http.StatusOK, userPluginToResponse(updated))
 }
 
@@ -439,19 +449,24 @@ func (h *Handler) DeleteUserPlugin(w http.ResponseWriter, r *http.Request) {
 }
 
 // pluginManifestCapabilities is the subset of a plugin manifest we inspect
-// for visibility seeding. The capabilities block lists agent/squad names
-// the plugin provisions; each is hidden from regular pickers by default.
+// for visibility seeding. The capabilities block lists agent/squad/autopilot
+// names the plugin provisions; each is hidden from regular pickers by
+// default. Leader names the lab's dispatch agent (used by the issue layer,
+// not by visibility seeding) and is parsed via experimental.UserPluginLeader.
 type pluginManifestCapabilities struct {
 	Capabilities struct {
-		Agents []string `json:"agents"`
-		Squads []string `json:"squads"`
+		Agents     []string `json:"agents"`
+		Squads     []string `json:"squads"`
+		Autopilots []string `json:"autopilots"`
+		Leader     string   `json:"leader"`
 	} `json:"capabilities"`
 }
 
 // seedPluginVisibility inserts experimental_resource_visibility rows
-// for any agents/squads declared in the plugin manifest's capabilities
-// block. Hidden by default — the user sees lab resources only through
-// the lab's own panel, not in the regular agent/squad pickers.
+// for any agents/squads/autopilots declared in the plugin manifest's
+// capabilities block. Hidden by default — the user sees lab resources
+// only through the lab's own panel, not in the regular pickers, so a
+// lab's private automation/agent roster never pollutes Multica's own.
 //
 // Name resolution uses a cross-workspace lookup (LIMIT 1) because user
 // plugins are server-global, not workspace-scoped. Agents/squads that do
@@ -471,7 +486,7 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 		return
 	}
 
-	if len(caps.Capabilities.Agents) == 0 && len(caps.Capabilities.Squads) == 0 {
+	if len(caps.Capabilities.Agents) == 0 && len(caps.Capabilities.Squads) == 0 && len(caps.Capabilities.Autopilots) == 0 {
 		return
 	}
 
@@ -518,6 +533,30 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 		}); err != nil {
 			slog.Warn("plugin visibility: failed to seed squad row",
 				"flag_key", flagKey, "squad", name, "error", err)
+		}
+	}
+
+	// Resolve autopilot titles → UUIDs. Autopilots key off `title`
+	// (not `name`), so the manifest lists titles here; each hidden row
+	// keeps the lab's automation out of the regular autopilot list.
+	for _, title := range caps.Capabilities.Autopilots {
+		var id pgtype.UUID
+		err := h.DB.QueryRow(ctx,
+			`SELECT id FROM autopilot WHERE title = $1 ORDER BY created_at LIMIT 1`,
+			title,
+		).Scan(&id)
+		if err != nil {
+			slog.Debug("plugin visibility: autopilot not found, skipping",
+				"flag_key", flagKey, "autopilot", title, "error", err)
+			continue
+		}
+		if err := h.Queries.InsertExperimentalResourceVisibility(ctx, db.InsertExperimentalResourceVisibilityParams{
+			FlagKey:      flagKey,
+			ResourceType: string(experimental.HideAutopilot),
+			ResourceID:   id,
+		}); err != nil {
+			slog.Warn("plugin visibility: failed to seed autopilot row",
+				"flag_key", flagKey, "autopilot", title, "error", err)
 		}
 	}
 }

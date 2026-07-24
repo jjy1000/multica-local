@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Pre-push guard: runs the fast affected TypeScript checks (`make check-fast`)
+# so a broken change is caught locally before it ever reaches a PR. This is the
+# lightweight signal tier — typecheck + unit + lint for packages affected since
+# `main`, with no DB, servers, Go tests, or Playwright E2E. The full gate
+# (`make check` / CI on main) is unchanged and remains the source of truth.
+#
+# Installed by scripts/setup-git-hooks.mjs, which points core.hooksPath at this
+# directory during `pnpm install` (the `prepare` lifecycle script). Bypass a
+# single push with `git push --no-verify` when you knowingly need to.
+set -euo pipefail
+
+# Minimal environments (some CI checkouts, contributors without the make
+# toolchain) can't run the project anyway; skip rather than block them. Normal
+# dev machines have make and get the full blocking behavior below.
+if ! command -v make > /dev/null 2>&1; then
+  echo "pre-push: 'make' not found; skipping fast checks (install make to enable)." >&2
+  exit 0
+fi
+
+echo "==> pre-push: running 'make check-fast' (typecheck + unit + lint, affected only)..."
+if ! make check-fast; then
+  echo "" >&2
+  echo "✗ pre-push blocked: fast checks failed. Fix the issues above, or bypass with 'git push --no-verify'." >&2
+  exit 1
+fi
+
+echo "✓ pre-push: fast checks passed."

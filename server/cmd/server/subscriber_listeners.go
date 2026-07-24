@@ -30,8 +30,15 @@ func registerSubscriberListeners(bus *events.Bus, queries *db.Queries) {
 		// Subscribe the creator
 		addSubscriber(bus, queries, e.WorkspaceID, issue.ID, issue.CreatorType, issue.CreatorID, "creator")
 
-		// Subscribe the assignee if exists and different from creator
+		// Subscribe the assignee if exists and different from creator.
+		// A squad assignee is skipped: squads are not human inbox owners,
+		// so a subscriber row for a squad is dead data at best and, once
+		// migration 167 widened recipient_type to allow 'squad', can
+		// surface squad-routed items in ListInbox for a human member who
+		// later joins that squad. Squad-as-subscriber is deferred by
+		// design (see CLAUDE.md §0.3.61). See 0.3.63.
 		if issue.AssigneeType != nil && issue.AssigneeID != nil &&
+			*issue.AssigneeType != "squad" &&
 			!(*issue.AssigneeType == issue.CreatorType && *issue.AssigneeID == issue.CreatorID) {
 			addSubscriber(bus, queries, e.WorkspaceID, issue.ID, *issue.AssigneeType, *issue.AssigneeID, "assignee")
 		}
@@ -55,9 +62,10 @@ func registerSubscriberListeners(bus *events.Bus, queries *db.Queries) {
 			return
 		}
 
-		// Subscribe new assignee if assignee changed
+		// Subscribe new assignee if assignee changed (squads excluded —
+		// see the issue:created handler above for rationale).
 		if assigneeChanged, _ := payload["assignee_changed"].(bool); assigneeChanged {
-			if issue.AssigneeType != nil && issue.AssigneeID != nil {
+			if issue.AssigneeType != nil && issue.AssigneeID != nil && *issue.AssigneeType != "squad" {
 				addSubscriber(bus, queries, e.WorkspaceID, issue.ID, *issue.AssigneeType, *issue.AssigneeID, "assignee")
 			}
 		}

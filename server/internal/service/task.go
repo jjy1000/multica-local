@@ -2045,9 +2045,114 @@ func (s *TaskService) LoadAgentSkills(ctx context.Context, agentID pgtype.UUID) 
 // LoadAgentSkillBundles returns every skill visible to an agent, including
 // built-ins, with stable bundle hashes and lightweight refs for slim claims.
 func (s *TaskService) LoadAgentSkillBundles(ctx context.Context, agentID pgtype.UUID) ([]AgentSkillData, []AgentSkillRefData) {
-	skills := s.LoadAgentSkills(ctx, agentID)
+	skills := s.LoadAgentSkillsForClaim(ctx, agentID)
 	skills = append(skills, s.BuiltinSkills()...)
 	return BuildAgentSkillBundles(skills)
+}
+
+// LoadAgentSkillsForClaim returns an agent's workspace-bound skills plus any
+// skills contributed by enabled composite plugins. Built-ins are NOT included
+// (callers append them). This is the single injection point that makes the
+// lab "skills are not hidden — any agent can call them" contract real: a
+// plugin's declared skills become globally available to every agent while the
+// plugin's flag is enabled, without seeding a per-agent agent_skill row.
+func (s *TaskService) LoadAgentSkillsForClaim(ctx context.Context, agentID pgtype.UUID) []AgentSkillData {
+	skills := s.LoadAgentSkills(ctx, agentID)
+	return s.appendEnabledPluginSkills(ctx, agentID, skills)
+}
+
+// appendEnabledPluginSkills resolves the skill names declared by every enabled
+// composite plugin and appends the matching workspace skills (deduped by name
+// against what the agent already has). Plugin skills resolve by (workspace,
+// name); a name with no matching skill in the agent's workspace is skipped.
+// Best-effort: any lookup failure degrades to "no plugin skills" rather than
+// failing the claim.
+func (s *TaskService) appendEnabledPluginSkills(ctx context.Context, agentID pgtype.UUID, existing []AgentSkillData) []AgentSkillData {
+	names := s.enabledPluginSkillNames(ctx)
+	if len(names) == 0 {
+		return existing
+	}
+	// Plugin skills are workspace-scoped; resolve the agent's workspace so a
+	// name maps to the right skill row.
+	agent, err := s.Queries.GetAgent(ctx, agentID)
+	if err != nil {
+		return existing
+	}
+	have := make(map[string]struct{}, len(existing))
+	for _, sk := range existing {
+		have[sk.Name] = struct{}{}
+	}
+	for _, name := range names {
+		if _, ok := have[name]; ok {
+			continue // already bound to this agent — don't double-load
+		}
+		sk, err := s.Queries.GetSkillByWorkspaceAndName(ctx, db.GetSkillByWorkspaceAndNameParams{
+			WorkspaceID: agent.WorkspaceID,
+			Name:        name,
+		})
+		if err != nil {
+			continue // no such skill in this workspace — skip silently
+		}
+		data := AgentSkillData{
+			ID:          util.UUIDToString(sk.ID),
+			Source:      skillbundle.SourceWorkspace,
+			Name:        sk.Name,
+			Description: sk.Description,
+			Content:     sk.Content,
+		}
+		files, _ := s.Queries.ListSkillFiles(ctx, sk.ID)
+		for _, f := range files {
+			data.Files = append(data.Files, AgentSkillFileData{Path: f.Path, Content: f.Content})
+		}
+		existing = append(existing, data)
+		have[name] = struct{}{}
+	}
+	return existing
+}
+
+// enabledPluginSkillNames returns the distinct skill names declared in the
+// capabilities.skills block of every active plugin whose flag is enabled.
+// Returns nil (not an error) on any failure — plugin skill injection is
+// additive and must never break a claim.
+func (s *TaskService) enabledPluginSkillNames(ctx context.Context) []string {
+	enabledKeys, err := s.Queries.ListEnabledFlagKeys(ctx)
+	if err != nil || len(enabledKeys) == 0 {
+		return nil
+	}
+	enabled := make(map[string]struct{}, len(enabledKeys))
+	for _, k := range enabledKeys {
+		enabled[k] = struct{}{}
+	}
+	plugins, err := s.Queries.ListActiveUserPlugins(ctx)
+	if err != nil || len(plugins) == 0 {
+		return nil
+	}
+	var names []string
+	seen := make(map[string]struct{})
+	for _, p := range plugins {
+		if _, ok := enabled[p.FlagKey]; !ok {
+			continue
+		}
+		var caps struct {
+			Capabilities struct {
+				Skills []string `json:"skills"`
+			} `json:"capabilities"`
+		}
+		if err := json.Unmarshal(p.ManifestJson, &caps); err != nil {
+			continue
+		}
+		for _, n := range caps.Capabilities.Skills {
+			if n == "" {
+				continue
+			}
+			if _, ok := seen[n]; ok {
+				continue
+			}
+			seen[n] = struct{}{}
+			names = append(names, n)
+		}
+	}
+	return names
 }
 
 func BuildAgentSkillBundles(skills []AgentSkillData) ([]AgentSkillData, []AgentSkillRefData) {

@@ -1,4 +1,4 @@
-.PHONY: help makehelp dev server daemon cli multica build test migrate-up migrate-down sqlc seed clean setup start stop check worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree db-up db-down db-reset selfhost selfhost-build selfhost-stop
+.PHONY: help makehelp dev server daemon cli multica build test migrate-up migrate-down sqlc seed clean setup start stop check check-fast check-pythia worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree db-up db-down db-reset selfhost selfhost-build selfhost-stop
 
 MAIN_ENV_FILE ?= .env
 WORKTREE_ENV_FILE ?= .env.worktree
@@ -209,8 +209,17 @@ check: ## Run typecheck, TS tests, Go tests, and Playwright E2E for the current 
 # no database, servers, Go tests, or Playwright E2E. Use this while iterating; run
 # the full `make check` before delivery. Override the diff base with
 # TURBO_SCM_BASE (e.g. TURBO_SCM_BASE=origin/main).
-check-fast: ## Fast affected TS checks (typecheck + unit + lint); no DB/servers/Go/E2E
+check-fast: ## Fast affected TS checks (typecheck + unit + lint) + pythia smoke if affected; no DB/servers/Go/E2E
 	pnpm exec turbo run typecheck test lint --affected --filter=!@multica/mobile
+	@bash apps/desktop/scripts/pythia-smoke.sh --affected
+
+# Minimal, dependency-light Python smoke for the Pythia engine source-of-record
+# (apps/desktop/vendor/pythia-src). Parses/compiles every engine module and runs
+# the bundle-coverage guard. Prefers pytest, falls back to plain python3 so it
+# passes with no extra installs. `check-fast` runs this automatically only when
+# the pythia source changed; run it directly to force a check.
+check-pythia: ## Run the Pythia Python smoke test (parse + bundle-coverage guard)
+	@bash apps/desktop/scripts/pythia-smoke.sh
 
 db-up: ## Start the shared PostgreSQL container used by main and worktrees
 	@$(COMPOSE) up -d postgres
@@ -304,7 +313,12 @@ test: ## Run Go tests after ensuring the target DB exists and migrations are app
 	$(REQUIRE_ENV)
 	@bash scripts/ensure-postgres.sh "$(ENV_FILE)"
 	cd server && go run ./cmd/migrate up
-	cd server && go test -race ./...
+	# -p 1 serialises package-level test binaries. DB-backed packages
+	# (handler, service, daemon, ...) all share one DATABASE_URL and mutate
+	# global rows (e.g. agent_runtime metadata), so running package binaries
+	# in parallel causes cross-package pollution and flaky failures. Serialise
+	# packages; -race + intra-package t.Parallel() still apply within each.
+	cd server && go test -race -p 1 ./...
 
 # Database
 ##@ Database

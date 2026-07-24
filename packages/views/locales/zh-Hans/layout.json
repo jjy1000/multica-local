@@ -60,6 +60,7 @@
     "experimental_claude_science_runtime": "Claude Science 运行时",
     "experimental_claude_science_lab": "Claude 科研实验室",
     "experimental_code_canvas": "代码画布",
-    "experimental_agent_self_optimization": "智能体自优化"
+    "experimental_agent_self_optimization": "智能体自优化",
+    "experimental_self_opt_history": "智能体自优化历史"
   }
 }

@@ -62,6 +62,35 @@ func (q *Queries) GetExperimentalPref(ctx context.Context, arg GetExperimentalPr
 	return i, err
 }
 
+const listEnabledFlagKeys = `-- name: ListEnabledFlagKeys :many
+SELECT DISTINCT flag_key FROM experimental_pref WHERE enabled = true
+`
+
+// Distinct flag_keys currently toggled on by any user. In this single-user
+// fork the set collapses to "the one user's enabled flags"; the DISTINCT keeps
+// the contract correct if a second user ever exists. Used by the agent skill
+// loader to inject composite-plugin skills globally (a plugin's declared
+// skills become available to every agent while the plugin flag is enabled).
+func (q *Queries) ListEnabledFlagKeys(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listEnabledFlagKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var flag_key string
+		if err := rows.Scan(&flag_key); err != nil {
+			return nil, err
+		}
+		items = append(items, flag_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listExperimentalPrefsByUser = `-- name: ListExperimentalPrefsByUser :many
 SELECT id, user_id, flag_key, enabled, created_at, updated_at FROM experimental_pref
 WHERE user_id = $1

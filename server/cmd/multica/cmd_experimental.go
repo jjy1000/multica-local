@@ -260,6 +260,21 @@ func experimentalToken() string {
 	return ""
 }
 
+// experimentalAuthToken resolves the Labs/experimental API token and enforces
+// the agent-context contract. Inside a running agent task the daemon MUST
+// have injected MULTICA_API_TOKEN (see server/internal/daemon/daemon.go), so
+// an empty token there is a hard error rather than a silently-unsigned
+// request the server rejects as anonymous. Outside an agent context an empty
+// token is fine (the request goes out unsigned, as before). This mirrors the
+// newAPIClient guard in cmd_agent.go. See 0.3.63.
+func experimentalAuthToken() (string, error) {
+	tok := experimentalToken()
+	if tok == "" && inAgentExecutionContext() {
+		return "", fmt.Errorf("MULTICA_API_TOKEN missing inside an agent context; the daemon must inject the task-scoped token (set MULTICA_API_TOKEN or MULTICA_API_TOKEN_FILE)")
+	}
+	return tok, nil
+}
+
 func experimentalHTTPClient() *http.Client {
 	return &http.Client{Timeout: 30 * time.Second}
 }
@@ -634,7 +649,9 @@ func runClaudeScienceRuntimeDelete(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	if tok := experimentalToken(); tok != "" {
+	if tok, err := experimentalAuthToken(); err != nil {
+		return err
+	} else if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	resp, err := experimentalHTTPClient().Do(req)
@@ -818,7 +835,9 @@ func experimentalGET(ctx context.Context, path string, out any) error {
 	if err != nil {
 		return err
 	}
-	if tok := experimentalToken(); tok != "" {
+	if tok, err := experimentalAuthToken(); err != nil {
+		return err
+	} else if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	resp, err := experimentalHTTPClient().Do(req)
@@ -849,7 +868,9 @@ func experimentalPOST(ctx context.Context, path string, body any, out any, wantE
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if tok := experimentalToken(); tok != "" {
+	if tok, err := experimentalAuthToken(); err != nil {
+		return err
+	} else if tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
 	resp, err := experimentalHTTPClient().Do(req)

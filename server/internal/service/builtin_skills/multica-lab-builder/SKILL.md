@@ -1,6 +1,6 @@
 ---
 name: multica-lab-builder
-description: "Use when the user wants to create, modify, or delete an experimental lab plugin. Handles the full lifecycle: design the plugin structure, create it via the user-plugins API, provision any agents/skills/autopilots it needs, and report back. Also handles listing existing plugins and updating their configuration."
+description: "Use when the user wants to create, modify, delete, or enable/disable (pause/resume) an experimental lab plugin. Handles the full lifecycle: design the plugin structure, create it via the user-plugins API, provision any agents/skills/autopilots it needs, toggle it on/off, and report back. Also handles listing existing plugins and updating their configuration."
 user-invocable: true
 allowed-tools: Bash(multica *), Bash(curl *)
 ---
@@ -17,12 +17,45 @@ Bearer token from the `MULTICA_API_TOKEN` environment variable — never hardcod
 a token. Resource provisioning (agents / skills / squads) goes through the
 standard `multica` CLI.
 
+## Your environment & capabilities
+
+You are running **inside the Multica Labs environment** (the Labs sandbox). When
+an issue is tagged `[实验室创建]` you have been dispatched specifically to work on
+lab plugins, and you hold a task-scoped `MULTICA_API_TOKEN` that authorizes the
+full plugin lifecycle over the local API. Concretely, you can:
+
+- **Survey** — list every lab (built-in flags + user plugins) with their enabled
+  state, and read any user plugin's full manifest.
+- **Create** — author a new user plugin (`POST /api/user-plugins`).
+- **Edit** — change any user plugin's title / description / trigger / runtime /
+  manifest (`PUT /api/user-plugins/{slug}`).
+- **Delete** — remove a user plugin (`DELETE /api/user-plugins/{slug}`).
+- **Enable / disable (pause / resume)** — toggle any lab on or off
+  (`PATCH /api/experimental-flags/{flag_key}`), including built-in labs.
+- **Run** — execute an inline plugin's code and collect artifacts
+  (`POST /api/user-plugins/{slug}/run`).
+
+**Boundary:** the 8 **built-in** catalog labs are developer-maintained — you can
+enable/disable them but you cannot create, edit, or delete their definitions.
+**User plugins** are the objects you fully own (create / edit / delete).
+Everything runs on `http://localhost:8090`; never reach outside the machine, and
+never hardcode the token.
+
+**Bias to action:** surveying is only the first step, not the deliverable.
+Unless the request explicitly asks for a survey only, do not stop after listing
+labs and do not claim you "lack permission" to change them — you hold a
+task-scoped token that authorizes the full user-plugin lifecycle. Go ahead and
+actually create / edit / delete user plugins (`POST` / `PUT` / `DELETE
+/api/user-plugins`) to fulfil the intent, then report the concrete changes on
+the anchoring issue.
+
 ## When to use
 
 Use this skill when the user wants to:
 
 - create a new experimental lab / plugin,
 - change an existing plugin's title, description, trigger mode, runtime, or manifest,
+- enable or disable (pause / resume) a lab,
 - delete a plugin,
 - list what plugins exist.
 
@@ -102,7 +135,7 @@ curl -s -X POST http://localhost:8090/api/user-plugins \
     "trigger_mode": "issue_select",
     "runtime_kind": "inline",
     "manifest": {
-      "capabilities": {"skills": [], "agents": [], "squads": []},
+      "capabilities": {"skills": [], "agents": [], "autopilots": [], "squads": [], "leader": ""},
       "ui": {
         "shell": "standard",
         "tabs": [
@@ -118,8 +151,8 @@ The server returns the created plugin. `flag_key` is auto-generated as
 
 ## Step 5 — provision resources (optional)
 
-If the lab needs agents / skills / squads, create them with the standard CLI and
-record their IDs/names back into `manifest.capabilities`:
+If the lab needs agents / skills / autopilots / squads, create them with the
+standard CLI and record their names back into `manifest.capabilities`:
 
 ```sh
 multica agent create --slug "$WORKSPACE_SLUG" --name "my-lab-agent" --output json
@@ -129,6 +162,69 @@ multica skill create --slug "$WORKSPACE_SLUG" --name "my-lab-skill" --output jso
 Then update the plugin manifest (Step "Modify" below) so the capabilities block
 references the provisioned resources. For `runtime_kind: "subprocess"`, describe
 the binary / health path in the manifest instead.
+
+### What each capability slot means (visibility contract)
+
+The `capabilities` block is not decorative — the server reads it on create to
+wire up the lab's resource visibility so a lab is a self-contained container
+that does **not** pollute Multica's own rosters:
+
+- **`agents`** — names of agents this lab owns. Each is **hidden** from the
+  regular agent picker (a visibility row is seeded). Lab agents live only
+  inside the lab; they surface on an issue via the `leader` dispatch below,
+  never in the global agent list. This keeps Multica's own agents clean.
+- **`autopilots`** — **titles** (autopilots key off `title`, not `name`) of the
+  lab's automations. Each is **hidden** from the regular autopilot list the
+  same way. Use this for background jobs the lab drives on its own.
+- **`squads`** — names of squads the lab owns; also hidden from pickers.
+- **`skills`** — names of skills the lab contributes. Skills are **NOT hidden**,
+  and (0.3.60+) they are **auto-bound globally**: while the plugin flag is
+  enabled, every skill named here is loaded for **every agent in the workspace**
+  at task-claim time — no per-agent binding row needed. Disable the plugin and
+  the skills stop being injected. This is what makes a **no-agent "tool lab"**
+  useful: declare `skills` (+ optional inline runtime / autopilots), leave
+  `agents`/`leader` empty, and any Multica agent can call those skills to get
+  work done. The skill name must match a real workspace skill row (provision it
+  via `multica skill create` first). MCP servers follow the same idea and are
+  configured through the agent's own MCP config, not this block.
+- **`leader`** — the single agent name (must be one of `agents`) that the lab
+  auto-dispatches to. When `trigger_mode: "issue_select"` and a user binds an
+  issue to this lab, the server auto-assigns this hidden agent as the issue's
+  assignee and enqueues its task — the same mechanism the built-in
+  `claude_science_lab → research` dispatch uses. Leave `""` for labs with no
+  per-issue agent (pure automation, UI-only, or squad-driven labs).
+
+A typical issue-bound lab therefore declares one hidden `leader` agent plus
+whatever skills/MCP it calls:
+
+```json
+"capabilities": {
+  "agents": ["my-lab-agent"],
+  "autopilots": ["My Lab Nightly Sync"],
+  "skills": ["my-lab-skill"],
+  "squads": [],
+  "leader": "my-lab-agent"
+}
+```
+
+### Two archetypes: tool-lab vs. agent-lab
+
+The capability slots let you build two complementary kinds of lab, and any
+Multica agent can use both:
+
+- **Tool-lab (no agent).** A composite of `skills` + optional `autopilots` +
+  optional inline runtime, with **no `agents` and empty `leader`**. Its skills
+  auto-bind to every agent while enabled (see the `skills` slot above), so it
+  acts as a shared capability pack: any agent/team calls the skills inline to
+  get something done — no delegation, no separate run. Reach for this when the
+  lab is "a thing agents use," not "an agent that runs on its own."
+- **Agent-lab (with a leader).** Declares one or more hidden `agents` and a
+  `leader`. It runs as its own specialist: a caller **delegates** a
+  self-contained sub-task to the leader, which executes it in the lab and
+  returns a deliverable (see "Delegating a sub-task to a lab agent" below).
+  Reach for this when the work is a genuine independent run — a simulation, a
+  deep analysis, a scenario war-game — whose result feeds back into the
+  caller's task.
 
 ## Step 6 — report back
 
@@ -200,6 +296,49 @@ in `~/.multica/plugins/<slug>/runs.json`. `runtime_kind: "none"` → 400,
 [references/runtime-example.md](references/runtime-example.md) for a full
 create → set code → run → verify walkthrough.
 
+## Delegating a sub-task to a lab agent (`multica lab delegate`)
+
+An **agent-lab** (one that declares a `leader`) can be called by any other
+Multica agent or team as a synchronous specialist. This is the mechanism behind
+"a team agent, mid-task, hands a self-contained run to a lab and continues once
+the result comes back" — e.g. a planning team that needs a virtual event
+simulation delegates it to a simulation lab, waits, then folds the outcome into
+its plan.
+
+The verb is a single blocking CLI call the caller runs from inside its own task:
+
+```sh
+# <lab> is the plugin slug (or its user_<slug> flag key); <task> is the
+# instruction + the result you expect back. Blocks until the lab agent finishes.
+multica lab delegate my-lab-name "Run a 3-round war-game of scenario X and return the win/loss table plus key turning points."
+```
+
+What happens under the hood (no separate API to call):
+
+1. The command creates a lab-bound issue (`lab_source = user_<slug>`). The
+   server auto-assigns the lab's `leader` agent and enqueues its run — the same
+   dispatch path as `trigger_mode: "issue_select"`.
+2. The command **blocks**, polling the run until it reaches a terminal state.
+3. On success it prints the agent's final reply. `--output json` (default)
+   emits `{ok, issue_id, identifier, task_id, status, output, error}`; `--output
+   plain` prints just the reply text so the caller can capture it directly.
+
+Useful flags: `--timeout` (default `15m`), `--poll-interval` (default `3s`),
+`--title` (defaults to a snippet of the task), `--status` (default `todo` — must
+be non-backlog so the run dispatches).
+
+**Prerequisites for a lab to be delegable:** it must be **enabled**, declare a
+`capabilities.leader` agent, and that agent must be bound to a running daemon
+runtime. If no run is dispatched within a short grace window the command exits
+with a clear "no run was dispatched" error rather than hanging. Because the run
+is a normal issue-bound task, it is fully observable in the UI (transcript,
+usage) — delegation is a visible run, not a hidden RPC.
+
+When you build an agent-lab meant to be delegated to, make its `leader` agent's
+instructions explicit about **returning a self-contained deliverable as the
+final reply** (the caller reads exactly that text), and keep the run
+self-contained so it terminates without waiting on human input.
+
 ## Listing plugins
 
 ```sh
@@ -237,6 +376,33 @@ curl -s -X DELETE http://localhost:8090/api/user-plugins/my-lab-name \
 
 Deletion removes the plugin definition. Resources it provisioned (agents/skills)
 are separate rows — delete them explicitly via the CLI if the user wants them gone.
+
+## Enabling / disabling a plugin (pause / resume)
+
+Toggling a lab on or off is a **separate axis** from create/edit/delete: it flips
+the enabled state without touching the plugin definition or its artifacts. Use it
+to pause a lab (disable) or bring it back (enable). This works for user plugins
+AND built-in labs. The path key is the `flag_key` — for a user plugin that is
+`"user_" + slug` (e.g. slug `my-lab-name` → `user_my-lab-name`).
+
+```sh
+# Disable (pause) — hides the lab's resources, keeps the definition
+curl -s -X PATCH http://localhost:8090/api/experimental-flags/user_my-lab-name \
+  -H "Authorization: Bearer $MULTICA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": false}'
+
+# Enable (resume) — reveals/provisions the lab's resources again
+curl -s -X PATCH http://localhost:8090/api/experimental-flags/user_my-lab-name \
+  -H "Authorization: Bearer $MULTICA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+```
+
+For an installable lab, enabling also provisions/restores its agents/skills/
+squads and disabling hides them. Either way the definition and artifacts are
+preserved — disable is a pause, not a delete. The same endpoint accepts a
+built-in `flag_key` (e.g. `mythos_swarm`) to toggle a built-in lab.
 
 ## Rules
 

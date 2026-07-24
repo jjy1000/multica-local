@@ -130,9 +130,18 @@ func pluginRunsPath(slug string) (string, error) {
 }
 
 // pluginRuntimeEnv builds the environment the plugin process runs with. It
-// inherits the parent env (so PATH etc. survive) and layers on the platform
-// contract a lab can rely on:
+// deliberately does NOT inherit the parent server's os.Environ(). In the
+// desktop co-resident deployment the server is the daemon's child and
+// carries the daemon-injected MULTICA_API_TOKEN plus the user's profile-
+// bearing HOME; inheriting all of that would let a malicious entry.py read
+// the user's JWT (via HOME → ~/.multica/profiles/<name>/config.json) or
+// re-use the task token to call privileged endpoints. Instead we build an
+// explicit, minimal env and layer on the platform contract a lab relies on:
 //
+//   - PATH                — kept so python3 and stdlib helpers resolve.
+//   - HOME                — pinned to the plugin env dir so any ~/-relative
+//     write stays inside the sandbox, never the user's real home.
+//   - LANG / LC_ALL       — a deterministic UTF-8 locale for stable text I/O.
 //   - MULTICA_PLUGIN_SLUG — the plugin's slug.
 //   - MULTICA_PLUGIN_ENV  — the persistent env dir (also the process cwd).
 //   - MULTICA_PLUGIN_DB   — a stable SQLite path (env/data.db). Because the
@@ -140,14 +149,23 @@ func pluginRunsPath(slug string) (string, error) {
 //     sqlite3 module and accumulate state (e.g. a keymap graph it renders on
 //     the next run) with zero setup and no external database.
 //
-// python3 -I ignores PYTHON*-prefixed vars only, so these MULTICA_* vars are
-// visible to the snippet via os.environ.
+// python3 is invoked with -I (isolated mode). Combined with the minimal env
+// — which carries no PYTHONPATH / PYTHONSTARTUP — this closes the module-
+// shadowing and startup-hook vectors as well. See 0.3.63 SEC hardening.
 func pluginRuntimeEnv(slug, envDir string) []string {
-	return append(os.Environ(),
-		"MULTICA_PLUGIN_SLUG="+slug,
-		"MULTICA_PLUGIN_ENV="+envDir,
-		"MULTICA_PLUGIN_DB="+filepath.Join(envDir, pluginDBFileName),
-	)
+	path := strings.TrimSpace(os.Getenv("PATH"))
+	if path == "" {
+		path = "/usr/local/bin:/usr/bin:/bin"
+	}
+	return []string{
+		"PATH=" + path,
+		"HOME=" + envDir,
+		"LANG=C.UTF-8",
+		"LC_ALL=C.UTF-8",
+		"MULTICA_PLUGIN_SLUG=" + slug,
+		"MULTICA_PLUGIN_ENV=" + envDir,
+		"MULTICA_PLUGIN_DB=" + filepath.Join(envDir, pluginDBFileName),
+	}
 }
 
 // isIngestableName reports whether a top-level env file should be captured as

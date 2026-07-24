@@ -4573,6 +4573,16 @@ func isBlockedEnvKey(key string) bool {
 	if strings.HasPrefix(upper, "MULTICA_") {
 		return true
 	}
+	// PYTHON*-prefixed vars can redirect any child Python interpreter's
+	// module search path (PYTHONPATH), startup hook (PYTHONSTARTUP) or
+	// bytecode/hash behavior. A user-configured custom_env must never be
+	// able to inject these into daemon-spawned processes — otherwise an
+	// attacker-controlled agent env could shadow stdlib modules for a
+	// future Python subprocess (e.g. pythia). Defense-in-depth: the
+	// pythia runtime builds its own env today, but block at the source.
+	if strings.HasPrefix(upper, "PYTHON") {
+		return true
+	}
 	switch upper {
 	case "HOME", "PATH", "USER", "SHELL", "TERM", "CODEX_HOME", "CURSOR_DATA_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_INCLUDE_ROOTS":
 		return true
