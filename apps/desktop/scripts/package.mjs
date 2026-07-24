@@ -24,7 +24,7 @@
 // The `normalizeGitVersion` helper is exported so tests can cover the
 // version-derivation logic without shelling out.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { execFileSync, spawnSync, execSync } from "node:child_process";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -360,6 +360,17 @@ function main() {
   console.log(
     `[package] build matrix → ${buildMatrix.map(formatTarget).join(", ")}`,
   );
+
+  // Step 0: start every release from an empty output directory. Stale
+  // artifacts from a prior run would otherwise be repacked into this run's
+  // app.asar (see the `!dist/**` note in electron-builder.yml). This clean
+  // is belt-and-braces only — it does NOT by itself prevent the same-run
+  // cross-arch contamination that broke the Intel DMG, because the first
+  // arch writes into dist/ mid-run before the next arch is packaged; the
+  // `!dist/**` files exclusion is what actually guarantees isolation.
+  const distDir = resolve(desktopRoot, "dist");
+  rmSync(distDir, { recursive: true, force: true });
+  console.log(`[package] cleaned output dir → ${distDir}`);
 
   // Step 1: build the Electron main/preload/renderer bundles. Without
   // this step electron-builder silently packages whatever is already in
