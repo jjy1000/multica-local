@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multica Labs → 低代码沙盒实验场 — 架构研究报告</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #232733;
+    --border: #2d3140; --text: #e4e7ef; --text2: #9ba1b5;
+    --accent: #6c8aff; --accent2: #4ecdc4; --warn: #ff6b6b;
+    --ok: #51cf66; --amber: #ffd43b;
+    --mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.7; padding: 2rem; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.8rem; margin-bottom: .3rem; color: var(--accent); }
+  h2 { font-size: 1.35rem; margin: 2.5rem 0 1rem; color: var(--accent2); border-bottom: 1px solid var(--border); padding-bottom: .5rem; }
+  h3 { font-size: 1.1rem; margin: 1.5rem 0 .6rem; color: var(--text); }
+  p { margin: .5rem 0; color: var(--text2); }
+  .subtitle { color: var(--text2); font-size: .9rem; margin-bottom: 2rem; }
+  code { font-family: var(--mono); font-size: .85em; background: var(--surface2); padding: .15em .4em; border-radius: 4px; color: var(--accent); }
+  pre { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow-x: auto; margin: .8rem 0; font-size: .82rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; color: var(--text); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem 1.5rem; margin: 1rem 0; }
+  .card-title { font-weight: 600; color: var(--text); margin-bottom: .4rem; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .88rem; }
+  th { text-align: left; padding: .6rem .8rem; background: var(--surface2); color: var(--accent2); border: 1px solid var(--border); }
+  td { padding: .5rem .8rem; border: 1px solid var(--border); color: var(--text2); }
+  .tag { display: inline-block; font-size: .72rem; padding: .1em .5em; border-radius: 4px; font-weight: 600; }
+  .tag-ok { background: rgba(81,207,102,.15); color: var(--ok); }
+  .tag-warn { background: rgba(255,212,59,.15); color: var(--amber); }
+  .tag-risk { background: rgba(255,107,107,.15); color: var(--warn); }
+  .tag-info { background: rgba(108,138,255,.15); color: var(--accent); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .phase { border-left: 3px solid var(--accent); padding-left: 1.2rem; margin: 1.2rem 0; }
+  .phase-num { font-size: .75rem; color: var(--accent); font-weight: 700; text-transform: uppercase; letter-spacing: .1em; }
+  ul, ol { margin: .5rem 0 .5rem 1.5rem; color: var(--text2); }
+  li { margin: .3rem 0; }
+  .verdict { background: linear-gradient(135deg, rgba(108,138,255,.08), rgba(78,205,196,.08)); border: 1px solid var(--accent); border-radius: 10px; padding: 1.5rem; margin: 1.5rem 0; }
+  .flow { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin: .8rem 0; font-size: .85rem; }
+  .flow .step { background: var(--surface2); padding: .3em .7em; border-radius: 6px; color: var(--text); }
+  .flow .arrow { color: var(--accent); font-weight: bold; }
+  .metric { text-align: center; padding: 1rem; }
+  .metric .num { font-size: 2rem; font-weight: 700; color: var(--accent); }
+  .metric .label { font-size: .78rem; color: var(--text2); }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin: 1rem 0; }
+  @media (max-width: 768px) { .grid2, .metrics { grid-template-columns: 1fr; } }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.2rem 1.5rem; margin: 1.5rem 0; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc ol { color: var(--text2); }
+  .highlight { color: var(--amber); font-weight: 600; }
+  .dim { color: var(--text2); font-size: .85rem; }
+</style>
+</head>
+<body>
+
+<h1>Multica Labs → 低代码沙盒实验场</h1>
+<p class="subtitle">架构可行性研究 · 2026-07-22 · 基于 0.3.59 代码库分析 · v1.0</p>
+
+<div class="toc">
+  <strong>目录</strong>
+  <ol>
+    <li><a href="#s1">结论与判断</a></li>
+    <li><a href="#s2">概念模型：插件分类与运行模式</a></li>
+    <li><a href="#s3">现有架构资产评估</a></li>
+    <li><a href="#s4">Gap 分析：从 Labs 到沙盒实验场</a></li>
+    <li><a href="#s5">分阶段技术设计</a></li>
+    <li><a href="#s6">安全与隔离模型</a></li>
+    <li><a href="#s7">风险矩阵</a></li>
+    <li><a href="#s8">建议路线图</a></li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s1">1. 结论与判断</h2>
+
+<div class="verdict">
+  <p style="color:var(--text); font-size:1.05rem; margin-bottom:.8rem;"><strong>核心判断：可行，但需要精确定义"沙盒"的边界。</strong></p>
+  <p>你的愿景本质上是把 Labs 从<span class="highlight">「开发者测试开关」</span>升级为<span class="highlight">「用户可操作的插件创建 + 运行 + 协同平台」</span>。现有 manifest → catalog → registry → IPC → proxy 链路为此提供了约 70% 的基础设施。剩余 30% 集中在三个点：</p>
+  <ul>
+    <li><strong>动态注册</strong>：Catalog 从编译时常量变为「内置 + 用户」双层结构</li>
+    <li><strong>通用 UI Shell</strong>：从一对一手写 React 视图变为 manifest 驱动的标准化面板</li>
+    <li><strong>创建流水线</strong>：用户/智能体通过低代码交互生成完整的插件包（manifest + 资源 + 可选二进制）</li>
+  </ul>
+  <p style="margin-top:.8rem;">关键约束：这不是一个"插件市场"——是<strong>单用户本地沙盒</strong>。安全模型、分发模型、版本兼容的复杂度因此降低一个数量级。最大的技术风险不是安全，而是<strong>前端动态 UI 的复杂度控制</strong>。</p>
+</div>
+
+<div class="metrics">
+  <div class="metric"><div class="num">70%</div><div class="label">基础设施复用率</div></div>
+  <div class="metric"><div class="num">3</div><div class="label">核心改造点</div></div>
+  <div class="metric"><div class="num">2</div><div class="label">插件运行模式</div></div>
+  <div class="metric"><div class="num">4-6w</div><div class="label">估算工期</div></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s2">2. 概念模型：插件分类与运行模式</h2>
+
+<p>从你描述的两个典型场景（智能体自优化 vs 科研实验室）中提炼出的核心分类：</p>
+
+<h3>2.1 插件资源类型</h3>
+<table>
+  <tr><th>类型</th><th>说明</th><th>现有对应</th><th>创建方式</th></tr>
+  <tr><td>智能体 (Agent)</td><td>可被指派、可协作的 AI 实体</td><td><code>api.createAgent</code></td><td>Agent Creation Studio / 对话式创建</td></tr>
+  <tr><td>技能 (Skill)</td><td>智能体可调用的能力模块</td><td><code>api.createSkill</code></td><td>Studio / SKILL.md 模板</td></tr>
+  <tr><td>自动化 (Autopilot)</td><td>定时/事件触发的后台任务</td><td><code>api.createAutopilot</code></td><td>Studio / cron 配置</td></tr>
+  <tr><td>小队 (Squad)</td><td>多智能体编组</td><td><code>api.createSquad</code></td><td>Studio / 拖拽编组</td></tr>
+  <tr><td>运行时 (Runtime)</td><td>独立子进程服务（Python/Node/…）</td><td><code>subprocess-manager.ts</code></td><td>manifest + binary 上传</td></tr>
+  <tr><td>视图 (Surface)</td><td>插件自带 UI 面板</td><td>手写 React（claude-lab-view 等）</td><td>iframe / 标准 Shell（阶段二）</td></tr>
+</table>
+
+<h3>2.2 两种运行模式（关键设计决策）</h3>
+
+<div class="grid2">
+  <div class="card">
+    <div class="card-title">🔄 自驱模式 (Self-Driven)</div>
+    <p>启用即运行，无需绑定 issue。用户只在 Labs 面板查看历史/状态。</p>
+    <ul>
+      <li>典型：<code>agent_self_optimization</code>、<code>llm_wiki_bridge</code></li>
+      <li>manifest 标记：<code>"trigger": "auto"</code></li>
+      <li>LabPicker 中隐藏（<code>HideFromIssueLabPicker: true</code>）</li>
+      <li>无 lab ↔ assignee 互斥</li>
+      <li>生命周期：enable → 后台调度 → 历史面板 → disable</li>
+    </ul>
+    <p class="dim">现有支持：<span class="tag tag-ok">已完整</span> — <code>HideFromIssueLabPicker</code> + autopilot scheduler skip 已覆盖</p>
+  </div>
+  <div class="card">
+    <div class="card-title">📋 任务绑定模式 (Issue-Bound)</div>
+    <p>在 issue 面板选择启用，绑定后实验室接管任务执行流。</p>
+    <ul>
+      <li>典型：<code>claude_science_lab</code>、<code>mythos_swarm</code></li>
+      <li>manifest 标记：<code>"trigger": "issue_select"</code></li>
+      <li>LabPicker 中可选，触发 lab ↔ assignee 互斥</li>
+      <li>可创建实验智能体、调用技能、虚拟实验、交付成果</li>
+      <li>生命周期：issue 选择 → 创建资源 → 执行 → 交付 → 归档</li>
+    </ul>
+    <p class="dim">现有支持：<span class="tag tag-ok">已完整</span> — <code>issue.lab_source</code> + <code>lab_mode</code> + mutex 三层已覆盖</p>
+  </div>
+</div>
+
+<h3>2.3 协同模型</h3>
+<p>你描述的「与用户具体智能体/团队协同交互，但相对隔离」映射到现有架构：</p>
+<div class="flow">
+  <span class="step">用户工作区</span>
+  <span class="arrow">→</span>
+  <span class="step">issue.lab_source 绑定</span>
+  <span class="arrow">→</span>
+  <span class="step">实验室接管 roster</span>
+  <span class="arrow">→</span>
+  <span class="step">experimental_resource_lock 隔离</span>
+  <span class="arrow">→</span>
+  <span class="step">visibility 表控制可见性</span>
+  <span class="arrow">→</span>
+  <span class="step">成果回写 issue</span>
+</div>
+<p>这个模型已在 <code>mythos_swarm</code> 的 enhancer 模式中验证：实验室规划 + 用户指定的执行者 + 监督循环。<strong>无需新建协同协议</strong>，只需将 enhancer 模式泛化为所有任务绑定型插件的标准能力。</p>
+
+<!-- ============================================================ -->
+<h2 id="s3">3. 现有架构资产评估</h2>
+
+<table>
+  <tr><th>组件</th><th>文件</th><th>复用度</th><th>需改动</th></tr>
+  <tr>
+    <td>Manifest 规范</td>
+    <td><code>manifest.go</code> + 8 个 <code>manifest.json</code></td>
+    <td><span class="tag tag-ok">90%</span></td>
+    <td>扩展 <code>spec.trigger</code>、<code>spec.ui</code> 字段</td>
+  </tr>
+  <tr>
+    <td>Registry（路由/proxy/安装）</td>
+    <td><code>registry.go</code></td>
+    <td><span class="tag tag-ok">85%</span></td>
+    <td><code>NewRegistry()</code> 后追加用户插件 flag</td>
+  </tr>
+  <tr>
+    <td>子进程管理器</td>
+    <td><code>subprocess-manager.ts</code></td>
+    <td><span class="tag tag-ok">95%</span></td>
+    <td>零改动即可跑任意 manifest 驱动的子进程</td>
+  </tr>
+  <tr>
+    <td>IPC 调度器</td>
+    <td><code>ipc-dispatcher.ts</code></td>
+    <td><span class="tag tag-ok">90%</span></td>
+    <td>通用 <code>experimental:&lt;flagKey&gt;:&lt;verb&gt;</code> 已覆盖</td>
+  </tr>
+  <tr>
+    <td>Visibility 隔离</td>
+    <td><code>visibility.go</code> + <code>filterLabsHiddenByDefault</code></td>
+    <td><span class="tag tag-ok">85%</span></td>
+    <td>用户插件自动 seed visibility 行</td>
+  </tr>
+  <tr>
+    <td>Lab ↔ Assignee 互斥</td>
+    <td><code>issue.go</code> 三层强制</td>
+    <td><span class="tag tag-ok">100%</span></td>
+    <td>不需改动，新插件自动走现有 gate</td>
+  </tr>
+  <tr>
+    <td>Safety 断路器</td>
+    <td><code>safety.go</code> + <code>init_watchdog.go</code></td>
+    <td><span class="tag tag-ok">80%</span></td>
+    <td>用户插件需更严格的资源限制</td>
+  </tr>
+  <tr>
+    <td>Feature Flag 评估链</td>
+    <td><code>provider.go</code> + <code>catalog.go</code></td>
+    <td><span class="tag tag-warn">60%</span></td>
+    <td><code>IsKnownKey()</code> 需识别用户插件命名空间</td>
+  </tr>
+  <tr>
+    <td>前端 flag 合并</td>
+    <td><code>manager-factory.ts</code> → <code>loadFlagDescriptors()</code></td>
+    <td><span class="tag tag-warn">70%</span></td>
+    <td>服务端多返回用户插件即可，但 IPC 冷启动需适配</td>
+  </tr>
+  <tr>
+    <td>前端视图</td>
+    <td><code>claude-lab-view.tsx</code> 等 6 个手写视图</td>
+    <td><span class="tag tag-risk">20%</span></td>
+    <td>需通用 Lab Shell 组件或 iframe 方案</td>
+  </tr>
+  <tr>
+    <td>Catalog 静态列表</td>
+    <td><code>catalog.go</code> 的 <code>var Catalog = []Flag{...}</code></td>
+    <td><span class="tag tag-risk">30%</span></td>
+    <td>核心改造：双层结构（内置 + 用户）</td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="s4">4. Gap 分析：从 Labs 到沙盒实验场</h2>
+
+<h3>4.1 需要推翻/修改的硬约束</h3>
+
+<div class="card">
+  <div class="card-title">硬约束 #2：Users cannot create flags</div>
+  <p>catalog.go 第 8 行："Users cannot add/edit/delete flags at runtime. New flags land here as a code change."</p>
+  <p><strong>建议修改为</strong>：「内置 flag 不可运行时修改；用户插件 flag 走独立命名空间 <code>user_&lt;slug&gt;</code>，存储在 <code>user_plugin</code> 表中，启动时动态合并到 Registry。」</p>
+  <p class="dim">影响面：<code>IsKnownKey()</code>、<code>DefaultFor()</code>、<code>AllFlagKeys()</code>、<code>NewRegistry()</code> 四处需感知双层结构。</p>
+</div>
+
+<div class="card">
+  <div class="card-title">硬约束 #4：Not a plugin system</div>
+  <p>catalog.go 第 14 行："These are toggle points, not a plugin system."</p>
+  <p><strong>建议修改为</strong>：「内置 flag 是 toggle points；用户创建的 <code>user_*</code> flag 是完整插件，拥有独立 manifest、资源、可选运行时和 UI surface。」</p>
+</div>
+
+<h3>4.2 六个核心 Gap</h3>
+
+<table>
+  <tr><th>#</th><th>Gap</th><th>现状</th><th>目标</th><th>复杂度</th></tr>
+  <tr>
+    <td>G1</td><td>动态插件注册</td>
+    <td>Catalog 是编译时 <code>[]Flag</code></td>
+    <td>启动时扫描 <code>~/.multica/plugins/</code> 合并到 Registry</td>
+    <td><span class="tag tag-warn">中</span></td>
+  </tr>
+  <tr>
+    <td>G2</td><td>插件创建流水线</td>
+    <td><code>agent_creation_studio</code> 只创建单个资源</td>
+    <td>对话式/表单式创建完整插件包（manifest + 资源 + 可选 binary）</td>
+    <td><span class="tag tag-risk">高</span></td>
+  </tr>
+  <tr>
+    <td>G3</td><td>通用 UI Shell</td>
+    <td>每个 lab 一个手写 React 视图</td>
+    <td>manifest 驱动的标准化面板（tabs/artifacts/chat/preview）</td>
+    <td><span class="tag tag-risk">高</span></td>
+  </tr>
+  <tr>
+    <td>G4</td><td>插件运行时沙盒</td>
+    <td>subprocess-manager 直接 spawn</td>
+    <td>资源限制（CPU/内存/网络）+ 文件系统隔离</td>
+    <td><span class="tag tag-warn">中</span></td>
+  </tr>
+  <tr>
+    <td>G5</td><td>插件 CRUD API</td>
+    <td>无（install/rollback 只面向内置 flag）</td>
+    <td><code>POST/PUT/DELETE /api/user-plugins</code> + 版本管理</td>
+    <td><span class="tag tag-warn">中</span></td>
+  </tr>
+  <tr>
+    <td>G6</td><td>实验环境预览</td>
+    <td>Pythia SSE + Claude Lab artifacts 是定制实现</td>
+    <td>通用 artifact 渲染协议（chart/table/text/image/iframe）</td>
+    <td><span class="tag tag-warn">中</span></td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="s5">5. 分阶段技术设计</h2>
+
+<div class="phase">
+  <div class="phase-num">Phase 0 · 前置准备（1 周）</div>
+  <h3>双层 Catalog + 用户插件命名空间</h3>
+  <p>最小化改动，为后续所有阶段打地基。</p>
+  <pre><code>// catalog.go 改造草案
+
+// BuiltinCatalog 保持现有 var Catalog = []Flag{...} 不变
+// 新增：
+var userPluginsMu sync.RWMutex
+var userPlugins []Flag  // 从 DB/文件系统加载
+
+func IsKnownKey(key string) bool {
+    if isBuiltinKey(key) { return true }
+    userPluginsMu.RLock()
+    defer userPluginsMu.RUnlock()
+    for _, f := range userPlugins {
+        if f.Key == key { return true }
+    }
+    return false
+}
+
+// NewRegistry() 之后：
+func (r *Registry) MergeUserPlugins(plugins []Flag) {
+    for _, f := range plugins {
+        r.flags[f.Key] = f  // user_* 前缀由创建端保证
+    }
+}</code></pre>
+  <ul>
+    <li>新增 migration：<code>user_plugin</code> 表（id, slug, manifest_json, status, created_at, updated_at）</li>
+    <li>命名空间约定：用户插件 key 必须 <code>user_</code> 前缀，<code>IsKnownKey()</code> 对非 <code>user_</code> 前缀仍只查 BuiltinCatalog</li>
+    <li><code>experimental_pref</code> 表不需改——它只存 flag_key 字符串，<code>user_*</code> 自然兼容</li>
+    <li>前端 <code>loadFlagDescriptors()</code> 已支持从服务端合并——服务端多返回用户插件即可</li>
+  </ul>
+</div>
+
+<div class="phase">
+  <div class="phase-num">Phase 1 · 目录扫描式插件（1-2 周）</div>
+  <h3>文件系统插件发现 + 零代码运行</h3>
+  <p>用户在 <code>~/.multica/plugins/&lt;slug&gt;/</code> 放置插件包，服务端启动时扫描。</p>
+  <pre><code>~/.multica/plugins/
+└── my-forecast-lab/
+    ├── manifest.json      # 标准 multica.dev/experiment/v1
+    ├── run.sh             # 可选：子进程入口
+    ├── skills/            # 可选：SKILL.md 文件
+    └── ui/                # 可选：静态 HTML（iframe 渲染）
+        └── index.html</code></pre>
+  <ul>
+    <li><strong>服务端</strong>：新增 <code>plugin_scanner.go</code>，<code>ScanUserPlugins(dir)</code> 返回 <code>[]Flag</code>，在 <code>main.go</code> 的 <code>NewRegistry()</code> 之后调用 <code>MergeUserPlugins()</code></li>
+    <li><strong>桌面端</strong>：<code>manager-factory.ts</code> 的 <code>loadFlagDescriptors()</code> 从 <code>/api/experimental-flags</code> 获取合并后的完整列表，<code>resolveGenericSubprocessManager()</code> 零改动即可 spawn 用户插件的 binary</li>
+    <li><strong>IPC</strong>：通用 <code>experimental:&lt;flagKey&gt;:&lt;verb&gt;</code> 通道自动覆盖</li>
+    <li><strong>Proxy</strong>：<code>ProxyRoutes()</code> 自动从 manifest 注册——用户插件的 subprocess 自动获得反向代理</li>
+    <li><strong>UI</strong>：阶段一用 iframe 渲染 <code>ui/index.html</code>，通过 loopback proxy 同源嵌入</li>
+  </ul>
+  <p class="dim">这个阶段结束时，一个懂 manifest 规范的用户已经可以「放文件 → 重启 → 看到插件 → 启用 → 使用」。</p>
+</div>
+
+<div class="phase">
+  <div class="phase-num">Phase 2 · 低代码创建 + 标准 UI Shell（2-3 周）</div>
+  <h3>对话式插件创建 + 通用面板</h3>
+
+  <h3>2a. 创建流水线</h3>
+  <p>将 <code>agent_creation_studio</code> 升级为完整的插件工坊（Plugin Workshop）：</p>
+  <ul>
+    <li><strong>表单模式</strong>：选择插件类型（自驱/任务绑定）→ 填写名称/描述 → 选择资源（创建智能体/技能/自动化）→ 选择运行模式（无/子进程/inline）→ 生成 manifest → 安装</li>
+    <li><strong>对话模式</strong>：用户描述需求（「我需要一个每天分析 GitHub PR 质量的自动化插件」）→ 智能体生成 manifest + 资源 → 用户确认 → 安装</li>
+    <li><strong>API</strong>：<code>POST /api/user-plugins</code> 接受完整 manifest JSON + 资源清单，服务端验证 → 写入 <code>user_plugin</code> 表 → 合并到 Registry → 通知桌面端刷新 flag 列表</li>
+  </ul>
+
+  <h3>2b. 通用 Lab Shell 组件</h3>
+  <p>替代一对一手写视图，用 manifest 的 <code>spec.ui</code> 块驱动：</p>
+  <pre><code>// manifest.json 新增 spec.ui 块
+{
+  "spec": {
+    "ui": {
+      "shell": "standard",          // "standard" | "iframe" | "none"
+      "tabs": [
+        {
+          "key": "dashboard",
+          "label": { "en": "Dashboard", "zh": "仪表盘" },
+          "kind": "artifacts",       // artifacts | chat | table | custom_html
+          "data_source": "/api/user-plugins/my-lab/artifacts"
+        },
+        {
+          "key": "chat",
+          "label": { "en": "Chat", "zh": "对话" },
+          "kind": "chat",
+          "ws_id": "auto"            // 自动绑定当前工作区
+        },
+        {
+          "key": "preview",
+          "label": { "en": "Preview", "zh": "预览" },
+          "kind": "iframe",
+          "src": "/experimental/my-lab/ui/"
+        }
+      ]
+    }
+  }
+}</code></pre>
+  <p>标准 Shell 组件复用现有基础设施：</p>
+  <ul>
+    <li><code>chat</code> tab → 复用 <code>ExperimentalChatPane</code>（已有 <code>wsId</code> prop 支持）</li>
+    <li><code>artifacts</code> tab → 复用 <code>interactive-chart</code> artifact kind（Recharts line/bar/scatter/heatmap）</li>
+    <li><code>table</code> tab → 新增通用表格组件（数据源为插件 HTTP API）</li>
+    <li><code>iframe</code> tab → 通过 loopback proxy 渲染插件自带 HTML</li>
+  </ul>
+  <p>所有网络调用走 <code>api.rawRequest()</code>（0.3.30 契约），不用裸 <code>fetch()</code>。</p>
+</div>
+
+<div class="phase">
+  <div class="phase-num">Phase 3 · 插件生命周期管理（1-2 周）</div>
+  <h3>CRUD + 版本 + 热重载</h3>
+  <ul>
+    <li><strong>CRUD API</strong>：<code>GET/POST/PUT/DELETE /api/user-plugins</code>，每个操作触发 Registry 增量更新</li>
+    <li><strong>热重载</strong>：WebSocket 推送 <code>user_plugin_changed</code> 事件 → 前端 invalidate <code>experimental-flags</code> query → sidebar/LabPicker 自动刷新</li>
+    <li><strong>版本管理</strong>：<code>user_plugin</code> 表加 <code>version</code> 列，更新时保留旧版本行（forward-only 原则），回滚 = 切换 active version</li>
+    <li><strong>卸载</strong>：调用 <code>RunRollback()</code> → visibility 行 hide → lock 行释放 → 子进程停止 → 从 Registry 移除</li>
+    <li><strong>导入/导出</strong>：插件包 = <code>tar.gz(manifest.json + resources/)</code>，CLI <code>multica plugin import|export</code></li>
+  </ul>
+</div>
+
+<div class="phase">
+  <div class="phase-num">Phase 4 · 高级能力（可选，2-3 周）</div>
+  <h3>沙盒强化 + 插件间协同</h3>
+  <ul>
+    <li><strong>进程沙盒</strong>：macOS <code>sandbox-exec</code> profile 限制子进程的文件/网络访问范围</li>
+    <li><strong>插件间通信</strong>：通过 Multica 后端中转（不直接通信），例如插件 A 的智能体可以调用插件 B 提供的技能</li>
+    <li><strong>实验快照</strong>：插件运行状态可保存/恢复，用于 A/B 对比实验</li>
+    <li><strong>插件模板库</strong>：预置常见模式（定时分析、对话助手、数据管道），用户从模板 fork 后定制</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s6">6. 安全与隔离模型</h2>
+
+<p>单用户本地部署大幅降低了安全复杂度，但仍需防御自伤（用户插件 bug 导致主进程崩溃/数据损坏）：</p>
+
+<table>
+  <tr><th>威胁</th><th>防御层</th><th>现有基础</th></tr>
+  <tr>
+    <td>子进程崩溃</td>
+    <td>manifest <code>safety.panic_recover: true</code> + 断路器</td>
+    <td><span class="tag tag-ok">已有</span> <code>safety.go</code> panic/5xx_burst/init_timeout → blacklist</td>
+  </tr>
+  <tr>
+    <td>资源耗尽</td>
+    <td>manifest <code>safety.burst</code> 限流 + 子进程 cgroup/ulimit</td>
+    <td><span class="tag tag-warn">部分</span> burst 已有，cgroup 需新增</td>
+  </tr>
+  <tr>
+    <td>网络外泄</td>
+    <td>manifest <code>safety.ip_allowlist: ["127.0.0.0/8"]</code></td>
+    <td><span class="tag tag-ok">已有</span> 但当前是声明式，未强制执行</td>
+  </tr>
+  <tr>
+    <td>数据库破坏</td>
+    <td>用户插件<strong>不直接访问 PG</strong>——只通过 Multica REST API</td>
+    <td><span class="tag tag-ok">架构保证</span> 子进程无 DATABASE_URL 环境变量</td>
+  </tr>
+  <tr>
+    <td>文件系统越权</td>
+    <td>Phase 4: macOS <code>sandbox-exec</code> 限制读写路径</td>
+    <td><span class="tag tag-risk">待建</span></td>
+  </tr>
+  <tr>
+    <td>主进程注入</td>
+    <td>inline 类插件不执行用户代码——只注册资源行（agent/skill/autopilot）</td>
+    <td><span class="tag tag-ok">架构保证</span> inline 插件无代码执行面</td>
+  </tr>
+</table>
+
+<div class="card">
+  <div class="card-title">关键安全原则</div>
+  <ul>
+    <li><strong>inline 插件 ≠ 代码执行</strong>：inline 类用户插件只创建数据库行（agent/skill/autopilot），不运行任意代码。代码执行只发生在 subprocess 类插件的独立进程中。</li>
+    <li><strong>子进程无特权</strong>：不注入 <code>DATABASE_URL</code>、<code>JWT_SECRET</code>。需要 Multica API 时，注入 scoped token（只读 + 限定 workspace）。</li>
+    <li><strong>forward-only</strong>：用户插件的 migration 只允许 ADD COLUMN / CREATE TABLE，不允许 DROP。通过 manifest 声明的 migration SQL 在服务端审核执行。</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s7">7. 风险矩阵</h2>
+
+<table>
+  <tr><th>风险</th><th>概率</th><th>影响</th><th>缓解</th></tr>
+  <tr>
+    <td>前端动态 UI 复杂度失控</td>
+    <td><span class="tag tag-risk">高</span></td>
+    <td><span class="tag tag-risk">高</span></td>
+    <td>阶段一用 iframe 兜底；标准 Shell 只支持 4 种 tab kind；不引入 Module Federation</td>
+  </tr>
+  <tr>
+    <td>Catalog 双层结构引入 flag 评估 bug</td>
+    <td><span class="tag tag-warn">中</span></td>
+    <td><span class="tag tag-risk">高</span></td>
+    <td>用户 flag 必须 <code>user_</code> 前缀；<code>DefaultFor()</code> 对未知 key 返回 false 的兜底不变</td>
+  </tr>
+  <tr>
+    <td>子进程资源泄漏</td>
+    <td><span class="tag tag-warn">中</span></td>
+    <td><span class="tag tag-warn">中</span></td>
+    <td><code>init_watchdog.go</code> 已有超时 kill；追加 PID 追踪 + 父进程退出时 SIGKILL 子进程树</td>
+  </tr>
+  <tr>
+    <td>用户插件与内置 flag 命名冲突</td>
+    <td><span class="tag tag-ok">低</span></td>
+    <td><span class="tag tag-warn">中</span></td>
+    <td><code>user_</code> 前缀强制；<code>IsKnownKey()</code> 先查 builtin 再查 user</td>
+  </tr>
+  <tr>
+    <td>i18n 覆盖不全</td>
+    <td><span class="tag tag-warn">中</span></td>
+    <td><span class="tag tag-ok">低</span></td>
+    <td>manifest 的 <code>LocalizedString</code> 只需 en+zh；用户插件自带 title/description，不走 i18next</td>
+  </tr>
+  <tr>
+    <td>违反 fork 本地化契约</td>
+    <td><span class="tag tag-ok">低</span></td>
+    <td><span class="tag tag-warn">中</span></td>
+    <td>用户插件系统不涉及遥测/自动更新/OAuth/云功能——与退役清单无交集</td>
+  </tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="s8">8. 建议路线图</h2>
+
+<table>
+  <tr><th>阶段</th><th>内容</th><th>工期</th><th>交付物</th><th>前置依赖</th></tr>
+  <tr>
+    <td><strong>P0</strong></td>
+    <td>双层 Catalog + <code>user_plugin</code> 表 + 命名空间</td>
+    <td>1 周</td>
+    <td>migration + <code>plugin_scanner.go</code> + <code>IsKnownKey()</code> 改造</td>
+    <td>无</td>
+  </tr>
+  <tr>
+    <td><strong>P1</strong></td>
+    <td>目录扫描 + subprocess 零代码运行 + iframe UI</td>
+    <td>1-2 周</td>
+    <td>用户放文件 → 重启 → 插件可用</td>
+    <td>P0</td>
+  </tr>
+  <tr>
+    <td><strong>P2a</strong></td>
+    <td>Plugin Workshop（升级 agent_creation_studio）</td>
+    <td>1-2 周</td>
+    <td>表单/对话式创建完整插件包</td>
+    <td>P0</td>
+  </tr>
+  <tr>
+    <td><strong>P2b</strong></td>
+    <td>标准 Lab Shell 组件（4 种 tab kind）</td>
+    <td>1-2 周</td>
+    <td>manifest 驱动的通用面板替代手写视图</td>
+    <td>P1</td>
+  </tr>
+  <tr>
+    <td><strong>P3</strong></td>
+    <td>CRUD API + 热重载 + 导入/导出</td>
+    <td>1-2 周</td>
+    <td>完整插件生命周期管理</td>
+    <td>P2a + P2b</td>
+  </tr>
+  <tr>
+    <td><strong>P4</strong></td>
+    <td>沙盒强化 + 插件间协同 + 模板库</td>
+    <td>2-3 周</td>
+    <td>生产级安全 + 高级能力</td>
+    <td>P3</td>
+  </tr>
+</table>
+
+<div class="verdict">
+  <p style="color:var(--text);"><strong>推荐策略：P0 → P1 → P2b 先行，P2a 与 P2b 可并行。</strong></p>
+  <p>P0+P1 用 2-3 周交付一个「放文件就能跑」的最小插件系统，验证 manifest 驱动的全链路。P2b（标准 Shell）优先于 P2a（创建流水线），因为 Shell 同时惠及现有 6 个内置 lab——将 <code>claude-lab-view.tsx</code>（1300+ 行）等手写视图逐步迁移到 manifest 驱动，减少维护负担。</p>
+  <p style="margin-top:.6rem;">P4 的安全强化可以在 P1 之后任何时候插入，取决于用户插件是否开始执行不可信代码。只要用户插件限于 inline 类型（只创建数据库行），P4 可以推迟。</p>
+</div>
+
+<h3>不建议做的事</h3>
+<ul>
+  <li><strong>不引入 Module Federation / SystemJS</strong>——在 Electron 沙盒内动态加载远程 React 组件的安全和稳定性代价远超收益。iframe 足以覆盖 90% 场景。</li>
+  <li><strong>不做插件市场 / 远程 registry</strong>——单用户 fork，本地 <code>tar.gz</code> 导入/导出足够。</li>
+  <li><strong>不让用户插件直接访问 PG</strong>——所有数据交互通过 Multica REST API，保持 P0 数据安全的 guard 不被绕过。</li>
+  <li><strong>不在阶段一做热重载</strong>——重启即刷新，避免引入运行时 Registry 变异的并发问题。</li>
+</ul>
+
+<p style="margin-top:2rem; color:var(--text2); font-size:.8rem; border-top:1px solid var(--border); padding-top:1rem;">
+  生成时间：2026-07-22T12:25:41Z · 基于 Multica 0.3.59 代码库 · 分析范围：server/internal/experimental/、apps/desktop/src/main/experimental/、packages/views/experimental/、8 个 manifest.json
+</p>
+
+</body>
+</html>
