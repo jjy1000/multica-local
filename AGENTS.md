@@ -2,6 +2,8 @@
 
 This file provides guidance to Qoder (qoder.com) when working with code in this repository.
 
+> **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. The shared constraints (toolchain versions, package boundaries, verification commands) are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook.
+
 ## Quick Reference
 
 ```bash
@@ -62,12 +64,12 @@ packages/tsconfig/      Shared TypeScript config
 
 | Tool | Version | Pin location |
 |------|---------|--------------|
-| Node | ≥22 | `.nvmrc`, CI |
+| Node | 22.x | `.nvmrc`, CI |
 | pnpm | 10.28.2 | `package.json` `packageManager` |
 | Go | 1.26.1 | `server/go.mod`, CI |
 | TypeScript | ^5.9.3 | `pnpm-workspace.yaml` catalog |
 | React | 19.2.3 | `pnpm-workspace.yaml` catalog |
-| PostgreSQL | 17 + pgvector | Docker / bundled Postgres.app |
+| PostgreSQL | 17 with pgvector | Docker / bundled Postgres.app |
 
 ## Sub-domain Guides
 
@@ -77,6 +79,8 @@ When working in a sub-domain, read its co-located guide first:
 |-----------|-------|
 | `server/` | `server/CLAUDE.md` |
 | `packages/` | `packages/CLAUDE.md` |
+| `packages/views/` | `packages/views/CLAUDE.md` |
+| `apps/desktop/` | `apps/desktop/CLAUDE.md` |
 | `apps/mobile/` | `apps/mobile/CLAUDE.md` |
 
 Root `CLAUDE.md` has complete rules for desktop packaging, labs platform, ship chain, and cross-cutting constraints.

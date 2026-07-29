@@ -228,7 +228,13 @@ func (s *Service) tickSupervision(
 
 	// Re-read the run row so we see the latest target_assignee and
 	// coda_summary. Cheap — single-row read by PK.
-	run, err := s.queries.GetMythosRun(ctx, runID)
+	//
+	// 0.3.64 seam: route through tickSupervisionQuerier so the
+	// completion branch (which reads final_issue_id.status) can be
+	// unit-tested without a real DB. Production callers leave tickQ
+	// nil; resolveTickQuerier falls back to s.queries.
+	q := s.resolveTickQuerier()
+	run, err := q.GetMythosRun(ctx, runID)
 	if err != nil {
 		return state, fmt.Errorf("read run: %w", err)
 	}
@@ -249,26 +255,68 @@ func (s *Service) tickSupervision(
 		}
 	}
 
-	// Read sub-issue progress via the run row's final_issue_id
-	// (the coda synthesis sub-issue). We don't have a sqlc query
-	// for "list children of mythos final issue" yet; fall back to
-	// a status check on final_issue_id only.
-	if run.FinalIssueID.Valid && rootIssueID != run.FinalIssueID {
-		// Future: when sub-issue child tracking lands, replace
-		// this with a proper ListChildIssues(final_issue_id)
-		// query. For 0.3.31 the heuristic is good enough — the
-		// renderer just shows sub_tasks_done / sub_tasks_total.
+	// 0.3.64 completion branch (audit nail): when the run row's
+	// final_issue_id points at a separate coda synthesis sub-issue,
+	// read its status. If the status is terminal (done/closed/
+	// cancelled) flip phase to PhaseDone AND snap SubTasksDone =
+	// SubTasksTotal so the next state serialise reflects a clean
+	// completion. Pre-0.3.64 this branch never wrote SubTasksDone,
+	// so every supervised run polled forever (until the 24h
+	// max-lifetime cap).
+	if run.FinalIssueID.Valid && run.FinalIssueID != rootIssueID {
+		issue, err := q.GetIssue(ctx, run.FinalIssueID)
+		if err == nil && isTerminalIssueStatus(issue.Status) {
+			state.SubTasksDone = state.SubTasksTotal
+			state.Phase = PhaseDone
+		}
+		// On error, leave state untouched (best-effort: the
+		// supervisor will retry next tick).
 	}
 
-	// Phase transitions:
-	//   - if SubTasksTotal > 0 and SubTasksDone >= SubTasksTotal
-	//     → done
-	//   - if SubTasksTotal == 0 and the final_issue_id is closed
-	//     → done
+	// Fallback completion: when SubTasksTotal is 0 (no structured
+	// subtasks in coda_conclusions), the completion signal is the
+	// final_issue_id itself reaching terminal status. The FinalIssueID
+	// branch above already covers the cross-issue case; if
+	// FinalIssueID == rootIssueID (i.e. the coda ran in-line on the
+	// original issue), the supervisor counts on the issue listner's
+	// own progress to drive the renderer and leaves SubTasksDone=0.
 	if state.SubTasksTotal > 0 && state.SubTasksDone >= state.SubTasksTotal {
 		state.Phase = PhaseDone
 	}
 	return state, nil
+}
+
+// tickSupervisionQuerier is the narrow seam the 0.3.64 supervise
+// completion tests use to inject a fake. Production code leaves
+// Service.tickQ nil and the helper below falls back to *db.Queries.
+type tickSupervisionQuerier interface {
+	GetMythosRun(ctx context.Context, id pgtype.UUID) (db.MythosRun, error)
+	GetIssue(ctx context.Context, id pgtype.UUID) (db.Issue, error)
+}
+
+// resolveTickQuerier returns the production *db.Queries as a
+// tickSupervisionQuerier when the seam is nil. Returns the seam
+// otherwise. Keeping the helper on the receiver (rather than a free
+// function) means a future refactor can swap in a different fall-back
+// without touching the call sites.
+func (s *Service) resolveTickQuerier() tickSupervisionQuerier {
+	if s.tickQ != nil {
+		return s.tickQ
+	}
+	return s.queries
+}
+
+// isTerminalIssueStatus reports whether the issue status counts as a
+// supervised run's "done" signal. Mirrors the renderer-side
+// isTerminalIssueStatus check in
+// packages/views/issues/components/issue-detail.tsx.
+func isTerminalIssueStatus(status string) bool {
+	switch status {
+	case "done", "closed", "cancelled":
+		return true
+	default:
+		return false
+	}
 }
 
 // persistSupervisionState serialises state to JSONB and writes it

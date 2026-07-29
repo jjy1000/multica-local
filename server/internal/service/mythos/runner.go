@@ -176,6 +176,11 @@ type Service struct {
 	queries      *db.Queries
 	superviseMu  sync.Mutex
 	superviseSet map[pgtype.UUID]context.CancelFunc
+	// tickQ is the 0.3.64 test seam for tickSupervision. nil in
+	// production; tests inject a fake so the completion branch can
+	// be exercised without a real DB. resolveTickQuerier falls
+	// back to s.queries when this is nil.
+	tickQ tickSupervisionQuerier
 }
 
 func NewService(queries *db.Queries) *Service {

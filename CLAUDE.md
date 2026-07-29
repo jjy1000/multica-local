@@ -404,6 +404,14 @@ Do not claim verification passed unless you ran it. If you skip checks because t
 
 ## Ship chain (canonical order)
 
+> **Prefer the enforced script:** `make ship-mac` (or `bash scripts/ship-mac.sh`)
+> runs every step below in order, aborts on the first failure, verifies the
+> renderer asar was actually replaced, calls `desktop-sign-nested-binaries.sh`
+> (its first real caller), and runs the cold-start check. It prompts before the
+> destructive `/Applications` overwrite (`--yes` to auto-confirm, `--build-only`
+> to stop before install). The manual steps below are kept for reference and for
+> the asar-repack fallback; do not hand-run them when the script will do.
+
 Mandatory steps in order. Skipping any step risks data loss or a broken `.app`:
 
 ```bash

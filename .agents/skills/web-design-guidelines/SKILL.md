@@ -13,27 +13,33 @@ Review files for compliance with Web Interface Guidelines.
 
 ## How It Works
 
-1. Fetch the latest guidelines from the source URL below
+1. Read the vendored guidelines from `references/guidelines.md` (in this skill directory)
 2. Read the specified files (or prompt user for files/pattern)
-3. Check against all rules in the fetched guidelines
+3. Check against all rules in the guidelines
 4. Output findings in the terse `file:line` format
 
 ## Guidelines Source
 
-Fetch fresh guidelines before each review:
+The rules are vendored locally at `references/guidelines.md`. Always read that file; do NOT fetch guidelines from the network at review time. The review works fully offline.
 
-```
-https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md
-```
+The vendored copy is pinned to upstream commit `d0a657bfe87e86dd3a4753d7ec28c7e7dd7a88fe` of `vercel-labs/web-interface-guidelines` (`command.md`); provenance is recorded in the header of `references/guidelines.md`.
 
-Use WebFetch to retrieve the latest rules. The fetched content contains all the rules and output format instructions.
+## Refreshing Vendored Guidelines
+
+Manual refresh only — never done automatically during a review:
+
+1. Find the latest commit touching `command.md`:
+   `https://api.github.com/repos/vercel-labs/web-interface-guidelines/commits?path=command.md&per_page=1`
+2. Fetch the file at that exact commit hash (never `main`):
+   `https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/<commit-sha>/command.md`
+3. Replace the rules content in `references/guidelines.md`, update the pinned commit hash and date in its provenance header, and update the pinned hash mentioned above.
 
 ## Usage
 
 When a user provides a file or pattern argument:
-1. Fetch guidelines from the source URL above
+1. Read `references/guidelines.md`
 2. Read the specified files
-3. Apply all rules from the fetched guidelines
+3. Apply all rules from the guidelines
 4. Output findings using the format specified in the guidelines
 
 If no files specified, ask the user which files to review.
@@ -54,9 +60,9 @@ Rules:
 
 Before returning, confirm the review is complete and trustworthy:
 
-- Guidelines were fetched fresh from the source URL this run (not from memory).
+- Guidelines were read from `references/guidelines.md` this run (not from memory, not from the network).
 - Every file in the requested file/pattern was read and checked.
 - Each finding names a concrete `file:line` and the specific rule it breaks.
 - The summary line is present and its counts match the listed findings.
 
-If any check fails (e.g. the fetch failed or a file was unreadable), say so explicitly instead of returning a partial review as if it were complete.
+If any check fails (e.g. `references/guidelines.md` is missing or a file was unreadable), say so explicitly instead of returning a partial review as if it were complete.
