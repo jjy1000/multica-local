@@ -80,11 +80,10 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
   // Interactive state — owned at the page level so the lazy-loaded
   // report surface receives stable props. The horizon + persona
   // choices feed into /forecast/issue and the synthetic generator.
-  // When mounted inline from an issue detail (via renderLabInline
-  // on IssueDetailPage), the parent passes an `issueId` so the
-  // report surface opens already-scoped to that issue instead of
-  // showing a "no issue bound" empty state. The user can still
-  // re-pick via the issue panel inside the surface.
+  // When the parent passes an `issueId`, the report surface opens
+  // already-scoped to that issue instead of showing a "no issue
+  // bound" empty state. The user can still re-pick via the issue
+  // panel inside the surface.
   const [searchParams] = useSearchParams();
   const urlIssueId = searchParams.get("issue");
   const [issueId, setIssueId] = useState<string | null>(initialIssueId ?? urlIssueId);

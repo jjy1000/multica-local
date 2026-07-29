@@ -178,16 +178,14 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
   const workspace = useCurrentWorkspace();
   const wsId = workspace?.id ?? "";
   const [problem, setProblem] = useState("");
-  // When the parent supplies an issueId (renderLabInline on
-  // IssueDetailPage), pre-bind the run to that issue by sending
-  // it as `root_issue_id`. The server pins the run's planning
-  // artifacts to that issue and the results land on the
-  // issue's lab workspace instead of getting lost in the
-  // workspace-wide swarm. The user can clear the binding by
-  // re-running without an issueId (the picker would let them
-  // pick a different one), but for the inline-from-issue case
-  // the binding is the whole point of having a lab-tagged
-  // issue.
+  // When the parent passes an `issueId`, pre-bind the run to that issue
+  // by sending it as `root_issue_id`. The server pins the run's planning
+  // artifacts to that issue and the results land on the issue's lab
+  // workspace via `IssueLabsSection` instead of getting lost in the
+  // workspace-wide swarm. The user can clear the binding by re-running
+  // without an issueId (the picker would let them pick a different one),
+  // but for the per-issue case the binding is the whole point of having
+  // a lab-tagged issue.
   const [searchParams] = useSearchParams();
   const urlIssueId = searchParams.get("issue");
   const [rootIssueId, setRootIssueId] = useState<string | null>(initialIssueId ?? urlIssueId);

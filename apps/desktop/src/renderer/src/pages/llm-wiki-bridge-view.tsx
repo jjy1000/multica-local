@@ -17,17 +17,11 @@ interface StatusResponse {
   search_total_docs: number;
 }
 
-export function LLMWikiBridgeView({ issueId: _issueId = null }: { issueId?: string | null } = {}) {
-  // `issueId` is accepted for contract uniformity with the other
-  // 3 lab views mounted via LabWorkspacePanel.renderInline. The
-  // LLM Wiki bridge is a workspace-level status surface (the
+export function LLMWikiBridgeView() {
+  // The LLM Wiki bridge is a workspace-level status surface (the
   // stdio subprocess is shared, the inventory of endpoints /
-  // vault docs is workspace-wide), so the issueId is
-  // intentionally not consumed. We accept it and prefix-
-  // underscore it to satisfy the call-site signature without
-  // triggering an unused-parameter lint. When the per-issue
-  // use case lands (e.g. "show only docs cited in this
-  // issue"), the prop is already plumbed through.
+  // vault docs is workspace-wide), so it does not bind to a single
+  // issue — there is no issue-scoped view to render here.
   const bridgeEnabled = useExperimentalFlag("llm_wiki_bridge", false);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
