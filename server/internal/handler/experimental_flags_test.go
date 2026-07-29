@@ -64,6 +64,25 @@ func TestListExperimentalFlags_DefaultValues(t *testing.T) {
 				cf.Key, got.Enabled, cf.DefaultVal)
 		}
 	}
+
+	// 0.3.65: leader_agent must mirror the leader-rewrite table so the
+	// property panel can show the lab's default test agent. Pin the three
+	// issue-bound labs that own a leader; labs without one stay empty.
+	leaderByKey := map[string]string{}
+	for i := range resp.Flags {
+		leaderByKey[resp.Flags[i].Key] = resp.Flags[i].LeaderAgent
+	}
+	wantLeaders := map[string]string{
+		"claude_science_lab": "research",
+		"pythia_oracle":      "pythia_runtime",
+		"code_canvas":        "code_canvas_worker",
+		"mythos_swarm":       "",
+	}
+	for key, want := range wantLeaders {
+		if got := leaderByKey[key]; got != want {
+			t.Fatalf("flag %q: leader_agent=%q, want %q", key, got, want)
+		}
+	}
 }
 
 // TestUpdateExperimentalFlag_TogglesAndPersists exercises the full

@@ -17,6 +17,7 @@ import type {
   GroupedIssuesResponse,
   InboxWorkspaceUnread,
   Issue,
+  LabContext,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
   SearchIssuesResponse,
@@ -1235,6 +1236,10 @@ export const ExperimentalFlagSchema = z.object({
   hides_deliverable_in_issue_timeline: z.boolean().optional(),
   // 0.3.60: true for user-created plugins merged into the flag list.
   is_user_plugin: z.boolean().optional(),
+  // 0.3.65: the lab's default owner agent name (server-side leader-rewrite
+  // table). The property panel shows it under the locked assignee when a
+  // lab is bound. Empty/absent = lab owns no single agent (squad roster).
+  leader_agent: z.string().optional(),
 }).loose();
 
 // Server wire shape (handler/experimental_flags.go:62-76) wraps the array
@@ -1249,3 +1254,111 @@ export const ExperimentalFlagsListSchema = z.object({
 }).loose().default({ flags: [] });
 
 export const EMPTY_EXPERIMENTAL_FLAGS: unknown[] = [];
+
+// 0.3.66 (P2-1): the Claude Lab workbench bootstrap. `getLabContext`
+// previously did `(await r.json()) as LabContext` — a raw network cast that
+// violates the API-compat contract and could white-screen the lab view if the
+// gated endpoint's shape drifts in an installed desktop build. Parsed lenient:
+// enums are wide strings (server may add statuses / lab modes), every nullable
+// field defaults, and `.loose()` lets new fields through. A malformed body
+// degrades to EMPTY_LAB_CONTEXT (empty timeline / no agent) instead of
+// throwing inside the renderer.
+const LabIssueBriefSchema = z.object({
+  id: z.string().default(""),
+  workspace_id: z.string().default(""),
+  title: z.string().default(""),
+  description: z.string().nullable().default(null),
+  status: z.string().default(""),
+  lab_source: z.string().default(""),
+  lab_mode: z.string().nullable().default(null),
+  assignee_id: z.string().nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+const LabAgentBriefSchema = z.object({
+  id: z.string().default(""),
+  name: z.string().default(""),
+  description: z.string().default(""),
+  status: z.string().default(""),
+}).loose();
+
+const LabAttachmentSchema = z.object({
+  kind: z.string().default(""),
+  name: z.string().optional(),
+  mime: z.string().optional(),
+  data: z.unknown().optional(),
+  url: z.string().optional(),
+  bytes: z.number().optional(),
+}).loose();
+
+const LabPredictionSchema = z.object({
+  round: z.number().default(0),
+  scenario: z.string().default(""),
+  narrative: z.string().optional(),
+  probability: z.number().default(0),
+  confidence: z.number().optional(),
+  horizon: z.string().optional(),
+  persona: z.string().optional(),
+}).loose();
+
+const LabCodeBlockSchema = z.object({
+  language: z.string().default(""),
+  filename: z.string().optional(),
+  code: z.string().default(""),
+}).loose();
+
+const LabTaskBriefSchema = z.object({
+  id: z.string().default(""),
+  status: z.string().default(""),
+  trigger_summary: z.string().nullable().default(null),
+  error: z.string().nullable().default(null),
+  failure_reason: z.string().nullable().default(null),
+  result_summary: z.string().nullable().default(null),
+  result_attachments: z.array(LabAttachmentSchema).optional(),
+  result_predictions: z.array(LabPredictionSchema).optional(),
+  result_code_blocks: z.array(LabCodeBlockSchema).optional(),
+  created_at: z.string().default(""),
+  dispatched_at: z.string().nullable().default(null),
+  started_at: z.string().nullable().default(null),
+  completed_at: z.string().nullable().default(null),
+  duration_ms: z.number().nullable().default(null),
+}).loose();
+
+const LabCommentBriefSchema = z.object({
+  id: z.string().default(""),
+  author_type: z.string().default("system"),
+  content: z.string().default(""),
+  created_at: z.string().default(""),
+}).loose();
+
+export const LabContextSchema = z.object({
+  issue: LabIssueBriefSchema,
+  agent: LabAgentBriefSchema.nullable().default(null),
+  tasks: z.array(LabTaskBriefSchema).default([]),
+  comments: z.array(LabCommentBriefSchema).default([]),
+  chat_session_id: z.string().nullable().default(null),
+  lab_seq: z.number().default(0),
+  server_time: z.string().default(""),
+}).loose();
+
+export const EMPTY_LAB_CONTEXT: LabContext = {
+  issue: {
+    id: "",
+    workspace_id: "",
+    title: "",
+    description: null,
+    status: "",
+    lab_source: "",
+    lab_mode: null,
+    assignee_id: null,
+    created_at: "",
+    updated_at: "",
+  },
+  agent: null,
+  tasks: [],
+  comments: [],
+  chat_session_id: null,
+  lab_seq: 0,
+  server_time: "",
+};

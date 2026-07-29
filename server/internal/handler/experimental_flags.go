@@ -59,6 +59,16 @@ type ExperimentalFlagResponse struct {
 	// IsUserPlugin marks flags created by the user through the plugin
 	// sandbox (0.3.60+). Built-in flags omit this field (false).
 	IsUserPlugin bool `json:"is_user_plugin,omitempty"`
+	// 0.3.65: the workspace agent name this lab auto-assigns as the issue
+	// owner when the user picks it (the "实验室测试智能体" the property panel
+	// shows under a locked assignee). Mirrors the leader-rewrite table
+	// (defaultLabLeaderForKey / UserPluginLeader) the create+update paths use
+	// server-side, surfaced so the renderer can display the default assignee
+	// without a second round trip. Empty means the lab owns no single agent
+	// (mythos_swarm runs via its squad roster; llm_wiki_bridge / chat_pin_ui
+	// have no per-issue agent) — the renderer then falls back to a generic
+	// "lab owns the roster" hint.
+	LeaderAgent string `json:"leader_agent,omitempty"`
 }
 
 // ExperimentalFlagsListResponse wraps the list so future metadata
@@ -117,6 +127,12 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			HideFromIssueLabPicker:          f.HideFromIssueLabPicker,
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 		}
+		// 0.3.65: expose the lab's default owner agent so the property panel
+		// can show "实验室测试智能体: <name>" under the locked assignee. Same
+		// table the create+update leader-rewrite paths consult.
+		if leader, ok := defaultLabLeaderForKey(f.Key); ok {
+			flag.LeaderAgent = leader
+		}
 		// 0.3.20: surface manifest entry_points.sidebar so the renderer's
 		// nav hook can render the Experimental sidebar group from the
 		// catalog payload instead of a hard-coded STATIC_NAV list. Flags
@@ -160,6 +176,12 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			HideFromIssueLabPicker:          f.HideFromIssueLabPicker,
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 			IsUserPlugin:                    true,
+		}
+		// 0.3.65: user plugins auto-dispatch via their manifest's
+		// capabilities.leader (UserPluginLeader) — surface it the same way
+		// built-in labs surface defaultLabLeaderForKey.
+		if leader, ok := h.resolveLabLeader(r.Context(), f.Key); ok {
+			flag.LeaderAgent = leader
 		}
 		if reg := h.ExperimentRegistry; reg != nil {
 			if entries := reg.SidebarEntries(f.Key); len(entries) > 0 {

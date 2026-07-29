@@ -7,10 +7,12 @@ import {
   DuplicateIssueErrorBodySchema,
   EMPTY_USER,
   EMPTY_INBOX_UNREAD_SUMMARY,
+  EMPTY_LAB_CONTEXT,
   ExperimentalFlagsListSchema,
   ExperimentalFlagSchema,
   InboxUnreadSummarySchema,
   IssueTriggerPreviewSchema,
+  LabContextSchema,
   ListIssuesResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
@@ -599,5 +601,76 @@ describe("ExperimentalFlagsListSchema wire shape", () => {
     });
     expect(parsed.success).toBe(true);
     expect(parsed.data?.installation).toBeUndefined();
+  });
+});
+
+describe("LabContextSchema drift (getLabContext)", () => {
+  const fullBody = {
+    issue: {
+      id: "issue-1",
+      workspace_id: "ws-1",
+      title: "Research",
+      description: null,
+      status: "in_progress",
+      lab_source: "claude_science_lab",
+      lab_mode: "sole",
+      assignee_id: "agent-1",
+      created_at: "2026-07-28T00:00:00Z",
+      updated_at: "2026-07-28T00:00:00Z",
+    },
+    agent: { id: "agent-1", name: "research", description: "", status: "active" },
+    tasks: [
+      {
+        id: "task-1",
+        status: "running",
+        trigger_summary: null,
+        error: null,
+        failure_reason: null,
+        result_summary: null,
+        created_at: "2026-07-28T00:00:00Z",
+        dispatched_at: null,
+        started_at: "2026-07-28T00:00:01Z",
+        completed_at: null,
+        duration_ms: null,
+      },
+    ],
+    comments: [{ id: "c-1", author_type: "agent", content: "hi", created_at: "2026-07-28T00:00:02Z" }],
+    chat_session_id: "sess-1",
+    lab_seq: 3,
+    server_time: "2026-07-28T00:00:03Z",
+  };
+
+  it("parses a well-formed workbench context", () => {
+    const parsed = LabContextSchema.safeParse(fullBody);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.issue.id).toBe("issue-1");
+    expect(parsed.data?.tasks).toHaveLength(1);
+    expect(parsed.data?.chat_session_id).toBe("sess-1");
+  });
+
+  it("defaults a sparse body (older backend) instead of failing", () => {
+    const parsed = LabContextSchema.safeParse({ issue: { id: "issue-1" } });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.agent).toBeNull();
+    expect(parsed.data?.tasks).toEqual([]);
+    expect(parsed.data?.comments).toEqual([]);
+    expect(parsed.data?.chat_session_id).toBeNull();
+    expect(parsed.data?.lab_seq).toBe(0);
+  });
+
+  it("tolerates an unknown task status / lab_mode (enum drift)", () => {
+    const body = {
+      ...fullBody,
+      issue: { ...fullBody.issue, lab_mode: "some_future_mode" },
+      tasks: [{ id: "t", status: "brand_new_status", created_at: "" }],
+    };
+    const parsed = LabContextSchema.safeParse(body);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.tasks[0]?.status).toBe("brand_new_status");
+  });
+
+  it("parseWithFallback returns EMPTY_LAB_CONTEXT for a null / non-object body", () => {
+    expect(parseWithFallback(null, LabContextSchema, EMPTY_LAB_CONTEXT, { endpoint: "x" })).toEqual(EMPTY_LAB_CONTEXT);
+    expect(parseWithFallback("garbage", LabContextSchema, EMPTY_LAB_CONTEXT, { endpoint: "x" })).toEqual(EMPTY_LAB_CONTEXT);
   });
 });

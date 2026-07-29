@@ -88,6 +88,13 @@ export interface ExperimentalFlag {
    *  rather than the developer catalog. The Labs tab renders user
    *  plugins in a separate section below the catalog flags. */
   is_user_plugin?: boolean;
+  /** 0.3.65: the workspace agent name this lab auto-assigns as the issue
+   *  owner when picked (the "实验室测试智能体" shown under the locked
+   *  assignee). Mirrors the server-side leader-rewrite table. Empty /
+   *  absent means the lab owns no single agent (mythos_swarm runs via its
+   *  squad roster; llm_wiki_bridge / chat_pin_ui have no per-issue agent)
+   *  — the renderer then shows a generic "lab owns the roster" hint. */
+  leader_agent?: string;
 }
 
 export interface ExperimentalFlagsList {

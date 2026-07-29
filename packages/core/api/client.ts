@@ -166,6 +166,7 @@ import {
   EMPTY_GROUPED_ISSUES_RESPONSE,
   EMPTY_INBOX_UNREAD_SUMMARY,
   EMPTY_ISSUE,
+  EMPTY_LAB_CONTEXT,
   EMPTY_LIST_ISSUES_RESPONSE,
   EMPTY_SEARCH_ISSUES_RESPONSE,
   EMPTY_SEARCH_PROJECTS_RESPONSE,
@@ -180,6 +181,7 @@ import {
   type AppConfigResponse,
   GroupedIssuesResponseSchema,
   IssueSchema,
+  LabContextSchema,
   ListAutopilotsResponseSchema,
   EMPTY_LIST_AUTOPILOTS_RESPONSE,
   ListIssuesResponseSchema,
@@ -650,7 +652,13 @@ export class ApiClient {
     if (!r.ok) {
       throw new Error(`getLabContext ${r.status}`);
     }
-    return (await r.json()) as LabContext;
+    // 0.3.66 (P2-1): was a raw `(await r.json()) as LabContext` cast — schema
+    // it so a drifted gated response degrades to an empty workbench context
+    // instead of white-screening the Claude Lab view in an installed build.
+    const raw: unknown = await r.json();
+    return parseWithFallback(raw, LabContextSchema, EMPTY_LAB_CONTEXT, {
+      endpoint: "GET /api/experimental/claude-science-lab/issues/:id/context",
+    });
   }
 
   async createIssue(data: CreateIssueRequest): Promise<Issue> {
