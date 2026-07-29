@@ -334,6 +334,11 @@ func (h *Handler) RunUserPlugin(w http.ResponseWriter, r *http.Request) {
 		cmd := exec.CommandContext(execCtx, "python3", "-I", entryFileName)
 		cmd.Dir = envDir
 		cmd.Env = pluginRuntimeEnv(slug, envDir)
+		// Final backstop: if a grandchild inherits the stdout/stderr
+		// pipes and outlives the kill, don't let cmd.Run() block the
+		// HTTP handler forever waiting on the pipe copy.
+		cmd.WaitDelay = 10 * time.Second
+		configureRuntimeCmd(cmd)
 		var stdout, stderr strings.Builder
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
