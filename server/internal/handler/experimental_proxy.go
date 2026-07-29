@@ -73,15 +73,15 @@ func AttachExperimentalRegistry(reg *experimental.Registry) {
 
 // claudeScienceProxyURL returns the manager's loopback URL, or "" if
 // the manager is not up. Internal helper for the proxy handler.
-func claudeScienceProxyURL() string {
-	experimentalLoopback.RLock()
-	reg := experimentalLoopback.registry
-	experimentalLoopback.RUnlock()
-	if reg == nil {
-		return ""
-	}
-	return reg.LoopbackURL("claude_science")
-}
+//
+// 0.3.66: removed. The else-fallback branch in MountExperimentalProxies
+// that called it was the only caller, and that fallback was dead
+// (production code never has h.ExperimentRegistry == nil). The
+// registry-driven mountExperimentalProxy path handles pythia_oracle
+// (the one current subprocess flag with a ProxyRoute) — claude_science
+// is `inline` and has no proxy route (see experimental/catalog.go).
+// experimentalClaudeScienceProxy and experimentalPythiaProxy are gone
+// with it.
 
 // experimentalClaudeScienceProxy mounts a same-origin reverse proxy
 // for the OpenScience (Claude Science) bundle. See the long-form
@@ -96,38 +96,19 @@ func claudeScienceProxyURL() string {
 // username-only login), so the loopback service itself is the auth
 // boundary. OpenScience additionally enforces login / BYOK
 // independently — see service/builtin_skills/multica-claude-science/SKILL.md.
-func (h *Handler) experimentalClaudeScienceProxy(w http.ResponseWriter, r *http.Request) {
-	upstream := claudeScienceProxyURL()
-	if upstream == "" {
-		writeError(w, http.StatusBadGateway,
-			"claude science manager is not running — open the sidebar entry to start it")
-		return
-	}
-	reverseProxyTo(w, r, upstream, "/experimental/claude-science")
-}
+//
+// 0.3.66: removed. See claudeScienceProxyURL above for rationale.
 
 // experimentalPythiaProxy mirrors the Claude Science proxy for the
 // Pythia FastAPI service. We do not render Pythia inside an iframe
 // (Pythia is headless), but the proxy lets the renderer pull status
 // + URLs through the same Multica origin so the existing fetch calls
 // in pythia-view.tsx stay same-origin.
-func (h *Handler) experimentalPythiaProxy(w http.ResponseWriter, r *http.Request) {
-	experimentalLoopback.RLock()
-	reg := experimentalLoopback.registry
-	experimentalLoopback.RUnlock()
-	if reg == nil {
-		writeError(w, http.StatusBadGateway,
-			"pythia manager is not running — open the sidebar entry to start it")
-		return
-	}
-	upstream := reg.LoopbackURL("pythia_oracle")
-	if upstream == "" {
-		writeError(w, http.StatusBadGateway,
-			"pythia manager is not running — open the sidebar entry to start it")
-		return
-	}
-	reverseProxyTo(w, r, upstream, "/experimental/pythia")
-}
+//
+// 0.3.66: removed. The only caller was the else-fallback branch in
+// MountExperimentalProxies which is dead in production. The
+// registry-driven mountExperimentalProxy path picks up pythia_oracle
+// from ProxyRoutes() directly.
 
 // reverseProxyTo forwards the request to upstream after stripping
 // the routing prefix. Shared logic so Claude Science and Pythia
@@ -212,28 +193,15 @@ func MountExperimentalProxies(r chi.Router, h *Handler) {
 	// the middleware on that child, THEN register routes — the
 	// ordering constraint is per-mux, not cross-mux.
 	expGroup := r.Group(func(exp chi.Router) {
-		if h != nil && h.ExperimentRegistry != nil {
-			AttachExperimentalRegistry(h.ExperimentRegistry)
-			exp.Use(injectExperimentalFlagHeader(h.ExperimentRegistry))
-		}
+		AttachExperimentalRegistry(h.ExperimentRegistry)
+		exp.Use(injectExperimentalFlagHeader(h.ExperimentRegistry))
 	})
 
 	// 0.3.20: auto-mount every subprocess flag from the registry.
 	// A new flag only needs a catalog entry + manifest — no router
-	// edit. The two legacy hard-coded routes below remain for
-	// backward compat with any caller that uses the same path
-	// without going through Registry.ProxyRoutes().
-	if h != nil && h.ExperimentRegistry != nil {
-		for _, p := range h.ExperimentRegistry.ProxyRoutes() {
-			mountExperimentalProxy(expGroup, h, p)
-		}
-	} else {
-		// Fallback: registry not wired (older boot paths, tests).
-		// Keep the 2 legacy routes so callers don't see 404.
-		expGroup.HandleFunc("/experimental/claude-science/*", h.experimentalClaudeScienceProxy)
-		expGroup.HandleFunc("/experimental/claude-science", h.experimentalClaudeScienceProxy)
-		expGroup.HandleFunc("/experimental/pythia/*", h.experimentalPythiaProxy)
-		expGroup.HandleFunc("/experimental/pythia", h.experimentalPythiaProxy)
+	// edit.
+	for _, p := range h.ExperimentRegistry.ProxyRoutes() {
+		mountExperimentalProxy(expGroup, h, p)
 	}
 
 	// Internal upstream registry. The desktop main process POSTs
@@ -396,16 +364,12 @@ func (h *Handler) upstreamUnregister(w http.ResponseWriter, r *http.Request) {
 }
 
 // isAllowedUpstreamService checks whether service appears in the
-// registry's subprocess proxy routes. The fallback set is the
-// pre-0.3.20 hard-coded pair so older boots / tests still pass.
+// registry's subprocess proxy routes.
 func isAllowedUpstreamService(h *Handler, service string) bool {
-	if h != nil && h.ExperimentRegistry != nil {
-		for _, p := range h.ExperimentRegistry.ProxyRoutes() {
-			if p.LoopbackService == service {
-				return true
-			}
+	for _, p := range h.ExperimentRegistry.ProxyRoutes() {
+		if p.LoopbackService == service {
+			return true
 		}
-		return false
 	}
-	return service == "claude_science" || service == "pythia_oracle"
+	return false
 }
