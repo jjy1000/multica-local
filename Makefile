@@ -1,4 +1,4 @@
-.PHONY: help makehelp dev server daemon cli multica build test migrate-up migrate-down sqlc seed clean setup start stop check check-fast check-pythia worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree db-up db-down db-reset selfhost selfhost-build selfhost-stop
+.PHONY: help makehelp dev server daemon cli multica build test migrate-up migrate-down sqlc seed clean setup start stop check check-fast check-pythia ship-mac worktree-env setup-main start-main stop-main check-main setup-worktree start-worktree stop-worktree check-worktree db-up db-down db-reset selfhost selfhost-build selfhost-stop
 
 MAIN_ENV_FILE ?= .env
 WORKTREE_ENV_FILE ?= .env.worktree
@@ -220,6 +220,16 @@ check-fast: ## Fast affected TS checks (typecheck + unit + lint) + pythia smoke 
 # the pythia source changed; run it directly to force a check.
 check-pythia: ## Run the Pythia Python smoke test (parse + bundle-coverage guard)
 	@bash apps/desktop/scripts/pythia-smoke.sh
+
+# Canonical macOS desktop ship chain, enforced end-to-end (0.3.66, closes audit
+# P1-1 + P1-3): snapshot -> migrate up -> bundle-cli -> electron-vite build ->
+# electron-builder --dir -> asar rawRequest check -> install -> re-sign nested
+# binaries -> cold-start verify. Aborts on the first non-zero exit, and is the
+# first real caller of scripts/desktop-sign-nested-binaries.sh. The install step
+# OVERWRITES /Applications/Multica.app, so it prompts unless you pass --yes.
+# Flags pass through to the script: --build-only, --yes, --skip-snapshot.
+ship-mac: ## Run the enforced macOS ship chain (snapshot→build→install→sign→verify)
+	@bash scripts/ship-mac.sh $(ARGS)
 
 db-up: ## Start the shared PostgreSQL container used by main and worktrees
 	@$(COMPOSE) up -d postgres
