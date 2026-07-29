@@ -206,6 +206,9 @@
       "error_daemon_version": "このエージェントのデーモン CLI（{{current}}）が必要なバージョン {{min}} を下回っています。エージェントで作成を使用するには、デーモンをアップグレードしてください。",
       "error_unknown": "送信できませんでした。再試行してください。",
       "sub_issue_of": "{{identifier}} のサブイシュー"
-    }
+    },
+    "lab_row_title": "実験機能 · {{count}}",
+    "lab_row_create_lab": "実験室作成",
+    "lab_row_bound_tooltip": "実験室がすでにバインドされています。新しい実験室を作成するには、まず実験室の選択を解除してください。"
   }
 }

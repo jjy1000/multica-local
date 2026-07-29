@@ -68,5 +68,6 @@
   "plan_timeline_status_dispatched": "ディスパッチ済み",
   "plan_timeline_status_preparing": "準備中",
   "plan_timeline_status_waiting_local_directory": "ローカルディレクトリ待機中",
-  "plan_timeline_status_deferred": "延期"
+  "plan_timeline_status_deferred": "延期",
+  "lab_chat_send_hint": "{{count}}/{{max}} · ⌘↩ 送信"
 }

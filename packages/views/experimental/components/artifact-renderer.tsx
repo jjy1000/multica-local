@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Download, FileText, ExternalLink } from "lucide-react";
 import { api } from "@multica/core/api";
+import { useT } from "../../i18n";
 
 // 0.3.60 Labs sandbox — generic artifact renderer for user plugins.
 //
@@ -203,17 +204,21 @@ function isTableData(data: unknown): data is TableData {
 // ---- component ----
 
 export function ArtifactRenderer({ artifact, pluginSlug: _pluginSlug }: ArtifactRendererProps) {
+  const { t } = useT("experimental");
   const [zoomed, setZoomed] = useState(false);
 
   switch (artifact.type) {
     case "image": {
       if (!artifact.url) {
-        return <p className="text-sm text-muted-foreground">图片缺少 URL。</p>;
+        return (
+          <p className="text-sm text-muted-foreground">
+            {t(($) => $.user_plugins.artifact_image_no_url)}
+          </p>
+        );
       }
       const src = resolveUrl(artifact.url);
       return (
         <div className="space-y-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
             alt={artifact.title}
@@ -224,14 +229,22 @@ export function ArtifactRenderer({ artifact, pluginSlug: _pluginSlug }: Artifact
                 : "max-w-full rounded-lg border border-border cursor-zoom-in"
             }
           />
-          <p className="text-xs text-muted-foreground">点击图片{zoomed ? "还原" : "放大"}</p>
+          <p className="text-xs text-muted-foreground">
+            {zoomed
+              ? t(($) => $.user_plugins.artifact_image_zoom_out)
+              : t(($) => $.user_plugins.artifact_image_zoom_in)}
+          </p>
         </div>
       );
     }
 
     case "chart": {
       if (!isChartData(artifact.data)) {
-        return <p className="text-sm text-muted-foreground">图表数据格式无效。</p>;
+        return (
+          <p className="text-sm text-muted-foreground">
+            {t(($) => $.user_plugins.artifact_chart_invalid)}
+          </p>
+        );
       }
       return (
         <div className="rounded-lg border border-border bg-background p-3">
@@ -255,7 +268,11 @@ export function ArtifactRenderer({ artifact, pluginSlug: _pluginSlug }: Artifact
 
     case "table": {
       if (!isTableData(artifact.data)) {
-        return <p className="text-sm text-muted-foreground">表格数据格式无效。</p>;
+        return (
+          <p className="text-sm text-muted-foreground">
+            {t(($) => $.user_plugins.artifact_table_invalid)}
+          </p>
+        );
       }
       const { columns, rows } = artifact.data;
       return (
@@ -349,7 +366,7 @@ export function ArtifactRenderer({ artifact, pluginSlug: _pluginSlug }: Artifact
               className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
             >
               <Download className="h-3.5 w-3.5" aria-hidden />
-              下载
+              {t(($) => $.user_plugins.artifact_download)}
             </a>
           )}
         </div>
@@ -360,7 +377,7 @@ export function ArtifactRenderer({ artifact, pluginSlug: _pluginSlug }: Artifact
       return (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <ExternalLink className="h-4 w-4" aria-hidden />
-          不支持的产物类型
+          {t(($) => $.user_plugins.artifact_unsupported)}
         </div>
       );
   }

@@ -68,5 +68,6 @@
   "plan_timeline_status_dispatched": "디스패치됨",
   "plan_timeline_status_preparing": "준비 중",
   "plan_timeline_status_waiting_local_directory": "로컬 디렉토리 대기 중",
-  "plan_timeline_status_deferred": "연기됨"
+  "plan_timeline_status_deferred": "연기됨",
+  "lab_chat_send_hint": "{{count}}/{{max}} · ⌘↩ 보내기"
 }

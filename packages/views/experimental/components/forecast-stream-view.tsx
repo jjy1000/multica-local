@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { FlaskConical, Loader2 } from "lucide-react";
 import { api } from "@multica/core/api";
+import { useT } from "../../i18n";
 
 /**
  * ForecastStreamView — renders Claude Lab forecast SSE envelopes
@@ -34,6 +35,7 @@ export interface ForecastEnvelope {
 }
 
 export function ForecastStreamView({ url }: { url: string }) {
+  const { t } = useT("experimental");
   const [frames, setFrames] = useState<ForecastEnvelope[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
@@ -110,26 +112,28 @@ export function ForecastStreamView({ url }: { url: string }) {
       <header className="flex items-center justify-between text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <FlaskConical className="size-3.5" />
-          Live forecast
+          {t(($) => $.forecast_stream.title)}
         </span>
         {connected ? (
           <span className="inline-flex items-center gap-1">
             <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-            已连接
+            {t(($) => $.forecast_stream.connected)}
           </span>
         ) : err ? (
-          <span className="text-rose-500">断开: {err}</span>
+          <span className="text-rose-500">
+            {t(($) => $.forecast_stream.disconnected, { error: err })}
+          </span>
         ) : (
           <span className="inline-flex items-center gap-1">
             <Loader2 className="size-3 animate-spin" />
-            正在连接…
+            {t(($) => $.forecast_stream.connecting)}
           </span>
         )}
       </header>
       <div className="flex flex-col gap-2">
         {frames.length === 0 ? (
           <p className="rounded-md border border-dashed border-border p-4 text-xs text-muted-foreground">
-            等待第一条预测…
+            {t(($) => $.forecast_stream.waiting)}
           </p>
         ) : (
           frames.map((f) => (
@@ -148,7 +152,9 @@ export function ForecastStreamView({ url }: { url: string }) {
                   {(f.probability * 100).toFixed(0)}%
                 </span>
                 <span className="font-mono">
-                  conf {(f.confidence * 100).toFixed(0)}%
+                  {t(($) => $.forecast_stream.confidence, {
+                    value: (f.confidence * 100).toFixed(0),
+                  })}
                 </span>
               </div>
               <h3 className="text-sm font-medium">{f.scenario}</h3>

@@ -21,6 +21,7 @@ import { api } from "@multica/core/api";
 import { useUpdateExperimentalFlag } from "@multica/core/experimental";
 import type { UserPluginResponse } from "@multica/core/types";
 import { UserPluginFormDialog } from "../../experimental/components/user-plugin-form-dialog";
+import { useT } from "../../i18n";
 
 // 0.3.60 Labs sandbox — user-created plugin management section.
 // Rendered below the developer catalog flags in the Labs tab.
@@ -48,6 +49,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function UserPluginsSection() {
+  const { t } = useT("experimental");
   const qc = useQueryClient();
   const updateFlag = useUpdateExperimentalFlag();
 
@@ -121,17 +123,17 @@ export function UserPluginsSection() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Puzzle className="h-4 w-4 text-muted-foreground" aria-hidden />
-          <h3 className="text-sm font-medium">用户插件</h3>
+          <h3 className="text-sm font-medium">{t(($) => $.user_plugins.title)}</h3>
         </div>
         <Button type="button" size="sm" variant="outline" onClick={openCreate}>
           <Plus className="h-3 w-3" aria-hidden />
-          创建插件
+          {t(($) => $.user_plugins.create)}
         </Button>
       </div>
 
       {activePlugins.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          暂无用户插件。点击「创建插件」添加自定义实验性功能。
+          {t(($) => $.user_plugins.empty_hint)}
         </p>
       ) : (
         activePlugins.map((plugin) => (
@@ -207,14 +209,16 @@ export function UserPluginsSection() {
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>删除插件</DialogTitle>
+            <DialogTitle>{t(($) => $.user_plugins.delete_title)}</DialogTitle>
             <DialogDescription>
-              确定要删除插件「{deleteTarget?.title.zh || deleteTarget?.slug}」吗？此操作不可撤销。
+              {t(($) => $.user_plugins.delete_description, {
+                name: deleteTarget?.title.zh || deleteTarget?.slug || "",
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
-              取消
+              {t(($) => $.user_plugins.cancel)}
             </Button>
             <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting}>
               {deleting ? "删除中…" : "删除"}

@@ -22,6 +22,7 @@ import { api } from "@multica/core/api";
 import { useUpdateExperimentalFlag } from "@multica/core/experimental";
 import { getCurrentWsId } from "@multica/core/platform";
 import type { UserPluginResponse } from "@multica/core/types";
+import { useT } from "../../i18n";
 import { ChatWindow } from "../../chat/components/chat-window";
 import { ArtifactGallery } from "./artifact-gallery";
 import { UserPluginFormDialog } from "./user-plugin-form-dialog";
@@ -110,6 +111,7 @@ function tabLabel(tab: PluginTabDef): string {
 }
 
 export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
+  const { t } = useT("experimental");
   const qc = useQueryClient();
   const updateFlag = useUpdateExperimentalFlag();
   const wsId = useCurrentWsIdPoll();
@@ -192,7 +194,7 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Puzzle className="h-4 w-4" aria-hidden />
-        未找到插件「{pluginSlug}」
+        {t(($) => $.user_plugins.plugin_not_found, { slug: pluginSlug })}
       </div>
     );
   }
@@ -231,7 +233,7 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
               ) : (
                 <Play className="h-3.5 w-3.5" aria-hidden />
               )}
-              运行
+              {t(($) => $.user_plugins.run)}
             </Button>
           ) : null}
         </div>
@@ -295,7 +297,9 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
       case "chat":
         if (!chatWsId) {
           return (
-            <p className="text-sm text-muted-foreground">请先选择或创建一个工作区。</p>
+            <p className="text-sm text-muted-foreground">
+              {t(($) => $.user_plugins.chat_no_workspace)}
+            </p>
           );
         }
         return <ChatWindow wsId={chatWsId} />;
@@ -303,9 +307,11 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
       case "table":
         return (
           <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-            表格视图（v1 占位）
+            {t(($) => $.user_plugins.table_placeholder)}
             {tab.data_source ? (
-              <p className="mt-1 font-mono text-xs">data_source: {tab.data_source}</p>
+              <p className="mt-1 font-mono text-xs">
+                {t(($) => $.user_plugins.table_data_source, { source: tab.data_source })}
+              </p>
             ) : null}
           </div>
         );
@@ -313,12 +319,23 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
       case "iframe": {
         const src = tab.src ? `${api.getBaseUrl()}${tab.src}` : undefined;
         if (!src) {
-          return <p className="text-sm text-muted-foreground">iframe 缺少 src。</p>;
+          return (
+            <p className="text-sm text-muted-foreground">
+              {t(($) => $.user_plugins.iframe_no_src)}
+            </p>
+          );
         }
         return (
           <iframe
             title={tab.key}
             src={src}
+            // Plugin-authored content is untrusted: sandbox without
+            // allow-same-origin so scripts run in an opaque origin and
+            // cannot reach the app's localStorage/cookies or call the
+            // API with the user's credentials (mirrors the html
+            // artifact sandbox rules in CLAUDE.md).
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
             className="h-[480px] w-full rounded-lg border border-border bg-background"
           />
         );
@@ -343,7 +360,11 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
         );
 
       default:
-        return <p className="text-sm text-muted-foreground">未知的标签类型。</p>;
+        return (
+          <p className="text-sm text-muted-foreground">
+            {t(($) => $.user_plugins.unknown_tab_kind)}
+          </p>
+        );
     }
   }
 }
@@ -359,6 +380,7 @@ interface SettingsTabProps {
 }
 
 function SettingsTab({ plugin, onToggle, togglePending, onEditClick, onDeleteClick }: SettingsTabProps) {
+  const { t } = useT("experimental");
   const rows: Array<[string, string]> = [
     ["Slug", plugin.slug],
     ["触发模式", TRIGGER_MODE_LABELS[plugin.trigger_mode] ?? plugin.trigger_mode],
@@ -381,8 +403,10 @@ function SettingsTab({ plugin, onToggle, togglePending, onEditClick, onDeleteCli
 
           <div className="flex items-center justify-between border-t border-border pt-4">
             <div className="space-y-0.5">
-              <Label className="text-sm font-medium">启用插件</Label>
-              <p className="text-xs text-muted-foreground">停用后插件的侧边栏入口与视图将隐藏。</p>
+              <Label className="text-sm font-medium">{t(($) => $.user_plugins.enable_plugin)}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t(($) => $.user_plugins.enable_plugin_hint)}
+              </p>
             </div>
             <Switch
               checked={plugin.status === "active"}
@@ -399,7 +423,7 @@ function SettingsTab({ plugin, onToggle, togglePending, onEditClick, onDeleteCli
               onClick={onEditClick}
             >
               <Pencil className="h-3.5 w-3.5" aria-hidden />
-              编辑插件
+              {t(($) => $.user_plugins.edit)}
             </Button>
             <Button
               type="button"
@@ -409,7 +433,7 @@ function SettingsTab({ plugin, onToggle, togglePending, onEditClick, onDeleteCli
               onClick={onDeleteClick}
             >
               <Trash2 className="h-3.5 w-3.5" aria-hidden />
-              删除插件
+              {t(($) => $.user_plugins.delete)}
             </Button>
           </div>
         </div>
@@ -435,18 +459,21 @@ function SettingsDialogs({
   onDelete,
   deleting,
 }: SettingsDialogsProps) {
+  const { t } = useT("experimental");
   return (
     <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>删除插件</DialogTitle>
+          <DialogTitle>{t(($) => $.user_plugins.delete_title)}</DialogTitle>
           <DialogDescription>
-            确定要删除插件「{plugin.title.zh || plugin.slug}」吗？此操作不可撤销。
+            {t(($) => $.user_plugins.delete_description, {
+              name: plugin.title.zh || plugin.slug,
+            })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)}>
-            取消
+            {t(($) => $.user_plugins.cancel)}
           </Button>
           <Button type="button" variant="destructive" onClick={onDelete} disabled={deleting}>
             {deleting ? "删除中…" : "删除"}

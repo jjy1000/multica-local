@@ -22,6 +22,7 @@ import {
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
 import type { UserPluginResponse } from "@multica/core/types";
+import { useT } from "../../i18n";
 
 // 0.3.63 Labs sandbox — shared create/edit dialog for user plugins.
 //
@@ -96,6 +97,7 @@ export function UserPluginFormDialog({
   plugin,
   onSuccess,
 }: UserPluginFormDialogProps) {
+  const { t } = useT("experimental");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
 
@@ -176,7 +178,7 @@ export function UserPluginFormDialog({
         <div className="space-y-3">
           <div className="space-y-1">
             <Label htmlFor="up-slug" className="text-xs">
-              Slug（小写字母/数字/连字符，如 my-plugin）
+              {t(($) => $.user_plugins.form_slug_label)}
             </Label>
             <Input
               id="up-slug"
@@ -189,7 +191,7 @@ export function UserPluginFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="up-title-zh" className="text-xs">
-                标题（中文）*
+                {t(($) => $.user_plugins.form_title_zh_label)}
               </Label>
               <Input
                 id="up-title-zh"
@@ -200,7 +202,7 @@ export function UserPluginFormDialog({
             </div>
             <div className="space-y-1">
               <Label htmlFor="up-title-en" className="text-xs">
-                标题（English）
+                {t(($) => $.user_plugins.form_title_en_label)}
               </Label>
               <Input
                 id="up-title-en"
@@ -213,7 +215,7 @@ export function UserPluginFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label htmlFor="up-desc-zh" className="text-xs">
-                描述（中文）
+                {t(($) => $.user_plugins.form_desc_zh_label)}
               </Label>
               <Input
                 id="up-desc-zh"
@@ -224,7 +226,7 @@ export function UserPluginFormDialog({
             </div>
             <div className="space-y-1">
               <Label htmlFor="up-desc-en" className="text-xs">
-                描述（English）
+                {t(($) => $.user_plugins.form_desc_en_label)}
               </Label>
               <Input
                 id="up-desc-en"
@@ -236,7 +238,7 @@ export function UserPluginFormDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">触发模式</Label>
+              <Label className="text-xs">{t(($) => $.user_plugins.form_trigger_mode)}</Label>
               <Select
                 value={form.triggerMode}
                 onValueChange={(v) =>
@@ -247,13 +249,15 @@ export function UserPluginFormDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="auto">自驱（auto）</SelectItem>
-                  <SelectItem value="issue_select">任务绑定（issue_select）</SelectItem>
+                  <SelectItem value="auto">{t(($) => $.user_plugins.form_trigger_auto)}</SelectItem>
+                  <SelectItem value="issue_select">
+                    {t(($) => $.user_plugins.form_trigger_issue)}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">运行时类型</Label>
+              <Label className="text-xs">{t(($) => $.user_plugins.form_runtime_kind)}</Label>
               <Select
                 value={form.runtimeKind}
                 onValueChange={(v) =>
@@ -264,9 +268,11 @@ export function UserPluginFormDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">无运行时（none）</SelectItem>
-                  <SelectItem value="inline">内联（inline）</SelectItem>
-                  <SelectItem value="subprocess">子进程（subprocess）</SelectItem>
+                  <SelectItem value="none">{t(($) => $.user_plugins.form_runtime_none)}</SelectItem>
+                  <SelectItem value="inline">{t(($) => $.user_plugins.form_runtime_inline)}</SelectItem>
+                  <SelectItem value="subprocess">
+                    {t(($) => $.user_plugins.form_runtime_subprocess)}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -274,7 +280,7 @@ export function UserPluginFormDialog({
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            取消
+            {t(($) => $.user_plugins.cancel)}
           </Button>
           <Button type="button" onClick={handleSubmit} disabled={submitting}>
             {submitting

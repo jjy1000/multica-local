@@ -68,5 +68,6 @@
   "plan_timeline_status_dispatched": "Dispatched",
   "plan_timeline_status_preparing": "Preparing",
   "plan_timeline_status_waiting_local_directory": "Waiting for local directory",
-  "plan_timeline_status_deferred": "Deferred"
+  "plan_timeline_status_deferred": "Deferred",
+  "lab_chat_send_hint": "{{count}}/{{max}} · ⌘↩ to send"
 }

@@ -70,6 +70,7 @@
     }
   },
   "window": {
+    "no_workspace": "먼저 워크스페이스를 선택하세요",
     "new_chat_tooltip": "새 채팅",
     "restore_tooltip": "복원",
     "expand_tooltip": "펼치기",

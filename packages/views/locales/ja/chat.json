@@ -67,6 +67,7 @@
     }
   },
   "window": {
+    "no_workspace": "先にワークスペースを選択してください",
     "new_chat_tooltip": "新規チャット",
     "restore_tooltip": "復元",
     "expand_tooltip": "展開",

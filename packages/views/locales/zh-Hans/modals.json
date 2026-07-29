@@ -208,6 +208,9 @@
       "error_daemon_version": "该智能体的守护进程 CLI（{{current}}）低于要求的 {{min}}。请升级守护进程后再使用通过智能体创建。",
       "error_unknown": "提交失败，请重试。",
       "sub_issue_of": "作为 {{identifier}} 的子 issue"
-    }
+    },
+    "lab_row_title": "实验性功能 · {{count}}",
+    "lab_row_create_lab": "创建实验室",
+    "lab_row_bound_tooltip": "已绑定实验室，如需创建新实验室请先清除实验室选择"
   }
 }

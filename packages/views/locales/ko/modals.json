@@ -208,6 +208,9 @@
       "error_daemon_version": "이 에이전트의 데몬 CLI({{current}})가 필요한 버전 {{min}}보다 낮습니다. 에이전트로 만들기를 사용하려면 데몬을 업그레이드하세요.",
       "error_unknown": "제출하지 못했습니다. 다시 시도하세요.",
       "sub_issue_of": "{{identifier}}의 하위 이슈"
-    }
+    },
+    "lab_row_title": "실험 기능 · {{count}}",
+    "lab_row_create_lab": "실험실 생성",
+    "lab_row_bound_tooltip": "실험실이 이미 바인딩되어 있습니다. 새 실험실을 만들려면 먼저 실험실 선택을 해제하세요."
   }
 }

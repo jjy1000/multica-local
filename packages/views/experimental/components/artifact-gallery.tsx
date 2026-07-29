@@ -26,6 +26,7 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
 import { ArtifactRenderer, type Artifact } from "./artifact-renderer";
+import { useT } from "../../i18n";
 
 // 0.3.60 Labs sandbox — artifact gallery for a user plugin.
 //
@@ -100,6 +101,7 @@ async function fetchArtifacts(slug: string): Promise<Artifact[]> {
 }
 
 export function ArtifactGallery({ pluginSlug }: ArtifactGalleryProps) {
+  const { t } = useT("experimental");
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -139,7 +141,9 @@ export function ArtifactGallery({ pluginSlug }: ArtifactGalleryProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-foreground">产物</h3>
+        <h3 className="text-sm font-medium text-foreground">
+          {t(($) => $.user_plugins.artifacts_title)}
+        </h3>
         <div>
           <input
             ref={fileInputRef}
@@ -162,7 +166,7 @@ export function ArtifactGallery({ pluginSlug }: ArtifactGalleryProps) {
             ) : (
               <Upload className="h-3 w-3" aria-hidden />
             )}
-            上传产物
+            {t(($) => $.user_plugins.artifacts_upload)}
           </Button>
         </div>
       </div>
@@ -174,12 +178,14 @@ export function ArtifactGallery({ pluginSlug }: ArtifactGalleryProps) {
           ))}
         </div>
       ) : isError ? (
-        <p className="text-sm text-muted-foreground">加载产物失败，请稍后重试。</p>
+        <p className="text-sm text-muted-foreground">
+          {t(($) => $.user_plugins.artifacts_load_error)}
+        </p>
       ) : !artifacts || artifacts.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border py-10 text-center">
           <PackageOpen className="h-6 w-6 text-muted-foreground" aria-hidden />
           <p className="text-sm text-muted-foreground">
-            暂无产物 — 通过智能体或手动上传创建
+            {t(($) => $.user_plugins.artifacts_empty_hint)}
           </p>
         </div>
       ) : (
@@ -196,7 +202,6 @@ export function ArtifactGallery({ pluginSlug }: ArtifactGalleryProps) {
               >
                 <div className="flex h-24 items-center justify-center overflow-hidden border-b border-border bg-muted/30">
                   {isImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={`${api.getBaseUrl()}${artifact.url}`}
                       alt={artifact.title}

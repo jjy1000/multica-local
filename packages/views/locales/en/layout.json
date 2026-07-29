@@ -61,6 +61,8 @@
     "experimental_claude_science_lab": "Claude Research Lab",
     "experimental_code_canvas": "Code Canvas",
     "experimental_agent_self_optimization": "Agent Self-Optimization",
-    "experimental_self_opt_history": "Agent Self-Optimization History"
+    "experimental_self_opt_history": "Agent Self-Optimization History",
+    "error_fallback": "Sidebar failed to render.",
+    "error_retry": "Retry"
   }
 }

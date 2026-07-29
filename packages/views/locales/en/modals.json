@@ -208,6 +208,9 @@
       "error_daemon_version": "This agent's daemon CLI ({{current}}) is below the required {{min}}. Upgrade the daemon to use Create with agent.",
       "error_unknown": "Failed to submit. Try again.",
       "sub_issue_of": "Sub-issue of {{identifier}}"
-    }
+    },
+    "lab_row_title": "Experimental · {{count}}",
+    "lab_row_create_lab": "Create Lab",
+    "lab_row_bound_tooltip": "A lab is already bound. To create a new lab, clear the lab selection first."
   }
 }
