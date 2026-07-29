@@ -18,6 +18,26 @@ if ! command -v make > /dev/null 2>&1; then
   exit 0
 fi
 
+# Docs single-source-of-truth gate: AGENTS.md must stay in sync with the
+# authoritative CLAUDE.md (toolchain versions, package boundaries,
+# verification commands). Cheap (<1s), so it runs before the TS checks.
+if command -v node > /dev/null 2>&1; then
+  echo "==> pre-push: checking AGENTS.md / CLAUDE.md consistency..."
+  if ! node scripts/check-agents-docs-sync.mjs; then
+    echo "" >&2
+    echo "✗ pre-push blocked: AGENTS.md and CLAUDE.md drifted. Fix the mismatches above, or bypass with 'git push --no-verify'." >&2
+    exit 1
+  fi
+  echo "==> pre-push: checking bundled migrations mirror source..."
+  if ! node scripts/check-migrations-sync.mjs; then
+    echo "" >&2
+    echo "✗ pre-push blocked: bundled migrations drifted from server/migrations. Run 'pnpm --filter @multica/desktop bundle-cli' and commit, or bypass with 'git push --no-verify'." >&2
+    exit 1
+  fi
+else
+  echo "pre-push: 'node' not found; skipping docs consistency check." >&2
+fi
+
 echo "==> pre-push: running 'make check-fast' (typecheck + unit + lint, affected only)..."
 if ! make check-fast; then
   echo "" >&2

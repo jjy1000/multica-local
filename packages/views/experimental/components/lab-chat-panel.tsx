@@ -225,7 +225,7 @@ export function LabChatPanel({
           />
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-muted-foreground">
-              {draft.length}/{SEND_MAX_LEN} · ⌘↩ 发送
+              {t(($) => $.lab_chat_send_hint, { count: draft.length, max: SEND_MAX_LEN })}
             </span>
             <button
               type="button"

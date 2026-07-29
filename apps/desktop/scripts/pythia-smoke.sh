@@ -20,6 +20,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 VENDOR_DIR="$REPO_ROOT/apps/desktop/vendor/pythia-src"
 TEST_DIR="$VENDOR_DIR/tests"
 TEST_FILE="$TEST_DIR/test_smoke.py"
+# 0.3.66: behavioural bridge contract test (stdlib-only via dependency stubs).
+# pytest auto-discovers it from $TEST_DIR; the standalone path below runs it
+# explicitly so the fast smoke covers behaviour, not just syntax.
+BRIDGE_TEST_FILE="$TEST_DIR/test_oracle_bridge.py"
 PYTHIA_PATH_PREFIX="apps/desktop/vendor/pythia-src/"
 
 AFFECTED_ONLY=false
@@ -83,6 +87,15 @@ if "$PY" -c "import pytest" >/dev/null 2>&1; then
   echo "[pythia-smoke] running via pytest ($PY)"
   exec "$PY" -m pytest "$TEST_DIR" -q
 else
+  # No `exec` here: test_smoke.py ends with sys.exit, so we run it in a
+  # subshell and capture its status, then also run the behavioural bridge
+  # test (which is unittest-based and returns its own exit code).
   echo "[pythia-smoke] pytest not installed; running standalone ($PY)"
-  exec "$PY" "$TEST_FILE"
+  rc=0
+  "$PY" "$TEST_FILE" || rc=$?
+  if [ -f "$BRIDGE_TEST_FILE" ]; then
+    echo "[pythia-smoke] running behavioural bridge contract test ($PY)"
+    "$PY" "$BRIDGE_TEST_FILE" || rc=$?
+  fi
+  exit "$rc"
 fi

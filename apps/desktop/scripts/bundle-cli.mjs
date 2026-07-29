@@ -36,8 +36,9 @@
 // resources/bin/. A genuine Go compile error is fatal — you want that
 // to block dev, not hide.
 
-import { access, chmod, copyFile, cp, mkdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { constants, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { execFileSync, execSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -217,6 +218,25 @@ if (await exists(migrationsSrc)) {
   await rm(migrationsDest, { recursive: true, force: true });
   await cp(migrationsSrc, migrationsDest, { recursive: true });
   console.log(`[bundle-cli] bundled ${migrationsSrc} → ${migrationsDest}`);
+  // Post-copy integrity check (0.3.66): confirm the mirror we just wrote is
+  // byte-identical to the source so a silent partial copy can never ship a
+  // half-migrated app. The committed-mirror-vs-source gate lives in
+  // scripts/check-migrations-sync.mjs (CI + pre-push); this guards the copy
+  // itself.
+  const srcSql = (await readdir(migrationsSrc)).filter((f) => f.endsWith(".sql")).sort();
+  const destSql = (await readdir(migrationsDest)).filter((f) => f.endsWith(".sql")).sort();
+  const destSet = new Set(destSql);
+  const sha = (p) => createHash("sha256").update(readFileSync(p)).digest("hex");
+  const drift = [];
+  for (const f of srcSql) {
+    if (!destSet.has(f)) { drift.push(`missing after copy: ${f}`); continue; }
+    if (sha(join(migrationsSrc, f)) !== sha(join(migrationsDest, f))) drift.push(`content mismatch: ${f}`);
+  }
+  if (drift.length) {
+    console.error(`[bundle-cli] migration copy verification FAILED:\n  ${drift.join("\n  ")}`);
+    process.exit(1);
+  }
+  console.log(`[bundle-cli] verified ${srcSql.length} migration files copied intact`);
 } else {
   console.warn(
     `[bundle-cli] ${migrationsSrc} not present — migrate binary won't find ` +

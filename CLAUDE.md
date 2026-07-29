@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > Keep this file short and authoritative: rules here should be hard to infer from code or easy to get wrong.
 
+> This file is the single source of truth for cross-cutting rules; `AGENTS.md` is a derived digest of it. Shared constraints (toolchain versions, package boundaries, verification commands) are enforced by `scripts/check-agents-docs-sync.mjs` (CI `docs-sync` job + `githooks/pre-push`).
+
 ## Sub-domain Guides (read the nearby file when working in a sub-domain)
 
 Each large sub-domain has a co-located `CLAUDE.md` with its own boundaries,
@@ -15,6 +17,8 @@ root file is the navigation route plus cross-cutting product/ship/desktop rules.
 | --- | --- |
 | `server/` (Go backend, handlers, migrations, experimental catalog) | [`server/CLAUDE.md`](server/CLAUDE.md) |
 | `packages/` (`core` / `ui` / `views` shared FE) | [`packages/CLAUDE.md`](packages/CLAUDE.md) |
+| `packages/views/` (shared business pages/components) | [`packages/views/CLAUDE.md`](packages/views/CLAUDE.md) |
+| `apps/desktop/` (Electron app, packaging, self-contained backend) | [`apps/desktop/CLAUDE.md`](apps/desktop/CLAUDE.md) |
 | `apps/mobile/` (Expo / React Native) | [`apps/mobile/CLAUDE.md`](apps/mobile/CLAUDE.md) |
 
 ## Localized Fork
@@ -57,7 +61,7 @@ The source of truth for code naming, i18n glossary, and Chinese product voice is
 - `apps/docs/content/docs/developers/conventions.mdx`
 - `apps/docs/content/docs/developers/conventions.zh.mdx`
 
-Read it before editing translations in `packages/views/locales/`, naming routes/packages/files/DB columns/types, or writing Chinese UI/docs copy. `packages/views/locales/glossary.md` is only a redirect stub — do not rely on it.
+Read it before editing translations in `packages/views/locales/`, naming routes/packages/files/DB columns/types, or writing Chinese UI/docs copy. (Earlier versions pointed at `packages/views/locales/glossary.md` as a redirect stub; that file no longer exists — the glossary lives in `conventions.mdx` above, so do not reference or recreate it.)
 
 ## Project Shape
 
@@ -383,6 +387,7 @@ For code changes, run the narrowest useful checks while iterating, then broader 
 ```bash
 pnpm typecheck
 pnpm test
+make check-fast       # affected TS typecheck + unit + lint; no DB/Go/E2E
 make test
 pnpm exec playwright test
 make check
@@ -423,18 +428,51 @@ cp -R dist/mac-arm64/Multica.app /Applications/
 #     kills fork+exec if these lack self-contained ad-hoc signatures).
 #     Without this step, GUI Helper processes come up but `multica --help`
 #     returns exit 137 (SIGKILL) and the server never binds :8090.
-codesign --force --deep --sign - /Applications/Multica.app
-codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica
-codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/server
-codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/migrate
-/Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica --help >/dev/null 2>&1
-# Must exit 0; exit 137 means the re-sign missed a binary.
+#     This is now a runnable, self-verifying script (was doc-only/manual and
+#     got forgotten on past ships — see Known Stability Surfaces). It signs
+#     the app + the 3 nested binaries and asserts `multica --help` exits 0.
+bash scripts/desktop-sign-nested-binaries.sh /Applications/Multica.app
 
 # 6. Verify cold start (three-check pass + row parity)
 pkill -f "multica daemon" ; pkill -f "Multica.app/Contents/MacOS/Multica"
 open /Applications/Multica.app
 bash ~/.multica/scripts/verify-desktop-cold-start.sh
 ```
+
+### Ship chain fallback: manual asar repack (0.3.63+)
+
+`electron-builder --mac --dir` deadlocks intermittently on macOS 27 with
+`app-builder-bin@5.0.0-alpha.12` (process stuck in `pthread_cond_wait` at
+`unpack-electron` step, 0% CPU indefinitely). When the canonical path hangs
+for > 5 min, use the manual asar repack:
+
+```bash
+# 1. Extract the existing installed asar
+asar extract /Applications/Multica.app/Contents/Resources/app.asar /tmp/multica-extract
+
+# 2. Overwrite renderer output
+rm -rf /tmp/multica-extract/out/{main,preload,renderer}
+cp -R apps/desktop/out/{main,preload,renderer} /tmp/multica-extract/out/
+
+# 3. Overwrite Go binaries
+cp apps/desktop/resources/bin/{multica,server,migrate} /tmp/multica-extract/resources/bin/
+
+# 4. Repack
+asar pack /tmp/multica-extract /tmp/multica-new.asar
+
+# 5. Deploy
+cp /tmp/multica-new.asar /Applications/Multica.app/Contents/Resources/app.asar
+cp apps/desktop/resources/bin/{multica,server,migrate} \
+   /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/
+
+# 6. Re-sign (same as canonical path step 5a — runnable, self-verifying)
+bash scripts/desktop-sign-nested-binaries.sh /Applications/Multica.app
+```
+
+Prerequisites: `npm install -g @electron/asar`. The fallback is valid only for
+patches that do NOT add/remove/rename resource paths (no new lab, no new
+manifest, no new Python dep). For structural changes, resolve the
+electron-builder deadlock first (pin `app-builder-bin` or wait for stable 5.x).
 
 Write a release note at `.omc/release-notes-<ver>.md` and a ship log at
 `.omc/0.3.<ver>-ship-<date>.md` (one-line header, ship steps, risk vs outcome,
@@ -529,7 +567,7 @@ Exceptions / follow-ups:
 
 **Issue creation auto-launch** — `packages/views/modals/create-issue.tsx` checks `labSource === "pythia_oracle"` after the create mutation and POSTs `{rounds: 10}` to the per-issue SSE endpoint. Best-effort (a Pythia failure must not block the create flow). The 10 rounds stream into the issue detail's Pythia panel via the existing IssueLabsSection.
 
-**lab ↔ assignee mutex** — works identically to the general mutex contract (see "Lab ↔ Assignee Mutex" section below): `pythia_oracle` selection clears the assignee and locks the AssigneePicker, and the server-side `issue.go:2153` rejects a simultaneous `lab_source + manual assignee`. The exception is `mythos_swarm`, which allows extra agents atop its 5-agent roster.
+**lab ↔ assignee mutex** — since the 0.3.33 narrowing `pythia_oracle` no longer participates in the mutex (see "Lab ↔ Assignee Mutex" section below): selecting it does NOT clear the assignee, the server auto-rewrites the assignee to the lab leader on a `lab_source` flip (0.3.47, Active Contract #2), and an explicit manual assignee is allowed and wins over the auto-rewrite. Only `mythos_swarm` (sole mode) still reserves the roster.
 
 **Manager proxy allowlist** — `apps/desktop/src/main/pythia-manager.ts::PYTHIA_PROXY_ALLOWLIST` covers 25+ endpoints: write paths (`/whatif /chat /predict /forecast/issue /model /swarm/model /loop /watchlist /alerts /brief/run /brief/config /webhooks`) + read paths (`/agent/view /predictions /world /runs /scorecard /state /links /config /models /swarm/models /personas /watch /drift /alerts/feed /brief`) + parametric prefixes (`/watchlist/{symbol}`, `/alerts/{rule_id}`). Rate limit 30/min/renderer; exceed returns `{ok:false, status:429}`. Renderer calls `window.experimentalAPI.pythia.proxy(path, init)` (returns the parsed body) — never a bare `fetch()` to the loopback URL.
 
@@ -580,7 +618,7 @@ The `LabPicker` renders a second-level TabsList (sole/enhancer) when the selecte
 - `POST /api/experimental/mythos-swarm/supervise/{runID}/tick` — trigger an immediate synchronous tick (used by "立即检查" button)
 - `GET /api/issues/{id}/mythos-runs` — find recent runs for an issue (used by IssueLabsSection supervise panel)
 
-**Supervise lifecycle**: `PhasePreparing → PhasePlanning → PhaseSupervising → PhaseDone | PhaseAborted | PhaseDegraded`. The backend NEVER touches `runtime.go` — supervise reads issue/comment rows only, writes only mythos_run + mythos_members. Flag-off → `Service.Stop()` cancels all goroutines cleanly.
+**Supervise lifecycle**: `PhasePreparing → PhasePlanning → PhaseSupervising → PhaseDone | PhaseAborted | PhaseDegraded`. The backend NEVER touches `runtime.go` — supervise reads issue/comment rows only, writes only mythos_run + mythos_members. Flag-off → `Service.Stop()` cancels all goroutines cleanly. **Completion determination (2026-07-28 audit)**: `tickSupervision` flips to `PhaseDone` when the run's `final_issue_id` reaches a terminal issue status (`done`/`closed`/`cancelled`, `isTerminalIssueStatus`), snapping `SubTasksDone` to total. Before the fix nothing ever wrote `SubTasksDone`, so every supervised run polled until the 24h cap.
 
 **Visibility for squads** (0.3.31): `experimental_resource_visibility` CHECK widened from `('agent','autopilot','skill')` to include `'squad'`. The `install_mythos.go` handler seeds 6 visibility rows (5 mythos_* agents + 1 Mythos Swarm squad) so the regular agent/squad pickers never show mythos internals when the flag is off. `squad.go::ListSquads` now calls `filterLabsHiddenByDefault(..., HideSquad, ...)`.
 
@@ -599,7 +637,7 @@ Hard constraint #2 modified: built-in flags remain developer-only; user-created 
 **Architecture:** dual-layer catalog — `catalog.go` static `Catalog` slice (8 built-in flags) + dynamic `userPlugins map[string]Flag` guarded by `userPluginMu`. `IsKnownKey()` / `DefaultFor()` / `AllFlagKeys()` check both layers. Built-in flags always win on key collision.
 
 **API endpoints** (all authenticated, no flag gate):
-- `GET/POST /api/user-plugins` — list / create (slug: `^[a-z0-9]+(?:-[a-z0-9]+)*$`, 2-64 chars; `flag_key = "user_" + slug`; 409 on duplicate)
+- `GET/POST /api/user-plugins` — list / create (slug: `^[a-z0-9]+(?:-[a-z0-9]+)*$`, 2-64 chars; `flag_key = "user_" + slug`; 409 on duplicate **among live rows** — migration 168 replaced the full-table UNIQUE on slug/flag_key with partial unique indexes `WHERE status != 'deleted'`, so a soft-deleted slug can be re-created)
 - `PUT/DELETE /api/user-plugins/{slug}` — partial update / soft-delete (status='deleted' + pref cleanup + Registry removal)
 - `GET/POST /api/user-plugins/{slug}/artifacts` — list / upload (multipart or JSON inline)
 - `GET /api/user-plugins/{slug}/artifacts/{id}/raw` — serve raw file
@@ -608,13 +646,13 @@ Hard constraint #2 modified: built-in flags remain developer-only; user-created 
 
 **Artifact storage:** `~/.multica/plugins/<slug>/artifacts/` — `index.json` (atomic tmp+rename) + files. Seven types: image / chart / table / html / code / text / file.
 
-**Execution runtime** (`user_plugin_runtime.go`, closes the run loop): `POST /run` dispatches on the `runtime_kind` column — `none` → 400, `subprocess` → 501 (reserved upgrade slot), `inline` → runs `python3 -I entry.py` (mirrors `claude_science_runtime.go`; reuses `probePython3`/`kindFromName`/`mimeForKind` + the artifact index helpers, no re-declaration). Missing plugin → 404, non-`active` → 409. Persistent per-plugin env at `~/.multica/plugins/<slug>/env/` (the future container mount point). Code source priority: request body `code` → `manifest.runtime.entry_code` → existing `env/entry.py`. Emitted files are diffed by mtime and ingested as artifacts (mapped png/svg → image / html → html / else → file), copied into the artifact store, and surfaced in the panel's Artifacts tab (client invalidates `["user-plugin-artifacts", slug]`). Run history: `~/.multica/plugins/<slug>/runs.json` (atomic, last 50). Limits reuse the claude constants: 64 KiB code, 30s default / 120s max timeout. `manifest.runtime = {kind, entry_code?, timeout_ms?}` is a pure-additive convention — `normalizeManifest` only validates legal JSON; the `runtime_kind` column stays authoritative.
+**Execution runtime** (`user_plugin_runtime.go`, closes the run loop): `POST /run` dispatches on the `runtime_kind` column — `none` → 400, `subprocess` → 501 (reserved upgrade slot), `inline` → runs `python3 -I entry.py` (mirrors `claude_science_runtime.go`; reuses `probePython3`/`kindFromName`/`mimeForKind` + the artifact index helpers, no re-declaration). Missing plugin → 404, non-`active` → 409. Persistent per-plugin env at `~/.multica/plugins/<slug>/env/` (the future container mount point). Code source priority: request body `code` → `manifest.runtime.entry_code` → existing `env/entry.py`. Emitted files are diffed by mtime and ingested as artifacts (mapped png/svg → image / html → html / else → file), copied into the artifact store, and surfaced in the panel's Artifacts tab (client invalidates `["user-plugin-artifacts", slug]`). Run history: `~/.multica/plugins/<slug>/runs.json` (atomic, last 50). Limits reuse the claude constants: 64 KiB code, 30s default / 120s max timeout. `manifest.runtime = {kind, entry_code?, timeout_ms?}` is a pure-additive convention — `normalizeManifest` only validates legal JSON; the `runtime_kind` column stays authoritative. **Hang hardening (2026-07-28 audit):** both `user_plugin_runtime.go` and `claude_science_runtime.go` set `cmd.WaitDelay = 10s` and call `configureRuntimeCmd()` (`runtime_proc_unix.go` / `runtime_proc_windows.go`): on unix the python child runs in its own process group and context-cancel kills the whole group, so a grandchild holding the inherited stdout pipe can neither outlive the run nor keep `cmd.Run()` (and the HTTP handler) blocked forever.
 
 **Container-like environment (on-demand, no Docker):** the run is on-demand (spawned when an agent/user triggers it, never a long-running container) but its `env/` dir persists, giving each lab a private, stateful workspace — Multica ships as a standalone installer, so there is no external Docker dependency. The process env carries the platform contract: `MULTICA_PLUGIN_SLUG`, `MULTICA_PLUGIN_ENV` (= cwd), and `MULTICA_PLUGIN_DB` (= `env/data.db`). The **database is the stdlib `sqlite3` module against that path** — zero install, per-plugin isolated, state accumulates across runs (e.g. a keymap graph a lab stores then renders next run). Ingestion excludes private data via `isIngestableName` (the DB + its `-wal`/`-shm`/`-journal` sidecars, `.sqlite*`, `.pyc`, dotfiles, `entry.py`) so persistent state never leaks into the Artifacts tab. Interactivity is delivered through `html` artifacts rendered in a `sandbox="allow-scripts"` iframe; the same `env/` becomes the mount point when the `subprocess`/container upgrade lands.
 
 **Visibility:** `CreateUserPlugin` seeds `experimental_resource_visibility` rows for agents/squads declared in `manifest.capabilities` — hidden from regular pickers by default.
 
-**Plugin Shell:** `packages/views/experimental/components/plugin-shell-view.tsx` — manifest-driven tabs (chat via `ExperimentalChatPane` / artifacts gallery / table / iframe / code / settings). Desktop route: `/experimental/plugin/:pluginSlug` (`plugin-shell-page.tsx`).
+**Plugin Shell:** `packages/views/experimental/components/plugin-shell-view.tsx` — manifest-driven tabs (chat via `ExperimentalChatPane` / artifacts gallery / table / iframe / code / settings). The `iframe` tab is sandboxed (`sandbox="allow-scripts"` + `referrerPolicy="no-referrer"`, opaque origin — same rule as html artifacts; plugin-authored content must never reach the app's credentials). Desktop route: `/experimental/plugin/:pluginSlug` (`plugin-shell-page.tsx`).
 
 **Built-in skill:** `server/internal/service/builtin_skills/multica-lab-builder/SKILL.md` — teaches agents to first survey the current lab landscape (Step 0: `GET /api/experimental-flags` + `GET /api/user-plugins`, mapped in `references/api-source-map.md`) and then run the full plugin CRUD lifecycle via curl against `http://localhost:8090/api/user-plugins`.
 
@@ -652,17 +690,23 @@ The `manifest.capabilities` slots now support two complementary plugin shapes; b
 
 Full authoring guidance (both archetypes + the delegate verb) is in `multica-lab-builder/SKILL.md`.
 
-## Lab ↔ Assignee Mutex (0.3.31+)
+## Lab ↔ Assignee Mutex (0.3.31, narrowed 0.3.33; batch + front-end realigned 2026-07-28 audit)
 
-Hard contract: an `issue.lab_source` reserves the agent roster for the lab. The user MUST NOT pick a manual actor on top — the lab's leader would either override the pick (silent) or sit idle while the assignee waits. Enforced at three layers; all three are required.
+**Current contract (narrowed): the mutex applies to `mythos_swarm` ONLY.**
 
-1. **UI (CreateIssueDialog + IssueDetail)** — `AssigneePicker` accepts a `lockedReason?: string` prop. When set, the trigger is grayed out (`opacity-60 cursor-not-allowed`), the popover refuses to open, and the design-system Tooltip shows the reason. `LabPicker` accepts an `onClearAssignee?` callback and fires it BEFORE `onUpdate` whenever a non-empty lab is picked, so the parent issue never carries a stale actor into a lab-owned run.
-2. **Server (CreateIssue + UpdateIssue + BatchUpdateIssues)** — Rejects with 400 `lab_source and assignee are mutually exclusive; clear one before setting the other`. The gate sits BEFORE `validateAssigneePair` on CreateIssue and UpdateIssue so a non-existent member/agent row never produces a misleading "does not refer to a member" error.
-3. **Catalog validation (0.3.26+)** — `lab_source` must be `experimental.IsKnownKey()`. Unchanged, but the mutex gate runs after this check, not before, so an unknown lab produces a clean "lab_source must match a known experimental flag key" error.
+- `mythos_swarm` + `lab_mode='sole'` (or NULL): manual assignee is rejected — the 5-agent RDT roster owns the issue.
+- `mythos_swarm` + `lab_mode='enhancer'`: the mutex is REVERSED — an assignee is REQUIRED (the supervised target). `lab_mode='enhancer'` with any other `lab_source` → 400.
+- **Every other lab (built-in or `user_*` plugin): NO mutex.** A manual assignee is a legal combination; when `lab_source` flips and the caller did not pick one, the server auto-rewrites the assignee to the lab's leader (0.3.47, Active Contract #2). An explicit assignee always wins over the auto-rewrite.
 
-**Enhancer-mode exception (0.3.31, mythos_swarm only)**: when `lab_mode='enhancer'`, the mutex is REVERSED — the user MUST provide an assignee (the target agent/squad that mythos will supervise). Server-side: `lab_mode=enhancer` with no assignee → 400 "requires an assignee"; `lab_mode=enhancer` with assignee → 201 OK; `lab_mode=enhancer` with `lab_source != 'mythos_swarm'` → 400. Front-end: the `LabPicker` sole tab calls `onClearAssignee`; the enhancer tab does NOT call it and keeps the AssigneePicker unlocked (no `lockedReason`).
+Enforced at three layers; all three carry the SAME narrowed gate (pre-audit they had drifted — batch + LabPicker still enforced the old any-lab mutex):
 
-`issue.lab_source` + `issue.lab_mode` schema: `lab_source` nullable TEXT (mig 155), `lab_mode` nullable TEXT CHECK `'sole'|'enhancer'` (mig 157). Both are NULL for non-lab issues. Any new lab that needs per-issue mode semantics must extend the CHECK constraint and the mutex gate.
+1. **UI (`LabPicker`)** — fires `onClearAssignee` ONLY when picking `mythos_swarm` in sole mode (including switching the mode tab back to sole); every other lab keeps the current assignee and leaves `AssigneePicker` unlocked. `lockedReason` on `AssigneePicker` is set only for mythos sole.
+2. **Server (CreateIssue + UpdateIssue)** — mythos sole + assignee → 400 mutex error; mythos enhancer without assignee → 400 "requires an assignee". The gate sits BEFORE `validateAssigneePair` so a non-existent member/agent row never produces a misleading "does not refer to a member" error.
+3. **Server (BatchUpdateIssues)** — same narrowed gate, but honouring the batch contract: violations `continue` (per-issue skip), never 400 the whole batch. Batch cannot set `lab_mode`, so enhancer-ness is decided from the persisted `prevIssue.LabMode`; the post-state (lab/assignee) is computed by overlaying the batch fields on the previous row. Tests: `TestBatchUpdateIssuesRespectsLabMutex` (`issue_lab_source_test.go`).
+
+Catalog validation (0.3.26+) is unchanged: `lab_source` must be `experimental.IsKnownKey()` (checks both built-in and user-plugin layers), and it runs before the mutex gate so an unknown lab produces a clean "must match a known experimental flag key" error.
+
+`issue.lab_source` + `issue.lab_mode` schema: `lab_source` nullable TEXT (mig 155), `lab_mode` nullable TEXT CHECK `'sole'|'enhancer'` (mig 157). Both are NULL for non-lab issues. Any new lab that needs per-issue mode semantics must extend the CHECK constraint and the mutex gate — in ALL THREE layers above, plus their pinned tests.
 
 ### Per-issue lab workspace (REMOVED in 0.3.38)
 
@@ -796,8 +840,11 @@ to a lab" path.
 | lab_source → leader lab | already leader | noop |
 | lab_source → leader lab | missing / non-agent / different agent | **rewrite to leader** |
 
-Future CreateIssue / BatchUpdateIssues / workflow-script paths that
-touch `lab_source` must go through this helper rather than re-derive
+Leader resolution goes through `resolveLabLeader` — built-in table first, then `experimental.UserPluginLeader` for `user_<slug>` keys (0.3.63), so user-plugin labs auto-dispatch like built-ins.
+
+**BatchUpdateIssues parity (2026-07-28 audit):** the batch path now honours the same contract — when a batch update flips `lab_source` to a leader lab and the request body does NOT explicitly touch `assignee_type`/`assignee_id`, the assignee is rewritten to the leader; an explicit `assignee_*` in the same batch body wins. Pre-audit the batch path skipped the rewrite entirely, leaving lab issues with a stale manual assignee.
+
+Future CreateIssue / workflow-script paths that touch `lab_source` must go through this helper rather than re-derive
 the gate. Tests: `TestUpdateIssueLabSource*` in
 `server/internal/handler/issue_lab_dispatch_test.go`.
 
@@ -837,24 +884,22 @@ Real failure modes that took non-trivial debugging. NOT obvious from reading the
 - **Spawning the multica daemon from a Bash harness kills the daemon when the harness exits.** macOS bash does not support `setsid`; `nohup ... &` is fragile outside of an interactive shell. The only reliable detach on macOS is zsh's `&!` operator (or launchd). Use `~/.multica/scripts/multica-spawn-daemon.zsh` for any manual daemon launch — do not roll your own.
 - **code_canvas is auto-mounted via registry (0.3.20+), DO NOT add a manual `setupCodeCanvasManager` in router.go.** `server/internal/handler/experimental_proxy.go::MountExperimentalProxies` walks `h.ExperimentRegistry.ProxyRoutes()` (registry.go:206-227) and auto-mounts every `RuntimeKind=="subprocess"` catalog entry whose `ProxyPrefix` + `LoopbackService` are non-empty. `code_canvas` already fills both in `catalog.go:265-279`, so `router.go:503` `MountExperimentalProxies(r, h)` is sufficient — adding a manual handler would double-register. Before assuming any subprocess flag needs router.go wiring, grep `MountExperimentalProxies` and `ProxyRoutes` first. **0.3.25**: `code_canvas` is `installable: false` in its manifest (it provisions no skills/agents/squads, so there is nothing to install) — do not flip it back to `true` without also registering a `code_canvas_install` handler in router.go, or the install POST returns 404 against a manifest that claims otherwise. Its `run.sh` stub (`resources/code-canvas/run.sh`) is a real 30-line python `/health` server; the only missing piece for a live subprocess is a manifest-driven generic spawner in `manager-factory.ts` (pythia is currently the only subprocess with a dedicated manager).
 - **`launchctl bootstrap gui/$UID/...` rejects the multica daemon binary with `OS_REASON_CODESIGNING | embedded signature doesn't match attached signature`** if the binary was hot-patched into `Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/` via `cp`. The codesign manifest in the .app bundle does not match the replaced binary. Fix: repackage the .app via `pnpm --filter @multica/desktop package` (which re-signs) or resign with `codesign --force --deep --sign - Multica.app`.
-- **`pnpm --filter @multica/desktop package --dir` does NOT sign nested binaries (0.3.62 ship-blocker).** The `app.asar.unpacked/resources/bin/{multica,server,migrate}` Go binaries ship with ad-hoc signatures from `bundle-cli`, but `electron-builder --dir` only re-signs the top-level `.app` bundle. macOS 27 Gatekeeper treats unpacked binaries as bundle parts and kills any fork+exec with SIGKILL (`exit 137`). Symptom: `Multica.app` cold-starts, the GUI Helper processes come up, but `multica --help` returns 137, daemon.log reports `signal: 'SIGKILL', cmd: '...multica version --output json'`, and the server binary never binds `:8090` because the daemon can't spawn its bundled CLI. Crash reports show `namespace=CODESIGNING indicator=Taskgated Invalid Signature`. Diagnostic trick: `cp <unpacked_binary> /tmp/<bin> && /tmp/<bin> --help` succeeds — the SIGKILL only fires inside `.app/Contents/Resources/app.asar.unpacked/`. **Fix**: after `cp -R dist/mac-arm64/Multica.app /Applications/`, sign each unpacked binary individually:
-  ```bash
-  codesign --force --deep --sign - /Applications/Multica.app
-  codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica
-  codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/server
-  codesign --force --sign - /Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/migrate
-  ```
-  Then smoke-test `/Applications/Multica.app/Contents/Resources/app.asar.unpacked/resources/bin/multica --help` — must return `exit=0` (NOT `137`). **This step belongs in ship chain between `cp -R` and `verify-desktop-cold-start.sh`**; consider adding it to `bundle-cli.mjs` post-build hook so it's automatic. Full prevention contract in memory `multica-0.3.62-codesign-nested-binary-2026-07-23.md`.
+- **`electron-builder --mac --dir` deadlocks intermittently on macOS 27 (0.3.63, app-builder-bin alpha12).** Process `app-builder-bin` stuck at `unpack-electron` step in `pthread_cond_wait` with 0% CPU. Killing and re-running does not help — deadlocks again. Workaround: manual asar repack (see "Ship chain fallback" section above). Root cause is `app-builder-bin@5.0.0-alpha.12` IPC pipeline; tracked for resolution before 0.3.64. Options: (a) pin to stable 4.x, (b) wait for 5.0.0 stable, (c) keep manual repack as canonical. The manual path was validated end-to-end in 0.3.63 ship.
+- **`pnpm --filter @multica/desktop package --dir` does NOT sign nested binaries (0.3.62 ship-blocker).** The `app.asar.unpacked/resources/bin/{multica,server,migrate}` Go binaries ship with ad-hoc signatures from `bundle-cli`, but `electron-builder --dir` only re-signs the top-level `.app` bundle. macOS 27 Gatekeeper treats unpacked binaries as bundle parts and kills any fork+exec with SIGKILL (`exit 137`). Symptom: `Multica.app` cold-starts, the GUI Helper processes come up, but `multica --help` returns 137, daemon.log reports `signal: 'SIGKILL', cmd: '...multica version --output json'`, and the server binary never binds `:8090` because the daemon can't spawn its bundled CLI. Crash reports show `namespace=CODESIGNING indicator=Taskgated Invalid Signature`. Diagnostic trick: `cp <unpacked_binary> /tmp/<bin> && /tmp/<bin> --help` succeeds — the SIGKILL only fires inside `.app/Contents/Resources/app.asar.unpacked/`. **Fix (0.3.66: automated)**: after `cp -R dist/mac-arm64/Multica.app /Applications/`, run `bash scripts/desktop-sign-nested-binaries.sh /Applications/Multica.app` — it signs the app + the 3 nested binaries and self-verifies `multica --help` exits 0 (exits 1 on a 137). It is wired into both the canonical ship chain (step 5a) and the asar-repack fallback (step 6). Do NOT revert to inline `codesign` lines or a doc-only reminder — the manual step was exactly what got skipped. Full prevention contract in memory `multica-0.3.62-codesign-nested-binary-2026-07-23.md`.
 - **electron-builder asar `Unable to load ... links out of the package` is a FORK CONFIG regression, NOT a pnpm-linker problem (0.3.63, 2026-07-24).** Symptom: packaging aborts with ~42 out-of-tree symlinks pointing at `../../../node_modules/.pnpm/...`. Root cause is a divergence from upstream: this fork's `apps/desktop/electron-builder.yml` had dropped the `- "!dist/**"` exclude AND `apps/desktop/scripts/package.mjs` had dropped its Step 0 pre-build `rmSync(distDir)`, so a stale multi-GB `dist/` (a prior run's `.app`+DMG+ZIP, whose nested `Electron Framework` symlinks live outside the app root) got repacked into the new `app.asar`. **Fix (official-aligned, applied)**: restore `- "!dist/**"` in `electron-builder.yml` files list + `import { rmSync }` and a Step 0 `rmSync(resolve(desktopRoot,"dist"), {recursive:true,force:true})` in `package.mjs` main(), then delete the stale `dist/`. **ANTI-PATTERN — do NOT set `node-linker=hoisted` in `.npmrc` to make the `.pnpm` symlinks disappear.** It does silence the asar error but breaks two things: (1) electron-builder's electron version detection (electron hoists to root `node_modules/electron`; the detector only looks in `apps/desktop/node_modules/electron` and fails → forces a brittle `-c.electronVersion=<pin>`), and (2) electron-builder's pnpm dependency collector, which then logs `dependency not found on disk` for ~55 runtime deps (commander, execa, marked, @radix-ui/*, …) and ships an app with **missing node modules** that crashes at runtime. Upstream builds fine on the DEFAULT isolated linker (`.npmrc` must stay `shamefully-hoist=true` only, no `node-linker`); electron-builder dereferences the `.pnpm` symlinks into the asar correctly under isolated. Full context in memory `multica-desktop-asar-links-out-hoisted-antipattern-2026-07-24.md`.
 - **Bundle-cli "version source"**: `apps/desktop/package.json` is the only version file; `git describe` is tried first and fails silently. Never bump anywhere else.
 - **Pre-update snapshot before any DMG rebuild** is mandatory — the script checks `apps/desktop/package.json` version against the running app and refuses to proceed if the data-safety invariants don't hold.
 - **Ship chain must run `migrate up` before `bundle-cli`** — the `.app` cold start auto-applies pending migrations, but SQL errors should surface at build time, not first user launch. (Lesson from 0.3.20 ship where migration 153 was missed and had to be applied manually post-install.)
 - **PG binary tree wiped on ship + fetcher hangs (2026-07-14, status 0.3.22.1 partial fix).** 0.3.21 ship 后 `~/.multica/pg/17.4/{bin,lib,share,include}` 被清(根因 ship 链具体哪一步仍**未锁死**,候选 ship 链 / launchd watchdog / cleanup 脚本 — ship 链 audit 是 0.3.23 待办),`apps/desktop/src/main/pg-bootstrap.ts:892` 的 `await fetch(url, { signal: AbortSignal.timeout(60_000) })` 已加(0.3.22.1),`cache/<version>.dmg` + `cache/<version>.dmg.sha256` 命中路径已加(0.3.22.1)。`server/internal/handler/auth.go:313` 加 `slog.Warn("auth lookup failed", "error", err, "name", req.Name)` 透 wrapped pgx err 到 slog(0.3.22.1)。`~/.multica/scripts/multica-guard-server.zsh` 加 `SELECT 1` DB 探针,DB-down 与 /health-down 分支分别报(0.3.22.1)。**0.3.22 ship 时落地措施**:brew `postgresql@17` 17.6 symlink 替身 + 写 `VERSION=17.4` 绕过 fetcher → 0.3.22.1 已升级为真二进制(`cp -RL` 固化,备份在 `~/.multica/pg/17.4.bak.<ts>` 30 天后清理)。**Before editing `pg-bootstrap.ts` / ship 链 / `auth.go` / `multica-guard-server.zsh`, re-read `.omc/incidents/2026-07-14-pg-binary-tree-wiped-on-ship.md` + memory `pg-binary-tree-ship-wipe-2026-07-14.md`.** 详见 `0.3.22-ship-2026-07-14.md`(待建) §R1 永久预防 5 项 PR 状态:✅ fetch timeout · ✅ DMG cache · ✅ server-guard DB 探针 · ✅ login 错误透 err · ⏳ ship 链根因锁定。
 - **launchd daemon-watchdog silently exits (2026-07-14).** `~/.multica/scripts/multica-daemon-watchdog.sh` 在 `set -u` 下引用未声明的 `$START_TIME` (line 258/259 附近),每次 kickstart 立即 exit 0,launchd 看到 exit 0 停 job → `launchctl print gui/$UID/com.multica.daemon-watchdog` 持续 `state = not running`。修复:line 68 加 `START_TIME="${START_TIME:-$(date +%s)}"`(默认值兜底,0.3.22.1 已修)。诊断技巧:`cat /tmp/multica-daemon-watchdog.launchd.err.log | grep unbound` 是快速定位手段。**Before editing watchdog 脚本,grep `set -u` 后列出所有引用变量,确保每个都有默认值兜底。**
+- **Experimental runtime GC never swept (fixed 2026-07-28 audit).** `server/internal/experimental/runtime_gc.go::Run()` called `g.stopOne.Do(func() { close(g.stopped) })` EAGERLY at loop entry instead of `defer`-ring it — the first `select` hit `<-g.stopped` immediately and the GC exited without ever sweeping. Additionally `tarGz` was a placeholder stub, so "archived" runtime dirs were never actually archived. Fixed: the close is deferred, and `tarGz` is a real streaming tar.gz writer (tmp + rename, symlinks skipped). When touching GC-style loops, verify the sweep branch is actually reachable with a test, not by reading the code.
+- **Panic flag attribution must survive LIFO defer unwind (fixed 2026-07-28 audit).** `experimental/panic_context.go::WithPanicFlagContext` originally cleared its flag slot in its own `defer` — which runs BEFORE the outer sentinel's `recover` during panic unwind (defers are LIFO), so the blacklist attribution was always empty. Contract: the slot is retained on panic and popped by the sentinel after attribution. Do not "clean up" the slot-clearing back into a defer.
 
 ## Memory Index (cross-session)
 
 Before editing any subsystem with a known-regression or regression-suspect surface, read the matching memory file in `~/.claude/projects/-Users-jiangjianyan-jjy-multica-main/memory/`. The full index is in `MEMORY.md` next to the files (one line per memory, descriptive title only).
+
+> **These files live OUTSIDE this repo** (in the Claude project-memory dir above), so a bare name like `multica-0.3.0-standalone-2026-07-02.md` referenced anywhere in this doc is NOT a repo path — `git`/filesystem lookups at the repo root will not find it. Read it via the absolute path above. They are intentionally not committed (per-user, cross-session context).
 
 **For a new session, start here:**
 - `project-init-doc-2026-07-14.md` — Full fork snapshot for 0.3.20 (still useful for high-level architecture; some flag / manifest details are superseded by 0.3.22+).
@@ -896,6 +941,8 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 - `multica-version-upgrade-compat.md` — DB volume / config / workspace upgrade immutability contract.
 - `multica-0.3.62-codesign-nested-binary-2026-07-23.md` — `pnpm package --dir` does NOT sign unpacked Go binaries; macOS 27 Gatekeeper kills fork+exec with SIGKILL. Re-sign step must run between `cp -R` and `verify-desktop-cold-start.sh`. Read before any 0.3.62+ ship.
 - `multica-desktop-asar-links-out-hoisted-antipattern-2026-07-24.md` — asar "links out of the package" is a fork config regression (dropped `!dist/**` + `package.mjs` dist pre-clean), NOT a pnpm-linker problem. `node-linker=hoisted` is an anti-pattern: it breaks electron version detection + the pnpm dep collector. Keep `.npmrc` isolated (`shamefully-hoist=true` only). Read before touching `.npmrc`, `electron-builder.yml`, or `package.mjs`.
+- `0.3.63-ship-2026-07-24.md` — Security hardening (pluginRuntimeEnv minimal env, resolveToken MULTICA_API_TOKEN, isBlockedEnvKey PYTHON*, squad notification filter) + electron-builder deadlock workaround (manual asar repack). Read before any 0.3.64+ ship or security audit of user-plugin sandbox.
+- `.omc/release-notes-0.3.64.md` (2026-07-28 labs audit) — 9 high-severity labs/plugin fixes: batch+LabPicker mutex realigned to the 0.3.33 narrowed semantics, batch leader-rewrite parity, experimental runtime GC defer bug (GC never swept) + real tarGz, panic flag attribution (LIFO defer vs sentinel recover), runtime pipe-hang hardening (WaitDelay + process-group kill), migration 168 partial unique slug index, mythos supervise completion, plugin-shell iframe sandbox. **3 tests were pinning the old broken behavior and were fixed alongside** — when a contract changes, grep its tests for pinned assertions. Read before touching the lab mutex gate, batch issue updates, runtime GC, or supervise.
 
 ## Domain Reminders
 
@@ -905,7 +952,7 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 - **Mythos supervise goroutine lifecycle**: `Service.Run` launches a per-run supervise goroutine for enhancer-mode runs. The goroutine writes `mythos_run.supervision_state` every 30s tick and self-terminates at 24h max lifetime. Daemon bootstrap (`newMythosService` in `router.go`) calls `ResumeSupervision` for every workspace to recover orphaned goroutines after a restart. Flag-off cancels all in-flight supervises via `Service.Stop()`. **Do NOT add any flag gating inside the supervise goroutine itself** — the goroutine reads the issue's current `lab_mode` from the run row; if the user flips the flag off after a run started, the goroutine exits cleanly via the cancel func.
 - **Issue `lab_source` column** (nullable TEXT, added migration 155) + **`lab_mode` column** (nullable TEXT, added migration 157, CHECK `'sole'|'enhancer'`). `lab_source` associates an issue with an experimental lab flag key. `lab_mode` is currently meaningful only for `mythos_swarm` — `'sole'` means the lab owns the issue end-to-end; `'enhancer'` means the lab preludes + supervises while the user-picked assignee executes. The `LabPicker` component renders a sub-tab (sole/enhancer) when `labSource === 'mythos_swarm'`. When adding a new lab with per-issue mode semantics, extend the CHECK constraint in a migration and add the mode handling to the lab's runner + frontend picker.
 - **Explicit-column-list queries in `queries/issue.sql`**: `ListIssues`, `ListOpenIssues`, `CreateIssue`, and `CreateIssueWithOrigin` enumerate columns manually (they omit heavy fields like `acceptance_criteria`, `context_refs`). When adding a new column to `issue` table, update ALL of these SELECTs/INSERTs + their generated Row structs + Scan/args calls. Other queries use `SELECT *` / `RETURNING *` and are handled automatically by `sqlc generate`.
-- **User plugin flag keys** always carry the `user_` prefix (`plugin_scanner.go::IsUserPluginKey()`). `GET /api/experimental-flags` returns user plugins with `is_user_plugin: true` — the Labs tab and LabPicker use this to distinguish them from built-in flags. User plugin `DefaultVal` is always `false` (opt-in). Deleting a user plugin soft-deletes the DB row (`status='deleted'`), removes the flag from the in-memory Registry, and cleans up the caller's `experimental_pref` row. The `user_plugin` table (migration 166) has `slug` and `flag_key` UNIQUE constraints — slug is immutable after creation.
+- **User plugin flag keys** always carry the `user_` prefix (`plugin_scanner.go::IsUserPluginKey()`). `GET /api/experimental-flags` returns user plugins with `is_user_plugin: true` — the Labs tab and LabPicker use this to distinguish them from built-in flags. User plugin `DefaultVal` is always `false` (opt-in). Deleting a user plugin soft-deletes the DB row (`status='deleted'`), removes the flag from the in-memory Registry, and cleans up the caller's `experimental_pref` row. The `user_plugin` table (migration 166) enforced `slug` and `flag_key` UNIQUE at the column level; migration 168 (2026-07-28 audit) converted both to **partial unique indexes scoped to live rows** (`WHERE status != 'deleted'`) so a soft-deleted slug can be re-created — all `user_plugin.sql` queries already filter `status != 'deleted'`, and the create handler's 23505 → 409 mapping is unchanged. Slug is immutable after creation.
 - **Server log lives at `~/.multica/profiles/<profile>/server.log`, NOT `~/.multica/server.log`.** `server-manager.ts::serverLogPath()` writes stdout+stderr into the profile dir. The legacy `~/.multica/server.log` (if any) is from a pre-0.3.0 dev run and stays frozen at its last mtime. Always diagnose ship-post behavior from the profile-local log; the daemon/CLI/desktop activity you want to see lives there.
 - **Squad-as-subscriber / squad-as-recipient schema — migration 167 (0.3.61)** extended `issue_subscriber.user_type` and `inbox_item.recipient_type` CHECK constraints to allow `'squad'`, and relaxed `agent_task_queue_accountable_matches_originator` so both columns are independently nullable (only equal-required when both set). The fix matches the upstream latent bug present in `/Users/jiangjianyan/Downloads/multica-main` (verified by zero-byte diff on `subscriber_listeners.go` / `notification_listeners.go`). When reviewing or writing squad assignee paths, schema no longer blocks; if you discover a new place that should *not* subscribe/notify a squad (e.g. squad-as-recipient showing up in a personal inbox), filter at the handler layer — do NOT re-tighten the CHECK constraints and re-introduce the upstream regression. **0.3.63:** the handler-layer squad filter has now landed — `subscriber_listeners.go` skips `*issue.AssigneeType == "squad"` in both the `issue:created` and `issue:updated` assignee-subscription paths, and `notification_listeners.go::notifyDirect` early-returns on `recipientType == "squad"`. This prevents squad-routed subscriber/inbox rows from surfacing in a human member's `ListInbox`. Squads still receive task dispatch via the queue path (unaffected); only the personal-inbox subscription/notification fan-out is short-circuited.
 - **`AgentCreationStudioView` / `plugin-shell-view.tsx` are distinct surfaces.** The studio (route `/experimental/agent-creation-studio`) is for ad-hoc creation of agent/skill/squad rows through the existing REST APIs — no new mutation hook, no new sqlc, no schema column. The plugin shell (route `/experimental/plugin/:pluginSlug`) is for `user_*` lab plugins with manifest-driven tabs. Don't conflate them when routing new lab work; the studio edits *built-in* schema, the shell renders *user* artifacts.

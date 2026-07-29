@@ -68,3 +68,15 @@ server/server
 data/
 .kilo
 .idea
+
+# local pnpm store (writes a sibling v10/ tree next to the repo)
+.pnpm-store/
+
+# local qoder IDE cache
+.qoder/
+
+# Python bytecode / caches (the vendored Pythia engine is Python; running its
+# smoke/behavioural tests creates these next to the source — never commit them)
+__pycache__/
+*.py[cod]
+*$py.class

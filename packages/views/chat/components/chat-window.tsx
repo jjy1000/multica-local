@@ -179,13 +179,6 @@ export function ChatWindow({ wsId: wsIdOverride }: ChatWindowProps = {}) {
   const { t } = useT("chat");
   const wsIdFromContext = useWorkspaceId();
   const wsId = wsIdOverride ?? wsIdFromContext;
-  if (!wsId) {
-    return (
-      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-        请先选择一个工作区
-      </div>
-    );
-  }
   const isOpen = useChatStore((s) => s.isOpen);
   const activeSessionId = useChatStore((s) => s.activeSessionId);
   const selectedAgentId = useChatStore((s) => s.selectedAgentId);
@@ -691,6 +684,20 @@ export function ChatWindow({ wsId: wsIdOverride }: ChatWindowProps = {}) {
   };
 
   const contextItems = useChatContextItems(wsId);
+
+  // Rules-of-hooks: the no-workspace guard MUST run after every hook above.
+  // Pre-0.3.66 it sat before the hook block (right under the `wsId` compute),
+  // so a `wsId` that flipped falsy↔truthy within one mount changed the hook
+  // count and crashed React ("Rendered fewer hooks than expected"), unmounting
+  // the whole window. Queries fired with an undefined wsId in this state are
+  // harmless — none of their results are rendered before we return below.
+  if (!wsId) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+        {t(($) => $.window.no_workspace)}
+      </div>
+    );
+  }
 
   return (
     <motion.div

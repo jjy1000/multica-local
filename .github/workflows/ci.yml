@@ -11,6 +11,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # AGENTS.md is a derived digest of the authoritative CLAUDE.md. This gate
+  # fails when the two drift on toolchain versions, package boundaries, or
+  # verification commands — or when either doc drifts from the real pins
+  # (package.json, server/go.mod, .nvmrc, pnpm-workspace.yaml catalog, the
+  # Postgres CI image, Makefile targets). Runs on the runner's preinstalled
+  # Node; the script has no dependencies.
+  docs-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check AGENTS.md / CLAUDE.md consistency
+        run: node scripts/check-agents-docs-sync.mjs
+
+      - name: Check bundled migrations mirror source
+        # bundle-cli copies server/migrations → apps/desktop/resources/...
+        # but does NOT run in CI, so a committed stale mirror would ship the
+        # wrong schema. This gate reads both committed trees directly.
+        run: node scripts/check-migrations-sync.mjs
+
   # Decides whether the (heavy, ~6min) frontend job has anything to do.
   # The frontend job validates the web/desktop apps, the shared packages,
   # the install graph, and the selfhost / reserved-slugs scripts it runs;

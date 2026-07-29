@@ -1049,14 +1049,6 @@ function LabAgentFromIssue({
     },
   });
 
-  if (!selectedIssueId) {
-    return (
-      <section className="rounded-xl border border-dashed border-border bg-card/40 p-3 text-xs text-muted-foreground">
-        {t(($) => $.agent_lock_unlocked_hint)}
-      </section>
-    );
-  }
-
   const issue = issueQ.data;
   const agentId = issue?.assignee_type === "agent" ? issue.assignee_id : null;
   const agentLabel = agentId?.slice(0, 8) ?? "—";
@@ -1065,6 +1057,14 @@ function LabAgentFromIssue({
   // agent list so the strip shows "由 research 驱动" instead of the
   // truncated UUID. Falls back to the truncated ID while the list is
   // loading (first paint).
+  //
+  // 0.3.66 (rules-of-hooks): this second useQuery MUST run on every render,
+  // so it is declared BEFORE the `!selectedIssueId` early return below.
+  // Pre-0.3.66 the early return sat between the two queries, so a
+  // selectedIssueId that flipped null↔set within one mount changed the hook
+  // count and crashed React ("Rendered fewer hooks than expected"). Both
+  // queries stay disabled when they shouldn't fire (issueQ on
+  // `!!selectedIssueId`, agentName on `!!agentId`), so behaviour is unchanged.
   const agentName = useQuery({
     queryKey: ["claude-lab-agents-lookup", wsId, agentId] as const,
     enabled: !!wsId && !!agentId,
@@ -1075,6 +1075,14 @@ function LabAgentFromIssue({
     },
   });
   const resolvedName = agentName.data?.find((a) => a.id === agentId)?.name ?? agentLabel;
+
+  if (!selectedIssueId) {
+    return (
+      <section className="rounded-xl border border-dashed border-border bg-card/40 p-3 text-xs text-muted-foreground">
+        {t(($) => $.agent_lock_unlocked_hint)}
+      </section>
+    );
+  }
 
   return (
     <section className="rounded-xl border border-border bg-card p-3">
