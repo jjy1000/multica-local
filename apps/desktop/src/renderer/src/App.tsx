@@ -10,6 +10,8 @@ import { useHasOnboarded } from "@multica/core/paths";
 import { setCurrentWorkspace } from "@multica/core/platform";
 import { ThemeProvider } from "@multica/ui/components/common/theme-provider";
 import { MulticaIcon } from "@multica/ui/components/common/multica-icon";
+import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
+import { Button } from "@multica/ui/components/ui/button";
 import { Toaster } from "@multica/ui/components/ui/sonner";
 import { DesktopLoginPage } from "./pages/login";
 import { DesktopShell } from "./components/desktop-layout";
@@ -359,6 +361,49 @@ async function handleDaemonLogout() {
   }
 }
 
+/**
+ * Root-level full-window error fallback (0.3.66, closes P1-2).
+ *
+ * Before this existed the renderer had NO root ErrorBoundary — a render-time
+ * throw anywhere in the tree (an un-defended `undefined.map`, a drifted
+ * backend field, a missing i18n key) escaped React's render pass, unmounted
+ * the whole root, and blanked the entire desktop window to white. The
+ * 2026-07-14 AppSidebar incident only got a *local* boundary around the
+ * sidebar; the generic hole stayed open.
+ *
+ * Deliberately dependency-free: it must NOT call `useT` / i18n, because an
+ * i18n selector crash is exactly the class of bug this catches (the fallback
+ * would throw too and re-white-screen). Static bilingual copy + a reset and a
+ * hard reload. Mounted inside ThemeProvider (so the semantic tokens resolve)
+ * but OUTSIDE CoreProvider (so a crash in the provider itself is still
+ * caught).
+ */
+function RootErrorFallback({ error, reset }: { error: Error; reset: () => void }) {
+  return (
+    <div className="flex h-screen w-screen items-center justify-center bg-background p-6">
+      <div
+        role="alert"
+        className="flex w-full max-w-md flex-col items-start gap-4 rounded-lg border border-border bg-card p-6 shadow-lg"
+      >
+        <MulticaIcon className="size-8 text-muted-foreground" />
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-foreground">界面渲染出错</p>
+          <p className="text-sm text-muted-foreground">Something went wrong rendering the app.</p>
+          <p className="break-all text-xs text-muted-foreground/80">{error.message || "Unknown error"}</p>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={reset}>
+            重试
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
+            重新加载
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const { version, os } = window.desktopAPI.appInfo;
   const systemLocale = window.desktopAPI.systemLocale;
@@ -432,21 +477,32 @@ export default function App() {
 
   return (
     <ThemeProvider>
-      {runtimeConfigResult.ok ? (
-        <CoreProvider
-          apiBaseUrl={runtimeConfigResult.config.apiUrl}
-          wsUrl={runtimeConfigResult.config.wsUrl}
-          onLogout={handleDaemonLogout}
-          identity={identity}
-          locale={locale}
-          resources={resources}
-          localeAdapter={localeAdapter}
-        >
-          <AppContent />
-        </CoreProvider>
-      ) : (
-        <BlockingRuntimeConfigError message={runtimeConfigResult.error.message} />
-      )}
+      <ErrorBoundary
+        fallback={({ error, reset }) => <RootErrorFallback error={error} reset={reset} />}
+        onError={(error, info) =>
+          captureEvent("client_render_error", {
+            message: error.message,
+            source: "root-error-boundary",
+            component_stack: info.componentStack?.slice(0, 512) ?? "",
+          })
+        }
+      >
+        {runtimeConfigResult.ok ? (
+          <CoreProvider
+            apiBaseUrl={runtimeConfigResult.config.apiUrl}
+            wsUrl={runtimeConfigResult.config.wsUrl}
+            onLogout={handleDaemonLogout}
+            identity={identity}
+            locale={locale}
+            resources={resources}
+            localeAdapter={localeAdapter}
+          >
+            <AppContent />
+          </CoreProvider>
+        ) : (
+          <BlockingRuntimeConfigError message={runtimeConfigResult.error.message} />
+        )}
+      </ErrorBoundary>
       <Toaster />
       <UpdateNotification />
       <ServerStatusBanner />
