@@ -22,7 +22,6 @@ const (
 	EventOnboardingQuestionnaireSubmit = "onboarding_questionnaire_submitted"
 	EventAgentCreated                  = "agent_created"
 	EventOnboardingCompleted           = "onboarding_completed"
-	EventCloudWaitlistJoined           = "cloud_waitlist_joined"
 	EventFeedbackSubmitted             = "feedback_submitted"
 	EventContactSalesSubmitted         = "contact_sales_submitted"
 	EventSquadCreated                  = "squad_created"
@@ -92,7 +91,6 @@ type TaskContext = CoreProperties
 const (
 	OnboardingPathFull           = "full"            // reached first_issue end of flow
 	OnboardingPathRuntimeSkipped = "runtime_skipped" // completed without connecting a runtime
-	OnboardingPathCloudWaitlist  = "cloud_waitlist"  // completed via cloud waitlist soft exit
 	OnboardingPathSkipExisting   = "skip_existing"   // "I've done this before" from welcome
 	OnboardingPathInviteAccept   = "invite_accept"   // accepted at least one invitation from /invitations
 	OnboardingPathUnknown        = "unknown"         // fallback when the server can't derive the path
@@ -501,22 +499,21 @@ func AgentCreated(actorID, workspaceID, agentID, provider, runtimeMode, template
 
 // OnboardingCompleted fires from CompleteOnboarding. `completionPath`
 // is derived server-side from the state the user arrived in (see the
-// OnboardingPath* constants above). `joinedCloudWaitlist` is true when
-// the user submitted the waitlist form at any point during the flow —
-// it's orthogonal to `completion_path`; a user may submit the form and
-// still pick CLI, so we keep both signals.
+// OnboardingPath* constants above).
+//
+// 0.3.66 (M3 PR2): `joinedCloudWaitlist` parameter dropped — the
+// cloud waitlist funnel was removed (CLAUDE.md "No cloud features").
 //
 // onboardedAt is an RFC3339 timestamp set $set_once on the person so
 // "onboarded before date X" cohorts are queryable directly from
 // person_properties without re-emitting per-event.
-func OnboardingCompleted(userID, workspaceID, completionPath, onboardedAt string, joinedCloudWaitlist bool) Event {
+func OnboardingCompleted(userID, workspaceID, completionPath, onboardedAt string) Event {
 	return Event{
 		Name:        EventOnboardingCompleted,
 		DistinctID:  userID,
 		WorkspaceID: workspaceID,
 		Properties: withCoreProperties(map[string]any{
-			"completion_path":       completionPath,
-			"joined_cloud_waitlist": joinedCloudWaitlist,
+			"completion_path": completionPath,
 		}, CoreProperties{
 			UserID:      userID,
 			WorkspaceID: workspaceID,
@@ -525,22 +522,6 @@ func OnboardingCompleted(userID, workspaceID, completionPath, onboardedAt string
 		SetOnce: map[string]any{
 			"onboarded_at": onboardedAt,
 		},
-	}
-}
-
-// CloudWaitlistJoined fires when a user submits the Step 3 cloud
-// waitlist form. `hasReason` is a presence bool — the free-text reason
-// stays in the DB for product research.
-func CloudWaitlistJoined(userID string, hasReason bool) Event {
-	return Event{
-		Name:       EventCloudWaitlistJoined,
-		DistinctID: userID,
-		Properties: withCoreProperties(map[string]any{
-			"has_reason": hasReason,
-		}, CoreProperties{
-			UserID: userID,
-			Source: SourceOnboarding,
-		}),
 	}
 }
 

@@ -99,46 +99,6 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 	return i, err
 }
 
-const joinCloudWaitlist = `-- name: JoinCloudWaitlist :one
-UPDATE "user" SET
-    cloud_waitlist_email = $2,
-    cloud_waitlist_reason = $3,
-    updated_at = now()
-WHERE id = $1
-RETURNING id, name, email, avatar_url, created_at, updated_at, onboarded_at, onboarding_questionnaire, cloud_waitlist_email, cloud_waitlist_reason, starter_content_state, language, profile_description, timezone
-`
-
-type JoinCloudWaitlistParams struct {
-	ID                  pgtype.UUID `json:"id"`
-	CloudWaitlistEmail  pgtype.Text `json:"cloud_waitlist_email"`
-	CloudWaitlistReason pgtype.Text `json:"cloud_waitlist_reason"`
-}
-
-// Records interest in cloud runtimes. Does NOT mark onboarding
-// complete — the user still has to pick a real path (CLI / Skip)
-// in Step 3. Repeating the call overwrites email + reason.
-func (q *Queries) JoinCloudWaitlist(ctx context.Context, arg JoinCloudWaitlistParams) (User, error) {
-	row := q.db.QueryRow(ctx, joinCloudWaitlist, arg.ID, arg.CloudWaitlistEmail, arg.CloudWaitlistReason)
-	var i User
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Email,
-		&i.AvatarUrl,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.OnboardedAt,
-		&i.OnboardingQuestionnaire,
-		&i.CloudWaitlistEmail,
-		&i.CloudWaitlistReason,
-		&i.StarterContentState,
-		&i.Language,
-		&i.ProfileDescription,
-		&i.Timezone,
-	)
-	return i, err
-}
-
 const markUserOnboarded = `-- name: MarkUserOnboarded :one
 UPDATE "user" SET
     onboarded_at = COALESCE(onboarded_at, now()),

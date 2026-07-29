@@ -225,6 +225,7 @@ function LabPickerRow({
    *  it as "my selection didn't register". */
   hasAssignee: boolean;
 }) {
+  const { t: tModals } = useT("modals");
   const { data: flags } = useExperimentalFlags();
   // Wait for the flag query to settle. Skipping the placeholder while
   // the request is in flight would cause a flicker from "missing row"
@@ -246,7 +247,7 @@ function LabPickerRow({
   return (
     <div className="shrink-0 px-4 py-1 flex items-center gap-1.5 flex-wrap">
       <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 select-none">
-        实验性功能 · {enabledCount}
+        {tModals(($) => $.create_issue.lab_row_title, { count: enabledCount })}
       </span>
       <LabPicker
         labSource={labSource}
@@ -297,13 +298,13 @@ function LabPickerRow({
         )}
       >
         <Plus className="size-3" />
-        创建实验室
+        {tModals(($) => $.create_issue.lab_row_create_lab)}
       </PillButton>
       {isLabCreation && (
         <span className="text-[10px] text-muted-foreground select-none">
           {hasAssignee
-            ? "✓ 已选负责人，创建后由其创建实验室插件"
-            : "选择一个智能体或团队来创建实验室插件"}
+            ? tModals(($) => $.create_issue.lab_row_create_with_assignee)
+            : tModals(($) => $.create_issue.lab_row_pick_assignee_first)}
         </span>
       )}
     </div>

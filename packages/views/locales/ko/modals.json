@@ -211,6 +211,8 @@
     },
     "lab_row_title": "실험 기능 · {{count}}",
     "lab_row_create_lab": "실험실 생성",
-    "lab_row_bound_tooltip": "실험실이 이미 바인딩되어 있습니다. 새 실험실을 만들려면 먼저 실험실 선택을 해제하세요."
+    "lab_row_bound_tooltip": "실험실이 이미 바인딩되어 있습니다. 새 실험실을 만들려면 먼저 실험실 선택을 해제하세요.",
+    "lab_row_create_with_assignee": "✓ 담당자가 선택됨 — 생성 시 랩 플러그인을 작성합니다.",
+    "lab_row_pick_assignee_first": "새 랩 플러그인을 작성할 에이전트 또는 분대를 선택하세요."
   }
 }

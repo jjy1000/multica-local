@@ -67,7 +67,6 @@ var (
 	knownOnboardingPaths = map[string]string{
 		"full":            "full",
 		"runtime_skipped": "runtime_skipped",
-		"cloud_waitlist":  "cloud_waitlist",
 		"skip_existing":   "skip_existing",
 		"invite_accept":   "invite_accept",
 		"unknown":         "unknown",

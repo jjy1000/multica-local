@@ -211,6 +211,8 @@
     },
     "lab_row_title": "Experimental · {{count}}",
     "lab_row_create_lab": "Create Lab",
-    "lab_row_bound_tooltip": "A lab is already bound. To create a new lab, clear the lab selection first."
+    "lab_row_bound_tooltip": "A lab is already bound. To create a new lab, clear the lab selection first.",
+    "lab_row_create_with_assignee": "✓ Selected assignee — they will author the lab plugin on create.",
+    "lab_row_pick_assignee_first": "Pick an agent or squad to author the new lab plugin."
   }
 }

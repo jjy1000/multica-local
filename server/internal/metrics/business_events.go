@@ -37,7 +37,6 @@ type businessEventMetrics struct {
 	onboardingStarted               *prometheus.CounterVec
 	onboardingQuestionnaireSubmit   *prometheus.CounterVec
 	onboardingCompleted             *prometheus.CounterVec
-	cloudWaitlistJoined             *prometheus.CounterVec
 	issueCreated                    *prometheus.CounterVec
 	chatMessageSent                 *prometheus.CounterVec
 	agentCreated                    *prometheus.CounterVec
@@ -93,10 +92,6 @@ func newBusinessEventMetrics() *businessEventMetrics {
 			Name: "multica_onboarding_completed_total",
 			Help: "Total onboarding flows completed.",
 		}, metricLabels("multica_onboarding_completed_total")),
-		cloudWaitlistJoined: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "multica_cloud_waitlist_joined_total",
-			Help: "Total users that joined the cloud waitlist.",
-		}, metricLabels("multica_cloud_waitlist_joined_total")),
 		issueCreated: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "multica_issue_created_total",
 			Help: "Total issues created (any source).",
@@ -207,7 +202,6 @@ func (e *businessEventMetrics) collectors() []prometheus.Collector {
 		e.onboardingStarted,
 		e.onboardingQuestionnaireSubmit,
 		e.onboardingCompleted,
-		e.cloudWaitlistJoined,
 		e.issueCreated,
 		e.chatMessageSent,
 		e.agentCreated,
@@ -280,8 +274,6 @@ func (m *BusinessMetrics) IncForEvent(ev analytics.Event) {
 		m.events.onboardingQuestionnaireSubmit.WithLabelValues().Inc()
 	case analytics.EventOnboardingCompleted:
 		m.events.onboardingCompleted.WithLabelValues(NormalizeOnboardingPath(stringProp(ev.Properties, "completion_path"))).Inc()
-	case analytics.EventCloudWaitlistJoined:
-		m.events.cloudWaitlistJoined.WithLabelValues().Inc()
 	case analytics.EventIssueCreated:
 		m.events.issueCreated.WithLabelValues(
 			NormalizeTaskSource(stringProp(ev.Properties, "source")),

@@ -59,7 +59,7 @@ var businessMetricLabels = map[string][]string{
 	"multica_onboarding_started_total":                 {labelPlatform},
 	"multica_onboarding_questionnaire_submitted_total": {},
 	"multica_onboarding_completed_total":               {labelPath},
-	"multica_cloud_waitlist_joined_total":              {},
+	// "multica_cloud_waitlist_joined_total":              {}, // 0.3.66 M3 PR2 removed (JoinCloudWaitlist retired)
 	"multica_issue_created_total":                      {labelSource, labelPlatform},
 	"multica_chat_message_sent_total":                  {labelPlatform},
 	"multica_agent_created_total":                      {labelRuntimeMode, labelSource},

@@ -905,7 +905,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Patch("/api/me", h.UpdateMe)
 		r.Patch("/api/me/onboarding", h.PatchOnboarding)
 		r.Post("/api/me/onboarding/complete", h.CompleteOnboarding)
-		r.Post("/api/me/onboarding/cloud-waitlist", h.JoinCloudWaitlist)
+		// 0.3.66 (M3 PR2): JoinCloudWaitlist + cloud-waitlist route
+		// removed. The endpoint is the only fork cloud-billing surface
+		// left and was reachable from the web /download page; closing
+		// it aligns with CLAUDE.md's "No cloud features" contract.
+		// user.cloud_waitlist_* columns and User.CloudWaitlist*
+		// model fields are kept (forward-only migration hard
+		// constraint; 7 sqlc SELECTs reference them).
 		// 0.3.66: DEPRECATED BootstrapOnboardingRuntime /
 		// BootstrapOnboardingNoRuntime routes + their handler file
 		// (onboarding_shim.go) and tests removed. v3 frontend creates

@@ -209,6 +209,8 @@
     },
     "lab_row_title": "実験機能 · {{count}}",
     "lab_row_create_lab": "実験室作成",
-    "lab_row_bound_tooltip": "実験室がすでにバインドされています。新しい実験室を作成するには、まず実験室の選択を解除してください。"
+    "lab_row_bound_tooltip": "実験室がすでにバインドされています。新しい実験室を作成するには、まず実験室の選択を解除してください。",
+    "lab_row_create_with_assignee": "✓ 担当者が選択済み — 作成時にラボプラグインを生成します。",
+    "lab_row_pick_assignee_first": "新しいラボプラグインを作成するエージェントまたは部隊を選択してください。"
   }
 }
