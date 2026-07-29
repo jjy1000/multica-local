@@ -316,13 +316,15 @@ func TestBatchUpdateIssuesRespectsLabMutex(t *testing.T) {
 	if !experimental.IsKnownKey(known) {
 		t.Fatalf("expected %q in catalog", known)
 	}
+	// 0.3.33 narrowing: only mythos_swarm (sole mode) still enforces
+	// the lab ↔ assignee mutex — other labs auto-assign their own
+	// leader since 0.3.47 and may legitimately carry an assignee.
+	const mutexLab = "mythos_swarm"
 	realMemberID := testUserID
 
 	t.Run("lab + assignee in same batch update → per-issue skip", func(t *testing.T) {
 		// Pre-existing assigned issue. Batch update carries both
-		// lab_source and assignee. Pre-fix: assignee updated
-		// silently, lab_source dropped silently, issue ends up
-		// with both fields contradicting. Post-fix: the issue is
+		// mythos lab_source and assignee. Post-fix: the issue is
 		// skipped (the issue ID won't appear in the response
 		// list), and the assignment is NOT persisted.
 		created := createIssueForTest(t, map[string]any{
@@ -334,7 +336,7 @@ func TestBatchUpdateIssuesRespectsLabMutex(t *testing.T) {
 		req := newRequest("POST", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{
 			"issue_ids": []string{created.ID},
 			"updates": map[string]any{
-				"lab_source":    known,
+				"lab_source":    mutexLab,
 				"assignee_type": "member",
 				"assignee_id":   realMemberID,
 			},
@@ -373,12 +375,11 @@ func TestBatchUpdateIssuesRespectsLabMutex(t *testing.T) {
 	})
 
 	t.Run("lab only on pre-assigned issue → per-issue skip", func(t *testing.T) {
-		// Inverse: batch PATCH carrying only lab_source against a
-		// pre-assigned issue. The pre-existing assignee makes
-		// post-state incompatible. Pre-fix: lab_source was silently
-		// dropped, the batch report said "updated 1", and the
-		// issue kept its original assignee. Post-fix: the issue
-		// is skipped, the original assignee is preserved.
+		// Inverse: batch PATCH carrying only the mythos lab_source
+		// against a pre-assigned issue. The pre-existing assignee
+		// makes post-state incompatible (sole mode reserves the
+		// roster). The issue is skipped, the original assignee is
+		// preserved.
 		created := createIssueForTest(t, map[string]any{
 			"title":         "batch-mutex-2",
 			"assignee_type": "member",
@@ -388,7 +389,7 @@ func TestBatchUpdateIssuesRespectsLabMutex(t *testing.T) {
 		req := newRequest("POST", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{
 			"issue_ids": []string{created.ID},
 			"updates": map[string]any{
-				"lab_source": known,
+				"lab_source": mutexLab,
 			},
 		})
 		testHandler.BatchUpdateIssues(w, req)

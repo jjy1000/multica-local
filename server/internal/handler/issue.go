@@ -3384,18 +3384,23 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 0.3.31: lab ↔ assignee mutex (batch variant). Mirrors the
-		// UpdateIssue gate above — a non-empty `lab_source` on the
-		// resulting issue must not coexist with a non-empty
-		// assignee. The gate trigger uses prevIssue.LabSource
-		// (NOT rawFields["lab_source"]) so a batch that PATCHes
-		// only the assignee against a pre-labbed issue is still
-		// caught; symmetrically, a batch that PATCHes only the
-		// lab onto an assigned issue is caught. Per the batch
-		// endpoint's per-issue skip-on-failure contract (see
-		// parent_issue_id / project_id / stage branches below),
-		// we `continue` on a mutex violation rather than 400 the
-		// whole batch — a single mis-tagged issue in a 50-issue
-		// move should not fail the other 49.
+		// UpdateIssue gate above, including the 0.3.33 narrowing:
+		// only `mythos_swarm` still reserves the roster (and only
+		// in sole mode — enhancer REQUIRES an assignee). Other labs
+		// auto-assign their own leader agent since 0.3.47, so the
+		// old "any lab + any assignee → skip" rule silently dropped
+		// every batch status/priority move against lab-tagged issues
+		// (the auto-assigned leader tripped the gate). The gate
+		// trigger uses prevIssue values for fields the batch does
+		// not touch, so a batch that PATCHes only the assignee
+		// against a pre-labbed mythos issue is still caught. Batch
+		// cannot change lab_mode, so the persisted value decides
+		// enhancer-ness. Per the batch endpoint's per-issue
+		// skip-on-failure contract (see parent_issue_id /
+		// project_id / stage branches below), we `continue` on a
+		// mutex violation rather than 400 the whole batch — a
+		// single mis-tagged issue in a 50-issue move should not
+		// fail the other 49.
 		{
 			var postLab string
 			if _, ok := rawUpdates["lab_source"]; ok && req.Updates.LabSource != nil {
@@ -3403,24 +3408,31 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			} else {
 				postLab = prevIssue.LabSource.String
 			}
-			if postLab != "" {
-				var postAssigneeType string
-				var postAssigneeID string
-				if _, ok := rawUpdates["assignee_type"]; ok && req.Updates.AssigneeType != nil {
-					postAssigneeType = *req.Updates.AssigneeType
-				} else {
-					postAssigneeType = prevIssue.AssigneeType.String
-				}
-				if _, ok := rawUpdates["assignee_id"]; ok && req.Updates.AssigneeID != nil {
-					postAssigneeID = *req.Updates.AssigneeID
-				} else {
-					postAssigneeID = uuidToString(prevIssue.AssigneeID)
-				}
-				if postAssigneeType != "" || postAssigneeID != "" {
-					slog.Warn("batch update rejected: lab/assignee mutex",
-						"issue_id", issueID, "post_lab", postLab)
-					continue
-				}
+			enhancerMode := prevIssue.LabMode.String == "enhancer"
+			var postAssigneeType string
+			var postAssigneeID string
+			if _, ok := rawUpdates["assignee_type"]; ok && req.Updates.AssigneeType != nil {
+				postAssigneeType = *req.Updates.AssigneeType
+			} else {
+				postAssigneeType = prevIssue.AssigneeType.String
+			}
+			if _, ok := rawUpdates["assignee_id"]; ok && req.Updates.AssigneeID != nil {
+				postAssigneeID = *req.Updates.AssigneeID
+			} else {
+				postAssigneeID = uuidToString(prevIssue.AssigneeID)
+			}
+			hasAssignee := postAssigneeType != "" || postAssigneeID != ""
+			switch {
+			case postLab == "mythos_swarm" && !enhancerMode && hasAssignee:
+				slog.Warn("batch update rejected: lab/assignee mutex",
+					"issue_id", issueID, "post_lab", postLab)
+				continue
+			case postLab == "mythos_swarm" && enhancerMode && !hasAssignee:
+				// Enhancer needs its user-picked target assignee; a
+				// batch clearing it would strand the supervise loop.
+				slog.Warn("batch update rejected: enhancer requires assignee",
+					"issue_id", issueID, "post_lab", postLab)
+				continue
 			}
 		}
 
@@ -3456,14 +3468,23 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		// leader assignee — WillEnqueueRun never arms because
 		// assigneeChanged stays false, so the research leader never
 		// starts. CLAUDE.md (Active Contracts §2) explicitly binds
-		// BatchUpdateIssues to the same helper. The mutex gate above
-		// already rejects requests that also carry assignee_*, so
-		// batchTouchedType/batchTouchedID here are always false and
-		// the rewrite is safe to perform.
+		// BatchUpdateIssues to the same helper. Since the mutex gate
+		// was narrowed to mythos_swarm (0.3.33 parity), a batch may
+		// legitimately carry lab_source AND assignee_* together for
+		// other labs — an explicit assignee is a deliberate user
+		// choice, so the auto-rewrite yields to it.
+		_, batchTouchedType := rawUpdates["assignee_type"]
+		_, batchTouchedID := rawUpdates["assignee_id"]
 		labAutoRewrote := false
-		if params.LabSource.Valid && params.LabSource.String != "" {
+		if params.LabSource.Valid && params.LabSource.String != "" &&
+			!batchTouchedType && !batchTouchedID {
 			if h.shouldRewriteAssigneeForLabLeader(r.Context(), &prevIssue, params.LabSource.String) {
-				leaderName, _ := defaultLabLeaderForKey(params.LabSource.String)
+				// resolveLabLeader (NOT defaultLabLeaderForKey) so
+				// user_<slug> plugins resolve their manifest leader
+				// here too — the gate above already used it, so a
+				// built-in-only lookup would pass the gate and then
+				// silently skip the rewrite for every user plugin.
+				leaderName, _ := h.resolveLabLeader(r.Context(), params.LabSource.String)
 				leader, lookupErr := h.Queries.GetAgentByWorkspaceAndName(r.Context(), db.GetAgentByWorkspaceAndNameParams{
 					WorkspaceID: prevIssue.WorkspaceID,
 					Name:        leaderName,
@@ -3602,8 +3623,8 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 
 		// Validate the resulting assignee pair when this batch update touches
 		// either assignee field. Skip the issue silently on failure.
-		_, batchTouchedType := rawUpdates["assignee_type"]
-		_, batchTouchedID := rawUpdates["assignee_id"]
+		// (batchTouchedType/batchTouchedID were computed before the lab
+		// leader auto-rewrite above.)
 		if batchTouchedType || batchTouchedID {
 			if status, _ := h.validateAssigneePair(r.Context(), r, workspaceID, params.AssigneeType, params.AssigneeID); status != 0 {
 				continue
