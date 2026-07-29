@@ -565,13 +565,13 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     <ErrorBoundary
       fallback={({ reset }) => (
         <aside className="flex h-full w-60 flex-col items-center justify-center gap-3 border-r border-sidebar-border bg-sidebar p-4 text-sm text-muted-foreground">
-          <p>Sidebar failed to render.</p>
+          <p>{t(($) => $.sidebar.error_fallback)}</p>
           <button
             type="button"
             onClick={reset}
             className="rounded-md border border-sidebar-border bg-background px-3 py-1 text-foreground hover:bg-sidebar-accent"
           >
-            Retry
+            {t(($) => $.sidebar.error_retry)}
           </button>
         </aside>
       )}
