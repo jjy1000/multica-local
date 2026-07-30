@@ -24,8 +24,8 @@ import (
 //     skip sections they have no use for (Mentions, Comment Formatting,
 //     Issue Metadata, Sub-issue, ...).
 //  2. Per-section prose compression — Available Commands, Issue
-//     Metadata, Mentions, Sub-issue Creation, Comment Formatting,
-//     Always Use CLI, Background Task Safety, Task Initiator,
+//     Body Formatting, Metadata, Mentions, Sub-issue Creation,
+//     Comment Formatting, Always Use CLI, Background Task Safety, Task Initiator,
 //     Repositories, Output are all tightened. Every test-asserted phrase
 //     stays.
 //
@@ -176,6 +176,15 @@ func writeAvailableCommandsQuickCreate(b *strings.Builder) {
 	b.WriteString("**Use `--output json` for structured data.** For anything beyond `issue create`, run `multica --help` or `multica <command> --help`.\n\n")
 	b.WriteString("### Core\n")
 	b.WriteString("- `multica issue create --title \"...\" [--description \"...\" | --description-file <path> | --description-stdin] [--priority X] [--status X] [--assignee X | --assignee-id <uuid>] [--parent <issue-id>] [--stage N] [--project <project-id>] [--due-date <RFC3339>] [--attachment <path>]` — Create a new issue; `--attachment` may be repeated. For agent-authored long descriptions, prefer `--description-file <path>` over `--description-stdin` (flags after a HEREDOC terminator can be silently swallowed, #4182).\n\n")
+}
+
+// writeIssueBodyFormatting emits the default Markdown hierarchy for issue
+// descriptions. It is shared by every task kind because issue creation and
+// updates can be requested from issue, chat, autopilot, and quick-create
+// surfaces.
+func writeIssueBodyFormatting(b *strings.Builder) {
+	b.WriteString("## Issue Body Formatting\n\n")
+	b.WriteString("An issue title already serves as its H1. By default, do not add a Markdown H1 (`# ...`) to an issue body or description; start with prose or `##` subheadings instead. Only add an H1 when the user specifically requests one.\n\n")
 }
 
 // writeCommentFormatting emits the cross-platform file-first guardrail.
@@ -454,6 +463,7 @@ func writeOutput(b *strings.Builder, kind taskKind, ctx TaskContextForEnv) {
 //	Section               | comment | assign | autopilot | quick_create | chat
 //	----------------------+---------+--------+-----------+--------------+------
 //	Available Commands    |   full  |  full  |   full    |   minimal    | full
+//	Issue Body Formatting |    ✓    |   ✓    |     ✓     |      ✓       |  ✓
 //	Comment Formatting    |    ✓    |   ✓    |     —     |      —       |  —
 //	Repositories          |    △    |   △    |     △     |      —       |  △
 //	Project Context       |    △    |   △    |     —     |      —       |  —
@@ -485,6 +495,7 @@ func buildMetaSkillContentSlim(provider string, ctx TaskContextForEnv) string {
 	default:
 		writeAvailableCommands(&b)
 	}
+	writeIssueBodyFormatting(&b)
 
 	if kind == kindCommentTriggered || kind == kindAssignmentTriggered {
 		writeCommentFormatting(&b)
