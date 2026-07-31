@@ -1897,8 +1897,11 @@ export class ApiClient {
 
   // Experimental / Labs (0.3.6). The server returns the catalog merged
   // with the caller's stored preference; the response is the single source
-  // of truth the Settings → Labs tab renders. PATCH path returns 204 —
-  // the caller invalidates the cache rather than reading the response.
+  // of truth the Settings → Labs tab renders. PATCH path returns 204 on
+  // clean success (the caller invalidates the cache rather than reading
+  // the response), or 200 + {install_error} when the pref write succeeded
+  // but the lab's resource install failed — the Labs tab surfaces that as
+  // a warning toast (0.3.68).
   async listExperimentalFlags(): Promise<ExperimentalFlag[]> {
     const raw = await this.fetch<unknown>(`/api/experimental-flags`);
     const parsed = parseWithFallback(raw, ExperimentalFlagsListSchema, { flags: [] }, {
@@ -1907,11 +1910,17 @@ export class ApiClient {
     return parsed.flags;
   }
 
-  async updateExperimentalFlag(key: string, enabled: boolean): Promise<void> {
-    await this.fetch(`/api/experimental-flags/${encodeURIComponent(key)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ enabled }),
-    });
+  async updateExperimentalFlag(
+    key: string,
+    enabled: boolean,
+  ): Promise<{ install_error?: string } | undefined> {
+    return this.fetch<{ install_error?: string } | undefined>(
+      `/api/experimental-flags/${encodeURIComponent(key)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      },
+    );
   }
 
   // ---- User Plugins (0.3.60 Labs sandbox) ----

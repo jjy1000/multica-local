@@ -15,9 +15,11 @@
 //     rows + comments via the daemon's read APIs and writes
 //     mythos_members.reflection / mythos_run.supervision_state.
 //     This keeps the "flag-off completely bypasses experimental
-//     code" contract intact: when mythos_swarm is off, the daemon
-//     calls Service.Stop() in its shutdown hook and the goroutine
-//     cancels cleanly.
+//     code" contract intact: flag-off blocks NEW runs at the HTTP
+//     boundary but does not cancel in-flight supervise goroutines
+//     — those self-terminate on issue terminal status or the 24h
+//     cap. Service.Stop() is wired to the server shutdown path
+//     (cmd/server/main.go), not the flag toggle.
 //
 //   - The supervise goroutine is per-run, not per-workspace. Each
 //     enhancer-mode issue spawns one. The daemon bootstrap path

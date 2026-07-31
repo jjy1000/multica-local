@@ -39,6 +39,7 @@ import { Switch } from "@multica/ui/components/ui/switch";
 import { ContentEditor, type ContentEditorRef, TitleEditor, useFileDropZone, FileDropOverlay } from "../editor";
 import { StatusIcon, StatusPicker, PriorityPicker, StagePicker, AssigneePicker, StartDatePicker, DueDatePicker, LabPicker } from "../issues/components";
 import { maxSiblingStage } from "../issues/components/pickers/stage-picker";
+import { labSourceRouteSuffix } from "../issues/components/issue-labs-section";
 import { ProjectPicker } from "../projects/components/project-picker";
 import { useIssueTriggerPreview } from "../issues/hooks/use-issue-trigger-preview";
 import { useActorName } from "@multica/core/workspace/hooks";
@@ -336,35 +337,18 @@ function labDisplayLabel(key: string): string | undefined {
 
 // experimentalLabRouteFor returns the desktop `/experimental/<flag>`
 // route that should receive a freshly-created lab issue, or null
-// for labs without a dedicated view (chat_pin_ui has no surface;
-// agent_self_optimization / code_canvas /
-// llm_wiki_bridge are workspace-scoped surfaces with no per-issue
-// binding yet). The caller appends `?issue=<id>` to pre-select the
-// issue inside the panel — see ClaudeLabView / PythiaView /
-// MythosView's useSearchParams hooks.
+// for labs without a dedicated view (chat_pin_ui has no surface).
+// The caller appends `?issue=<id>` to pre-select the issue inside
+// the panel — see ClaudeLabView / PythiaView / MythosView's
+// useSearchParams hooks.
+//
+// 0.3.68: delegates to labSourceRouteSuffix (issue-labs-section.tsx)
+// so the flag→route mapping — including the user_* plugin-shell
+// handling — has a single source of truth instead of a drifting
+// duplicate switch here.
 function experimentalLabRouteFor(labSource: string | undefined): string | null {
-  if (!labSource) return null;
-  // 0.3.60: user plugins (user_* prefix) route to the generic shell.
-  if (labSource.startsWith("user_")) {
-    const slug = labSource.slice(5); // strip "user_" prefix
-    return `/experimental/plugin/${slug}`;
-  }
-  switch (labSource) {
-  case "claude_science_lab":
-    return "/experimental/claude-lab";
-  case "pythia_oracle":
-    return "/experimental/pythia";
-  case "mythos_swarm":
-    return "/experimental/mythos";
-  case "llm_wiki_bridge":
-    return "/experimental/llm-wiki";
-  case "code_canvas":
-    return "/experimental/code-canvas";
-  case "agent_self_optimization":
-    return "/experimental/agent-self-optimization";
-  default:
-    return null;
-  }
+  const suffix = labSourceRouteSuffix(labSource);
+  return suffix ? `/experimental/${suffix}` : null;
 }
 
 export function ManualCreatePanel({

@@ -315,6 +315,18 @@ export function LabsTab() {
                       { key: flag.key, enabled: next },
                       {
                         onError: () => toast.error(t(($) => $.labs.toast_failed)),
+                        // 0.3.68: the PATCH returns 200 + install_error
+                        // when the pref write succeeded but the lab's
+                        // resource install failed (204 = clean success).
+                        // Warn instead of leaving a silently-empty lab.
+                        onSuccess: (data) => {
+                          if (data?.install_error) {
+                            toast.warning(
+                              t(($) => $.labs.toast_install_warning ?? "实验已开启,但资源装载失败,可关闭后重新开启重试"),
+                              { description: data.install_error },
+                            );
+                          }
+                        },
                       },
                     )
                   }

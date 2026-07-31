@@ -288,16 +288,23 @@ func (h *Handler) ListSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 0.3.17 Labs gate: drop skills hidden by the agent_self_optimization
-	// flag when the flag is off (catalog default). The skillopt-multica
-	// Skill is hidden here so it doesn't surface in the visible Skill
-	// picker; toggling the flag on restores it.
-	skills = filterLabsHiddenByDefault(
-		r.Context(), h.Queries, skills,
-		"agent_self_optimization", experimental.HideSkill,
-		func(s db.ListSkillSummariesByWorkspaceRow) pgtype.UUID { return s.ID },
-		"list skills: resolve hidden set failed",
-	)
+	// 0.3.17 Labs gate: drop skills hidden by a Labs flag when that
+	// flag is off (catalog default). The skillopt-multica Skill is the
+	// canonical example (agent_self_optimization); toggling the flag
+	// on restores it.
+	//
+	// 0.3.68: chained across every registered flag via AllFlagKeys()
+	// (was hard-coded to agent_self_optimization only, so skills owned
+	// by other labs or user plugins leaked into the picker when their
+	// flag was off). Matches the agent / autopilot / squad pattern.
+	for _, flagKey := range experimental.AllFlagKeys() {
+		skills = filterLabsHiddenByDefault(
+			r.Context(), h.Queries, skills,
+			flagKey, experimental.HideSkill,
+			func(s db.ListSkillSummariesByWorkspaceRow) pgtype.UUID { return s.ID },
+			"list skills: resolve hidden set failed for "+flagKey,
+		)
+	}
 
 	// (the constitution_agent Skill content shipped via the experiment
 	// boot loader (server/internal/service/builtin_skills.go). The flag

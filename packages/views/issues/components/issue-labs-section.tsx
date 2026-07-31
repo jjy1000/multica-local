@@ -17,10 +17,14 @@ import { useT } from "../../i18n";
 // because the wire shape (`ExperimentalFlag`) intentionally
 // doesn't carry the route — sidebar entries already hold it, but
 // the flag object's surface is trimmed for the LabPicker /
-// settings surface. This is the single source of truth for both
-// the sidebar status section (this file) and the inline PropRow
-// in issue-detail.tsx (which imports `labSourceRouteSuffix`
-// from here). Update this map when adding a new lab view.
+// settings surface. This is the single source of truth for the
+// sidebar status section (this file), the inline PropRow in
+// issue-detail.tsx, and the create-issue redirect (both import
+// `labSourceRouteSuffix` from here). Update this map when adding
+// a new lab view.
+//
+// (0.3.68: chat_pin_ui entry removed — routes.tsx never shipped an
+// `experimental/chat-pin` view, so the mapping produced dead links.)
 export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   claude_science_lab: "claude-lab",
   pythia_oracle: "pythia",
@@ -30,18 +34,24 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   agent_self_optimization: "agent-self-optimization",
   // (0.3.57: constitution_agent entry removed alongside the lab
   // retirement in migration 165.)
-  chat_pin_ui: "chat-pin",
 };
 
 /**
- * Public helper consumed by issue-detail.tsx. Returns the route
- * suffix (`/experimental/<suffix>`) for a given `lab_source`,
- * or `undefined` if the lab has no dedicated view.
+ * Public helper consumed by issue-detail.tsx and create-issue.tsx.
+ * Returns the route suffix (`/experimental/<suffix>`) for a given
+ * `lab_source`, or `undefined` if the lab has no dedicated view.
+ *
+ * User plugins (`user_*` lab sources, 0.3.60+) route to the generic
+ * plugin shell (`experimental/plugin/:pluginSlug` in routes.tsx).
  */
 export function labSourceRouteSuffix(
   labSource: string | null | undefined,
 ): string | undefined {
   if (!labSource) return undefined;
+  if (labSource.startsWith("user_")) {
+    const slug = labSource.slice(5); // strip "user_" prefix
+    return slug ? `plugin/${slug}` : undefined;
+  }
   return FLAG_ROUTE_SUFFIX[labSource];
 }
 
@@ -70,7 +80,7 @@ export function IssueLabsSection({
     return f.title.zh || f.title.en;
   }, [flags, labSource]);
 
-  const suffix = FLAG_ROUTE_SUFFIX[labSource];
+  const suffix = labSourceRouteSuffix(labSource);
   const labEnabled = (flags ?? []).some((f) => f.key === labSource && f.enabled);
   // 0.3.51: the catalog's `hides_deliverable_in_issue_timeline` field
   // is the single source-of-truth for "does this lab ship a

@@ -217,24 +217,18 @@ func (h *Handler) ListSquads(w http.ResponseWriter, r *http.Request) {
 	// lab-owned rows otherwise). fail-open semantics match the rest
 	// of filterLabsHiddenByDefault — see labs_visibility_filter.go.
 	//
-	// 0.3.33: chained across every Labs squad-owning flag —
-	// claude_science_lab (5 squads), agent_self_optimization
-	// (when it ships a squad). The helper
-	// short-circuits on flag-on OR empty-hidden-set so the cost
-	// stays one query total on the hot path.
+	// 0.3.68: chained across every registered flag via AllFlagKeys()
+	// (was a hard-coded 3-flag list that drifted from the catalog and
+	// missed user plugins). Matches the agent / autopilot pattern.
+	// The helper short-circuits on flag-on OR empty-hidden-set so the
+	// cost stays one query per flag on the hot path.
 	queries := h.Queries
-	squads = filterLabsHiddenByDefault(
-		r.Context(), queries, squads,
-		"mythos_swarm", experimental.HideSquad,
-		func(s db.Squad) pgtype.UUID { return s.ID },
-		"list squads: resolve hidden set failed",
-	)
-	for _, flagKey := range []string{"claude_science_lab", "agent_self_optimization"} {
+	for _, flagKey := range experimental.AllFlagKeys() {
 		squads = filterLabsHiddenByDefault(
 			r.Context(), queries, squads,
 			flagKey, experimental.HideSquad,
 			func(s db.Squad) pgtype.UUID { return s.ID },
-			"list squads: resolve hidden set failed",
+			"list squads: resolve hidden set failed for "+flagKey,
 		)
 	}
 

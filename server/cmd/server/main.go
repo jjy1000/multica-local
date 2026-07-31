@@ -505,6 +505,14 @@ func main() {
 	sweepCancel()
 	heartbeatScheduler.Stop()
 
+	// Cancel any in-flight Mythos enhancer-mode supervise goroutines.
+	// Lossless: supervision state is persisted to mythos_run JSONB every
+	// tick, and ResumeSupervision re-adopts status='supervising' rows on
+	// the next boot.
+	if h.MythosService != nil {
+		h.MythosService.Stop()
+	}
+
 	// Join the channel supervisor's per-installation goroutines so the
 	// lease renewer can issue a final release before process exit;
 	// otherwise the next replica would have to wait the full LeaseTTL

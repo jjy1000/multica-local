@@ -19,13 +19,16 @@ import (
 // consulted when the registry is nil (unit tests that build a bare
 // Handler without going through New).
 //
-// PR 3 lands with only claude_science wired up; subsequent labs
-// (pythia_oracle, etc.) are added one PR at a time.
+// PR 3 landed with only claude_science wired up; the remaining
+// installable labs were added one PR at a time and are all listed
+// here so the fallback stays in sync with the registry.
 var installableSources = map[string]bool{
 	string(experimental.SourceClaudeScience):         true,
 	string(experimental.SourceClaudeScienceLab):     true,
 	string(experimental.SourceMythosSwarm):           true,
 	string(experimental.SourceAgentSelfOptimization): true,
+	string(experimental.SourcePythiaOracle):          true,
+	string(experimental.SourceCodeCanvas):            true,
 }
 
 // isInstallableFlag reports whether key is a registered installable

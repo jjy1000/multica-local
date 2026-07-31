@@ -293,19 +293,29 @@ func (h *Handler) UpdateExperimentalFlag(w http.ResponseWriter, r *http.Request)
 				writeError(w, http.StatusInternalServerError, "failed to install lab resources")
 				return
 			}
+			var installErr error
 			if h.ExperimentRegistry != nil {
 				workspaceID := h.resolveWorkspaceID(r)
 				if err := h.ExperimentRegistry.RunInstall(flagKey, userID, workspaceID); err != nil {
 					// Install failure is not fatal for the pref write —
-					// the user will see the resource count is 0 in the
-					// Labs tab and can retry by toggling off+on. Log so
-					// the operator can diagnose.
+					// the flag stays on and the user can retry by toggling
+					// off+on. Log for the operator, and surface the error
+					// in the response body (200 + install_error) so the
+					// Labs tab can toast a warning instead of showing a
+					// silently-empty lab.
 					slog.Warn("experimental flag install: RunInstall failed",
 						"flag", flagKey, "err", err)
+					installErr = err
 				}
 			}
 			if err := h.markInstalled(r, src); err != nil {
 				writeError(w, http.StatusInternalServerError, "failed to record install marker")
+				return
+			}
+			if installErr != nil {
+				writeJSON(w, http.StatusOK, map[string]string{
+					"install_error": installErr.Error(),
+				})
 				return
 			}
 		} else {

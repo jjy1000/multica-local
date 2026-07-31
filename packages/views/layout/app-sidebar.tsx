@@ -91,6 +91,7 @@ import { useLogout } from "../auth";
 import { ProjectIcon } from "../projects/components/project-icon";
 import { useT } from "../i18n";
 import { useExperimentalFlag, useExperimentalFlags, useExperimentalNav } from "@multica/core/experimental";
+import { isDesktopShell } from "../platform";
 
 // Top-level nav items stay active when the user is on a child route
 // (e.g. "Projects" stays lit on /:slug/projects/:id). Pinned items keep
@@ -411,7 +412,14 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   // enabled flag. The hook returns an empty list when the user
   // has not opted into any flag, so the "Experimental" group is
   // automatically hidden without a separate gate.
-  const experimentalNav = useExperimentalNav();
+  //
+  // 0.3.68: gated on the Electron shell. The `/experimental/*`
+  // routes only exist in the desktop renderer's routes.tsx — the
+  // web app has no matching pages, so clicking a row from the
+  // browser 404s. The hook still runs unconditionally (rules of
+  // hooks); only the projection is dropped on web.
+  const experimentalNavAll = useExperimentalNav();
+  const experimentalNav = isDesktopShell() ? experimentalNavAll : [];
   // 0.3.29: dedicated flag for the mythos_swarm "蜂群拓扑已启用"
   // sidebar badge. The export-level nav row already has the
   // enabled-flag-driven label, but the badge sits at the row's right

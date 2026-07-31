@@ -26,8 +26,11 @@
 package experimental
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -366,14 +369,69 @@ func copyDir(src, dst string) error {
 	return nil
 }
 
-// tarGz is a stub that creates an empty placeholder file. The real
-// implementation lives in a separate PR — see memory
-// `next-code-environment-library` for the streaming tar.gz helper
-// in the next milestone. For 0.3.19 the GC sweep tolerates the
-// stub: the .trash/ directory is allowed to hold empty placeholders
-// without breaking the cleanup path.
+// tarGz archives the src directory into a gzip-compressed tarball at
+// dst, written atomically (tmp + rename) so a crash mid-write never
+// leaves a truncated archive that the caller would then treat as a
+// successful backup before unlinking src.
+//
+// 0.3.68: real implementation. The 0.3.19 stub wrote an 11-byte
+// "placeholder" file and returned nil, so the caller's post-archive
+// os.RemoveAll silently destroyed the session data the 90-day tier
+// was supposed to preserve until the 120-day final unlink.
 func tarGz(src, dst string) error {
-	return os.WriteFile(dst, []byte("placeholder"), 0o644)
+	tmp := dst + ".tmp"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+
+	gw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gw)
+
+	walkErr := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		// Root the entries under the session dir name so extraction
+		// reproduces <uuid>/... instead of splatting into cwd.
+		hdr.Name = filepath.ToSlash(filepath.Join(filepath.Base(src), rel))
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if info.IsDir() || !info.Mode().IsRegular() {
+			return nil
+		}
+		sf, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(tw, sf)
+		sf.Close()
+		return err
+	})
+
+	// Close in reverse order; keep the first error but always run
+	// every Close so the fds are released even on failure.
+	closeErrs := []error{walkErr, tw.Close(), gw.Close(), f.Close()}
+	for _, cerr := range closeErrs {
+		if cerr != nil {
+			_ = os.Remove(tmp)
+			return cerr
+		}
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // markedUUID returns whether the row's id, as a UUID string, is

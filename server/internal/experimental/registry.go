@@ -32,6 +32,7 @@ package experimental
 //   - Skill loader boot-time scan: PR 5.
 
 import (
+	"log/slog"
 	"strings"
 	"sync"
 )
@@ -202,10 +203,15 @@ func (r *Registry) RegisterUnregisterHandler(flagKey string, h UnregisterHandler
 
 // RunRollback dispatches the rollback for flagKey. Returns nil when
 // no handler is bound — that is the common case; rollback is a
-// visibility toggle, not a deletion.
+// visibility toggle, not a deletion. As of 0.3.68 no lab registers
+// an UnregisterHandler (boot only wires install handlers), so the
+// no-handler branch logs at debug level to make the no-op visible
+// instead of silently swallowing the dispatch.
 func (r *Registry) RunRollback(flagKey string) error {
 	h, ok := r.rollback[flagKey]
 	if !ok {
+		slog.Debug("experimental registry: no rollback handler bound; rollback is a no-op",
+			"flag", flagKey)
 		return nil
 	}
 	return h()

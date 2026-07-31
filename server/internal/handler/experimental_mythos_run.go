@@ -307,7 +307,19 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 	// 60s per-iter timeout. A non-completion yields empty body so the
 	// runner's synthetic fallback kicks in and the convergence signal
 	// stays defined.
-	res, runErr := mythos.NewService(h.Queries).Run(
+	//
+	// 0.3.68: run through the boot-wired h.MythosService (the same
+	// instance the supervise HTTP handlers and ResumeSupervision use).
+	// The previous per-request mythos.NewService meant enhancer-mode
+	// supervise goroutines registered on a throwaway superviseSet that
+	// Stop() and the idempotent cancel-replace guard could never see.
+	// The nil fallback keeps bare-Handler tests (no router wiring)
+	// working.
+	svc := h.MythosService
+	if svc == nil {
+		svc = mythos.NewService(h.Queries)
+	}
+	res, runErr := svc.Run(
 		r.Context(), cfg, h.mythosWaitFn(workspaceUUID),
 	)
 	if runErr != nil {
