@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > Keep this file short and authoritative: rules here should be hard to infer from code or easy to get wrong.
 
-> This file is the single source of truth for cross-cutting rules; `AGENTS.md` is a derived digest of it. Shared constraints (toolchain versions, package boundaries, verification commands) are enforced by `scripts/check-agents-docs-sync.mjs` (CI `docs-sync` job + `githooks/pre-push`).
+> This file is the single source of truth for cross-cutting rules; `AGENTS.md` is a derived digest of it. Shared constraints (toolchain versions, package boundaries, verification commands, and the critical-constraint tokens: localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) are enforced by `scripts/check-agents-docs-sync.mjs` (CI `docs-sync` job + `githooks/pre-push`).
 
 ## Sub-domain Guides (read the nearby file when working in a sub-domain)
 
@@ -20,6 +20,12 @@ root file is the navigation route plus cross-cutting product/ship/desktop rules.
 | `packages/views/` (shared business pages/components) | [`packages/views/CLAUDE.md`](packages/views/CLAUDE.md) |
 | `apps/desktop/` (Electron app, packaging, self-contained backend) | [`apps/desktop/CLAUDE.md`](apps/desktop/CLAUDE.md) |
 | `apps/mobile/` (Expo / React Native) | [`apps/mobile/CLAUDE.md`](apps/mobile/CLAUDE.md) |
+| `apps/web/` (Next.js App Router, platform wiring) | [`apps/web/CLAUDE.md`](apps/web/CLAUDE.md) |
+
+Each guide directory also carries an auto-synced `AGENTS.md` mirror (same
+content, discoverable by agent platforms that load `AGENTS.md`). The co-located
+`CLAUDE.md` is the source of truth; parity is enforced by
+`scripts/check-agents-docs-sync.mjs`.
 
 ## Localized Fork
 
@@ -619,14 +625,14 @@ The `LabPicker` renders a second-level TabsList (sole/enhancer) when the selecte
 - `Service.startSupervise()` — called by `runner.Run()` after coda; flips status to `'supervising'`
 - `superviseLoop(ctx, runID, cfg, rootIssueID)` — 30s ticker, max 24h lifetime; writes `supervision_state` JSONB each tick
 - `Service.ResumeSupervision(ctx, workspaceID)` — daemon bootstrap recovery: scans for `status='supervising'` rows and re-launches goroutines
-- `Service.Stop()` — cancels all in-flight supervises on daemon shutdown
+- `Service.Stop()` — cancels all in-flight supervises; called from the server shutdown sequence in `cmd/server/main.go` (0.3.68)
 
 **Supervise HTTP surface** (`server/internal/handler/mythos_supervise.go`):
 - `GET /api/experimental/mythos-swarm/supervise/{runID}` — read current `supervision_state`
 - `POST /api/experimental/mythos-swarm/supervise/{runID}/tick` — trigger an immediate synchronous tick (used by "立即检查" button)
 - `GET /api/issues/{id}/mythos-runs` — find recent runs for an issue (used by IssueLabsSection supervise panel)
 
-**Supervise lifecycle**: `PhasePreparing → PhasePlanning → PhaseSupervising → PhaseDone | PhaseAborted | PhaseDegraded`. The backend NEVER touches `runtime.go` — supervise reads issue/comment rows only, writes only mythos_run + mythos_members. Flag-off → `Service.Stop()` cancels all goroutines cleanly. **Completion determination (2026-07-28 audit)**: `tickSupervision` flips to `PhaseDone` when the run's `final_issue_id` reaches a terminal issue status (`done`/`closed`/`cancelled`, `isTerminalIssueStatus`), snapping `SubTasksDone` to total. Before the fix nothing ever wrote `SubTasksDone`, so every supervised run polled until the 24h cap.
+**Supervise lifecycle**: `PhasePreparing → PhasePlanning → PhaseSupervising → PhaseDone | PhaseAborted | PhaseDegraded`. The backend NEVER touches `runtime.go` — supervise reads issue/comment rows only, writes only mythos_run + mythos_members. Flag-off blocks NEW runs at the HTTP boundary but does NOT cancel in-flight supervise goroutines — those self-terminate on issue terminal status or the 24h cap. `Service.Stop()` is wired to the server shutdown path (`cmd/server/main.go`), not the flag toggle; supervision state persists every tick and `ResumeSupervision` re-adopts `status='supervising'` rows on the next boot, so shutdown cancellation is lossless. The HTTP run path uses the boot-wired `h.MythosService` (0.3.68 fix — previously each request built a throwaway `mythos.NewService` whose superviseSet `Stop()` could never see). **Completion determination (2026-07-28 audit)**: `tickSupervision` flips to `PhaseDone` when the run's `final_issue_id` reaches a terminal issue status (`done`/`closed`/`cancelled`, `isTerminalIssueStatus`), snapping `SubTasksDone` to total. Before the fix nothing ever wrote `SubTasksDone`, so every supervised run polled until the 24h cap.
 
 **Visibility for squads** (0.3.31): `experimental_resource_visibility` CHECK widened from `('agent','autopilot','skill')` to include `'squad'`. The `install_mythos.go` handler seeds 6 visibility rows (5 mythos_* agents + 1 Mythos Swarm squad) so the regular agent/squad pickers never show mythos internals when the flag is off. `squad.go::ListSquads` now calls `filterLabsHiddenByDefault(..., HideSquad, ...)`.
 

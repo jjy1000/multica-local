@@ -2,7 +2,7 @@
 
 This file provides guidance to Qoder (qoder.com) when working with code in this repository.
 
-> **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. The shared constraints (toolchain versions, package boundaries, verification commands) are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook.
+> **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. **Guarded sections** — toolchain versions, package boundaries, verification commands, and the Critical Constraints tokens (localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) — are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook. **Unguarded sections** (Quick Reference, Architecture, Sub-domain Guides, Testing Strategy, Dependency Management prose) are not machine-checked — verify them against `CLAUDE.md` before relying on them.
 
 ## Quick Reference
 
@@ -82,6 +82,9 @@ When working in a sub-domain, read its co-located guide first:
 | `packages/views/` | `packages/views/CLAUDE.md` |
 | `apps/desktop/` | `apps/desktop/CLAUDE.md` |
 | `apps/mobile/` | `apps/mobile/CLAUDE.md` |
+| `apps/web/` | `apps/web/CLAUDE.md` |
+
+Each guide directory also carries an auto-synced `AGENTS.md` mirror (same content, discoverable by agent platforms that load `AGENTS.md`). The co-located `CLAUDE.md` is the source of truth; parity is enforced by `scripts/check-agents-docs-sync.mjs`.
 
 Root `CLAUDE.md` has complete rules for desktop packaging, labs platform, ship chain, and cross-cutting constraints.
 

@@ -1,10 +1,17 @@
 ---
 name: labs-runtime-lifecycle-map
 created: 2026-07-22T12:42:05Z
-updated: 2026-07-22T12:42:05Z
+updated: 2026-07-30T00:00:00Z
 ---
 
 # Experimental Labs — Runtime Lifecycle & Install/Rollback Infrastructure
+
+> **2026-07-30 addendum (0.3.60–0.3.68 drift + audit fixes).** The body below is the 2026-07-22 snapshot; the following has changed since:
+>
+> - **User plugin layer (0.3.60+)**: `user_*` namespace flags backed by the `user_plugin` table (mig 166, soft-delete partial unique index mig 168), hot-registered via `RegisterUserPlugins()` + `MergeUserPlugins()`. Catalog stays 8 built-ins; `AllFlagKeys()` / `IsKnownKey()` cover both layers.
+> - **Mutex narrowed (0.3.33, realigned 2026-07-28)**: lab ↔ assignee mutex applies to `mythos_swarm` only; enhancer mode reverses it. All other labs allow assignee + lab.
+> - **0.3.68 audit fixes**: (1) Mythos HTTP run path now uses boot-wired `h.MythosService` (was per-request `NewService` → orphan superviseSet); (2) `MythosService.Stop()` wired into server shutdown (`cmd/server/main.go`); (3) `installableSources` fallback map completed with `pythia_oracle`/`code_canvas`; (4) flag-toggle `RunInstall` failure now surfaces as `200 + {install_error}` (was silent 204); (5) squad/skill list filters iterate `AllFlagKeys()` (were hard-coded lists); (6) `runtime_gc.go tarGz` is a real tar+gzip archiver (the stub wrote a placeholder then the caller `RemoveAll`'d the session — 90-day tier lost data); (7) `RunRollback` no-handler no-op logs at debug; (8) frontend flag→route map unified in `issue-labs-section.tsx::labSourceRouteSuffix` (dead `chat_pin_ui` entry removed, `user_*` → `plugin/<slug>` handling added, `create-issue.tsx` delegates); (9) web sidebar gates the Experimental group on `isDesktopShell()`.
+> - `RunRollback` remains a registered-handler no-op (no lab binds an UnregisterHandler); flag-off hides via `experimental.Hide` only.
 
 Full lifecycle: **manifest → catalog → registry → flag toggle → install (resource creation) → issue binding → runtime execution → cleanup/rollback**, plus extension points.
 

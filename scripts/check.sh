@@ -97,7 +97,9 @@ echo ""
 echo "==> [3/5] Go tests..."
 echo "==> Running database migrations..."
 (cd server && go run ./cmd/migrate up) || { EXIT_CODE=1; exit 1; }
-(cd server && go test ./...) || { EXIT_CODE=1; exit 1; }
+# -race -p 1 mirrors `make test`: DB-backed packages share one DATABASE_URL,
+# so package binaries must run serialised (see Makefile `test` target).
+(cd server && go test -race -p 1 ./...) || { EXIT_CODE=1; exit 1; }
 
 # --------------------------------------------------------------------------
 # Step 4: Start services for E2E (only if not already running)

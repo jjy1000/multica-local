@@ -2,7 +2,7 @@
 // Single-source-of-truth gate for the two root agent guides.
 //
 // CLAUDE.md is the authoritative rules file; AGENTS.md is a derived digest of
-// it. This check fails when the two files drift on any of the three shared
+// it. This check fails when the two files drift on any of the five shared
 // constraint categories, or when either file drifts from the real pins:
 //
 //   1. Toolchain versions  — the `| Tool | Version | ... |` table must list
@@ -13,11 +13,20 @@
 //      core / ui / views / catalog must appear in both files.
 //   3. Verification commands — the canonical check commands must appear in
 //      both files and exist as real Makefile targets / package.json scripts.
+//   4. Critical constraints — the canonical tokens for the remaining digest
+//      sections (localized fork prohibitions, state management, backend UUID
+//      rules, Pythia source-of-truth, experimental network calls,
+//      migration/config immutability, i18n selectors) must appear in both
+//      files.
+//   5. Sub-domain guides — each sub-domain directory must carry both a
+//      CLAUDE.md (source of truth) and an auto-discoverable AGENTS.md mirror
+//      whose body is byte-identical to CLAUDE.md (after the banner line), and
+//      must be registered in both root routing tables.
 //
 // Runs in CI (.github/workflows/ci.yml `docs-sync` job) and in the local
 // githooks/pre-push hook. No dependencies; works on any Node >= 18.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -146,6 +155,103 @@ for (const [cmd, existsInRepo, sourceLabel] of COMMANDS) {
 }
 
 // ---------------------------------------------------------------------------
+// 4. Critical constraints
+// ---------------------------------------------------------------------------
+
+// Canonical tokens for the remaining AGENTS.md "Critical Constraints" digest
+// sections. Each must appear verbatim in BOTH files, so a constraint silently
+// deleted or reworded out of either file fails the gate. These are token
+// checks only — they guard the load-bearing identifiers, not the prose.
+const CONSTRAINT_TOKENS = [
+  ["localized fork", [
+    "single-user fork",
+    "telemetry",
+    "auto-update",
+    "Google OAuth",
+    "HelpLauncher",
+    'POST /auth/login {"name":"..."}',
+  ]],
+  ["state management", ["TanStack Query", "Zustand"]],
+  ["backend UUID rules", [
+    "server/internal/handler/",
+    "parseUUIDOrBadRequest",
+    "parseUUID",
+  ]],
+  ["Pythia source-of-truth", [
+    "apps/desktop/vendor/pythia-src/engine/",
+    "resources/pythia/engine/",
+  ]],
+  ["experimental network calls", ["api.rawRequest", "fetch()"]],
+  ["upgrade immutability", [
+    "Migrations are forward-only",
+    "Config fields are append-only",
+  ]],
+  ["i18n selectors", ["arrow expressions"]],
+];
+
+for (const [scope, tokens] of CONSTRAINT_TOKENS) {
+  for (const token of tokens) {
+    for (const [label, text] of [["CLAUDE.md", claude], ["AGENTS.md", agents]]) {
+      if (!text.includes(token)) {
+        fail(`${label}: critical-constraint token "${token}" (${scope}) is missing`);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Sub-domain guides
+// ---------------------------------------------------------------------------
+
+// Each sub-domain keeps its rules in CLAUDE.md (source of truth) plus an
+// AGENTS.md mirror so platforms that auto-discover AGENTS.md load the same
+// guidance. The mirror is the banner line + blank line + verbatim CLAUDE.md.
+const SUBDOMAIN_GUIDE_DIRS = [
+  "server",
+  "packages",
+  "packages/views",
+  "apps/desktop",
+  "apps/mobile",
+  "apps/web",
+];
+
+const MIRROR_BANNER =
+  "<!-- AUTO-SYNCED MIRROR of ./CLAUDE.md (the source of truth for this directory). " +
+  "Edit CLAUDE.md, then regenerate this file; parity is enforced by " +
+  "scripts/check-agents-docs-sync.mjs. -->";
+
+for (const dir of SUBDOMAIN_GUIDE_DIRS) {
+  const claudePath = `${dir}/CLAUDE.md`;
+  const agentsPath = `${dir}/AGENTS.md`;
+
+  if (!existsSync(path.join(root, claudePath))) {
+    fail(`${claudePath}: sub-domain guide is missing`);
+    continue;
+  }
+  if (!existsSync(path.join(root, agentsPath))) {
+    fail(`${agentsPath}: AGENTS.md mirror of ${claudePath} is missing`);
+    continue;
+  }
+
+  const guideBody = read(claudePath);
+  const mirror = read(agentsPath);
+  const expected = `${MIRROR_BANNER}\n\n${guideBody}`;
+  if (mirror !== expected) {
+    fail(
+      `${agentsPath}: drifted from ${claudePath} — regenerate it as the banner ` +
+        `line + blank line + verbatim CLAUDE.md content`,
+    );
+  }
+
+  // Both root routing tables must point readers at the sub-domain guide.
+  for (const [label, text] of [["CLAUDE.md", claude], ["AGENTS.md", agents]]) {
+    if (!text.includes(claudePath)) {
+      fail(`${label}: sub-domain guide "${claudePath}" is not registered in the routing table`);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Report
 // ---------------------------------------------------------------------------
 
@@ -159,5 +265,8 @@ if (errors.length > 0) {
 }
 
 console.log(
-  "✓ AGENTS.md and CLAUDE.md agree on toolchain versions, package boundaries, and verification commands.",
+  "✓ AGENTS.md and CLAUDE.md agree on toolchain versions, package boundaries, " +
+    "verification commands, critical constraints (localized fork, state management, " +
+    "UUID rules, Pythia source-of-truth, rawRequest, migration/config immutability, i18n), " +
+    "and sub-domain guide mirrors.",
 );

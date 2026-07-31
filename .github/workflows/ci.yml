@@ -201,7 +201,10 @@ jobs:
         run: cd server && go run ./cmd/migrate up
 
       - name: Test
-        run: cd server && go test -race ./...
+        # -race -p 1 mirrors `make test`: even on this job's dedicated Postgres
+        # service, DB-backed packages share one DATABASE_URL, so package
+        # binaries must run serialised (see Makefile `test` target).
+        run: cd server && go test -race -p 1 ./...
 
   installer:
     # Stub-driven shell tests for scripts/install.sh. Kept off the heavy

@@ -1,3 +1,5 @@
+<!-- AUTO-SYNCED MIRROR of ./CLAUDE.md (the source of truth for this directory). Edit CLAUDE.md, then regenerate this file; parity is enforced by scripts/check-agents-docs-sync.mjs. -->
+
 # Backend Rules (server/)
 
 Go backend for Multica: Chi router, sqlc, gorilla/websocket. Read this before

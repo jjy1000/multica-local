@@ -1,3 +1,5 @@
+<!-- AUTO-SYNCED MIRROR of ./CLAUDE.md (the source of truth for this directory). Edit CLAUDE.md, then regenerate this file; parity is enforced by scripts/check-agents-docs-sync.mjs. -->
+
 # Shared Views Rules (packages/views/)
 
 Shared business pages/components consumed by both `apps/web` and
