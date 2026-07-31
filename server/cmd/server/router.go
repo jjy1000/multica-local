@@ -920,6 +920,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/api/cli-token", h.IssueCliToken)
 		r.Post("/api/upload-file", h.UploadFile)
 		r.Post("/api/feedback", h.CreateFeedback)
+		// 0.5.0 fork wave 1 — client-usage daily heartbeat. Records one row
+		// per (user, client_type, install_id, UTC date) for active/desktop usage
+		// reporting. RequireHumanActor matches the upstream route gating
+		// (a member, not an agent task queue, is reporting).
+		r.With(handler.RequireHumanActor).Post("/api/client-usage", h.UpsertClientUsage)
 
 		// Attachment download — user-scoped (auth-only), NOT
 		// workspace-scoped. The handler self-resolves the workspace
