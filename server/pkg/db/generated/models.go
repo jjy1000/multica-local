@@ -22,29 +22,30 @@ type ActivityLog struct {
 }
 
 type Agent struct {
-	ID                 pgtype.UUID        `json:"id"`
-	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
-	Name               string             `json:"name"`
-	AvatarUrl          pgtype.Text        `json:"avatar_url"`
-	RuntimeMode        string             `json:"runtime_mode"`
-	RuntimeConfig      []byte             `json:"runtime_config"`
-	Visibility         string             `json:"visibility"`
-	Status             string             `json:"status"`
-	MaxConcurrentTasks int32              `json:"max_concurrent_tasks"`
-	OwnerID            pgtype.UUID        `json:"owner_id"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
-	Description        string             `json:"description"`
-	RuntimeID          pgtype.UUID        `json:"runtime_id"`
-	Instructions       string             `json:"instructions"`
-	ArchivedAt         pgtype.Timestamptz `json:"archived_at"`
-	ArchivedBy         pgtype.UUID        `json:"archived_by"`
-	CustomEnv          []byte             `json:"custom_env"`
-	CustomArgs         []byte             `json:"custom_args"`
-	McpConfig          []byte             `json:"mcp_config"`
-	Model              pgtype.Text        `json:"model"`
-	ThinkingLevel      pgtype.Text        `json:"thinking_level"`
-	SystemKey          pgtype.Text        `json:"system_key"`
+	ID                    pgtype.UUID        `json:"id"`
+	WorkspaceID           pgtype.UUID        `json:"workspace_id"`
+	Name                  string             `json:"name"`
+	AvatarUrl             pgtype.Text        `json:"avatar_url"`
+	RuntimeMode           string             `json:"runtime_mode"`
+	RuntimeConfig         []byte             `json:"runtime_config"`
+	Visibility            string             `json:"visibility"`
+	Status                string             `json:"status"`
+	MaxConcurrentTasks    int32              `json:"max_concurrent_tasks"`
+	OwnerID               pgtype.UUID        `json:"owner_id"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+	Description           string             `json:"description"`
+	RuntimeID             pgtype.UUID        `json:"runtime_id"`
+	Instructions          string             `json:"instructions"`
+	ArchivedAt            pgtype.Timestamptz `json:"archived_at"`
+	ArchivedBy            pgtype.UUID        `json:"archived_by"`
+	CustomEnv             []byte             `json:"custom_env"`
+	CustomArgs            []byte             `json:"custom_args"`
+	McpConfig             []byte             `json:"mcp_config"`
+	Model                 pgtype.Text        `json:"model"`
+	ThinkingLevel         pgtype.Text        `json:"thinking_level"`
+	SystemKey             pgtype.Text        `json:"system_key"`
+	DisabledRuntimeSkills []byte             `json:"disabled_runtime_skills"`
 }
 
 type AgentRuntime struct {
@@ -119,12 +120,14 @@ type AgentTaskQueue struct {
 	PrepareLeaseExpiresAt pgtype.Timestamptz `json:"prepare_lease_expires_at"`
 	SquadID               pgtype.UUID        `json:"squad_id"`
 	// Per-task MCP servers computed at dispatch time, merged on top of agent.mcp_config. Currently used by Composio integration to inject the initiator user's session URL. Cleared after task completes via trg_clear_runtime_mcp_overlay.
-	RuntimeMcpOverlay   []byte             `json:"runtime_mcp_overlay"`
-	EscalationForTaskID pgtype.UUID        `json:"escalation_for_task_id"`
-	FireAt              pgtype.Timestamptz `json:"fire_at"`
-	DeliveredCommentIds []pgtype.UUID      `json:"delivered_comment_ids"`
-	ChatInputTaskID     pgtype.UUID        `json:"chat_input_task_id"`
-	CoalescedCommentIds []pgtype.UUID      `json:"coalesced_comment_ids"`
+	RuntimeMcpOverlay     []byte             `json:"runtime_mcp_overlay"`
+	EscalationForTaskID   pgtype.UUID        `json:"escalation_for_task_id"`
+	FireAt                pgtype.Timestamptz `json:"fire_at"`
+	DeliveredCommentIds   []pgtype.UUID      `json:"delivered_comment_ids"`
+	ChatInputTaskID       pgtype.UUID        `json:"chat_input_task_id"`
+	CoalescedCommentIds   []pgtype.UUID      `json:"coalesced_comment_ids"`
+	SessionRolloutMissing bool               `json:"session_rollout_missing"`
+	RetiredSessionID      pgtype.Text        `json:"retired_session_id"`
 }
 
 type Attachment struct {
@@ -331,6 +334,27 @@ type ChatSession struct {
 	LastReadAt   pgtype.Timestamptz `json:"last_read_at"`
 	IsAgentIntro bool               `json:"is_agent_intro"`
 	PinnedAt     pgtype.Timestamptz `json:"pinned_at"`
+	ProjectID    pgtype.UUID        `json:"project_id"`
+}
+
+type ClientUsageDaily struct {
+	UserID          pgtype.UUID        `json:"user_id"`
+	ClientType      string             `json:"client_type"`
+	InstallID       pgtype.UUID        `json:"install_id"`
+	ActivityDate    pgtype.Date        `json:"activity_date"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	ClientVersion   string             `json:"client_version"`
+	Os              string             `json:"os"`
+	FirstActiveAt   pgtype.Timestamptz `json:"first_active_at"`
+	LastActiveAt    pgtype.Timestamptz `json:"last_active_at"`
+	RuntimeProbedAt pgtype.Timestamptz `json:"runtime_probed_at"`
+	ProbeResult     pgtype.Text        `json:"probe_result"`
+	RuntimeCount    pgtype.Int4        `json:"runtime_count"`
+	ProviderSummary []byte             `json:"provider_summary"`
+	OnlineCount     pgtype.Int4        `json:"online_count"`
+	OfflineCount    pgtype.Int4        `json:"offline_count"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Comment struct {
@@ -947,6 +971,8 @@ type TaskUsage struct {
 	CacheWriteTokens int64              `json:"cache_write_tokens"`
 	CreatedAt        pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	// Provider-reported cost in 1e-10 USD. NULL when the provider reports none; those rows are priced client-side from the static rate table.
+	CostUsdTicks pgtype.Int8 `json:"cost_usd_ticks"`
 }
 
 type TaskUsageHourly struct {
@@ -964,6 +990,13 @@ type TaskUsageHourly struct {
 	TaskCount        int64              `json:"task_count"`
 	EventCount       int64              `json:"event_count"`
 	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+	// Sum of provider-reported cost (1e-10 USD) over the rows in this bucket that had one; 0 when none did.
+	CostUsdTicks int64 `json:"cost_usd_ticks"`
+	// Input tokens from rows with no provider-reported cost — the portion still priced from the static rate table. NULL on buckets not yet recomputed since this column existed; readers COALESCE to input_tokens.
+	UncostedInputTokens      pgtype.Int8 `json:"uncosted_input_tokens"`
+	UncostedOutputTokens     pgtype.Int8 `json:"uncosted_output_tokens"`
+	UncostedCacheReadTokens  pgtype.Int8 `json:"uncosted_cache_read_tokens"`
+	UncostedCacheWriteTokens pgtype.Int8 `json:"uncosted_cache_write_tokens"`
 }
 
 type TaskUsageHourlyDirty struct {
