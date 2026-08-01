@@ -46,8 +46,8 @@ import { deriveThreadResolution } from "./thread-utils";
 
 const highlightedCommentBackgroundClass =
   "bg-[color-mix(in_srgb,var(--card)_95%,var(--brand)_5%)]";
-const highlightedCommentFadeClass =
-  "after:from-[color-mix(in_srgb,var(--card)_95%,var(--brand)_5%)]";
+const stickyHeaderFadeClass =
+  "after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-1 after:bg-[inherit] after:[mask-image:linear-gradient(to_bottom,#000,transparent)] after:[-webkit-mask-image:linear-gradient(to_bottom,#000,transparent)]";
 
 function StickyHeaderShell({
   className,
@@ -61,20 +61,23 @@ function StickyHeaderShell({
   children: ReactNode;
 }) {
   if (!sticky) {
-    return <div className={className}>{children}</div>;
+    return (
+      <div className={cn(highlighted && highlightedCommentBackgroundClass, className)}>
+        {children}
+      </div>
+    );
   }
 
   return (
     <div
       className={cn(
-        "sticky top-0 z-10 after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-1 after:bg-gradient-to-b after:to-transparent",
+        "sticky top-0 z-10 transition-colors duration-700",
+        !highlighted && stickyHeaderFadeClass,
         highlighted ? highlightedCommentBackgroundClass : "bg-card",
-        highlighted ? highlightedCommentFadeClass : "after:from-card",
+        className,
       )}
     >
-      <div className={className}>
-        {children}
-      </div>
+      {children}
     </div>
   );
 }
@@ -752,7 +755,7 @@ function CommentCardImpl({
     // overflow-clip (not -hidden) clips the rounded corners WITHOUT creating a
     // scroll container, so the sticky collapse affordances below resolve to the
     // timeline's scroll parent instead of this card. See PR #3623.
-    <Card className={cn("!py-0 !gap-0 overflow-clip transition-colors duration-700", isHighlighted && "ring-2 ring-brand/50", isHighlighted && highlightedCommentBackgroundClass)}>
+    <Card className="!py-0 !gap-0 overflow-clip transition-colors duration-700">
       {onCollapseResolved && (
         <button
           type="button"
@@ -771,7 +774,7 @@ function CommentCardImpl({
             That is what keeps exactly one header pinned at a time: without this
             wrapper the header's containing block is the whole thread and it
             stays stuck behind every reply. */}
-        <div>
+        <div className={cn("transition-colors duration-700", isHighlighted && highlightedCommentBackgroundClass)}>
         {/* Header — always visible, acts as toggle */}
         <StickyHeaderShell
           sticky={stickyHeader}

@@ -677,7 +677,7 @@ export function ChatWindow({ wsId: wsIdOverride }: ChatWindowProps = {}) {
 
   const isVisible = isOpen && (isExpanded || boundsReady);
 
-  const containerClass = "absolute bottom-2 right-2 z-50 flex flex-col rounded-xl ring-1 ring-foreground/10 bg-sidebar shadow-2xl overflow-hidden";
+  const containerClass = "absolute bottom-2 right-2 z-50 flex flex-col overflow-hidden rounded-xl bg-surface-raised shadow-[var(--floating-shadow)] ring-1 ring-surface-border";
   const containerStyle: React.CSSProperties = {
     transformOrigin: "bottom right",
     pointerEvents: isOpen ? "auto" : "none",
