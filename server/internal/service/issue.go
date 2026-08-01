@@ -374,6 +374,10 @@ var defaultLeaderAgentForLab = map[string]string{
 	// underlying agent rows; the live lookup is by name.
 	"pythia_oracle": "pythia_runtime",
 	"code_canvas":   "code_canvas_worker",
+	// 0.5.3: agent_creation_studio leader (the studio's issue-bound
+	// path). Mirrors handler.AgentCreationExpertName; keep the strings
+	// in sync when renaming.
+	"agent_creation_studio": "agent_creation_expert",
 }
 
 // resolveLabLeader resolves the leader agent name for a lab_source.

@@ -353,6 +353,15 @@ var Catalog = []Flag{
 		// and the IssueLabsSection sidebar link all stay oblivious to
 		// the studio. This keeps the studio orthogonal to the existing
 		// remaining inline / visibility-gate pairs.
+		//
+		// 0.5.3: the studio is ALSO an issue-bound lab — selecting it in
+		// the LabPicker main list writes issue.lab_source='agent_creation_studio'
+		// and the leader (agent_creation_expert, provisioned by
+		// install_agent_creation_studio.go) is auto-assigned via the
+		// 0.3.46 P0#4 rewrite contract. The manual creator (action
+		// footer) stays. The lab does NOT seed visibility rows: the
+		// leader is the user's execution partner and must appear in
+		// pickers/assignee display.
 		Key:        "agent_creation_studio",
 		DefaultVal: false,
 		Title: LocalizedString{

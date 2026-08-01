@@ -568,6 +568,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallCodeCanvas(context.Background(), userID, workspaceID)
 			})
+		// 0.5.3: agent_creation_studio upgraded from an action-only lab to
+		// an issue-bound lab: selecting it in LabPicker writes
+		// issue.lab_source='agent_creation_studio' and the leader agent
+		// (agent_creation_expert) is auto-assigned, so user-delegated
+		// creation tasks dispatch to it. The manual creator stays.
+		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceAgentCreationStudio),
+			func(userID, workspaceID string) error {
+				return hh.InstallAgentCreationStudio(context.Background(), userID, workspaceID)
+			})
 	}
 
 	// 0.3.60: boot-time user plugin loading. Merge active user plugins

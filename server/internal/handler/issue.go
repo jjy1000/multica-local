@@ -2992,6 +2992,11 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 		// run.sh stub subprocess. Real subprocess lifecycle is
 		// owned by manager-factory.ts.
 		return "code_canvas_worker", true
+	case "agent_creation_studio":
+		// 0.5.3: the studio leader agent (install_agent_creation_studio.go).
+		// Picking the lab in LabPicker auto-assigns the issue to this agent
+		// so the creation task dispatches to a live runtime.
+		return AgentCreationExpertName, true
 	case "mythos_swarm":
 		// Mythos owns the roster via its own runner; auto-assign is
 		// intentionally suppressed (the sole-mutex gate above keeps

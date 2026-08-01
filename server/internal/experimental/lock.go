@@ -93,6 +93,11 @@ const (
 	// by install_code_canvas.go which provisions a `code_canvas_worker`
 	// agent + the bundled run.sh /health stub subprocess.
 	SourceCodeCanvas Source = "code_canvas"
+	// 0.5.3: source for the agent_creation_studio lab (0.3.45 action
+	// entry, upgraded to an issue-bound lab). Used by
+	// install_agent_creation_studio.go which provisions the
+	// `agent_creation_expert` leader agent that owns created resources.
+	SourceAgentCreationStudio Source = "agent_creation_studio"
 )
 
 // AllSources is the developer-facing read-only list of every known
@@ -109,6 +114,7 @@ var AllSources = []Source{
 	SourceAgentSelfOptimization,
 	SourcePythiaOracle,
 	SourceCodeCanvas,
+	SourceAgentCreationStudio,
 }
 
 // Valid reports whether s is in AllSources.

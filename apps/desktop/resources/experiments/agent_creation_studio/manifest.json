@@ -6,18 +6,18 @@
     "flag": "agent_creation_studio",
     "title": { "en": "Agent Creation Studio", "zh": "智能体创建" },
     "description": {
-      "en": "Draft and create agent, skill, or squad resources from inside Labs. Created resources are normal user-visible rows; they appear in the main product immediately. Off by default — the studio sits behind an opt-in toggle so the main product chrome stays focused.",
-      "zh": "在实验室内编写并创建智能体 / 技能 / 团队资源。新建资源为普通用户可见行, 立即在主产品中出现。默认关闭 —— 编辑器隐藏在 opt-in 开关后, 保持主产品界面简洁。"
+      "en": "Draft and create agent, skill, squad, or automation resources — either manually from the studio view, or by delegating an issue to this lab (picking it in the issue LabPicker assigns the task to the agent_creation_expert leader). Created resources are normal user-visible rows. Off by default — the studio sits behind an opt-in toggle so the main product chrome stays focused.",
+      "zh": "创建智能体 / 技能 / 团队 / 自动化工程资源 —— 既可在工作室视图中手动创建,也可将任务委托给本实验室(在任务的问题选择器中选中本实验室,任务即分配给 agent_creation_expert 负责人)。新建资源为普通用户可见行。默认关闭 —— 编辑器隐藏在 opt-in 开关后, 保持主产品界面简洁。"
     },
     "default_enabled": false
   },
   "spec": {
     "capabilities": {
       "skills": [],
-      "agents": [],
+      "agents": ["agent_creation_expert"],
       "squads": [],
       "mcp_servers": [],
-      "permissions": []
+      "permissions": ["agent:invoke", "agent:write", "skill:write", "squad:write"]
     },
     "entry_points": {
       "sidebar": [],
@@ -29,8 +29,8 @@
     },
     "runtime": { "kind": "inline" },
     "resources": {
-      "installable": false,
-      "lockable_resources": []
+      "installable": true,
+      "lockable_resources": ["agent"]
     },
     "safety": {
       "init_timeout_ms": 30000,
