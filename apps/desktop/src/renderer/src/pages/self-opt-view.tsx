@@ -150,9 +150,10 @@ function Intro() {
         智能体自优化循环
       </h1>
       <p className="text-body leading-relaxed text-muted-foreground">
-        每周一上午 10 点扫描已完结任务(非实验性 agent),参考 SkillOpt 的「文本空间优化器」思路:
-        把每个智能体的 instructions 当作可训练状态,基于信任评分账本与已完成任务提出 add/delete/replace 编辑,
-        经过验证门控后写回 — 经验被智能体自己学习。若错过(电脑关机 / 未开 app),下次启动自动补跑;
+        每周一上午 10 点扫描已完结任务(非实验性 agent)与信任评分账本,参考 SkillOpt 的「文本空间优化器」思路:
+        把智能体 / 技能 / 团队 / 自动化的指令文本当作可训练状态,基于信任评分账本与已完成任务提出 add/delete/replace 编辑,
+        经过验证门控后写回 — 经验被智能体自己学习。信任 ≥ 8 的智能体进入保留机制(不再提议修改);
+        信任偏低且有纠正记录的智能体会被优先自动优化。若错过(电脑关机 / 未开 app),下次启动自动补跑;
         历史数据不足时自动排队待数据充足后优化。
       </p>
     </section>
@@ -818,8 +819,11 @@ function EventRow({ ev }: { ev: TrustEvent }) {
 
 interface SelfOptEditDTO {
   id: string;
-  agent_id: string;
+  agent_id?: string;
   agent_name?: string;
+  /** 0.5.3: optimizable subject kind — agent | skill | squad | autopilot */
+  target_type?: string;
+  target_id?: string;
   edit_type: string;
   before_text: string;
   after_text: string;
@@ -829,6 +833,14 @@ interface SelfOptEditDTO {
   validation_reason?: string;
   created_at: string;
 }
+
+/** 0.5.3: human-readable subject kind label + badge class. */
+const SUBJECT_LABELS: Record<string, { label: string; cls: string }> = {
+  agent: { label: "智能体", cls: "bg-purple-500/15 text-purple-700 dark:text-purple-300" },
+  skill: { label: "技能", cls: "bg-sky-500/15 text-sky-700 dark:text-sky-300" },
+  squad: { label: "团队", cls: "bg-orange-500/15 text-orange-700 dark:text-orange-300" },
+  autopilot: { label: "自动化", cls: "bg-teal-500/15 text-teal-700 dark:text-teal-300" },
+};
 
 function SuggestionsTab() {
   const wsId = useWorkspaceId();
@@ -928,7 +940,16 @@ function EditCard({
     <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
       <div className="flex items-center gap-2 text-caption">
         <span className={`rounded-full px-2 py-0.5 font-medium ${typeCls}`}>{typeLabel}</span>
-        <span className="font-medium text-foreground">{edit.agent_name ?? edit.agent_id.slice(0, 8)}</span>
+        <span
+          className={`rounded-full px-2 py-0.5 font-medium ${
+            SUBJECT_LABELS[edit.target_type ?? "agent"]?.cls ?? "bg-muted text-muted-foreground"
+          }`}
+        >
+          {SUBJECT_LABELS[edit.target_type ?? "agent"]?.label ?? edit.target_type ?? "智能体"}
+        </span>
+        <span className="font-medium text-foreground">
+          {edit.agent_name ?? edit.target_id?.slice(0, 8) ?? "未知对象"}
+        </span>
         {typeof edit.validation_score === "number" && (
           <span className="ml-auto font-mono text-[11px] text-foreground/80">
             评分 {edit.validation_score.toFixed(0)}
