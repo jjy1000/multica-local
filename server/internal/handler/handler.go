@@ -28,8 +28,9 @@ import (
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
-	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
+	agenttrust "github.com/multica-ai/multica/server/internal/service/agent_trust"
+	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -142,6 +143,10 @@ type Handler struct {
 	// Service.Start no-ops on boot, so the field is non-nil but
 	// inert.
 	SelfOptService *selfoptsvc.Service
+	// TrustService (0.5.2) owns the agent trust score + self-review
+	// ledger. Boot wires it from cmd/server/router.go; the HTTP handlers
+	// fall back to 503 when nil.
+	TrustService *agenttrust.Service
 	// Metrics is the shared business-metrics collector built by main.go.
 	// May be nil in tests / self-hosted with the metrics listener disabled;
 	// every Record* method is nil-safe and obsmetrics.RecordEvent treats a
@@ -215,7 +220,7 @@ type Handler struct {
 	// handler.New returns; absent there, the feature is simply disabled and
 	// no chat title ever gets auto-rewritten.
 	ChatTitleProvider ChatTitleProvider
-	cfg              Config
+	cfg               Config
 }
 
 func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *events.Bus, emailService *service.EmailService, store storage.Storage, analyticsClient analytics.Client, cfg Config, daemonHubs ...*daemonws.Hub) *Handler {
@@ -276,7 +281,7 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		// empty container so downstream code can read
 		// h.ExperimentRegistry without a nil check.
 		ExperimentRegistry: experimental.NewRegistry(),
-		cfg: cfg,
+		cfg:                cfg,
 	}
 }
 

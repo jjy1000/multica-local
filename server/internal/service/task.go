@@ -11,13 +11,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/google/uuid"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/events"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/realtime"
+	"github.com/multica-ai/multica/server/internal/service/agent_trust"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -40,6 +41,12 @@ type TaskService struct {
 	// goes through the DB. Wired in router.go from the shared Redis
 	// client.
 	EmptyClaim *EmptyClaimCache
+	// Trust is the agent trust gate (0.5.2). When set, every completed
+	// issue-bound task runs through it: a sub-agent whose trust score is
+	// below the threshold gets its output self-reviewed before the main
+	// agent (and the user) treats it as accepted. Nil disables the gate
+	// (default in tests / minimal builds).
+	Trust *agent_trust.Service
 
 	analyticsContextMu    sync.Mutex
 	analyticsContextCache map[string]analytics.TaskContext
@@ -1487,6 +1494,15 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 	// Reconcile agent status
 	s.ReconcileAgentStatus(ctx, task.AgentID)
 
+	// Trust gate (0.5.2): a sub-agent whose trust score is below the
+	// threshold gets its completed output self-reviewed before the main
+	// agent accepts it. Runs asynchronously so a slow provider CLI can
+	// never stall the task completion path; every failure is logged and
+	// dropped (fail-open).
+	if s.Trust != nil {
+		go s.Trust.ProcessTaskCompletion(context.Background(), s.Queries, task, result)
+	}
+
 	// Broadcast
 	s.broadcastTaskEvent(ctx, protocol.EventTaskCompleted, task)
 
@@ -1840,7 +1856,7 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourc
 // reassigned, mention agent) we use the mention path with the same
 // force_fresh_session=true contract.
 func (s *TaskService) enqueueRerunTask(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool) (db.AgentTaskQueue, error) {
-		if issue.AssigneeType.String == "agent" && issue.AssigneeID.Valid &&
+	if issue.AssigneeType.String == "agent" && issue.AssigneeID.Valid &&
 		util.UUIDToString(issue.AssigneeID) == util.UUIDToString(agentID) {
 		return s.enqueueIssueTask(ctx, issue, triggerCommentID, true, "")
 	}

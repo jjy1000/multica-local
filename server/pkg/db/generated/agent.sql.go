@@ -2459,6 +2459,71 @@ func (q *Queries) HasPendingTaskForIssueAndAgentExcludingTriggerComment(ctx cont
 	return has_pending, err
 }
 
+const latestCompletedTaskForAgent = `-- name: LatestCompletedTaskForAgent :one
+SELECT atq.id, atq.agent_id, atq.issue_id, atq.status, atq.priority, atq.dispatched_at, atq.started_at, atq.completed_at, atq.result, atq.error, atq.created_at, atq.context, atq.runtime_id, atq.session_id, atq.work_dir, atq.trigger_comment_id, atq.chat_session_id, atq.autopilot_run_id, atq.attempt, atq.max_attempts, atq.parent_task_id, atq.failure_reason, atq.trigger_summary, atq.force_fresh_session, atq.is_leader_task, atq.wait_reason, atq.initiator_user_id, atq.handoff_note, atq.prepare_lease_expires_at, atq.squad_id, atq.runtime_mcp_overlay, atq.escalation_for_task_id, atq.fire_at, atq.delivered_comment_ids, atq.chat_input_task_id, atq.coalesced_comment_ids, atq.session_rollout_missing, atq.retired_session_id FROM agent_task_queue atq
+JOIN agent a ON a.id = atq.agent_id
+WHERE atq.agent_id = $1
+  AND a.workspace_id = $2
+  AND atq.status = 'completed'
+ORDER BY atq.completed_at DESC NULLS LAST
+LIMIT 1
+`
+
+type LatestCompletedTaskForAgentParams struct {
+	AgentID     pgtype.UUID `json:"agent_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+// 0.5.2: most recent completed task for an agent in a workspace. Used by
+// the trust review endpoint to pick a reviewable task when the caller did
+// not name one. Tenant guard via agent.workspace_id (same universal guard
+// as LoadAgentTaskForWorkspace — agent_id is NOT NULL on every row).
+func (q *Queries) LatestCompletedTaskForAgent(ctx context.Context, arg LatestCompletedTaskForAgentParams) (AgentTaskQueue, error) {
+	row := q.db.QueryRow(ctx, latestCompletedTaskForAgent, arg.AgentID, arg.WorkspaceID)
+	var i AgentTaskQueue
+	err := row.Scan(
+		&i.ID,
+		&i.AgentID,
+		&i.IssueID,
+		&i.Status,
+		&i.Priority,
+		&i.DispatchedAt,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.Result,
+		&i.Error,
+		&i.CreatedAt,
+		&i.Context,
+		&i.RuntimeID,
+		&i.SessionID,
+		&i.WorkDir,
+		&i.TriggerCommentID,
+		&i.ChatSessionID,
+		&i.AutopilotRunID,
+		&i.Attempt,
+		&i.MaxAttempts,
+		&i.ParentTaskID,
+		&i.FailureReason,
+		&i.TriggerSummary,
+		&i.ForceFreshSession,
+		&i.IsLeaderTask,
+		&i.WaitReason,
+		&i.InitiatorUserID,
+		&i.HandoffNote,
+		&i.PrepareLeaseExpiresAt,
+		&i.SquadID,
+		&i.RuntimeMcpOverlay,
+		&i.EscalationForTaskID,
+		&i.FireAt,
+		&i.DeliveredCommentIds,
+		&i.ChatInputTaskID,
+		&i.CoalescedCommentIds,
+		&i.SessionRolloutMissing,
+		&i.RetiredSessionID,
+	)
+	return i, err
+}
+
 const linkTaskToIssue = `-- name: LinkTaskToIssue :exec
 UPDATE agent_task_queue
 SET issue_id = $2

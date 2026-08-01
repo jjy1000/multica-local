@@ -166,6 +166,19 @@ SELECT * FROM agent_task_queue
 WHERE agent_id = $1
 ORDER BY created_at DESC;
 
+-- name: LatestCompletedTaskForAgent :one
+-- 0.5.2: most recent completed task for an agent in a workspace. Used by
+-- the trust review endpoint to pick a reviewable task when the caller did
+-- not name one. Tenant guard via agent.workspace_id (same universal guard
+-- as LoadAgentTaskForWorkspace — agent_id is NOT NULL on every row).
+SELECT atq.* FROM agent_task_queue atq
+JOIN agent a ON a.id = atq.agent_id
+WHERE atq.agent_id = $1
+  AND a.workspace_id = $2
+  AND atq.status = 'completed'
+ORDER BY atq.completed_at DESC NULLS LAST
+LIMIT 1;
+
 -- name: ListAgentTasksByIssue :many
 -- 0.3.43: server-side filtered + bounded variant for the Claude Lab
 -- workbench. The unbounded `ListAgentTasks` returns the agent's

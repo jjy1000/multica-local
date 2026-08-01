@@ -1458,6 +1458,31 @@ func (h *Handler) ArchiveAgent(w http.ResponseWriter, r *http.Request) {
 		h.TaskService.CaptureCancelledTasks(r.Context(), cancelled)
 	}
 
+	// 0.5.2 delete-closure: the agent's trust score, trust events, and
+	// optimization edit ledger must disappear with it (the self-opt loop
+	// must not keep learning from an archived agent). The hard-delete path
+	// is covered by FK ON DELETE CASCADE on agent_id; the archive (soft
+	// delete) path needs explicit purges.
+	wsIDForPurge := archived.WorkspaceID
+	if err := h.Queries.DeleteAgentTrustProfile(r.Context(), db.DeleteAgentTrustProfileParams{
+		AgentID:     agent.ID,
+		WorkspaceID: wsIDForPurge,
+	}); err != nil {
+		slog.Warn("archive agent: purge trust profile failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
+	}
+	if err := h.Queries.DeleteAgentTrustEvents(r.Context(), db.DeleteAgentTrustEventsParams{
+		AgentID:     agent.ID,
+		WorkspaceID: wsIDForPurge,
+	}); err != nil {
+		slog.Warn("archive agent: purge trust events failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
+	}
+	if err := h.Queries.DeleteAgentOptEditsByAgent(r.Context(), db.DeleteAgentOptEditsByAgentParams{
+		AgentID:     agent.ID,
+		WorkspaceID: wsIDForPurge,
+	}); err != nil {
+		slog.Warn("archive agent: purge opt edits failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
+	}
+
 	wsID := uuidToString(archived.WorkspaceID)
 	slog.Info("agent archived", append(logger.RequestAttrs(r), "agent_id", id, "workspace_id", wsID)...)
 	resp := agentToResponse(archived)

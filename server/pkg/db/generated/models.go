@@ -48,6 +48,26 @@ type Agent struct {
 	DisabledRuntimeSkills []byte             `json:"disabled_runtime_skills"`
 }
 
+type AgentOptEdit struct {
+	ID                   pgtype.UUID        `json:"id"`
+	AgentID              pgtype.UUID        `json:"agent_id"`
+	RunID                pgtype.UUID        `json:"run_id"`
+	WorkspaceID          pgtype.UUID        `json:"workspace_id"`
+	EditType             string             `json:"edit_type"`
+	BeforeText           string             `json:"before_text"`
+	AfterText            string             `json:"after_text"`
+	Rationale            pgtype.Text        `json:"rationale"`
+	Accepted             bool               `json:"accepted"`
+	Iteration            int32              `json:"iteration"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	Application          string             `json:"application"`
+	ValidationScore      pgtype.Numeric     `json:"validation_score"`
+	ValidationReason     pgtype.Text        `json:"validation_reason"`
+	InstructionsSnapshot pgtype.Text        `json:"instructions_snapshot"`
+	AppliedBy            pgtype.Text        `json:"applied_by"`
+	CorrectedTaskID      pgtype.UUID        `json:"corrected_task_id"`
+}
+
 type AgentRuntime struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -80,6 +100,9 @@ type AgentSelfOptRun struct {
 	KbAppendixPath    pgtype.Text        `json:"kb_appendix_path"`
 	ErrorMessage      pgtype.Text        `json:"error_message"`
 	CreatedIssueID    pgtype.UUID        `json:"created_issue_id"`
+	DeferredReason    pgtype.Text        `json:"deferred_reason"`
+	DeferredUntil     pgtype.Timestamptz `json:"deferred_until"`
+	DataCount         int32              `json:"data_count"`
 }
 
 type AgentSkill struct {
@@ -128,6 +151,35 @@ type AgentTaskQueue struct {
 	CoalescedCommentIds   []pgtype.UUID      `json:"coalesced_comment_ids"`
 	SessionRolloutMissing bool               `json:"session_rollout_missing"`
 	RetiredSessionID      pgtype.Text        `json:"retired_session_id"`
+}
+
+type AgentTrustEvent struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	AgentID     pgtype.UUID        `json:"agent_id"`
+	EventType   string             `json:"event_type"`
+	ScoreDelta  pgtype.Numeric     `json:"score_delta"`
+	ScoreBefore pgtype.Numeric     `json:"score_before"`
+	ScoreAfter  pgtype.Numeric     `json:"score_after"`
+	TaskID      pgtype.UUID        `json:"task_id"`
+	IssueID     pgtype.UUID        `json:"issue_id"`
+	Note        pgtype.Text        `json:"note"`
+	CreatedBy   pgtype.UUID        `json:"created_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type AgentTrustProfile struct {
+	ID                   pgtype.UUID        `json:"id"`
+	WorkspaceID          pgtype.UUID        `json:"workspace_id"`
+	AgentID              pgtype.UUID        `json:"agent_id"`
+	Score                pgtype.Numeric     `json:"score"`
+	ReviewThreshold      pgtype.Numeric     `json:"review_threshold"`
+	ReviewRequestedCount int32              `json:"review_requested_count"`
+	ReviewPassCount      int32              `json:"review_pass_count"`
+	ReviewFailCount      int32              `json:"review_fail_count"`
+	CorrectionCount      int32              `json:"correction_count"`
+	CreatedAt            pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Attachment struct {
