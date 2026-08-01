@@ -52,7 +52,7 @@ export function SkillsTab({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           {t(($) => $.tab_body.skills.intro)}
         </p>
         <Button
@@ -70,10 +70,10 @@ export function SkillsTab({
       {agent.skills.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12">
           <FileText className="h-8 w-8 text-muted-foreground/40" />
-          <p className="mt-3 text-sm text-muted-foreground">
+          <p className="mt-3 text-body text-muted-foreground">
             {t(($) => $.tab_body.skills.empty_title)}
           </p>
-          <p className="mt-1 max-w-xs text-center text-xs text-muted-foreground">
+          <p className="mt-1 max-w-xs text-center text-caption text-muted-foreground">
             {t(($) => $.tab_body.skills.empty_hint)}
           </p>
           {workspaceSkills.length > 0 && (
@@ -96,9 +96,9 @@ export function SkillsTab({
             >
               <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium">{skill.name}</div>
+                <div className="text-body font-medium">{skill.name}</div>
                 {skill.description && (
-                  <div className="truncate text-xs text-muted-foreground">
+                  <div className="truncate text-caption text-muted-foreground">
                     {skill.description}
                   </div>
                 )}

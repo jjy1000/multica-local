@@ -124,10 +124,10 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
     >
       {/* Left nav (stacks on top on mobile, sidebar on md+) */}
       <div className="shrink-0 md:w-52 border-b md:border-b-0 md:border-r md:overflow-y-auto p-3 md:p-4">
-        <h1 className="text-sm font-semibold mb-4 px-2">{t(($) => $.page.title)}</h1>
+        <h1 className="text-body font-semibold mb-4 px-2">{t(($) => $.page.title)}</h1>
         <TabsList variant="line" className="flex-col items-stretch w-full">
           {/* My Account group */}
-          <span className="px-2 pb-1 pt-2 text-xs font-medium text-muted-foreground">
+          <span className="px-2 pb-1 pt-2 text-caption font-medium text-muted-foreground">
             {t(($) => $.page.my_account)}
           </span>
           {ACCOUNT_TAB_KEYS.map((key) => {
@@ -147,7 +147,7 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
           ))}
 
           {/* Workspace group */}
-          <span className="px-2 pb-1 pt-4 text-xs font-medium text-muted-foreground truncate">
+          <span className="px-2 pb-1 pt-4 text-caption font-medium text-muted-foreground truncate">
             {workspaceName ?? t(($) => $.page.workspace_fallback)}
           </span>
           {WORKSPACE_TAB_KEYS.map((key) => {

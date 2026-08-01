@@ -60,7 +60,7 @@ export function AgentActivityHoverContent({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-xs font-medium text-muted-foreground">
+      <div className="text-caption font-medium text-muted-foreground">
         {t(($) => $.agent_activity.hover_header, { count: tasks.length })}
       </div>
       <div className="flex flex-col gap-1.5">
@@ -93,7 +93,7 @@ export function AgentActivityHoverContent({
           return (
             <div
               key={task.id}
-              className="flex items-center gap-2 text-xs"
+              className="flex items-center gap-2 text-caption"
             >
               <ActorAvatarBase
                 name={getActorName("agent", task.agent_id)}

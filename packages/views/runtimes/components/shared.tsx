@@ -16,7 +16,7 @@ export function RuntimeModeIcon({ mode }: { mode: string }) {
 // list rows to identify which CLI / model provider a runtime is wired to.
 export function ProviderChip({ provider }: { provider: string }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+    <span className="inline-flex items-center gap-1 rounded-md border bg-muted/40 px-1.5 py-0.5 text-caption font-medium text-muted-foreground">
       <ProviderLogo provider={provider} className="h-3 w-3" />
       <span className="capitalize">{provider}</span>
     </span>
@@ -148,9 +148,9 @@ export function InfoField({
 }) {
   return (
     <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-caption text-muted-foreground">{label}</div>
       <div
-        className={`mt-0.5 text-sm truncate ${mono ? "font-mono text-xs" : ""}`}
+        className={`mt-0.5 text-sm truncate ${mono ? "font-mono text-caption" : ""}`}
       >
         {value}
       </div>
@@ -161,7 +161,7 @@ export function InfoField({
 export function TokenCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border px-3 py-2">
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-caption text-muted-foreground">{label}</div>
       <div className="mt-0.5 text-sm font-semibold tabular-nums">{value}</div>
     </div>
   );
@@ -198,7 +198,7 @@ export function KpiCard({
         {value}
       </div>
       {hint != null && (
-        <div className="text-xs text-muted-foreground">{hint}</div>
+        <div className="text-caption text-muted-foreground">{hint}</div>
       )}
     </div>
   );

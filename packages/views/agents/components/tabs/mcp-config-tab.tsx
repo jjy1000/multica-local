@@ -86,11 +86,11 @@ export function McpConfigTab({
   if (redacted) {
     return (
       <div className="space-y-3">
-        <p className="flex items-center gap-2 text-sm font-medium">
+        <p className="flex items-center gap-2 text-body font-medium">
           <Lock className="h-3.5 w-3.5 text-muted-foreground" />
           {t(($) => $.tab_body.mcp_config.redacted_title)}
         </p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           {t(($) => $.tab_body.mcp_config.redacted_hint)}
         </p>
       </div>
@@ -132,7 +132,7 @@ export function McpConfigTab({
   return (
     <div className="flex h-full flex-col space-y-3">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           {t(($) => $.tab_body.mcp_config.intro)}
         </p>
         {trimmed !== "" && (
@@ -156,16 +156,16 @@ export function McpConfigTab({
         aria-invalid={showInvalid || undefined}
         aria-label={t(($) => $.tab_body.mcp_config.editor_aria)}
         spellCheck={false}
-        className="min-h-[240px] flex-1 font-mono text-xs"
+        className="min-h-[240px] flex-1 font-mono text-caption"
       />
 
       {showInvalid && (
-        <p className="text-xs text-destructive">{invalidMessage}</p>
+        <p className="text-caption text-destructive">{invalidMessage}</p>
       )}
 
       <div className="flex items-center justify-end gap-3">
         {dirty && (
-          <span className="text-xs text-muted-foreground">
+          <span className="text-caption text-muted-foreground">
             {t(($) => $.tab_body.common.unsaved_changes)}
           </span>
         )}

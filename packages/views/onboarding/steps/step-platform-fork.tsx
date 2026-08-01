@@ -141,7 +141,7 @@ export function StepPlatformFork({
             <button
               type="button"
               onClick={onBack}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="flex items-center gap-1.5 text-body text-muted-foreground transition-colors hover:text-foreground"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               {t(($) => $.common.back)}
@@ -160,7 +160,7 @@ export function StepPlatformFork({
           className="min-h-0 flex-1 overflow-y-auto"
         >
           <div className="mx-auto w-full max-w-[620px] px-6 py-10 sm:px-10 md:px-14 lg:px-0 lg:py-14">
-            <div className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <div className="mb-2 text-caption font-medium uppercase tracking-[0.08em] text-muted-foreground">
               {t(($) => $.step_platform.eyebrow)}
             </div>
             <h1 className="text-balance font-serif text-[36px] font-medium leading-[1.1] tracking-tight text-foreground">
@@ -195,7 +195,7 @@ export function StepPlatformFork({
             <div className="mt-8 flex max-w-[560px] flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <span
                 aria-live="polite"
-                className="text-xs text-muted-foreground"
+                className="text-caption text-muted-foreground"
               >
                 {footerHint}
               </span>
@@ -376,7 +376,7 @@ function CliInstallDialog({
 
           {hasRuntimes ? (
             <>
-              <div className="flex items-center gap-2 pt-1 text-sm">
+              <div className="flex items-center gap-2 pt-1 text-body">
                 <div className="h-2 w-2 rounded-full bg-success" />
                 <span className="font-medium">
                   {t(($) => $.step_platform.runtimes_connected, { count: runtimes.length })}
@@ -406,7 +406,7 @@ function CliInstallDialog({
               one" / "selected X". While still waiting, the body's
               CliWaitingStatus already conveys the live-listening state,
               so an additional "Waiting..." footer line is duplication. */}
-          <span className="text-xs text-muted-foreground">
+          <span className="text-caption text-muted-foreground">
             {hasRuntimes
               ? canConnect && selectedName
                 ? t(($) => $.step_runtime.hint_selected, { name: selectedName })
@@ -493,7 +493,7 @@ function CliWaitingStatus({ dialogOpen }: { dialogOpen: boolean }) {
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-4">
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 text-body">
         {/* Pulsing green dot signals active WS subscription — the
             useRuntimePicker hook is already subscribed to `daemon:register`,
             this is the visual confirmation that "we're listening". */}
@@ -504,7 +504,7 @@ function CliWaitingStatus({ dialogOpen }: { dialogOpen: boolean }) {
         <span className="font-medium text-foreground">
           {t(($) => $.step_platform.live_listening)}
         </span>
-        <span className="ml-auto font-mono text-xs tabular-nums text-muted-foreground">
+        <span className="ml-auto font-mono text-caption tabular-nums text-muted-foreground">
           {formatElapsed(elapsed)}
         </span>
       </div>

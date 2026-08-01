@@ -72,7 +72,7 @@ export function RuntimePicker({
   if (!canEdit) {
     const isOnline = selected?.status === "online";
     return (
-      <span className="inline-flex min-w-0 items-center gap-1.5 px-1.5 py-0.5 text-xs text-muted-foreground">
+      <span className="inline-flex min-w-0 items-center gap-1.5 px-1.5 py-0.5 text-caption text-muted-foreground">
         <Icon className="h-3 w-3 shrink-0" />
         <span className="min-w-0 truncate font-mono">
           {selected?.name ?? t(($) => $.pickers.runtime_none)}
@@ -160,7 +160,7 @@ export function RuntimePicker({
       }
     >
       {filtered.length === 0 ? (
-        <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+        <p className="px-2 py-3 text-center text-caption text-muted-foreground">
           {t(($) => $.pickers.runtime_empty)}
         </p>
       ) : (
@@ -193,7 +193,7 @@ export function RuntimePicker({
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium">
+                  <span className="truncate text-body font-medium">
                     {rt.name}
                   </span>
                   {rt.runtime_mode === "cloud" && (
@@ -208,7 +208,7 @@ export function RuntimePicker({
                     </span>
                   )}
                 </div>
-                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <div className="mt-0.5 flex items-center gap-1.5 text-caption text-muted-foreground">
                   {owner && (
                     <span className="flex min-w-0 items-center gap-1">
                       <ActorAvatar
@@ -256,7 +256,7 @@ function FilterButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex-1 rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+      className={`flex-1 rounded px-2 py-0.5 text-caption font-medium transition-colors ${
         active
           ? "bg-background text-foreground shadow-sm"
           : "text-muted-foreground hover:text-foreground"

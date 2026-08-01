@@ -73,7 +73,7 @@ function ListRowContent({
         ref={containerRef}
         style={containerStyle}
         {...containerProps}
-        className={`group/row flex h-9 items-center gap-2 px-4 text-sm transition-colors hover:not-data-[popup-open]:bg-accent/60 data-[popup-open]:bg-accent ${
+        className={`group/row flex h-9 items-center gap-2 px-4 text-body transition-colors hover:not-data-[popup-open]:bg-accent/60 data-[popup-open]:bg-accent ${
           selected ? "bg-accent/30" : ""
         } ${isDragging ? "opacity-30" : ""}`}
       >
@@ -98,7 +98,7 @@ function ListRowContent({
           href={p.issueDetail(issue.id)}
           className={`flex flex-1 items-center gap-2 min-w-0 ${isDragging ? "pointer-events-none" : ""}`}
         >
-          <span className="w-16 shrink-0 text-xs text-muted-foreground">
+          <span className="w-16 shrink-0 text-caption text-muted-foreground">
             {issue.identifier}
           </span>
           <IssueAgentActivityIndicator issueId={issue.id} />
@@ -128,18 +128,18 @@ function ListRowContent({
             )}
           </span>
           {showProject && (
-            <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground max-w-[140px]">
+            <span className="inline-flex shrink-0 items-center gap-1 text-caption text-muted-foreground max-w-[140px]">
               <ProjectIcon project={project} size="sm" />
               <span className="truncate">{project!.title}</span>
             </span>
           )}
           {showStartDate && (
-            <span className="shrink-0 text-xs text-muted-foreground">
+            <span className="shrink-0 text-caption text-muted-foreground">
               {formatDate(issue.start_date!)}
             </span>
           )}
           {showDueDate && (
-            <span className="shrink-0 text-xs text-muted-foreground">
+            <span className="shrink-0 text-caption text-muted-foreground">
               {formatDate(issue.due_date!)}
             </span>
           )}

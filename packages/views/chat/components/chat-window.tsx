@@ -693,7 +693,7 @@ export function ChatWindow({ wsId: wsIdOverride }: ChatWindowProps = {}) {
   // harmless — none of their results are rendered before we return below.
   if (!wsId) {
     return (
-      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full w-full items-center justify-center text-body text-muted-foreground">
         {t(($) => $.window.no_workspace)}
       </div>
     );
@@ -888,7 +888,7 @@ export function AgentDropdown({
   };
 
   if (!activeAgent) {
-    return <span className="text-xs text-muted-foreground">{t(($) => $.window.no_agents)}</span>;
+    return <span className="text-caption text-muted-foreground">{t(($) => $.window.no_agents)}</span>;
   }
 
   return (
@@ -916,7 +916,7 @@ export function AgentDropdown({
             enableHoverCard
             showStatusDot
           />
-          <span className="text-xs font-medium max-w-28 truncate">{activeAgent.name}</span>
+          <span className="text-caption font-medium max-w-28 truncate">{activeAgent.name}</span>
           <ChevronDown className="size-3 text-muted-foreground shrink-0" />
         </>
       }
@@ -1254,16 +1254,16 @@ function SessionDropdown({
               onCancel={() => setRenamingId(null)}
             />
           ) : isConfirmingDelete ? (
-            <div className="truncate text-sm font-medium text-destructive">
+            <div className="truncate text-body font-medium text-destructive">
               {t(($) => $.session_history.delete_dialog.title)}
             </div>
           ) : isConfirmingStop ? (
-            <div className="truncate text-sm font-medium text-destructive">
+            <div className="truncate text-body font-medium text-destructive">
               {t(($) => $.session_history.stop_dialog.title)}
             </div>
           ) : (
             <div
-              className={cn("truncate text-sm", (showUnread || showCompleted) && !isRunning && "font-medium")}
+              className={cn("truncate text-body", (showUnread || showCompleted) && !isRunning && "font-medium")}
               style={{
                 maskImage: "linear-gradient(to right, black calc(100% - 18px), transparent)",
                 WebkitMaskImage: "linear-gradient(to right, black calc(100% - 18px), transparent)",
@@ -1288,7 +1288,7 @@ function SessionDropdown({
                   setConfirmingDeleteId(null);
                 }}
                 disabled={deleteSession.isPending}
-                className="inline-flex h-7 items-center rounded px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                className="inline-flex h-7 items-center rounded px-2 text-micro font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
               >
                 {t(($) => $.session_history.delete_dialog.cancel)}
               </button>
@@ -1304,7 +1304,7 @@ function SessionDropdown({
                   handleConfirmDelete(session);
                 }}
                 disabled={deleteSession.isPending}
-                className="inline-flex h-7 items-center rounded px-2 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                className="inline-flex h-7 items-center rounded px-2 text-micro font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
               >
                 {deleteSession.isPending
                   ? t(($) => $.session_history.delete_dialog.confirming)
@@ -1325,7 +1325,7 @@ function SessionDropdown({
                   setConfirmingStopId(null);
                 }}
                 disabled={stoppingTaskId === pendingTask.task_id}
-                className="inline-flex h-7 items-center rounded px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+                className="inline-flex h-7 items-center rounded px-2 text-micro font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
               >
                 {t(($) => $.session_history.stop_dialog.cancel)}
               </button>
@@ -1341,7 +1341,7 @@ function SessionDropdown({
                   handleConfirmStop(session, pendingTask);
                 }}
                 disabled={stoppingTaskId === pendingTask.task_id}
-                className="inline-flex h-7 items-center rounded px-2 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                className="inline-flex h-7 items-center rounded px-2 text-micro font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
               >
                 {stoppingTaskId === pendingTask.task_id
                   ? t(($) => $.session_history.stop_dialog.confirming)
@@ -1350,7 +1350,7 @@ function SessionDropdown({
             </div>
           ) : (
             <div className="flex shrink-0 items-center">
-              <div className="flex h-7 items-center justify-end gap-1.5 text-xs text-muted-foreground group-hover/history-row:hidden">
+              <div className="flex h-7 items-center justify-end gap-1.5 text-caption text-muted-foreground group-hover/history-row:hidden">
                 {isRunning && <Loader2 className="size-3 animate-spin" />}
                 {showCompleted && !isRunning && <Check className="size-3 text-emerald-500" />}
                 {showUnread && !isRunning && !showCompleted && (
@@ -1419,7 +1419,7 @@ function SessionDropdown({
                       e.preventDefault();
                       setConfirmingStopId(session.id);
                     }}
-                    className="inline-flex h-7 items-center gap-1 rounded px-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive focus-visible:outline-none"
+                    className="inline-flex h-7 items-center gap-1 rounded px-1.5 text-micro font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10 focus-visible:text-destructive focus-visible:outline-none"
                     aria-label={t(($) => $.session_history.row_stop_aria)}
                     title={t(($) => $.session_history.row_stop_aria)}
                   >
@@ -1487,7 +1487,7 @@ function SessionDropdown({
                 showStatusDot
               />
             )}
-            <span className="min-w-0 truncate text-sm font-medium">{title}</span>
+            <span className="min-w-0 truncate text-body font-medium">{title}</span>
             {currentSessionRunning && (
               <Loader2
                 aria-label={t(($) => $.session_history.row_subtitle.working)}
@@ -1500,7 +1500,7 @@ function SessionDropdown({
             <span
               aria-label={t(($) => $.window.another_running)}
               title={t(($) => $.window.another_running)}
-              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs font-medium text-muted-foreground"
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
             >
               <Loader2 className="size-3 animate-spin" />
               {otherRunningCount > 1 && <span>{otherRunningCount}</span>}
@@ -1509,7 +1509,7 @@ function SessionDropdown({
             <span
               aria-label={t(($) => $.window.another_unread)}
               title={t(($) => $.window.another_unread)}
-              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs font-medium text-muted-foreground"
+              className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-caption font-medium text-muted-foreground"
             >
               <span className="size-1.5 rounded-full bg-brand" />
               {otherUnreadCount > 1 && <span>{otherUnreadCount}</span>}
@@ -1522,12 +1522,12 @@ function SessionDropdown({
           onClick={(e) => e.stopPropagation()}
         >
           {historySessions.length === 0 ? (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+            <div className="px-2 py-1.5 text-caption text-muted-foreground">
               {t(($) => $.window.no_previous)}
             </div>
           ) : (
             <div role="group" aria-label={t(($) => $.window.history_group)}>
-              <div className="px-1.5 py-1 text-xs font-medium text-muted-foreground">
+              <div className="px-1.5 py-1 text-caption font-medium text-muted-foreground">
                 {t(($) => $.window.history_group)}
               </div>
               {historySessions.map(renderRow)}
@@ -1611,7 +1611,7 @@ function SessionRenameInput({
           onCancel();
         }
       }}
-      className="w-full rounded-sm bg-background px-1 py-0.5 text-sm outline-none ring-1 ring-border focus-visible:ring-brand"
+      className="w-full rounded-sm bg-background px-1 py-0.5 text-body outline-none ring-1 ring-border focus-visible:ring-brand"
     />
   );
 }
@@ -1665,17 +1665,17 @@ function EmptyState({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-8">
         <div className="text-center space-y-3">
-          <h3 className="text-base font-semibold">
+          <h3 className="text-title-sm font-semibold">
             {t(($) => $.empty_state.first_time_title)}
           </h3>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-body text-muted-foreground">
             {t(($) => $.empty_state.first_time_intro)}{" "}
             <span className="font-medium text-foreground">
               {t(($) => $.empty_state.first_time_pillars)}
             </span>
             {t(($) => $.empty_state.first_time_pillars_suffix)}
           </p>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-body text-muted-foreground">
             {t(($) => $.empty_state.first_time_actions)}
           </p>
         </div>
@@ -1687,12 +1687,12 @@ function EmptyState({
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-5 px-6 py-8">
       <div className="text-center space-y-1">
-        <h3 className="text-base font-semibold">
+        <h3 className="text-title-sm font-semibold">
           {agentName
             ? t(($) => $.empty_state.returning_title_named, { name: agentName })
             : t(($) => $.empty_state.returning_title_default)}
         </h3>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-body text-muted-foreground">
           {t(($) => $.empty_state.returning_subtitle)}
         </p>
       </div>
@@ -1704,7 +1704,7 @@ function EmptyState({
               key={key}
               type="button"
               onClick={() => onPickPrompt(text)}
-              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent hover:border-brand/40"
+              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-left text-body text-foreground transition-colors hover:bg-accent hover:border-brand/40"
             >
               <span className="mr-2">{STARTER_ICONS[key]}</span>
               {text}

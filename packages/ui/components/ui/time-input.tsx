@@ -121,7 +121,7 @@ const SegmentInput = React.forwardRef<HTMLInputElement, SegmentInputProps>(
         }}
         onKeyDown={handleKeyDown}
         onFocus={(e) => e.currentTarget.select()}
-        className="w-7 bg-transparent text-center text-sm tabular-nums outline-none caret-transparent focus:text-foreground"
+        className="w-7 bg-transparent text-center text-body tabular-nums outline-none caret-transparent focus:text-foreground"
       />
     );
   },
@@ -162,7 +162,7 @@ export function TimeInput({
         }
       }}
       className={cn(
-        "flex h-8 items-center gap-1 rounded-lg border border-input bg-transparent px-2.5 text-sm transition-colors",
+        "flex h-8 items-center gap-1 rounded-lg border border-input bg-transparent px-2.5 text-body transition-colors",
         "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
         "dark:bg-input/30",
         disabled && "pointer-events-none cursor-not-allowed opacity-50",

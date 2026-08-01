@@ -477,7 +477,7 @@ function ActivityBlock({
         <button
           type="button"
           onClick={onToggle}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="flex items-center gap-1.5 text-caption text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronRight className="h-3 w-3 shrink-0" />
           <span>{t(($) => $.activity.activity_count, { count })}</span>
@@ -504,7 +504,7 @@ function ActivityBlock({
         <button
           type="button"
           onClick={onToggle}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="flex items-center gap-1.5 text-caption text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronDown className="h-3 w-3 shrink-0" />
           <span>{t(($) => $.activity.activity_count, { count: entries.length })}</span>
@@ -514,7 +514,7 @@ function ActivityBlock({
         <button
           type="button"
           onClick={onToggleShowOlder}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="flex items-center gap-1.5 text-caption text-muted-foreground transition-colors hover:text-foreground"
         >
           <ChevronRight className="h-3 w-3 shrink-0" />
           <span>{t(($) => $.activity.show_more_activities, { count: hiddenOlderCount })}</span>
@@ -541,7 +541,7 @@ function ActivityBlock({
         }
 
         return (
-          <div key={entry.id} className="flex items-center text-xs text-muted-foreground">
+          <div key={entry.id} className="flex items-center text-caption text-muted-foreground">
             <div className="mr-2 flex w-4 shrink-0 justify-center">
               {leadIcon}
             </div>
@@ -551,7 +551,7 @@ function ActivityBlock({
               {(entry.coalesced_count ?? 1) > 1 &&
                 entry.action !== "task_completed" &&
                 entry.action !== "task_failed" && (
-                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                  <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-caption font-medium tabular-nums text-muted-foreground">
                     {t(($) => $.activity.coalesced_badge, { count: entry.coalesced_count ?? 1 })}
                   </span>
                 )}
@@ -692,7 +692,7 @@ function SubIssueRow({ child }: { child: Issue }) {
         </span>
         <span
           className={cn(
-            "text-sm truncate flex-1",
+            "text-body truncate flex-1",
             isDone
               ? "text-muted-foreground"
               : "group-hover/row:text-foreground",
@@ -1714,7 +1714,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   <span>{t(($) => $.detail.add_property_action)}</span>
                 </PopoverTrigger>
                 {/* Item visuals mirror the inspector rows' typography
-                    (text-xs, muted icons) and each option leads with the
+                    (text-caption, muted icons) and each option leads with the
                     icon the resulting picker uses, so the dropdown reads
                     as a preview of what will show up below. */}
                 <PopoverContent align="start" className="w-44 p-1">
@@ -1773,7 +1773,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           {parentIssueOpen && <div className="pl-2">
             <AppLink
               href={paths.issueDetail(parentIssue.id)}
-              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 -mx-2 text-xs hover:bg-accent/50 transition-colors group"
+              className="flex items-center gap-1.5 rounded-md px-2 py-1.5 -mx-2 text-caption hover:bg-accent/50 transition-colors group"
             >
               <StatusIcon status={parentIssue.status} className="h-3.5 w-3.5 shrink-0" />
               <span className="text-muted-foreground shrink-0">{parentIssue.identifier}</span>
@@ -1901,7 +1901,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               <DialogHeader>
                 <DialogTitle>{t(($) => $.detail.section_metadata)}</DialogTitle>
               </DialogHeader>
-              <pre className="max-h-[60vh] overflow-auto rounded-md bg-muted p-3 font-mono text-xs">
+              <pre className="max-h-[60vh] overflow-auto rounded-md bg-muted p-3 font-mono text-caption">
                 {JSON.stringify(issue.metadata ?? {}, null, 2)}
               </pre>
             </DialogContent>
@@ -2107,7 +2107,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             key={`title-${id}`}
             defaultValue={issue.title}
             placeholder={t(($) => $.detail.title_placeholder)}
-            className="w-full text-2xl font-bold leading-snug tracking-tight"
+            className="w-full text-display-sm font-bold leading-snug tracking-tight"
             onBlur={(value) => {
               const trimmed = value.trim();
               if (trimmed && trimmed !== issue.title) handleUpdateField({ title: trimmed });
@@ -2300,7 +2300,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           <div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <h2 className="text-base font-semibold">{t(($) => $.detail.activity_section)}</h2>
+                <h2 className="text-title-sm font-semibold">{t(($) => $.detail.activity_section)}</h2>
               </div>
               <div className="flex items-center gap-2">
                 <button

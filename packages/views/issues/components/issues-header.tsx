@@ -228,7 +228,7 @@ function ActorSubContent({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t(($) => $.filters.placeholder)}
-          className="w-full bg-transparent text-sm placeholder:text-muted-foreground outline-none"
+          className="w-full bg-transparent text-body placeholder:text-muted-foreground outline-none"
           autoFocus
         />
       </div>
@@ -271,7 +271,7 @@ function ActorSubContent({
                   <ActorAvatar actorType="member" actorId={m.user_id} size={18} />
                   <span className="truncate">{m.name}</span>
                   {count > 0 && (
-                    <span className="ml-auto text-xs text-muted-foreground">
+                    <span className="ml-auto text-caption text-muted-foreground">
                       {count}
                     </span>
                   )}
@@ -300,7 +300,7 @@ function ActorSubContent({
                   <ActorAvatar actorType="agent" actorId={a.id} size={18} showStatusDot />
                   <span className="truncate">{a.name}</span>
                   {count > 0 && (
-                    <span className="ml-auto text-xs text-muted-foreground">
+                    <span className="ml-auto text-caption text-muted-foreground">
                       {count}
                     </span>
                   )}
@@ -329,7 +329,7 @@ function ActorSubContent({
                   <ActorAvatar actorType="squad" actorId={s.id} size={18} />
                   <span className="truncate">{s.name}</span>
                   {count > 0 && (
-                    <span className="ml-auto text-xs text-muted-foreground">
+                    <span className="ml-auto text-caption text-muted-foreground">
                       {count}
                     </span>
                   )}
@@ -340,7 +340,7 @@ function ActorSubContent({
         )}
 
         {filteredMembers.length === 0 && filteredAgents.length === 0 && (!showSquads || filteredSquads.length === 0) && search && (
-          <div className="px-2 py-3 text-center text-sm text-muted-foreground">
+          <div className="px-2 py-3 text-center text-body text-muted-foreground">
             {t(($) => $.filters.no_results)}
           </div>
         )}
@@ -385,7 +385,7 @@ function ProjectSubContent({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t(($) => $.filters.placeholder)}
-          className="w-full bg-transparent text-sm placeholder:text-muted-foreground outline-none"
+          className="w-full bg-transparent text-body placeholder:text-muted-foreground outline-none"
           autoFocus
         />
       </div>
@@ -431,7 +431,7 @@ function ProjectSubContent({
         })}
 
         {filtered.length === 0 && search && (
-          <div className="px-2 py-3 text-center text-sm text-muted-foreground">
+          <div className="px-2 py-3 text-center text-body text-muted-foreground">
             {t(($) => $.filters.no_results)}
           </div>
         )}
@@ -468,7 +468,7 @@ function LabelSubContent({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t(($) => $.filters.placeholder)}
-          className="w-full bg-transparent text-sm placeholder:text-muted-foreground outline-none"
+          className="w-full bg-transparent text-body placeholder:text-muted-foreground outline-none"
           autoFocus
         />
       </div>
@@ -496,7 +496,7 @@ function LabelSubContent({
         })}
 
         {filtered.length === 0 && (
-          <div className="px-2 py-3 text-center text-sm text-muted-foreground">
+          <div className="px-2 py-3 text-center text-body text-muted-foreground">
             {search ? t(($) => $.filters.no_results) : t(($) => $.filters.no_labels)}
           </div>
         )}
@@ -579,7 +579,7 @@ function DateSubContent({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 w-full justify-start px-0 text-sm font-normal"
+                className="h-7 w-full justify-start px-0 text-body font-normal"
               >
                 {t(($) => $.filters.date_custom_range)}
               </Button>
@@ -915,7 +915,7 @@ export function IssueDisplayControls({
                 <CircleDot className="size-3.5" />
                 <span className="flex-1">{t(($) => $.filters.section_status)}</span>
                 {statusFilters.length > 0 && (
-                  <span className="text-xs text-primary font-medium">
+                  <span className="text-caption text-primary font-medium">
                     {statusFilters.length}
                   </span>
                 )}
@@ -935,7 +935,7 @@ export function IssueDisplayControls({
                       <StatusIcon status={s} className="h-3.5 w-3.5" />
                       {t(($) => $.status[s])}
                       {count > 0 && (
-                        <span className="ml-auto text-xs text-muted-foreground">
+                        <span className="ml-auto text-caption text-muted-foreground">
                           {t(($) => $.filters.issue_count, { count })}
                         </span>
                       )}
@@ -951,7 +951,7 @@ export function IssueDisplayControls({
                 <SignalHigh className="size-3.5" />
                 <span className="flex-1">{t(($) => $.filters.section_priority)}</span>
                 {priorityFilters.length > 0 && (
-                  <span className="text-xs text-primary font-medium">
+                  <span className="text-caption text-primary font-medium">
                     {priorityFilters.length}
                   </span>
                 )}
@@ -971,7 +971,7 @@ export function IssueDisplayControls({
                       <PriorityIcon priority={p} />
                       {t(($) => $.priority[p])}
                       {count > 0 && (
-                        <span className="ml-auto text-xs text-muted-foreground">
+                        <span className="ml-auto text-caption text-muted-foreground">
                           {t(($) => $.filters.issue_count, { count })}
                         </span>
                       )}
@@ -987,7 +987,7 @@ export function IssueDisplayControls({
                   <CalendarDays className="size-3.5" />
                   <span className="flex-1">{t(($) => $.filters.section_date)}</span>
                   {dateFilterLabel && (
-                    <span className="max-w-36 truncate text-xs text-primary font-medium">
+                    <span className="max-w-36 truncate text-caption text-primary font-medium">
                       {dateFilterLabel}
                     </span>
                   )}
@@ -1007,7 +1007,7 @@ export function IssueDisplayControls({
                 <User className="size-3.5" />
                 <span className="flex-1">{t(($) => $.filters.section_assignee)}</span>
                 {(assigneeFilters.length > 0 || includeNoAssignee) && (
-                  <span className="text-xs text-primary font-medium">
+                  <span className="text-caption text-primary font-medium">
                     {assigneeFilters.length + (includeNoAssignee ? 1 : 0)}
                   </span>
                 )}
@@ -1031,7 +1031,7 @@ export function IssueDisplayControls({
                 <UserPen className="size-3.5" />
                 <span className="flex-1">{t(($) => $.filters.section_creator)}</span>
                 {creatorFilters.length > 0 && (
-                  <span className="text-xs text-primary font-medium">
+                  <span className="text-caption text-primary font-medium">
                     {creatorFilters.length}
                   </span>
                 )}
@@ -1052,7 +1052,7 @@ export function IssueDisplayControls({
                 <FolderKanban className="size-3.5" />
                 <span className="flex-1">{t(($) => $.filters.section_project)}</span>
                 {(projectFilters.length > 0 || includeNoProject) && (
-                  <span className="text-xs text-primary font-medium">
+                  <span className="text-caption text-primary font-medium">
                     {projectFilters.length + (includeNoProject ? 1 : 0)}
                   </span>
                 )}
@@ -1075,7 +1075,7 @@ export function IssueDisplayControls({
                 <Tag className="size-3.5" />
                 <span className="flex-1">{t(($) => $.filters.section_label)}</span>
                 {labelFilters.length > 0 && (
-                  <span className="text-xs text-primary font-medium">
+                  <span className="text-caption text-primary font-medium">
                     {labelFilters.length}
                   </span>
                 )}
@@ -1142,7 +1142,7 @@ export function IssueDisplayControls({
                         <Button
                           variant="outline"
                           size="sm"
-                          className="w-full justify-between text-xs"
+                          className="w-full justify-between text-caption"
                         >
                           {groupingLabel}
                           <ChevronDown className="size-3 text-muted-foreground" />
@@ -1174,7 +1174,7 @@ export function IssueDisplayControls({
                         <Button
                           variant="outline"
                           size="sm"
-                          className="w-full justify-between text-xs"
+                          className="w-full justify-between text-caption"
                         >
                           {swimlaneGroupingLabel}
                           <ChevronDown className="size-3 text-muted-foreground" />
@@ -1209,7 +1209,7 @@ export function IssueDisplayControls({
                       <Button
                         variant="outline"
                         size="sm"
-                        className="flex-1 justify-between text-xs"
+                        className="flex-1 justify-between text-caption"
                       >
                         {sortLabel}
                         <ChevronDown className="size-3 text-muted-foreground" />
@@ -1255,7 +1255,7 @@ export function IssueDisplayControls({
                     key={opt.key}
                     className="flex cursor-pointer items-center justify-between"
                   >
-                    <span className="text-sm">{t(($) => $.display[CARD_PROPERTY_LABEL_KEY[opt.key]])}</span>
+                    <span className="text-body">{t(($) => $.display[CARD_PROPERTY_LABEL_KEY[opt.key]])}</span>
                     <Switch
                       size="sm"
                       checked={cardProperties[opt.key]}

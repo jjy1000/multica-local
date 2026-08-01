@@ -171,13 +171,13 @@ function PageHeaderBar({
     <PageHeader className="justify-between px-5">
       <div className="flex items-center gap-2">
         <BookOpen className="h-4 w-4 text-muted-foreground" />
-        <h1 className="text-sm font-medium">{t(($) => $.page.title)}</h1>
+        <h1 className="text-body font-medium">{t(($) => $.page.title)}</h1>
         {totalCount > 0 && (
-          <span className="font-mono text-xs tabular-nums text-muted-foreground/70">
+          <span className="font-mono text-caption tabular-nums text-muted-foreground/70">
             {totalCount}
           </span>
         )}
-        <p className="ml-2 hidden text-xs text-muted-foreground md:block">
+        <p className="ml-2 hidden text-caption text-muted-foreground md:block">
           {t(($) => $.page.tagline)}{" "}
           <a
             href="https://multica.ai/docs/skills"
@@ -251,7 +251,7 @@ function NameCell({ row }: { row: SkillRow }) {
   const { skill, canEdit } = row;
   return (
     <ListGridCell className="gap-1.5">
-      <span className="min-w-0 truncate text-sm font-medium">
+      <span className="min-w-0 truncate text-body font-medium">
         {skill.name}
       </span>
       {!canEdit && (
@@ -273,7 +273,7 @@ function UsedByCell({ agents }: { agents: Agent[] }) {
   if (agents.length === 0) {
     return (
       <ListGridCell>
-        <span className="text-xs text-muted-foreground/70">
+        <span className="text-caption text-muted-foreground/70">
           {t(($) => $.table.unused)}
         </span>
       </ListGridCell>
@@ -291,7 +291,7 @@ function UsedByCell({ agents }: { agents: Agent[] }) {
           isAgent
           size={22}
         />
-        <span className="min-w-0 truncate text-xs text-muted-foreground">
+        <span className="min-w-0 truncate text-caption text-muted-foreground">
           {agent.name}
         </span>
       </ListGridCell>
@@ -321,7 +321,7 @@ function UsedByCell({ agents }: { agents: Agent[] }) {
           </Tooltip>
         ))}
         {extra > 0 && (
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground ring-2 ring-background">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-caption font-medium text-muted-foreground ring-2 ring-background">
             +{extra}
           </span>
         )}
@@ -363,7 +363,7 @@ function SourceCell({
   }
 
   return (
-    <ListGridCell className="hidden gap-1.5 text-xs text-muted-foreground @2xl:flex">
+    <ListGridCell className="hidden gap-1.5 text-caption text-muted-foreground @2xl:flex">
       {icon}
       <span className="min-w-0 truncate">{label}</span>
     </ListGridCell>
@@ -381,7 +381,7 @@ function CreatorCell({ creator }: { creator: MemberWithUser | null }) {
             avatarUrl={resolvePublicFileUrl(creator.avatar_url)}
             size={22}
           />
-          <span className="min-w-0 truncate text-xs text-muted-foreground">
+          <span className="min-w-0 truncate text-caption text-muted-foreground">
             {creator.name}
           </span>
         </>
@@ -401,8 +401,8 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
         <BookOpen className="h-6 w-6 text-muted-foreground" />
       </div>
-      <h2 className="mt-4 text-base font-semibold">{t(($) => $.page.empty.title)}</h2>
-      <p className="mt-1 max-w-md text-sm text-muted-foreground">
+      <h2 className="mt-4 text-title-sm font-semibold">{t(($) => $.page.empty.title)}</h2>
+      <p className="mt-1 max-w-md text-body text-muted-foreground">
         {t(($) => $.page.empty.description)}
       </p>
       <Button type="button" onClick={onCreate} size="sm" className="mt-5">
@@ -767,10 +767,10 @@ export default function SkillsPage() {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
           <AlertCircle className="h-8 w-8 text-destructive" />
           <div>
-            <p className="text-sm font-medium">
+            <p className="text-body font-medium">
               {t(($) => $.page.list_error.title)}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-caption text-muted-foreground">
               {listError instanceof Error
                 ? listError.message
                 : t(($) => $.page.list_error.fallback)}
@@ -818,7 +818,7 @@ export default function SkillsPage() {
       {supportingQueryDown && (
         <div
           role="status"
-          className="flex shrink-0 items-start gap-2 border-b bg-warning/10 px-6 py-2 text-xs text-muted-foreground"
+          className="flex shrink-0 items-start gap-2 border-b bg-warning/10 px-6 py-2 text-caption text-muted-foreground"
         >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
           <span>{t(($) => $.page.supporting_data_warning)}</span>
@@ -875,7 +875,7 @@ export default function SkillsPage() {
               }}
             >
               {rows.length === 0 && (
-                <div className="col-span-full py-16 text-center text-sm text-muted-foreground">
+                <div className="col-span-full py-16 text-center text-body text-muted-foreground">
                   {t(($) => $.page.no_matches.title)}
                 </div>
               )}
@@ -911,14 +911,14 @@ export default function SkillsPage() {
                   <ListGridCell className="hidden px-0 @2xl:flex" />
                 )}
                 {isColVisible("updated") ? (
-                  <ListGridCell className="hidden whitespace-nowrap text-xs tabular-nums text-muted-foreground @2xl:flex">
+                  <ListGridCell className="hidden whitespace-nowrap text-caption tabular-nums text-muted-foreground @2xl:flex">
                     {timeAgo(row.skill.updated_at)}
                   </ListGridCell>
                 ) : (
                   <ListGridCell className="hidden px-0 @2xl:flex" />
                 )}
                 {isColVisible("created") ? (
-                  <ListGridCell className="hidden whitespace-nowrap text-xs tabular-nums text-muted-foreground @2xl:flex">
+                  <ListGridCell className="hidden whitespace-nowrap text-caption tabular-nums text-muted-foreground @2xl:flex">
                     {timeAgo(row.skill.created_at)}
                   </ListGridCell>
                 ) : (

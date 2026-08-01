@@ -40,8 +40,8 @@ export function RuntimeDetailPage({ runtimeId }: { runtimeId: string }) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
         <Server className="h-10 w-10 text-muted-foreground/30" />
-        <p className="mt-3 text-sm">{t(($) => $.detail_page.not_found_title)}</p>
-        <p className="mt-1 text-xs text-muted-foreground/70">
+        <p className="mt-3 text-body">{t(($) => $.detail_page.not_found_title)}</p>
+        <p className="mt-1 text-caption text-muted-foreground/70">
           {t(($) => $.detail_page.not_found_hint)}
         </p>
       </div>

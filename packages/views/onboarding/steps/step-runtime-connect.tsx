@@ -232,7 +232,7 @@ function FancyView({
             <button
               type="button"
               onClick={onBack}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="flex items-center gap-1.5 text-body text-muted-foreground transition-colors hover:text-foreground"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               {t(($) => $.common.back)}
@@ -288,7 +288,7 @@ function FancyView({
             <div className="mt-8 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
               <span
                 aria-live="polite"
-                className="mr-auto text-xs text-muted-foreground"
+                className="mr-auto text-caption text-muted-foreground"
               >
                 {footerHint}
               </span>
@@ -391,7 +391,7 @@ function FoundView({
         {t(($) => $.step_runtime.found_lede)}
       </p>
 
-      <div className="mt-8 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/60 px-4 py-2.5 text-xs">
+      <div className="mt-8 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/60 px-4 py-2.5 text-caption">
         <span className="font-semibold text-foreground">
           {t(($) => $.step_runtime.runtime_count, { count: total })}
         </span>
@@ -616,10 +616,10 @@ function RuntimeCard({
         <ProviderLogo provider={runtime.provider} className="h-4 w-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium text-foreground">
+        <div className="truncate text-body font-medium text-foreground">
           {runtime.name}
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+        <div className="mt-0.5 flex items-center gap-1.5 font-mono text-micro text-muted-foreground">
           <span
             className={cn(
               "h-1.5 w-1.5 rounded-full",

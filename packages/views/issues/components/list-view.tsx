@@ -351,7 +351,7 @@ export function ListView({
         {activeIssue ? (
           <div className="max-w-2xl rotate-1 cursor-grabbing opacity-90 shadow-lg shadow-black/10 rounded-md border border-border bg-card px-4 py-2">
             <span className="text-xs text-muted-foreground mr-2">{activeIssue.identifier}</span>
-            <span className="text-sm">{activeIssue.title}</span>
+            <span className="text-body">{activeIssue.title}</span>
           </div>
         ) : null}
       </DragOverlay>

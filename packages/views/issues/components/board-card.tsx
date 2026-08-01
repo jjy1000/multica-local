@@ -154,11 +154,11 @@ export const BoardCardContent = memo(function BoardCardContent({
         className="shrink-0"
       />
       {assigneeName && (
-        <span className="min-w-0 truncate text-xs text-foreground">{assigneeName}</span>
+        <span className="min-w-0 truncate text-caption text-foreground">{assigneeName}</span>
       )}
     </span>
   ) : (
-    <span className="text-xs text-muted-foreground">{t(($) => $.pickers.assignee.trigger_unassigned)}</span>
+    <span className="text-caption text-muted-foreground">{t(($) => $.pickers.assignee.trigger_unassigned)}</span>
   );
 
   const assigneeNode = showAssigneeSection ? (
@@ -185,14 +185,14 @@ export const BoardCardContent = memo(function BoardCardContent({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
           {priorityIconNode}
-          <p className="text-xs text-muted-foreground truncate">{issue.identifier}</p>
+          <p className="text-caption text-muted-foreground truncate">{issue.identifier}</p>
         </div>
         <IssueAgentActivityIndicator issueId={issue.id} />
         <LabBadge labSource={issue.lab_source} />
       </div>
 
       {/* Row 2: Title */}
-      <p className="mt-1 text-sm font-medium leading-snug line-clamp-2">
+      <p className="mt-1 text-body font-medium leading-snug line-clamp-2">
         {issue.title}
       </p>
 
@@ -200,7 +200,7 @@ export const BoardCardContent = memo(function BoardCardContent({
         const preview = descriptionPreview(issue.description!);
         if (!preview) return null;
         return (
-          <p className="mt-1 text-xs text-muted-foreground line-clamp-1">
+          <p className="mt-1 text-caption text-muted-foreground line-clamp-1">
             {preview}
           </p>
         );
@@ -241,7 +241,7 @@ export const BoardCardContent = memo(function BoardCardContent({
                       startDate={issue.start_date}
                       onUpdate={handleUpdate}
                       trigger={
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1 text-caption text-muted-foreground">
                           <CalendarClock className="size-3" />
                           {formatDate(issue.start_date!)}
                         </span>
@@ -249,7 +249,7 @@ export const BoardCardContent = memo(function BoardCardContent({
                     />
                   </PickerWrapper>
                 ) : (
-                  <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                  <span className="flex shrink-0 items-center gap-1 text-caption text-muted-foreground">
                     <CalendarClock className="size-3" />
                     {formatDate(issue.start_date!)}
                   </span>
@@ -263,7 +263,7 @@ export const BoardCardContent = memo(function BoardCardContent({
                       onUpdate={handleUpdate}
                       trigger={
                         <span
-                          className={`flex items-center gap-1 text-xs ${
+                          className={`flex items-center gap-1 text-caption ${
                             isPastDateOnly(issue.due_date)
                               ? "text-destructive"
                               : "text-muted-foreground"
@@ -277,7 +277,7 @@ export const BoardCardContent = memo(function BoardCardContent({
                   </PickerWrapper>
                 ) : (
                   <span
-                    className={`flex shrink-0 items-center gap-1 text-xs ${
+                    className={`flex shrink-0 items-center gap-1 text-caption ${
                       isPastDateOnly(issue.due_date)
                         ? "text-destructive"
                         : "text-muted-foreground"
@@ -297,7 +297,7 @@ export const BoardCardContent = memo(function BoardCardContent({
                 </div>
               )}
               {showUpdatedHint && (
-                <span className="shrink-0 text-xs text-muted-foreground">
+                <span className="shrink-0 text-caption text-muted-foreground">
                   {t(($) => $.card.updated_ago, { time: timeAgo(issue.updated_at) })}
                 </span>
               )}

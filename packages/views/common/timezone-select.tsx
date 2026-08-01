@@ -104,13 +104,13 @@ export function TimezoneSelect({
     >
       <SelectTrigger
         size="sm"
-        className={triggerClassName ?? "w-full rounded-md font-mono text-xs"}
+        className={triggerClassName ?? "w-full rounded-md font-mono text-caption"}
       >
         <SelectValue>{render(value)}</SelectValue>
       </SelectTrigger>
       <SelectContent align="start" className="max-h-72">
         {options.map((tz) => (
-          <SelectItem key={tz} value={tz} className="font-mono text-xs">
+          <SelectItem key={tz} value={tz} className="font-mono text-caption">
             {render(tz)}
           </SelectItem>
         ))}

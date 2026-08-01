@@ -182,7 +182,7 @@ function SingleTriggerChip({
           </button>
         }
       />
-      <TooltipContent side="top" className="max-w-72 text-xs">
+      <TooltipContent side="top" className="max-w-72 text-caption">
         <TriggerAgentTooltipBody agent={agent} suppressed={suppressed} t={t} />
       </TooltipContent>
     </Tooltip>
@@ -266,7 +266,7 @@ function MultiTriggerChip({
     <Popover open={open} onOpenChange={setOpen}>
       <Tooltip open={tooltipHover && !open} onOpenChange={setTooltipHover}>
         <TooltipTrigger render={popoverTrigger} />
-        <TooltipContent side="top" className="text-xs">
+        <TooltipContent side="top" className="text-caption">
           {t(($) => $.comment.trigger_click_to_manage)}
         </TooltipContent>
       </Tooltip>
@@ -297,7 +297,7 @@ function MultiTriggerChip({
                       <TriggerAgentAvatar agent={agent} suppressed={suppressed} />
                       <span
                         className={cn(
-                          "min-w-0 flex-1 truncate text-xs",
+                          "min-w-0 flex-1 truncate text-caption",
                           suppressed && "text-muted-foreground",
                         )}
                       >
@@ -307,7 +307,7 @@ function MultiTriggerChip({
                     </button>
                   }
                 />
-                <TooltipContent side="right" className="max-w-72 text-xs">
+                <TooltipContent side="right" className="max-w-72 text-caption">
                   <TriggerAgentTooltipBody agent={agent} suppressed={suppressed} t={t} />
                 </TooltipContent>
               </Tooltip>

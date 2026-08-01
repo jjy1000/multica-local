@@ -243,7 +243,7 @@ function NameCell({ autopilot }: { autopilot: Autopilot }) {
   const { t } = useT("autopilots");
   return (
     <ListGridCell className="gap-1.5">
-      <span className="min-w-0 truncate text-sm font-medium">
+      <span className="min-w-0 truncate text-body font-medium">
         {autopilot.title}
       </span>
       {/* Paused marker: in the "all" scope active and paused rows mix, so a
@@ -271,7 +271,7 @@ function AssigneeCell({ autopilot }: { autopilot: Autopilot }) {
         enableHoverCard={autopilot.assignee_type === "agent"}
         showStatusDot={autopilot.assignee_type === "agent"}
       />
-      <span className="min-w-0 truncate text-xs text-muted-foreground">
+      <span className="min-w-0 truncate text-caption text-muted-foreground">
         {getActorName(autopilot.assignee_type, autopilot.assignee_id)}
       </span>
     </ListGridCell>
@@ -290,7 +290,7 @@ function TriggerCell({ autopilot }: { autopilot: Autopilot }) {
   if (kinds.length === 0) {
     return (
       <ListGridCell className="hidden @2xl:flex">
-        <span className="text-xs text-muted-foreground/40">—</span>
+        <span className="text-caption text-muted-foreground/40">—</span>
       </ListGridCell>
     );
   }
@@ -306,7 +306,7 @@ function TriggerCell({ autopilot }: { autopilot: Autopilot }) {
         return (
           <span
             key={kind}
-            className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
+            className="flex min-w-0 items-center gap-1 text-caption text-muted-foreground"
           >
             <Icon className="size-3 shrink-0" />
             <span className="truncate">{label}</span>
@@ -341,7 +341,7 @@ function LastRunCell({ autopilot }: { autopilot: Autopilot }) {
   if (!autopilot.last_run_at) {
     return (
       <ListGridCell className="hidden @2xl:flex">
-        <span className="text-xs text-muted-foreground/40">—</span>
+        <span className="text-caption text-muted-foreground/40">—</span>
       </ListGridCell>
     );
   }
@@ -360,7 +360,7 @@ function LastRunCell({ autopilot }: { autopilot: Autopilot }) {
         title={knownStatus ? t(($) => $.run_status[knownStatus]) : status ?? undefined}
         className={`size-1.5 shrink-0 rounded-full ${runStatusDotClass(status)}`}
       />
-      <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+      <span className="whitespace-nowrap text-caption tabular-nums text-muted-foreground">
         {timeAgo(autopilot.last_run_at)}
       </span>
     </ListGridCell>
@@ -372,7 +372,7 @@ function NextRunCell({ autopilot }: { autopilot: Autopilot }) {
   return (
     <ListGridCell className="hidden @2xl:flex">
       {next ? (
-        <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+        <span className="whitespace-nowrap text-caption tabular-nums text-muted-foreground">
           {new Date(next).toLocaleString(undefined, {
             month: "short",
             day: "numeric",
@@ -381,7 +381,7 @@ function NextRunCell({ autopilot }: { autopilot: Autopilot }) {
           })}
         </span>
       ) : (
-        <span className="text-xs text-muted-foreground/40">—</span>
+        <span className="text-caption text-muted-foreground/40">—</span>
       )}
     </ListGridCell>
   );
@@ -396,7 +396,7 @@ function ModeCell({ autopilot }: { autopilot: Autopilot }) {
       : mode;
   return (
     <ListGridCell className="hidden @2xl:flex">
-      <span className="truncate text-xs text-muted-foreground">{label}</span>
+      <span className="truncate text-caption text-muted-foreground">{label}</span>
     </ListGridCell>
   );
 }
@@ -410,7 +410,7 @@ function CreatorCell({ autopilot }: { autopilot: Autopilot }) {
         actorId={autopilot.created_by_id}
         size={18}
       />
-      <span className="min-w-0 truncate text-xs text-muted-foreground">
+      <span className="min-w-0 truncate text-caption text-muted-foreground">
         {getActorName(autopilot.created_by_type, autopilot.created_by_id)}
       </span>
     </ListGridCell>
@@ -811,10 +811,10 @@ export function AutopilotsPage() {
       ) : showEmpty ? (
         <div className="flex flex-col items-center px-5 py-16">
           <Zap className="mb-3 h-10 w-10 text-muted-foreground opacity-30" />
-          <p className="text-sm text-muted-foreground">
+          <p className="text-body text-muted-foreground">
             {t(($) => $.page.empty.title)}
           </p>
-          <p className="mb-6 mt-1 text-xs text-muted-foreground">
+          <p className="mb-6 mt-1 text-caption text-muted-foreground">
             {t(($) => $.page.empty.hint)}
           </p>
           <div className="grid w-full max-w-3xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -829,10 +829,10 @@ export function AutopilotsPage() {
                 >
                   <Icon className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0">
-                    <div className="text-sm font-medium">
+                    <div className="text-body font-medium">
                       {t(($) => $.templates[tpl.id].title)}
                     </div>
-                    <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                    <div className="mt-0.5 line-clamp-2 text-caption text-muted-foreground">
                       {t(($) => $.templates[tpl.id].summary)}
                     </div>
                   </div>

@@ -97,7 +97,7 @@ export function DeleteRuntimeProfileDialog({
           {boundMessage && (
             <div
               role="alert"
-              className="mt-3 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-xs"
+              className="mt-3 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-caption"
             >
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
               <span className="text-foreground">{boundMessage}</span>

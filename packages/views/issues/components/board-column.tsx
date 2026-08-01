@@ -126,7 +126,7 @@ export const BoardColumn = memo(function BoardColumn({
       <div className="relative min-h-[200px] flex-1 rounded-lg">
         {isOver && sortLabel && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/40">
-            <span className="rounded-md bg-popover px-2.5 py-1 text-xs font-medium text-popover-foreground shadow-sm border border-border">
+            <span className="rounded-md bg-popover px-2.5 py-1 text-caption font-medium text-popover-foreground shadow-sm border border-border">
               {sortLabel}
             </span>
           </div>
@@ -186,7 +186,7 @@ function BoardGroupHeading({
   return (
     <div className="flex min-w-0 items-center gap-2">
       {actorIcon}
-      <span className="truncate text-sm font-medium" title={group.title}>
+      <span className="truncate text-body font-medium" title={group.title}>
         {group.title}
       </span>
       <span className="shrink-0 rounded-full bg-background px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">

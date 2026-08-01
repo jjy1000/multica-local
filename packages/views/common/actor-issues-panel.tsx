@@ -158,7 +158,7 @@ export function ActorIssuesPanel({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={t(($) => $.actor_issues.search_placeholder)}
-                className="h-8 w-64 pl-8 text-sm"
+                className="h-8 w-64 pl-8 text-body"
               />
             </div>
             <div className="flex items-center gap-1">

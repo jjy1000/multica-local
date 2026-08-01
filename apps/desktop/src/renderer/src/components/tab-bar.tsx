@@ -133,7 +133,7 @@ function SortableTabItem({
       aria-label={tab.pinned ? `${tab.title} (pinned)` : tab.title}
       title={tab.pinned ? `${tab.title} (pinned)` : undefined}
       className={cn(
-        "group flex h-7 w-40 items-center gap-1.5 rounded-md px-2 text-xs transition-colors",
+        "group flex h-7 w-40 items-center gap-1.5 rounded-md px-2 text-caption transition-colors",
         "select-none cursor-default",
         isActive
           ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"

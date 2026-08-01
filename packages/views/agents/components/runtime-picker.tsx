@@ -78,7 +78,7 @@ export function RuntimePicker({
   return (
     <div className="flex flex-col min-w-0">
       <div className="flex h-6 items-center justify-between">
-        <Label className="text-xs text-muted-foreground">
+        <Label className="text-caption text-muted-foreground">
           {t(($) => $.create_dialog.runtime_label)}
         </Label>
         {hasOtherRuntimes && (
@@ -86,7 +86,7 @@ export function RuntimePicker({
             <button
               type="button"
               onClick={() => handleFilterChange("mine")}
-              className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+              className={`rounded px-2 py-0.5 text-caption font-medium transition-colors ${
                 filter === "mine"
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -97,7 +97,7 @@ export function RuntimePicker({
             <button
               type="button"
               onClick={() => handleFilterChange("all")}
-              className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+              className={`rounded px-2 py-0.5 text-caption font-medium transition-colors ${
                 filter === "all"
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -111,7 +111,7 @@ export function RuntimePicker({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           disabled={runtimes.length === 0 && !runtimesLoading}
-          className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 mt-1.5 text-left text-sm transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+          className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-border bg-background px-3 py-2.5 mt-1.5 text-left text-body transition-colors hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
         >
           {runtimesLoading ? (
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
@@ -132,13 +132,13 @@ export function RuntimePicker({
                     t(($) => $.create_dialog.runtime_none))}
               </span>
               {selectedRuntime?.runtime_mode === "cloud" && (
-                <span className="shrink-0 rounded bg-info/10 px-1.5 py-0.5 text-xs font-medium text-info">
+                <span className="shrink-0 rounded bg-info/10 px-1.5 py-0.5 text-caption font-medium text-info">
                   {t(($) => $.create_dialog.runtime_cloud_badge)}
                 </span>
               )}
             </div>
             {selectedRuntime && (
-              <div className="truncate text-xs text-muted-foreground">
+              <div className="truncate text-caption text-muted-foreground">
                 {getOwnerMember(selectedRuntime.owner_id)?.name ??
                   selectedRuntime.device_info}
               </div>
@@ -171,7 +171,7 @@ export function RuntimePicker({
                   onSelect(device.id);
                   setOpen(false);
                 }}
-                className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm transition-colors ${
+                className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-body transition-colors ${
                   disabled
                     ? "cursor-not-allowed opacity-50"
                     : device.id === selectedRuntimeId
@@ -187,18 +187,18 @@ export function RuntimePicker({
                   <div className="flex items-center gap-2">
                     <span className="truncate font-medium">{device.name}</span>
                     {device.runtime_mode === "cloud" && (
-                      <span className="shrink-0 rounded bg-info/10 px-1.5 py-0.5 text-xs font-medium text-info">
+                      <span className="shrink-0 rounded bg-info/10 px-1.5 py-0.5 text-caption font-medium text-info">
                         {t(($) => $.create_dialog.runtime_cloud_badge)}
                       </span>
                     )}
                     {disabled && (
-                      <span className="shrink-0 inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      <span className="shrink-0 inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-micro font-medium text-muted-foreground">
                         <Lock className="h-3 w-3" />
                         {t(($) => $.create_dialog.runtime_private_badge)}
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                  <div className="mt-0.5 flex items-center gap-1 text-caption text-muted-foreground">
                     {ownerMember ? (
                       <>
                         <ActorAvatar

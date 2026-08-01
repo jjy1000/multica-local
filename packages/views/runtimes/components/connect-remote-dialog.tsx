@@ -162,7 +162,7 @@ function CommandStep({
 }) {
   return (
     <div>
-      <p className="mb-1.5 text-xs font-medium text-foreground">
+      <p className="mb-1.5 text-caption font-medium text-foreground">
         {n}. {label}
       </p>
       <div className="flex items-start gap-2 rounded-lg bg-muted px-3 py-2.5 font-mono text-sm">
@@ -199,7 +199,7 @@ function InstructionsStep({ onClose }: { onClose: () => void }) {
         <DialogTitle className="text-base text-balance">
           {t(($) => $.connect.title)}
         </DialogTitle>
-        <DialogDescription className="text-xs text-balance">
+        <DialogDescription className="text-caption text-balance">
           {t(($) => $.connect.description)}
         </DialogDescription>
       </DialogHeader>
@@ -244,7 +244,7 @@ function TroubleshootingDetails({ tokenCmd }: { tokenCmd: string }) {
   const { t } = useT("runtimes");
   return (
     <details className="group rounded-lg border border-dashed">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-3 py-2 text-caption font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <ChevronRight
           className="h-3 w-3 transition-transform group-open:rotate-90"
           aria-hidden
@@ -305,7 +305,7 @@ function LiveListening() {
   const { t } = useT("runtimes");
   return (
     <div
-      className="flex items-center gap-2.5 rounded-lg border bg-muted/40 px-3 py-2.5 text-xs"
+      className="flex items-center gap-2.5 rounded-lg border bg-muted/40 px-3 py-2.5 text-caption"
       role="status"
       aria-live="polite"
     >
@@ -341,7 +341,7 @@ function SuccessStep({
         <DialogTitle className="text-base text-balance">
           {t(($) => $.connect.success_title)}
         </DialogTitle>
-        <DialogDescription className="text-xs text-balance">
+        <DialogDescription className="text-caption text-balance">
           {t(($) => $.connect.success_description)}
         </DialogDescription>
       </DialogHeader>

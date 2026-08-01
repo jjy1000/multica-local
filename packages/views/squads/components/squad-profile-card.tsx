@@ -45,7 +45,7 @@ export function SquadProfileCard({ squadId }: SquadProfileCardProps) {
 
   if (!squad) {
     return (
-      <div className="text-xs text-muted-foreground">
+      <div className="text-caption text-muted-foreground">
         {t(($) => $.profile_card.unavailable)}
       </div>
     );
@@ -75,7 +75,7 @@ export function SquadProfileCard({ squadId }: SquadProfileCardProps) {
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-semibold">{squad.name}</p>
+            <p className="truncate text-body font-semibold">{squad.name}</p>
             {isArchived && (
               <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                 {t(($) => $.profile_card.archived)}
@@ -86,7 +86,7 @@ export function SquadProfileCard({ squadId }: SquadProfileCardProps) {
         {!isArchived && (
           <AppLink
             href={p.squadDetail(squad.id)}
-            className="mr-1 mt-0.5 shrink-0 text-xs font-normal text-brand opacity-0 transition-opacity group-hover:opacity-100"
+            className="mr-1 mt-0.5 shrink-0 text-caption font-normal text-brand opacity-0 transition-opacity group-hover:opacity-100"
           >
             {t(($) => $.profile_card.detail_link)}
           </AppLink>
@@ -94,7 +94,7 @@ export function SquadProfileCard({ squadId }: SquadProfileCardProps) {
       </div>
 
       {squad.description && (
-        <p className="line-clamp-2 text-xs text-muted-foreground">
+        <p className="line-clamp-2 text-caption text-muted-foreground">
           {squad.description}
         </p>
       )}
@@ -131,7 +131,7 @@ function MembersList({
   const overflow = Math.max(0, memberCount - visible.length);
 
   return (
-    <div className="flex flex-col gap-1.5 text-xs">
+    <div className="flex flex-col gap-1.5 text-caption">
       <span className="text-muted-foreground">
         {t(($) => $.profile_card.members_section)}
         <span className="ml-1 tabular-nums">· {memberCount}</span>

@@ -124,7 +124,7 @@ function Segmented<T extends string | number>({
           key={String(o.value)}
           type="button"
           onClick={() => onChange(o.value)}
-          className={`rounded-sm px-2.5 py-1 text-xs font-medium transition-colors ${
+          className={`rounded-sm px-2.5 py-1 text-caption font-medium transition-colors ${
             o.value === value
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"
@@ -358,7 +358,7 @@ export function DashboardPage() {
       <PageHeader className="h-auto min-h-12 flex-wrap justify-between gap-y-1.5 px-5 py-1.5 sm:py-0">
         <div className="flex min-w-0 items-center gap-2">
           <BarChart3 className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <h1 className="truncate text-sm font-medium">{t(($) => $.title)}</h1>
+          <h1 className="truncate text-body font-medium">{t(($) => $.title)}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ProjectFilter
@@ -614,7 +614,7 @@ function TrendBlock({
   return (
     <div className="rounded-lg border bg-card p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold">{title}</h4>
+        <h4 className="text-body font-semibold">{title}</h4>
         <Segmented
           value={metric}
           onChange={setMetric}
@@ -721,7 +721,7 @@ function Leaderboard({
   return (
     <div className="rounded-lg border bg-card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 pt-4 pb-3">
-        <h4 className="text-sm font-semibold">{t(($) => $.leaderboard.title)}</h4>
+        <h4 className="text-body font-semibold">{t(($) => $.leaderboard.title)}</h4>
         <div className="flex items-center gap-3">
           <Segmented value={sortBy} onChange={setSortBy} options={sortOptions} />
           <span className="text-xs text-muted-foreground">
@@ -760,7 +760,7 @@ function Leaderboard({
                       size={22}
                       enableHoverCard
                     />
-                    <span className="cursor-pointer truncate text-sm font-medium">
+                    <span className="cursor-pointer truncate text-body font-medium">
                       {agent?.name ?? row.agentId}
                     </span>
                   </div>
@@ -771,22 +771,22 @@ function Leaderboard({
                     />
                   </div>
                   <div
-                    className={`text-right text-xs tabular-nums ${sortBy === "tokens" ? "font-medium text-foreground" : "text-muted-foreground"}`}
+                    className={`text-right text-caption tabular-nums ${sortBy === "tokens" ? "font-medium text-foreground" : "text-muted-foreground"}`}
                   >
                     {formatTokens(row.tokens)}
                   </div>
                   <div
-                    className={`text-right tabular-nums ${sortBy === "cost" ? "text-sm font-medium" : "text-xs text-muted-foreground"}`}
+                    className={`text-right tabular-nums ${sortBy === "cost" ? "text-body font-medium" : "text-caption text-muted-foreground"}`}
                   >
                     ${row.cost.toFixed(2)}
                   </div>
                   <div
-                    className={`text-right text-xs tabular-nums ${sortBy === "time" ? "font-medium text-foreground" : "text-muted-foreground"}`}
+                    className={`text-right text-caption tabular-nums ${sortBy === "time" ? "font-medium text-foreground" : "text-muted-foreground"}`}
                   >
                     {formatDuration(row.seconds, lessThanMinuteLabel)}
                   </div>
                   <div
-                    className={`text-right text-xs tabular-nums ${sortBy === "tasks" ? "font-medium text-foreground" : "text-muted-foreground"}`}
+                    className={`text-right text-caption tabular-nums ${sortBy === "tasks" ? "font-medium text-foreground" : "text-muted-foreground"}`}
                   >
                     {row.taskCount}
                   </div>
@@ -815,7 +815,7 @@ function DashboardEmpty() {
   return (
     <div className="flex flex-col items-center rounded-lg border border-dashed py-12 text-center">
       <BarChart3 className="h-6 w-6 text-muted-foreground/40" />
-      <p className="mt-3 text-sm font-medium">{t(($) => $.empty.title)}</p>
+      <p className="mt-3 text-body font-medium">{t(($) => $.empty.title)}</p>
       <p className="mt-1 max-w-md text-xs text-muted-foreground">
         {t(($) => $.empty.body)}
       </p>

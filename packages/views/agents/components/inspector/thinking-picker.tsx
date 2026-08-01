@@ -63,7 +63,7 @@ export function ThinkingPicker({
   if (!canEdit) {
     return (
       <span
-        className="min-w-0 truncate px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+        className="min-w-0 truncate px-1.5 py-0.5 font-mono text-micro text-muted-foreground"
         title={triggerTitle}
       >
         {triggerLabel}
@@ -86,7 +86,7 @@ export function ThinkingPicker({
         />
       }
       trigger={
-        <span className="min-w-0 truncate font-mono text-[11px]">
+        <span className="min-w-0 truncate font-mono text-micro">
           {triggerLabel}
         </span>
       }
@@ -109,9 +109,9 @@ export function ThinkingPicker({
               factory default is irrelevant to what actually fires, so
               flagging one option as "default" was misleading. */}
           <span className="block min-w-0 flex-1 text-left">
-            <span className="truncate text-[13px] font-medium">{l.label}</span>
+            <span className="truncate text-label font-medium">{l.label}</span>
             {l.description && (
-              <span className="mt-0.5 block text-[11px] leading-snug text-muted-foreground">
+              <span className="mt-0.5 block text-micro leading-snug text-muted-foreground">
                 {l.description}
               </span>
             )}
@@ -123,7 +123,7 @@ export function ThinkingPicker({
         <button
           type="button"
           onClick={() => void select("")}
-          className="mt-1 flex w-full items-center border-t px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50"
+          className="mt-1 flex w-full items-center border-t px-3 py-2 text-left text-caption text-muted-foreground transition-colors hover:bg-accent/50"
           title={t(($) => $.pickers.thinking_clear_title)}
         >
           {t(($) => $.pickers.thinking_clear)}

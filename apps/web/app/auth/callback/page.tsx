@@ -23,7 +23,7 @@ export default function CallbackPage() {
     <div className="flex min-h-screen items-center justify-center">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Redirecting...</CardTitle>
+          <CardTitle className="text-display-sm">Redirecting...</CardTitle>
           <CardDescription>
             Google login is disabled in this build.
           </CardDescription>

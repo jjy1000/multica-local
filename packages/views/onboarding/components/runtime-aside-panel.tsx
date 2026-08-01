@@ -18,7 +18,7 @@ export function RuntimeAsidePanel() {
   return (
     <div className="flex flex-col gap-6">
       <section>
-        <div className="mb-3 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+        <div className="mb-3 text-caption font-medium uppercase tracking-[0.08em] text-muted-foreground">
           {t(($) => $.runtime_aside.what_eyebrow)}
         </div>
         <p className="text-[14px] leading-[1.6] text-foreground/80">
@@ -29,7 +29,7 @@ export function RuntimeAsidePanel() {
       </section>
 
       <section>
-        <div className="mb-3 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+        <div className="mb-3 text-caption font-medium uppercase tracking-[0.08em] text-muted-foreground">
           {t(($) => $.runtime_aside.good_eyebrow)}
         </div>
         <div className="flex flex-col gap-4">

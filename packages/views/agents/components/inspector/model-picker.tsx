@@ -90,7 +90,7 @@ export function ModelPicker({
   if (!canEdit) {
     return (
       <span
-        className="min-w-0 truncate px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+        className="min-w-0 truncate px-1.5 py-0.5 font-mono text-micro text-muted-foreground"
         title={triggerTitle}
       >
         {triggerLabel}
@@ -113,7 +113,7 @@ export function ModelPicker({
         />
       }
       trigger={
-        <span className="min-w-0 truncate font-mono text-[11px]">
+        <span className="min-w-0 truncate font-mono text-micro">
           {triggerLabel}
         </span>
       }
@@ -124,13 +124,13 @@ export function ModelPicker({
             placeholder={t(($) => $.pickers.model_search_placeholder)}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-7 text-xs"
+            className="h-7 text-caption"
           />
         </div>
       }
     >
       {modelsQuery.isLoading && (
-        <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2 p-3 text-caption text-muted-foreground">
           <Loader2 className="h-3 w-3 animate-spin" />
           {t(($) => $.pickers.model_discovering)}
         </div>
@@ -155,7 +155,7 @@ export function ModelPicker({
                 `<span block text-left>` to keep layout deterministic —
                 matches the fix already applied in thinking-picker.tsx. */}
             <span className="block min-w-0 flex-1 text-left">
-              <span className="block truncate text-[13px] font-medium">{m.label}</span>
+              <span className="block truncate text-label font-medium">{m.label}</span>
               {m.label !== m.id && (
                 <span className="mt-0.5 block truncate font-mono text-[10px] leading-snug text-muted-foreground">
                   {m.id}
@@ -166,7 +166,7 @@ export function ModelPicker({
         ))}
 
       {!modelsQuery.isLoading && filtered.length === 0 && !canCreate && (
-        <p className="px-3 py-3 text-center text-xs text-muted-foreground">
+        <p className="px-3 py-3 text-center text-caption text-muted-foreground">
           {t(($) => $.pickers.model_empty)}
         </p>
       )}
@@ -188,7 +188,7 @@ export function ModelPicker({
         <button
           type="button"
           onClick={() => void select("")}
-          className="mt-1 flex w-full items-center border-t px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50"
+          className="mt-1 flex w-full items-center border-t px-3 py-2 text-left text-caption text-muted-foreground transition-colors hover:bg-accent/50"
           title={t(($) => $.pickers.model_clear_title)}
         >
           {t(($) => $.pickers.model_clear)}

@@ -226,14 +226,14 @@ export function InboxPage() {
   const listHeader = (
     <PageHeader className="justify-between">
       <div className="flex items-center gap-2">
-        <h1 className="text-sm font-semibold">{t(($) => $.page.title)}</h1>
+        <h1 className="text-body font-semibold">{t(($) => $.page.title)}</h1>
         {unreadCount > 0 && (
           <NumberFlow
             value={unreadCount}
             animated={false}
             format={{ maximumFractionDigits: 0 }}
             aria-label={String(unreadCount)}
-            className="text-xs text-muted-foreground"
+            className="text-caption text-muted-foreground"
           />
         )}
       </div>
@@ -275,7 +275,7 @@ export function InboxPage() {
   const listBody = items.length === 0 ? (
     <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
       <Inbox className="mb-3 h-8 w-8 text-muted-foreground/50" />
-      <p className="text-sm">{t(($) => $.list.empty)}</p>
+      <p className="text-body">{t(($) => $.list.empty)}</p>
     </div>
   ) : (
     <div>
@@ -317,21 +317,21 @@ export function InboxPage() {
     </ErrorBoundary>
   ) : selected ? (
     <div className="p-6">
-      <h2 className="text-lg font-semibold">{getInboxDisplayTitle(selected)}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
+      <h2 className="text-title font-semibold">{getInboxDisplayTitle(selected)}</h2>
+      <p className="mt-1 text-body text-muted-foreground">
         {typeLabels[selected.type]} · {timeAgo(selected.created_at)}
       </p>
       {selected.body && (
-        <div className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+        <div className="mt-4 whitespace-pre-wrap text-body leading-relaxed text-foreground/80">
           {selected.body}
         </div>
       )}
       {selected.type === "quick_create_failed" && selected.details?.original_prompt && (
         <div className="mt-4 rounded-md border bg-muted/40 p-3">
-          <p className="text-xs font-medium text-muted-foreground">
+          <p className="text-caption font-medium text-muted-foreground">
             {t(($) => $.detail.original_input)}
           </p>
-          <p className="mt-1 whitespace-pre-wrap text-sm">{selected.details.original_prompt}</p>
+          <p className="mt-1 whitespace-pre-wrap text-body">{selected.details.original_prompt}</p>
         </div>
       )}
       <div className="mt-4 flex gap-2">
@@ -476,7 +476,7 @@ export function InboxPage() {
         {detailContent ?? (
           <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
             <Inbox className="mb-3 h-10 w-10 text-muted-foreground/30" />
-            <p className="text-sm">
+            <p className="text-body">
               {items.length === 0
                 ? t(($) => $.detail.empty)
                 : t(($) => $.detail.select_prompt)}

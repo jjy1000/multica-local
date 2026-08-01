@@ -54,7 +54,7 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
 
   return (
     <div className="space-y-6">
-      <p className="text-xs text-muted-foreground">
+      <p className="text-caption text-muted-foreground">
         {t(($) => $.tab_body.integrations.intro)}
       </p>
 
@@ -64,8 +64,8 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
             <Webhook className="h-4 w-4" />
           </span>
           <div className="min-w-0 flex-1 space-y-1">
-            <h3 className="text-sm font-medium">{ts(($) => $.lark.section_title)}</h3>
-            <p className="text-xs leading-relaxed text-muted-foreground">
+            <h3 className="text-body font-medium">{ts(($) => $.lark.section_title)}</h3>
+            <p className="text-caption leading-relaxed text-muted-foreground">
               {ts(($) => $.lark.page_description)}
             </p>
           </div>
@@ -75,7 +75,7 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
             // No at-rest key on this deployment. The tab is only mounted
             // when the feature is configured, so this is the rare "key was
             // removed after an install existed" race.
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               {ts(($) => $.lark.not_enabled_title)}
             </p>
           ) : !canManage ? (
@@ -83,7 +83,7 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
             // Members can still view connected bots in the (member-visible)
             // Settings listing, so point them there rather than show a dead
             // button.
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               {t(($) => $.tab_body.integrations.members_note)}
             </p>
           ) : !installSupported && !hasActiveInstall ? (
@@ -94,8 +94,8 @@ export function IntegrationsTab({ agent }: { agent: Agent }) {
             // governs NEW installs, so the bound state must still render below
             // (server/internal/handler/lark.go).
             <div className="space-y-1">
-              <p className="text-xs font-medium">{ts(($) => $.lark.preview_title)}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-caption font-medium">{ts(($) => $.lark.preview_title)}</p>
+              <p className="text-caption text-muted-foreground">
                 {ts(($) => $.lark.preview_description)}
               </p>
             </div>

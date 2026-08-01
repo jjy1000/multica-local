@@ -101,7 +101,7 @@ function LoginPageContent() {
     <div className="flex min-h-svh items-center justify-center">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">Welcome to Multica</CardTitle>
+          <CardTitle className="text-display-sm">Welcome to Multica</CardTitle>
           <CardDescription>
             Enter a username to sign in. First time creates the account;
             subsequent logins return to your workspace.

@@ -378,7 +378,7 @@ function PageHeaderBar({
         <Server className="h-4 w-4 text-muted-foreground" />
         <h1 className="text-sm font-medium">{t(($) => $.page.title)}</h1>
         {totalCount > 0 && (
-          <span className="font-mono text-xs tabular-nums text-muted-foreground/70">
+          <span className="font-mono text-caption tabular-nums text-muted-foreground/70">
             {totalCount}
           </span>
         )}
@@ -535,7 +535,7 @@ function MachineSidebar({
             <p className="mt-3 text-sm font-medium">
               {t(($) => $.machine.no_matches_title)}
             </p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-caption text-muted-foreground">
               {totalMachines > 0
                 ? t(($) => $.machine.no_matches_hint)
                 : t(($) => $.page.bootstrapping.hint)}
@@ -572,7 +572,7 @@ function MachineFilterChip({
       size="sm"
       onClick={onClick}
       className={cn(
-        "h-7 gap-1.5 px-2 text-xs",
+        "h-7 gap-1.5 px-2 text-caption",
         active
           ? "bg-accent text-accent-foreground hover:bg-accent/80"
           : "bg-background text-muted-foreground",
@@ -639,11 +639,11 @@ function MachineRow({
         <span className="mt-1.5 flex min-w-0 items-center gap-1.5">
           <ProviderIconStack providers={machine.providerNames} />
           {busyCount > 0 ? (
-            <span className="ml-auto shrink-0 text-xs font-medium text-primary">
+            <span className="ml-auto shrink-0 text-caption font-medium text-primary">
               {t(($) => $.machine.busy_count, { count: busyCount })}
             </span>
           ) : (
-            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            <span className="ml-auto shrink-0 text-caption text-muted-foreground">
               {runtimeCount}
             </span>
           )}
@@ -700,7 +700,7 @@ function MachineDetail({
             <p className="mt-3 text-sm text-muted-foreground">
               {t(($) => $.page.bootstrapping.title)}
             </p>
-            <p className="mt-1 max-w-xs text-xs text-muted-foreground/70">
+            <p className="mt-1 max-w-xs text-caption text-muted-foreground/70">
               {t(($) => $.page.bootstrapping.hint)}
             </p>
           </>
@@ -766,17 +766,17 @@ function MachineDetail({
               <h2 className="truncate text-xl font-semibold tracking-tight">
                 {machine.title}
               </h2>
-              <span className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-caption text-muted-foreground">
                 <HealthIcon health={machine.health} />
                 {healthLabel(machine.health)}
               </span>
               {machine.isCurrent && (
-                <span className="rounded-md bg-foreground px-2 py-0.5 text-xs font-medium text-background">
+                <span className="rounded-md bg-foreground px-2 py-0.5 text-caption font-medium text-background">
                   {t(($) => $.machine.local_badge)}
                 </span>
               )}
             </div>
-            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground">
               {metaParts.map((part, idx) => (
                 <React.Fragment key={idx}>
                   {idx > 0 && (

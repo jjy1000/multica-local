@@ -157,8 +157,8 @@ export function TokensTab() {
               <Card key={token.id}>
                 <CardContent className="flex items-center gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate">{token.name}</div>
-                    <div className="text-xs text-muted-foreground">
+                    <div className="text-body font-medium truncate">{token.name}</div>
+                    <div className="text-caption text-muted-foreground">
                       {t(($) => $.tokens.metadata_prefix, {
                         prefix: token.token_prefix,
                         created: new Date(token.created_at).toLocaleDateString(),
@@ -228,7 +228,7 @@ export function TokensTab() {
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2">
-            <code className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-sm break-all select-all">
+            <code className="flex-1 rounded-md border bg-muted/50 px-3 py-2 text-body break-all select-all">
               {newToken}
             </code>
             <Tooltip>

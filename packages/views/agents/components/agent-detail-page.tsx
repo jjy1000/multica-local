@@ -182,8 +182,8 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
           <Lock className="h-8 w-8 text-muted-foreground" />
           <div>
-            <p className="text-sm font-medium">{t(($) => $.detail.no_access_title)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="text-body font-medium">{t(($) => $.detail.no_access_title)}</p>
+            <p className="mt-1 text-caption text-muted-foreground">
               {t(($) => $.detail.no_access_hint)}
             </p>
           </div>
@@ -207,8 +207,8 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-16 text-center">
           <AlertCircle className="h-8 w-8 text-destructive" />
           <div>
-            <p className="text-sm font-medium">{t(($) => $.detail.not_found_title)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="text-body font-medium">{t(($) => $.detail.not_found_title)}</p>
+            <p className="mt-1 text-caption text-muted-foreground">
               {agentsError instanceof Error
                 ? agentsError.message
                 : t(($) => $.detail.not_found_default)}
@@ -265,7 +265,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
       )}
 
       {isArchived && (
-        <div className="flex shrink-0 items-center gap-2 border-b bg-muted/50 px-6 py-2 text-xs text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-2 border-b bg-muted/50 px-6 py-2 text-caption text-muted-foreground">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span className="flex-1">
             {t(($) => $.detail.archived_banner)}
@@ -274,7 +274,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
             <Button
               variant="outline"
               size="sm"
-              className="h-6 text-xs"
+              className="h-6 text-caption"
               onClick={() => handleRestore(agent.id)}
             >
               {t(($) => $.detail.restore)}
@@ -319,10 +319,10 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
                 <AlertCircle className="h-5 w-5 text-destructive" />
               </div>
               <DialogHeader className="flex-1 gap-1">
-                <DialogTitle className="text-sm font-semibold">
+                <DialogTitle className="text-body font-semibold">
                   {t(($) => $.detail.archive_dialog_title)}
                 </DialogTitle>
-                <DialogDescription className="text-xs">
+                <DialogDescription className="text-caption">
                   {t(($) => $.detail.archive_dialog_description, { name: agent.name })}
                 </DialogDescription>
               </DialogHeader>

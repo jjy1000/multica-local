@@ -514,7 +514,7 @@ function CommentRow({
         className="flex items-center gap-2.5 px-4 pt-1 pb-1.5"
       >
         <ActorAvatar actorType={entry.actor_type} actorId={entry.actor_id} size={24} enableHoverCard showStatusDot />
-        <span className="cursor-pointer text-sm font-medium">
+        <span className="cursor-pointer text-body font-medium">
           {getActorName(entry.actor_type, entry.actor_id)}
         </span>
         <Tooltip>
@@ -531,7 +531,7 @@ function CommentRow({
         </Tooltip>
 
         {isResolution && (
-          <span className="text-xs font-medium text-success">
+          <span className="text-caption font-medium text-success">
             {t(($) => $.comment.resolve.resolution_badge)}
           </span>
         )}
@@ -604,7 +604,7 @@ function CommentRow({
           className="relative pl-12 pr-4 pt-1"
           onKeyDown={(e) => { if (e.key === "Escape") edit.cancelEdit(); }}
         >
-          <div className="text-sm leading-relaxed">
+          <div className="text-body leading-relaxed">
             <ContentEditor
               ref={edit.editorRef}
               defaultValue={edit.initialValue}
@@ -786,7 +786,7 @@ function CommentCardImpl({
               <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-90")} />
             </CollapsibleTrigger>
             <ActorAvatar actorType={entry.actor_type} actorId={entry.actor_id} size={24} enableHoverCard showStatusDot />
-            <span className="shrink-0 cursor-pointer text-sm font-medium">
+            <span className="shrink-0 cursor-pointer text-body font-medium">
               {getActorName(entry.actor_type, entry.actor_id)}
             </span>
             <Tooltip>
@@ -891,7 +891,7 @@ function CommentCardImpl({
                 className="relative pl-10"
                 onKeyDown={(e) => { if (e.key === "Escape") edit.cancelEdit(); }}
               >
-                <div className="text-sm leading-relaxed">
+                <div className="text-body leading-relaxed">
                   <ContentEditor
                     ref={edit.editorRef}
                     defaultValue={edit.initialValue}

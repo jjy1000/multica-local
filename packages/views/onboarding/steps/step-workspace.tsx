@@ -220,7 +220,7 @@ export function StepWorkspace({
       <div className="flex flex-col gap-1.5">
         <Label
           htmlFor="ws-name"
-          className="text-xs font-medium text-muted-foreground"
+          className="text-caption font-medium text-muted-foreground"
         >
           {t(($) => $.step_workspace.name_label)}
         </Label>
@@ -240,12 +240,12 @@ export function StepWorkspace({
       <div className="flex flex-col gap-1.5">
         <Label
           htmlFor="ws-slug"
-          className="text-xs font-medium text-muted-foreground"
+          className="text-caption font-medium text-muted-foreground"
         >
           {t(($) => $.step_workspace.url_label)}
         </Label>
         <div className="flex items-center rounded-md border bg-muted transition-colors focus-within:border-foreground">
-          <span className="select-none pl-3 font-mono text-sm text-muted-foreground">
+          <span className="select-none pl-3 font-mono text-body text-muted-foreground">
             {`${urlHost}/`}
           </span>
           <Input
@@ -261,13 +261,13 @@ export function StepWorkspace({
             }}
           />
         </div>
-        {slugError && <p className="text-xs text-destructive">{slugError}</p>}
+        {slugError && <p className="text-caption text-destructive">{slugError}</p>}
       </div>
       <div className="flex flex-col gap-1.5">
-        <div className="text-xs font-medium text-muted-foreground">
+        <div className="text-caption font-medium text-muted-foreground">
           {t(($) => $.step_workspace.issue_prefix_label)}
         </div>
-        <div className="text-sm leading-[1.55] text-muted-foreground">
+        <div className="text-body leading-[1.55] text-muted-foreground">
           {t(($) => $.step_workspace.issue_prefix_prefix)}
           <span className="font-mono text-foreground">
             {issuePrefix(slug)}-123
@@ -289,7 +289,7 @@ export function StepWorkspace({
               type="button"
               onClick={onBack}
               disabled={isCreating}
-              className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+              className="flex items-center gap-1.5 text-body text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               {t(($) => $.common.back)}
@@ -308,7 +308,7 @@ export function StepWorkspace({
           className="min-h-0 flex-1 overflow-y-auto"
         >
           <div className="mx-auto w-full max-w-[620px] px-6 py-10 sm:px-10 md:px-14 lg:px-0 lg:py-14">
-            <div className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            <div className="mb-2 text-caption font-medium uppercase tracking-[0.08em] text-muted-foreground">
               {reusing
                 ? workspaceCreationAllowed
                   ? t(($) => $.step_workspace.eyebrow_resume)
@@ -368,7 +368,7 @@ export function StepWorkspace({
               <div className="mt-8 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
                 <span
                   aria-live="polite"
-                  className="mr-auto text-xs text-muted-foreground"
+                  className="mr-auto text-caption text-muted-foreground"
                 >
                   {hint}
                 </span>
@@ -448,7 +448,7 @@ function ExistingWorkspaceCard({
         <div className="truncate text-[14.5px] font-medium text-foreground">
           {workspace.name}
         </div>
-        <div className="truncate font-mono text-xs text-muted-foreground">
+        <div className="truncate font-mono text-caption text-muted-foreground">
           {`${urlHost}/${workspace.slug}`}
         </div>
       </div>
@@ -501,7 +501,7 @@ function CreateNewWorkspaceCard({
           <div className="truncate text-[14.5px] font-medium text-foreground">
             {t(($) => $.step_workspace.create_new_title)}
           </div>
-          <div className="truncate text-xs text-muted-foreground">
+          <div className="truncate text-caption text-muted-foreground">
             {t(($) => $.step_workspace.create_new_subtitle)}
           </div>
         </div>
@@ -516,7 +516,7 @@ function CreateWorkspaceSide() {
   const { t } = useT("onboarding");
   return (
     <div className="flex flex-col gap-6">
-      <div className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="text-caption font-medium uppercase tracking-[0.08em] text-muted-foreground">
         {t(($) => $.step_workspace.side_create_eyebrow)}
       </div>
 
@@ -525,7 +525,7 @@ function CreateWorkspaceSide() {
         slug={t(($) => $.step_workspace.side_preview_slug)}
       />
 
-      <div className="mt-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="mt-2 text-caption font-medium uppercase tracking-[0.08em] text-muted-foreground">
         {t(($) => $.step_workspace.side_things_eyebrow)}
       </div>
       <div className="flex flex-col gap-3.5">
@@ -542,13 +542,13 @@ function ExistingWorkspaceSide({ workspace }: { workspace: Workspace }) {
   const { t } = useT("onboarding");
   return (
     <div className="flex flex-col gap-6">
-      <div className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="text-caption font-medium uppercase tracking-[0.08em] text-muted-foreground">
         {t(($) => $.step_workspace.side_existing_eyebrow)}
       </div>
 
       <WorkspacePreviewCard name={workspace.name} slug={workspace.slug} />
 
-      <div className="mt-2 text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      <div className="mt-2 text-caption font-medium uppercase tracking-[0.08em] text-muted-foreground">
         {t(($) => $.step_workspace.side_next_eyebrow)}
       </div>
       <div className="flex flex-col gap-3.5">

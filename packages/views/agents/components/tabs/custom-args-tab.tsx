@@ -88,13 +88,13 @@ export function CustomArgsTab({
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">
+          <p className="text-caption text-muted-foreground">
             {t(($) => $.tab_body.custom_args.intro)}
           </p>
           {launchHeader && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               {t(($) => $.tab_body.custom_args.launch_mode_prefix)}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-micro">
                 {launchHeader} {t(($) => $.tab_body.custom_args.launch_mode_args_placeholder)}
               </code>
             </p>
@@ -120,7 +120,7 @@ export function CustomArgsTab({
                 value={entry.value}
                 onChange={(e) => updateEntry(index, e.target.value)}
                 placeholder={t(($) => $.tab_body.custom_args.input_placeholder)}
-                className="flex-1 font-mono text-xs"
+                className="flex-1 font-mono text-caption"
               />
               <Button
                 variant="ghost"
@@ -138,7 +138,7 @@ export function CustomArgsTab({
 
       <div className="flex items-center justify-end gap-3">
         {dirty && (
-          <span className="text-xs text-muted-foreground">{t(($) => $.tab_body.common.unsaved_changes)}</span>
+          <span className="text-caption text-muted-foreground">{t(($) => $.tab_body.common.unsaved_changes)}</span>
         )}
         <Button onClick={handleSave} disabled={!dirty || saving} size="sm">
           {saving ? (

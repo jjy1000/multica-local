@@ -130,7 +130,7 @@ export function RuntimeProfilesDialog({
               </DialogClose>
             </div>
           </div>
-          <DialogDescription className="text-xs">
+          <DialogDescription className="text-caption">
             {t(($) => $.profiles.dialog_description)}
           </DialogDescription>
         </DialogHeader>
@@ -229,7 +229,7 @@ function CatalogList({
             <div className="mb-2 flex items-center justify-between gap-3">
               <h4
                 id="runtime-profile-custom-section"
-                className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                className="text-caption font-medium uppercase tracking-wide text-muted-foreground"
               >
                 {t(($) => $.profiles.custom_section_title, {
                   count: catalog.customs.length,
@@ -276,13 +276,13 @@ function CatalogList({
               <span className="min-w-0">
                 <span
                   id="runtime-profile-builtin-section"
-                  className="block text-xs font-medium uppercase tracking-wide text-muted-foreground"
+                  className="block text-caption font-medium uppercase tracking-wide text-muted-foreground"
                 >
                   {t(($) => $.profiles.builtin_section_title, {
                     count: catalog.builtins.length,
                   })}
                 </span>
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                <span className="mt-0.5 block truncate text-caption text-muted-foreground">
                   {t(($) => $.profiles.builtin_section_hint)}
                 </span>
               </span>
@@ -328,7 +328,7 @@ function EmptyCustomState({ onAddNew }: { onAddNew: () => void }) {
         </span>
         <div className="min-w-0 flex-1">
           <h5 className="text-sm font-medium">{t(($) => $.profiles.empty_title)}</h5>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 text-caption leading-relaxed text-muted-foreground">
             {t(($) => $.profiles.empty_description)}
           </p>
           <Button
@@ -396,7 +396,7 @@ function CatalogRow({
           )}
         </span>
         {entry.kind === "custom" && (
-          <span className="block truncate text-xs capitalize text-muted-foreground">
+          <span className="block truncate text-caption capitalize text-muted-foreground">
             {entry.protocolFamily}
           </span>
         )}
@@ -458,7 +458,7 @@ function DetailPanel({
             <h3 className="truncate text-base font-semibold capitalize">
               {entry.protocolFamily}
             </h3>
-            <span className="text-xs text-muted-foreground">
+            <span className="text-caption text-muted-foreground">
               {t(($) => $.profiles.builtin_detail.read_only)}
             </span>
           </div>
@@ -493,7 +493,7 @@ function DetailPanel({
               <h3 className="truncate text-base font-semibold">
                 {profile.display_name}
               </h3>
-              <span className="text-xs capitalize text-muted-foreground">
+              <span className="text-caption capitalize text-muted-foreground">
                 {profile.protocol_family}
               </span>
             </div>
@@ -505,7 +505,7 @@ function DetailPanel({
             <span className="capitalize">{profile.protocol_family}</span>
           </DetailRow>
           <DetailRow label={t(($) => $.profiles.detail.command)}>
-            <span className="font-mono text-xs">{commandLine}</span>
+            <span className="font-mono text-caption">{commandLine}</span>
           </DetailRow>
           <DetailRow label={t(($) => $.profiles.detail.description)}>
             {profile.description ? (
@@ -564,7 +564,7 @@ function DetailRow({
 }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      <dt className="text-caption font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </dt>
       <dd className="mt-1 text-sm">{children}</dd>
@@ -606,7 +606,7 @@ function ProfileFormView({
           <h3 className="text-sm font-medium">
             {t(($) => $.profiles.form.step_family_label)}
           </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-caption text-muted-foreground">
             {t(($) => $.profiles.form.step_family_hint)}
           </p>
           <div
@@ -787,7 +787,7 @@ function ProfileDetailsForm({
         </h3>
 
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">
+          <Label className="text-caption text-muted-foreground">
             {t(($) => $.profiles.form.family_label)}
           </Label>
           <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
@@ -802,7 +802,7 @@ function ProfileDetailsForm({
         <div className="space-y-1.5">
           <Label
             htmlFor={`${idPrefix}-display-name`}
-            className="text-xs text-muted-foreground"
+            className="text-caption text-muted-foreground"
           >
             {t(($) => $.profiles.form.display_name_label)}
           </Label>
@@ -822,7 +822,7 @@ function ProfileDetailsForm({
           {hasError("displayName") && (
             <p
               id={`${idPrefix}-display-name-error`}
-              className="text-xs text-destructive"
+              className="text-caption text-destructive"
             >
               {t(($) => $.profiles.form.error_display_name_required)}
             </p>
@@ -830,7 +830,7 @@ function ProfileDetailsForm({
           {duplicateName && !hasError("displayName") && (
             <p
               id={`${idPrefix}-display-name-error`}
-              className="text-xs text-destructive"
+              className="text-caption text-destructive"
             >
               {t(($) => $.profiles.form.error_duplicate_name)}
             </p>
@@ -840,7 +840,7 @@ function ProfileDetailsForm({
         <div className="space-y-1.5">
           <Label
             htmlFor={`${idPrefix}-command`}
-            className="text-xs text-muted-foreground"
+            className="text-caption text-muted-foreground"
           >
             {t(($) => $.profiles.form.command_name_label)}
           </Label>
@@ -856,7 +856,7 @@ function ProfileDetailsForm({
             className="h-9 font-mono text-sm"
           />
           {commandError && (
-            <p id={`${idPrefix}-command-error`} className="text-xs text-destructive">
+            <p id={`${idPrefix}-command-error`} className="text-caption text-destructive">
               {commandError}
             </p>
           )}
@@ -888,7 +888,7 @@ function ProfileDetailsForm({
         <div className="space-y-1.5">
           <Label
             htmlFor={`${idPrefix}-description`}
-            className="text-xs text-muted-foreground"
+            className="text-caption text-muted-foreground"
           >
             {t(($) => $.profiles.form.description_label)}
           </Label>
@@ -909,7 +909,7 @@ function ProfileDetailsForm({
             MUL-3308. */}
 
         {formError && (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="text-caption text-destructive">
             {formError}
           </p>
         )}

@@ -134,7 +134,7 @@ export function CustomPricingDialog({ open, onOpenChange, unmappedModels }: Prop
 
         <div className="max-h-[60vh] space-y-4 overflow-y-auto">
           {rows.length === 0 ? (
-            <p className="py-4 text-center text-xs text-muted-foreground">
+            <p className="py-4 text-center text-caption text-muted-foreground">
               {t(($) => $.usage.custom_pricing.empty)}
             </p>
           ) : (
@@ -144,7 +144,7 @@ export function CustomPricingDialog({ open, onOpenChange, unmappedModels }: Prop
               return (
                 <div key={key} className="space-y-2 rounded-md border p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <code className="truncate font-mono text-xs">{key}</code>
+                    <code className="truncate font-mono text-caption">{key}</code>
                     {hasOverride && (
                       <Button
                         type="button"

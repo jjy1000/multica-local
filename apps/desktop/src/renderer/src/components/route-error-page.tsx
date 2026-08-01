@@ -72,12 +72,12 @@ export function DesktopRouteErrorPage() {
         <AlertTriangle className="h-6 w-6" aria-hidden="true" />
       </div>
       <div className="space-y-2">
-        <h2 className="text-lg font-semibold">Something went wrong in this tab</h2>
-        <p className="max-w-lg text-sm text-muted-foreground">
+        <h2 className="text-title font-semibold">Something went wrong in this tab</h2>
+        <p className="max-w-lg text-body text-muted-foreground">
           A route-level renderer error was contained before it could take down the
           desktop shell. Reload this tab, or send the report if it keeps happening.
         </p>
-        <p className="max-w-lg truncate text-xs text-muted-foreground">{message}</p>
+        <p className="max-w-lg truncate text-caption text-muted-foreground">{message}</p>
       </div>
       <div className="flex gap-2">
         <Button

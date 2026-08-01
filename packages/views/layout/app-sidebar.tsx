@@ -573,7 +573,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
     // else (missing translation keys, runtime type drift, etc.).
     <ErrorBoundary
       fallback={({ reset }) => (
-        <aside className="flex h-full w-60 flex-col items-center justify-center gap-3 border-r border-sidebar-border bg-sidebar p-4 text-sm text-muted-foreground">
+        <aside className="flex h-full w-60 flex-col items-center justify-center gap-3 border-r border-sidebar-border bg-sidebar p-4 text-body text-muted-foreground">
           <p>{t(($) => $.sidebar.error_fallback)}</p>
           <button
             type="button"
@@ -627,17 +627,17 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                       size={32}
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium leading-tight">
+                      <p className="truncate text-body font-medium leading-tight">
                         {user?.name}
                       </p>
-                      <p className="truncate text-xs text-muted-foreground leading-tight">
+                      <p className="truncate text-caption text-muted-foreground leading-tight">
                         {user?.email}
                       </p>
                     </div>
                   </div>
                   <DropdownMenuSeparator />
                   <DropdownMenuGroup>
-                    <DropdownMenuLabel className="text-xs text-muted-foreground">
+                    <DropdownMenuLabel className="text-caption text-muted-foreground">
                       {t(($) => $.sidebar.workspaces_label)}
                     </DropdownMenuLabel>
                     {workspaces.map((ws) => (
@@ -669,16 +669,16 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuGroup>
-                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                        <DropdownMenuLabel className="text-caption text-muted-foreground">
                           {t(($) => $.sidebar.pending_invitations_label)}
                         </DropdownMenuLabel>
                         {myInvitations.map((inv) => (
                           <div key={inv.id} className="flex items-center gap-2 px-2 py-1.5">
                             <WorkspaceAvatar name={inv.workspace_name ?? "W"} size="sm" />
-                            <span className="flex-1 truncate text-sm">{inv.workspace_name ?? t(($) => $.sidebar.invitation_workspace_fallback)}</span>
+                            <span className="flex-1 truncate text-body">{inv.workspace_name ?? t(($) => $.sidebar.invitation_workspace_fallback)}</span>
                             <button
                               type="button"
-                              className="text-xs px-2 py-0.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                              className="text-caption px-2 py-0.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                               disabled={acceptInvitationMut.isPending}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -689,7 +689,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                             </button>
                             <button
                               type="button"
-                              className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50"
+                              className="text-caption px-2 py-0.5 rounded bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50"
                               disabled={declineInvitationMut.isPending}
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -757,7 +757,7 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                           <CappedNumberFlow
                             value={unreadCount}
                             animated={false}
-                            className="ml-auto text-xs"
+                            className="ml-auto text-caption"
                           />
                         )}
                       </SidebarMenuButton>

@@ -96,7 +96,7 @@ export function OtherOptionCard({
             onChange={(e) => onOtherChange(e.target.value)}
             placeholder={placeholder}
             maxLength={OTHER_INPUT_MAX_LENGTH}
-            className="h-8 rounded-none border-x-0 border-t-0 border-b px-0 text-sm shadow-none focus-visible:border-foreground focus-visible:ring-0"
+            className="h-8 rounded-none border-x-0 border-t-0 border-b px-0 text-body shadow-none focus-visible:border-foreground focus-visible:ring-0"
             aria-label={placeholder}
           />
         </div>

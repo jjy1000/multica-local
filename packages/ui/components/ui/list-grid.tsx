@@ -86,7 +86,7 @@ function ListGridHeaderCell({
     return (
       <div
         className={cn(
-          "flex min-w-0 items-center px-2 text-xs text-muted-foreground",
+          "flex min-w-0 items-center px-2 text-caption text-muted-foreground",
           align === "right" && "justify-end",
           className,
         )}
@@ -110,7 +110,7 @@ function ListGridHeaderCell({
         type="button"
         onClick={onSort}
         className={cn(
-          "group/sort flex h-6 items-center gap-0.5 rounded-md text-xs transition-colors",
+          "group/sort flex h-6 items-center gap-0.5 rounded-md text-caption transition-colors",
           // Active sort column: emphasis via weight + full foreground color
           // only — no background, so the header row stays quiet.
           sorted
