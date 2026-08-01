@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, ExternalLink, FlaskConical, Loader2, RefreshCw, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { ChevronRight, ExternalLink, FlaskConical, Loader2, RefreshCw, CheckCircle2, AlertTriangle, XCircle, ThumbsDown } from "lucide-react";
 import { useExperimentalFlags } from "@multica/core/experimental";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -55,10 +55,83 @@ export function labSourceRouteSuffix(
   return FLAG_ROUTE_SUFFIX[labSource];
 }
 
+// AgentTrustCorrectButton (0.5.2) — issue-detail correction entry for the
+// agent_self_optimization trust score. The user flags the assigned agent's
+// work as wrong; the server applies -0.5 and records a 'correction' event
+// that the self-opt runner learns from. Rendered only when the issue has an
+// agent assignee AND the flag is enabled (the trust surface is opt-in).
+export function AgentTrustCorrectButton({
+  wsId,
+  agentId,
+  issueId,
+}: {
+  wsId: string;
+  agentId: string;
+  issueId: string;
+}) {
+  const [note, setNote] = useState("");
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  const correct = useMutation({
+    mutationFn: async () => {
+      const res = await api.rawRequest(
+        `/api/experimental/trust/${encodeURIComponent(agentId)}/correct`,
+        {
+          method: "POST",
+          body: JSON.stringify({ workspace_id: wsId, issue_id: issueId, note }),
+          headers: { "content-type": "application/json" },
+        },
+      );
+      if (!res.ok) throw new Error(`correct failed: ${res.status}`);
+      return res.json() as Promise<{ score: number }>;
+    },
+    onSuccess: (body) => {
+      setFeedback(`已纠正,当前信任分 ${body.score.toFixed(1)}(-0.5)`);
+      setNote("");
+    },
+    onError: (e) => {
+      setFeedback(`纠正失败:${e instanceof Error ? e.message : String(e)}`);
+    },
+  });
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-caption text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors"
+      >
+        <ThumbsDown className="size-3" aria-hidden />
+        纠正智能体
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-background/60 p-2">
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="备注:哪里错了(可选)"
+            className="rounded-md border border-border bg-background px-2 py-1 text-caption text-foreground placeholder:text-muted-foreground"
+          />
+          <button
+            type="button"
+            disabled={correct.isPending}
+            onClick={() => correct.mutate()}
+            className="inline-flex items-center justify-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-caption font-medium text-red-700 hover:bg-red-500/20 disabled:opacity-50 dark:text-red-300"
+          >
+            <ThumbsDown className="size-3" aria-hidden />
+            扣分纠正(-0.5)
+          </button>
+          {feedback && <p className="text-[11px] text-foreground/80">{feedback}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Sidebar "Labs" section for issues that were tagged with a lab source.
- */
-export function IssueLabsSection({
+ */export function IssueLabsSection({
   issueId,
   labSource,
   issueLabMode = null,
@@ -155,7 +228,7 @@ export function IssueLabsSection({
       <button
         type="button"
         aria-expanded={open}
-        className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors mb-2 hover:bg-accent/70 ${open ? "" : "text-muted-foreground hover:text-foreground"}`}
+        className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-caption font-medium transition-colors mb-2 hover:bg-accent/70 ${open ? "" : "text-muted-foreground hover:text-foreground"}`}
         onClick={() => setOpen((v) => !v)}
       >
         <LabBadge labSource={labSource} />
@@ -165,7 +238,7 @@ export function IssueLabsSection({
       {open && (
         <div className="space-y-1.5 pl-2">
           <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-xs text-foreground/90">
+            <span className="truncate text-caption text-foreground/90">
               {flagTitle ?? labSource}
             </span>
             {indicator && (
@@ -190,7 +263,7 @@ export function IssueLabsSection({
             // to re-pick the issue in the picker.
             <AppLink
               href={`/experimental/${suffix}?issue=${encodeURIComponent(issueId)}`}
-              className="inline-flex items-center gap-1 text-xs text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
+              className="inline-flex items-center gap-1 text-caption text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
             >
               <ExternalLink className="size-3" />
               {t(($) => $.lab_section.open_panel)}

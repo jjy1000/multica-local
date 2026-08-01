@@ -62,7 +62,7 @@ import { CommentInput } from "./comment-input";
 import { ResolvedThreadBar } from "./resolved-thread-bar";
 import { collectThreadReplies, deriveThreadResolution } from "./thread-utils";
 import { IssueAgentHeaderChip } from "./issue-agent-header-chip";
-import { IssueLabsSection, labSourceRouteSuffix } from "./issue-labs-section";
+import { IssueLabsSection, labSourceRouteSuffix, AgentTrustCorrectButton } from "./issue-labs-section";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -604,7 +604,7 @@ function ExperimentalSection() {
   if (enabled.length === 0) return null;
   return (
     <div>
-      <div className="mb-2 px-2 text-xs font-medium text-muted-foreground">
+      <div className="mb-2 px-2 text-caption font-medium text-muted-foreground">
         {t(($) => $.page.experimental_section)}
       </div>
       <div className="flex flex-wrap gap-1.5 pl-2">
@@ -787,6 +787,10 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // for the active issue's `lab_source` — pre-0.3.49.1 this used a
   // hardcoded `VIEW_LAB_SOURCES` const.
   const { data: flagCatalog } = useExperimentalFlags();
+  // 0.5.2: enabled-flag lookup for the trust correction entry. Reads the
+  // same server catalog as the timeline filter above.
+  const flagEnabled = (key: string) =>
+    flagCatalog?.some((f) => f.key === key && f.enabled) === true;
   // Workspace owners and admins moderate any comment authored by anyone
   // (mirrors backend `comment.go:507-512`). Computed here so per-comment
   // rendering doesn't have to re-derive it for every row.
@@ -1514,7 +1518,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
 
   if (!issue) {
     return (
-      <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+      <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 text-body text-muted-foreground">
         <p>{t(($) => $.detail.not_found)}</p>
         {!onDelete && (
           <Button variant="outline" size="sm" onClick={() => router.push(paths.issues())}>
@@ -1532,7 +1536,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       <div>
         <button
           type="button"
-          className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors mb-2 hover:bg-accent/70 ${propertiesOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
+          className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-caption font-medium transition-colors mb-2 hover:bg-accent/70 ${propertiesOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
           onClick={() => setPropertiesOpen(!propertiesOpen)}
         >
           {t(($) => $.detail.section_properties)}
@@ -1708,7 +1712,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             <div className="col-span-2 mt-1">
               <Popover open={addPropPopoverOpen} onOpenChange={setAddPropPopoverOpen}>
                 <PopoverTrigger
-                  className="flex items-center gap-1.5 rounded-md px-2 py-1 -mx-2 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+                  className="flex items-center gap-1.5 rounded-md px-2 py-1 -mx-2 text-caption text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
                 >
                   <Plus className="h-3 w-3 shrink-0" />
                   <span>{t(($) => $.detail.add_property_action)}</span>
@@ -1723,7 +1727,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                       key={k}
                       type="button"
                       onClick={() => addOptionalProp(k)}
-                      className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-foreground/90 transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-caption text-foreground/90 transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
                     >
                       {k === "priority" && (
                         <PriorityIcon priority="medium" inheritColor className="text-muted-foreground" />
@@ -1764,7 +1768,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         <div>
           <button
             type="button"
-            className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors mb-2 hover:bg-accent/70 ${parentIssueOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-caption font-medium transition-colors mb-2 hover:bg-accent/70 ${parentIssueOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
             onClick={() => setParentIssueOpen(!parentIssueOpen)}
           >
             {t(($) => $.detail.section_parent_issue)}
@@ -1790,7 +1794,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         <div>
           <button
             type="button"
-            className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors mb-2 hover:bg-accent/70 ${pullRequestsOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-caption font-medium transition-colors mb-2 hover:bg-accent/70 ${pullRequestsOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
             onClick={() => setPullRequestsOpen(!pullRequestsOpen)}
           >
             {t(($) => $.detail.section_pull_requests)}
@@ -1814,11 +1818,29 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         />
       )}
 
+      {/* 0.5.2: trust correction entry — the user flags the assigned
+          agent's output as wrong (score -0.5, feeds the self-opt
+          learning loop). Shown when the issue has an agent assignee,
+          the self-opt flag is enabled, and the assignee is not a
+          lab-hidden agent (their trust isn't user-managed). */}
+      {issue.assignee_type === "agent" &&
+        issue.assignee_id &&
+        wsId &&
+        flagEnabled("agent_self_optimization") && (
+          <div className="flex flex-col gap-1 px-2">
+            <AgentTrustCorrectButton
+              wsId={wsId}
+              agentId={issue.assignee_id}
+              issueId={id}
+            />
+          </div>
+        )}
+
       {/* Details */}
       <div>
         <button
           type="button"
-          className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors mb-2 hover:bg-accent/70 ${detailsOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
+          className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-caption font-medium transition-colors mb-2 hover:bg-accent/70 ${detailsOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
           onClick={() => setDetailsOpen(!detailsOpen)}
         >
           {t(($) => $.detail.section_details)}
@@ -1848,7 +1870,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         <div>
           <button
             type="button"
-            className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors mb-2 hover:bg-accent/70 ${tokenUsageOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex w-full items-center gap-1 rounded-md px-2 py-1 text-caption font-medium transition-colors mb-2 hover:bg-accent/70 ${tokenUsageOpen ? "" : "text-muted-foreground hover:text-foreground"}`}
             onClick={() => setTokenUsageOpen(!tokenUsageOpen)}
           >
             {t(($) => $.detail.section_token_usage)}
@@ -1888,7 +1910,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
         <>
           <button
             type="button"
-            className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
+            className="flex w-full items-center gap-1 rounded-md px-2 py-1 text-caption font-medium text-muted-foreground transition-colors hover:bg-accent/70 hover:text-foreground"
             onClick={() => setMetadataOpen(true)}
           >
             {t(($) => $.detail.section_metadata)}
@@ -2117,7 +2139,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           {parentIssue && (
             <AppLink
               href={paths.issueDetail(parentIssue.id)}
-              className="mt-2 inline-flex max-w-full items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors group/parent"
+              className="mt-2 inline-flex max-w-full items-center gap-1.5 text-caption text-muted-foreground hover:text-foreground transition-colors group/parent"
             >
               <span className="font-medium shrink-0">{t(($) => $.detail.sub_issue_of)}</span>
               <StatusIcon status={parentIssue.status} className="h-3.5 w-3.5 shrink-0" />
@@ -2198,7 +2220,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             <div className="mt-6">
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                className="inline-flex items-center gap-1.5 text-caption text-muted-foreground hover:text-foreground transition-colors"
                 onClick={() => actions.openCreateSubIssue()}
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -2215,7 +2237,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   <button
                     type="button"
                     onClick={() => setSubIssuesCollapsed((v) => !v)}
-                    className="flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-foreground/80 transition-colors"
+                    className="flex items-center gap-1.5 text-body font-medium text-foreground hover:text-foreground/80 transition-colors"
                   >
                     <ChevronDown
                       className={cn(
@@ -2306,7 +2328,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 <button
                   type="button"
                   onClick={handleToggleSubscribe}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-caption text-muted-foreground hover:text-foreground transition-colors"
                 >
                   {isSubscribed ? t(($) => $.detail.unsubscribe) : t(($) => $.detail.subscribe)}
                 </button>

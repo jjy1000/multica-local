@@ -34,18 +34,11 @@ import { MythosView } from "./pages/mythos-view";
 import { PythiaView } from "./pages/pythia-view";
 import { LLMWikiBridgeView } from "./pages/llm-wiki-bridge-view";
 import { CodeCanvasView } from "./pages/code-canvas-view";
-import { AgentSelfOptimizationView } from "./pages/agent-self-optimization-view";
-// 0.3.45.1: run-history view for agent_self_optimization. Distinct
-// from AgentSelfOptimizationView (which is the 0.3.20 flag-status
-// placeholder) — this view reads GET /api/experimental/self-opt/runs
-// and renders the per-run report markdown + prompt suggestions.
-import { SelfOptHistoryView } from "./pages/self-opt-history-view";
-// 0.3.45: action-type lab entry point — distinct from the existing
-// flag-bound views (which all describe what a flag DOES once the
-// issue is lab-tagged). The studio is an editor the user navigates
-// INTO from the issue picker; it drafts agent / skill / squad rows
-// and submits through the existing REST APIs.
 import { AgentCreationStudioView } from "./pages/agent-creation-studio-view";
+// 0.5.2: merged self-opt view (overview + history + trust + events).
+// Replaces the 0.3.20 placeholder (agent-self-optimization-view.tsx)
+// and the 0.3.45.1 history-only view (self-opt-history-view.tsx).
+import { SelfOptView } from "./pages/self-opt-view";
 // 0.3.60: generic user-plugin shell route wrapper. Manifest-driven
 // tab layout for user_* lab plugins (see experimentalLabRouteFor in
 // packages/views/modals/create-issue.tsx).
@@ -163,14 +156,18 @@ export const appRoutes: RouteObject[] = [
         handle: { title: "Code Canvas" },
       },
       {
+        // 0.5.2: merged self-opt view (overview + history + trust +
+        // events). Both legacy paths (agent-self-optimization and
+        // self-opt-history) render the same merged view so old
+        // bookmarks keep working.
         path: "experimental/agent-self-optimization",
-        element: <AgentSelfOptimizationView />,
+        element: <SelfOptView />,
         handle: { title: "Agent Self-Optimization" },
       },
       {
         path: "experimental/self-opt-history",
-        element: <SelfOptHistoryView />,
-        handle: { title: "智能体自优化历史" },
+        element: <SelfOptView />,
+        handle: { title: "智能体自优化" },
       },
       {
         // 0.3.45: action-type lab. Pre-workspace route (no
