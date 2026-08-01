@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.1 (installed at `/Applications/Multica.app`).** Upstream UI/animation port batch landed (5 commits): WCAG contrast + faint/find-match/chat-launcher tokens, Button brand variants, CJK `font-synthesis`, surface system bound (`--background/--card/--popover` → page-canvas/surface/surface-raised, near-zero shift), 10-step type-scale tokens, NumberFlow animated numbers (`@number-flow/react`), 14 component animation/polish deltas, Inter italic axis + Geist Mono variable font, and a 212-file `text-xs/sm/...` → `text-caption/body/...` migration. See `.omc/release-notes-0.5.1.md` + `.omc/0.5.1-ship-2026-08-01.md`. **Main working directory was renamed `multica-main` → `multica-exploration-dev` (2026-08-01).** Still deferred: `dashboard.go` cost wire-up (needs `foldRestrictedAgents` fix — see `.omc/plans/upstream-integration-0.5.0-proposal-rev2.md`), 93 fork-only files still on old text-size utilities, cloud physical-deletion PRs A/B/C/D on kept branches (`fork-hygiene-a/b/c/d`).
+> **Current release: 0.5.2 (installed at `/Applications/Multica.app`).** Agent self-optimization loop shipped: trust-score ledger (migration 228), SkillOpt-style edit ledger + two-stage application (add-only auto-apply + human-confirm 待确认建议 tier, migrations 229-231), post-hoc commit gate (`RevalidateAppliedEdits`), and the adversarial-review fixes. See `.omc/release-notes-0.5.2.md` + `.omc/0.5.2-ship-2026-08-01.md`. Previous: 0.5.1 upstream UI/animation port batch (5 commits: WCAG contrast + faint/find-match/chat-launcher tokens, Button brand variants, CJK `font-synthesis`, surface system bound, type-scale tokens, NumberFlow, 14 animation deltas, Inter italic + Geist Mono variable, 212-file type-scale migration). **Main working directory was renamed `multica-main` → `multica-exploration-dev` (2026-08-01).** Still deferred: `dashboard.go` cost wire-up (needs `foldRestrictedAgents` fix — see `.omc/plans/upstream-integration-0.5.0-proposal-rev2.md`), 93 fork-only files still on old text-size utilities, cloud physical-deletion PRs A/B/C/D on kept branches (`fork-hygiene-a/b/c/d`).
 
 > Keep this file short and authoritative: rules here should be hard to infer from code or easy to get wrong.
 
@@ -706,6 +706,48 @@ The `manifest.capabilities` slots now support two complementary plugin shapes; b
 
 Full authoring guidance (both archetypes + the delegate verb) is in `multica-lab-builder/SKILL.md`.
 
+## Agent Self-Optimization & Trust (0.5.2)
+
+The `agent_self_optimization` lab (catalog default OFF, per-user opt-in via `experimental_pref`) runs a SkillOpt-style loop: the agent's `agent.instructions` is the trainable state, a separate optimizer LLM proposes bounded add/delete/replace edits, a validator LLM scores them, and only validated edits land back in the instructions. It is the fork's implementation of the user's "智能体自由化循环" (Boris Cherny ablation principle: delete → add back line by line → test).
+
+### Trust-score ledger (migration 228)
+
+- `agent_trust_profile` — per-(workspace, agent) `score` NUMERIC(4,1) init **5.0**, max **10.0**; `review_threshold` default **7.0**; counters (`correction_count`, `review_*_count`). Upserted atomically with SQL-side `+1` on each counter.
+- `agent_trust_event` — timeline: `correction` **-0.5** / `review_requested` (0) / `review_pass` **+0.2** / `review_fail` **-0.5** / `review_skipped`. Each row carries `task_id`/`issue_id` anchors, `score_before`/`score_after`, an optional user `note`, and `created_by`.
+- `server/internal/service/agent_trust/` — `Service.ApplyCorrection`, `ReviewTask` (LLM verdict via `CLIReviewer` → `RunProviderLLM`), `ProcessTaskCompletion` gate (score < threshold → auto-review). Score arithmetic lives in the service; `pgtype.Numeric` is scanned via string (`fmt.Sprintf("%.1f", v)`) because `Scan(float64)` leaves `Int=nil`.
+- HTTP (`server/internal/handler/agent_trust.go`, all membership-gated): `GET /api/experimental/trust/profiles`, `GET /trust/events`, `POST /trust/{agentId}/correct`, `POST /trust/{agentId}/review`.
+
+### Two-stage edit application (migrations 229-231)
+
+`agent_opt_edit` is the SkillOpt edit ledger. `application` ∈ `applied | suggested | rejected | ignored | reverted`; plus `validation_score` NUMERIC, `validation_reason`, `instructions_snapshot` (pre-edit rollback point), `applied_by` (`user`|`auto`, nullable), `corrected_task_id` (traceability anchor).
+
+**Design verdict — destructiveness by construction, not by score:**
+
+- `delete` / `replace` **NEVER auto-apply** — they always land in `suggested` (human confirms any overwrite/removal).
+- `add` auto-applies ONLY when ALL hold: `validation_score ≥ 90` + agent enrolled (`【self-opt:enroll】` marker in instructions) + trust ≥ 8 (`MinAutoApplyTrustScore`) + not lab-managed/hard-blocked + correction-backed + rate-capped `MaxAutoAppliesPerAgentPerRun=1`/run + snapshot committed.
+- `suggested` (待确认建议 tier): score 60-89, or gate-missed. `ProposeFloor=60`, `AutoApplyGate=90`.
+- `rejected`: score < 60. `ignored`: expiry sweep (21d, `SuggestionExpiryWindow`) — **never expire-to-rejected** (a busy user's inaction must not poison the rejection buffer; ignored stays re-proposable).
+
+**Traceability contract (c10, adversarial review):** auto-apply requires a `correction` trust event with a valid `task_id` in the window; that `corrected_task_id` is persisted on the applied edit and the proposal prompt anchors on it (the LLM derives the fix from that specific corrected task). The validator only ever sees **sanitized** issue titles/notes (`sanitizeForPrompt`: strips control chars, truncates to 80 runes) — raw user copy never reaches the optimizer prompt.
+
+**Post-hoc commit gate (d1):** the NEXT run re-scores each applied edit against its `instructions_snapshot` via `Optimizer.RevalidateAppliedEdits`; a regressive edit (score < `RevalidateRetainFloor`=60) is auto-reverted to the snapshot, the ledger row flips to `reverted`, and a `review_fail` trust event (-0.5) is recorded.
+
+**Negative-experience buffer (d6/d7):** `ListNegativeExperienceEdits` returns ONLY `rejected` + `reverted` rows to the optimizer (ignored/applied/suggested stay out). `isRejected` hard-blocks `reverted` pairs too — a user's explicit rollback is never re-proposed.
+
+### Runner + scheduler
+
+- `server/internal/service/agent_self_optimization/runner.go` — one-pass runner. Data-sufficiency deferral (< 5 done issues AND < 3 trust corrections → `status='deferred'` + retry +24h). Parallel per-agent optimization (`sem=3`). **Must** `IncrementIssueCounter` before `CreateIssue` (the self-opt issue carries `lab_source='agent_self_optimization'` and is auto-hidden from the main panel via `exclude_lab`).
+- `scheduler.go` — weekly cadence (`MinRunInterval=168h`) with catch-up firing immediately when last run > 7d old. `service.go::maybeFire` holds the advisory lock + `CountActiveAgentSelfOptRuns` in-flight guard.
+- HTTP (`server/internal/handler/agent_self_optimization.go` + `self_opt_edits.go`): `GET/POST /self-opt/runs`, `GET /self-opt/runs/{id}`, `POST /self-opt/runs/{id}/cancel`, `GET /self-opt/edits`, `POST /self-opt/edits/{id}/apply|reject|ignore|revert` — all membership-gated; flag off → 404.
+
+### Language contract
+
+The optimizer/validator LLM prompts are **English** (system + rubric + JSON reply). User-facing product copy (report markdown, the 待确认建议 UI, error strings) is **Chinese** with English terms retained.
+
+### Hard-block
+
+The primary product agent (`Multica Helper`) is never enrolled, never auto-applied (`isHardBlockedAgent`); lab-managed agents (hidden by any `experimental_resource_visibility` row) are fail-closed excluded from auto-apply.
+
 ## Lab ↔ Assignee Mutex (0.3.31, narrowed 0.3.33; batch + front-end realigned 2026-07-28 audit)
 
 **Current contract (narrowed): the mutex applies to `mythos_swarm` ONLY.**
@@ -918,7 +960,8 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 > **These files live OUTSIDE this repo** (in the Claude project-memory dir above), so a bare name like `multica-0.3.0-standalone-2026-07-02.md` referenced anywhere in this doc is NOT a repo path — `git`/filesystem lookups at the repo root will not find it. Read it via the absolute path above. They are intentionally not committed (per-user, cross-session context).
 
 **For a new session, start here:**
-- `0.5.1-ui-port-ship-2026-08-01.md` — **Current release (2026-08-01).** Upstream UI/animation port batch: 5 commits (`c065ae1` `404676a` `bb29b46` `1b0cdb5` `a803f94`) — WCAG contrast + faint/find-match/chat-launcher tokens, Button brand variants, CJK `font-synthesis`, surface system bound, type-scale tokens, NumberFlow + 6 surfaces, 14 animation deltas, Inter italic + Geist Mono variable, 212-file type-scale migration. **Desktop ship complete** — `/Applications/Multica.app` = 0.5.1 (manual asar-repack fallback; `electron-builder --dir` hit the known `app-builder-bin@5.0.0-alpha.13` failure). Worktrees for the 4 fork-hygiene cloud-deletion PRs were **deleted** (branches `fork-hygiene-a/b/c/d` + commits kept). Main dir renamed `multica-main` → `multica-exploration-dev`. Read before any 0.5.1.x touch. Supersedes the 0.5.0 memory entry below.
+- `0.5.2-self-opt-ship-2026-08-01.md` — **Current release (2026-08-01).** Agent self-optimization loop: trust-score ledger (mig 228), two-stage edit application (migs 229-231, add-only auto-apply + 待确认建议 tier), post-hoc commit gate (`RevalidateAppliedEdits`), and 7 adversarial-review fixes. **Desktop ship complete** — `/Applications/Multica.app` = 0.5.2 (canonical `electron-builder --dir`; the alpha.13 deadlock did NOT trigger this run). P0 gotcha: `applied_by NOT NULL CHECK` broke the entire suggested tier (fixed nullable + `sqlc.narg`). `pgtype.Numeric` must string-scan. Read before any 0.5.2.x touch. Supersedes the 0.5.1 entry below.
+- `0.5.1-ui-port-ship-2026-08-01.md` — 0.5.1 (2026-08-01, superseded by 0.5.2). Upstream UI/animation port batch: 5 commits (`c065ae1` `404676a` `bb29b46` `1b0cdb5` `a803f94`) — WCAG contrast + faint/find-match/chat-launcher tokens, Button brand variants, CJK `font-synthesis`, surface system bound, type-scale tokens, NumberFlow + 6 surfaces, 14 animation deltas, Inter italic + Geist Mono variable, 212-file type-scale migration. Desktop ship via manual asar-repack fallback. Worktrees for the 4 fork-hygiene cloud-deletion PRs were **deleted** (branches kept). Main dir renamed `multica-main` → `multica-exploration-dev`.
 - `0.5.0-fork-ship-2026-07-31.md` — 0.5.0 release (schema-first wave-1: `client_usage_daily` + `task_usage` cost). Superseded by 0.5.1; kept for the wave-1 schema/rollup history.
 - `project-init-doc-2026-07-14.md` — Full fork snapshot for 0.3.20 (still useful for high-level architecture; some flag / manifest details are superseded by 0.3.22+).
 - `0.3.24-ship-2026-07-15.md` — Forecast SSE + interactive-chart. Read before any 0.3.25+ version bump or DMG rebuild.

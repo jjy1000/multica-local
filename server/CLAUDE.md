@@ -125,6 +125,36 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
   pure-CLI (create lab issue → poll `task-runs` → read `result.output`) — add NO
   new server endpoint for it.
 
+### Agent self-optimization + trust (0.5.2)
+
+Two services power the `agent_self_optimization` lab's learning loop. Read
+`internal/service/agent_self_optimization/` and
+`internal/service/agent_trust/` before touching either.
+
+- **Trust-score ledger (mig 228).** `agent_trust_profile` (score init 5.0 /
+  max 10.0, `review_threshold` 7.0) + `agent_trust_event`. Score arithmetic +
+  atomic upserts live in `agent_trust/service.go`; the handlers in
+  `internal/handler/agent_trust.go` are thin membership-gated JSON adapters
+  (`/api/experimental/trust/{profiles,events}` + `/{agentId}/correct` +
+  `/{agentId}/review`). **`pgtype.Numeric` must be scanned via string**
+  (`fmt.Sprintf("%.1f", v)`) — `Scan(float64)` leaves `Int=nil` and the
+  numericToFloat rejects it.
+- **Two-stage edit application (migs 229-231).** `agent_opt_edit` ledger with
+  `application` `applied|suggested|rejected|ignored|reverted`,
+  `instructions_snapshot` (rollback point), `applied_by` (`user|auto`,
+  **nullable**), `corrected_task_id` (correction-traceability anchor).
+  **Design verdict: delete/replace NEVER auto-apply** (by construction); add
+  auto-applies only on score ≥ 90 + enrolled + trust ≥ 8 + not lab-managed +
+  correction-backed + rate-capped 1/run. `RevalidateAppliedEdits` (the
+  post-hoc commit gate) re-scores applied edits next run and auto-reverts a
+  regression to its snapshot + records a `review_fail` trust event.
+- **HTTP** (`internal/handler/agent_self_optimization.go` +
+  `self_opt_edits.go`): runs list/get/trigger/cancel + edits list/apply/reject/
+  ignore/revert — ALL membership-gated; flag off → 404.
+- **Runner gotcha:** `runner.go` MUST `IncrementIssueCounter` before
+  `CreateIssue` (the self-opt issue is `lab_source='agent_self_optimization'`
+  and collides on `number=0` otherwise).
+
 ## Retired (do NOT re-add)
 
 - `constitution_agent` lab (retired 0.3.57, migration 165). If upstream re-adds a
