@@ -148,15 +148,22 @@ export function LabPicker({
   // user still flips these flags on in the Labs settings tab — only
   // the per-issue picker omits them.
   const entries = useMemo(() => {
-    const out: { id: string; title: string }[] = [
-      { id: "", title: t(($) => $.pickers.lab.picker_none) ?? "None" },
+    const out: { id: string; title: string; enabled: boolean }[] = [
+      { id: "", title: t(($) => $.pickers.lab.picker_none) ?? "None", enabled: true },
     ];
     for (const flag of flags ?? []) {
-      if (!flag.enabled) continue;
+      // 0.5.3: action-type labs (agent_creation_studio) show even when
+      // not enabled — the entry is a user action, not a per-issue
+      // lab_source binding, so it must be reachable without a prior
+      // Labs opt-in. `enabled` is carried so the onClick branch below
+      // can route a disabled entry to onAction (open the creator)
+      // instead of binding lab_source (which needs the installed leader).
+      if (!flag.enabled && !flag.always_show_in_lab_picker) continue;
       if (flag.hide_from_issue_lab_picker) continue;
       out.push({
         id: flag.key,
         title: flag.title.zh || flag.title.en || flag.key,
+        enabled: flag.enabled,
       });
     }
     return out;
@@ -213,6 +220,16 @@ export function LabPicker({
             selected={entry.id === (labSource ?? "")}
             onClick={() => {
               const nextLab = entry.id === "" ? null : entry.id;
+              // 0.5.3: a DISABLED always-show entry (agent_creation_studio
+              // with the flag off) must not bind lab_source — the leader
+              // agent is not installed and the server rewrite would
+              // produce a dangling assignment. Route to onAction (open
+              // the manual creator) instead.
+              if (nextLab && !entry.enabled) {
+                onAction?.(nextLab);
+                setOpen(false);
+                return;
+              }
               // Clear-or-set: if the user picked the currently selected
               // lab (no-op on the source side), do nothing. Otherwise
               // dispatch the update with a sensible default mode.

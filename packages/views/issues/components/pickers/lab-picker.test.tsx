@@ -21,6 +21,7 @@ const mockFlags = vi.hoisted(() => ({
     title: { zh: string; en: string };
     enabled: boolean;
     hide_from_issue_lab_picker?: boolean;
+    always_show_in_lab_picker?: boolean;
   }>,
 }));
 
@@ -246,5 +247,30 @@ describe("LabPicker", () => {
     const labels = Array.from(items).map((el) => el.textContent ?? "");
     expect(labels.some((l) => l.includes("LLM Wiki"))).toBe(false);
     expect(labels.some((l) => l.includes("自优化"))).toBe(false);
+  });
+
+  it("0.5.3: shows always_show_in_lab_picker flags even when disabled", () => {
+    // agent_creation_studio is an action-type lab — the entry must be
+    // reachable from the issue LabPicker even before the user opts in
+    // via Labs (flag off). The picker shows it; clicking routes to
+    // onAction (the manual creator) instead of binding lab_source.
+    mockFlags.value = [
+      { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
+      { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: false, always_show_in_lab_picker: true },
+    ];
+    const onAction = vi.fn();
+    const { onUpdate } = renderPicker({ onAction });
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(trigger);
+    const items = document.querySelectorAll("button[data-picker-item]");
+    // None + claude_science_lab + agent_creation_studio = 3 items, plus
+    // the footer action item ("+ Create agent / skill / squad").
+    expect(items.length).toBe(4);
+    const studioItem = Array.from(items).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
+    expect(studioItem).toBeTruthy();
+    // Clicking the disabled entry routes to onAction, NOT onUpdate.
+    fireEvent.click(studioItem);
+    expect(onAction).toHaveBeenCalledWith("agent_creation_studio");
+    expect(onUpdate).not.toHaveBeenCalled();
   });
 });

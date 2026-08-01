@@ -72,6 +72,13 @@ export interface ExperimentalFlag {
    *  still rendered in the Labs settings tab where the user flips the
    *  toggle on. Absent or false = picker offers the flag as usual. */
   hide_from_issue_lab_picker?: boolean;
+  /** 0.5.3: when true, the issue-detail LabPicker shows this flag EVEN
+   *  when it is not enabled. Reserved for action-type labs whose entry
+   *  is a user action reachable without a Labs opt-in
+   *  (agent_creation_studio). Absent or false = the picker applies the
+   *  enabled filter as usual. Mutually exclusive with
+   *  hide_from_issue_lab_picker. */
+  always_show_in_lab_picker?: boolean;
   /** 0.3.49.1: when true, the lab owns a workspace-scoped view where
    *  the agent deliverable belongs, and `issue-detail.tsx` filters the
    *  deliverable thread out of the plain issue timeline. Pre-0.3.49.1

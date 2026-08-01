@@ -1229,6 +1229,9 @@ export const ExperimentalFlagSchema = z.object({
   // 0.3.45.8: when true, the issue-detail LabPicker does NOT offer
   // this flag as a per-issue "实验插件" choice.
   hide_from_issue_lab_picker: z.boolean().optional(),
+  // 0.5.3: when true, the LabPicker shows this flag even when not
+  // enabled (action-type labs reachable without a Labs opt-in).
+  always_show_in_lab_picker: z.boolean().optional(),
   // 0.3.49.1: when true, `issue-detail.tsx` hides the lab's agent
   // deliverable thread from the plain issue timeline (the deliverable
   // belongs in the lab's workspace-scoped view — Claude Lab Artifact

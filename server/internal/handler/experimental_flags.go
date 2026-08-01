@@ -47,6 +47,11 @@ type ExperimentalFlagResponse struct {
 	// as per-issue "实验插件" choices. Absent means the picker offers
 	// the flag as usual.
 	HideFromIssueLabPicker bool `json:"hide_from_issue_lab_picker,omitempty"`
+	// 0.5.3: mirror of Flag.AlwaysShowInLabPicker. When true, the
+	// LabPicker shows the entry even if the flag is not enabled —
+	// action-type labs (agent_creation_studio) must be reachable
+	// without a prior Labs opt-in.
+	AlwaysShowInLabPicker bool `json:"always_show_in_lab_picker,omitempty"`
 	// 0.3.49.1: mirror of Flag.HidesDeliverableInIssueTimeline. When
 	// true, `issue-detail.tsx` hides the lab's agent deliverable
 	// comments from the plain issue timeline (the results belong in
@@ -125,6 +130,7 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			Description:                     f.Description,
 			RuntimeKind:                     f.RuntimeKind,
 			HideFromIssueLabPicker:          f.HideFromIssueLabPicker,
+			AlwaysShowInLabPicker:           f.AlwaysShowInLabPicker,
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 		}
 		// 0.3.65: expose the lab's default owner agent so the property panel
@@ -174,6 +180,7 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			Description:                     f.Description,
 			RuntimeKind:                     f.RuntimeKind,
 			HideFromIssueLabPicker:          f.HideFromIssueLabPicker,
+			AlwaysShowInLabPicker:           f.AlwaysShowInLabPicker,
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 			IsUserPlugin:                    true,
 		}
