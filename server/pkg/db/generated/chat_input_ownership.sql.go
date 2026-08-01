@@ -23,7 +23,7 @@ VALUES (
     COALESCE($8::boolean, FALSE),
     $7
 )
-RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, delivered_comment_ids, chat_input_task_id, coalesced_comment_ids
+RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, delivered_comment_ids, chat_input_task_id, coalesced_comment_ids, session_rollout_missing, retired_session_id
 `
 
 type CreateChatTaskWithInputOwnerParams struct {
@@ -103,6 +103,8 @@ func (q *Queries) CreateChatTaskWithInputOwner(ctx context.Context, arg CreateCh
 		&i.DeliveredCommentIds,
 		&i.ChatInputTaskID,
 		&i.CoalescedCommentIds,
+		&i.SessionRolloutMissing,
+		&i.RetiredSessionID,
 	)
 	return i, err
 }
@@ -148,7 +150,7 @@ func (q *Queries) ListChatInputMessages(ctx context.Context, taskID pgtype.UUID)
 }
 
 const listChatSessionsByCreatorWithUnreadCount = `-- name: ListChatSessionsByCreatorWithUnreadCount :many
-SELECT cs.id, cs.workspace_id, cs.agent_id, cs.creator_id, cs.title, cs.session_id, cs.work_dir, cs.status, cs.created_at, cs.updated_at, cs.unread_since, cs.runtime_id, cs.last_read_at, cs.is_agent_intro, cs.pinned_at,
+SELECT cs.id, cs.workspace_id, cs.agent_id, cs.creator_id, cs.title, cs.session_id, cs.work_dir, cs.status, cs.created_at, cs.updated_at, cs.unread_since, cs.runtime_id, cs.last_read_at, cs.is_agent_intro, cs.pinned_at, cs.project_id,
        (
          SELECT COUNT(*)
          FROM chat_message m
@@ -182,6 +184,7 @@ type ListChatSessionsByCreatorWithUnreadCountRow struct {
 	LastReadAt   pgtype.Timestamptz `json:"last_read_at"`
 	IsAgentIntro bool               `json:"is_agent_intro"`
 	PinnedAt     pgtype.Timestamptz `json:"pinned_at"`
+	ProjectID    pgtype.UUID        `json:"project_id"`
 	UnreadCount  int32              `json:"unread_count"`
 }
 
@@ -215,6 +218,7 @@ func (q *Queries) ListChatSessionsByCreatorWithUnreadCount(ctx context.Context, 
 			&i.LastReadAt,
 			&i.IsAgentIntro,
 			&i.PinnedAt,
+			&i.ProjectID,
 			&i.UnreadCount,
 		); err != nil {
 			return nil, err
