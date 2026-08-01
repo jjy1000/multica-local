@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Current release: 0.5.0 (installed at `/Applications/Multica.app`).** Wave-1 schema-first upstream integration landed: 6 forward-only migrations (`client_usage_daily` 207-211, `task_usage_authoritative_cost` 213), `POST /api/client-usage` route wired, `task_usage` cost/uncosted rollup split. No `dashboard.go` cost wire-up yet (deferred to a follow-up PR alongside the `foldRestrictedAgents` privacy fix). See `.omc/release-notes-0.5.0.md` + `.omc/0.5.0-desktop-ship-2026-07-31.md` for the full ship log. **Before touching `dashboard.go` / `foldRestrictedAgents` / `restrictedAgentIDs`, re-read `.omc/plans/upstream-integration-0.5.0-proposal-rev2.md`** — wave 3+ is a separate plan.
+
 > Keep this file short and authoritative: rules here should be hard to infer from code or easy to get wrong.
 
 > This file is the single source of truth for cross-cutting rules; `AGENTS.md` is a derived digest of it. Shared constraints (toolchain versions, package boundaries, verification commands, and the critical-constraint tokens: localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) are enforced by `scripts/check-agents-docs-sync.mjs` (CI `docs-sync` job + `githooks/pre-push`).
@@ -916,6 +918,7 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 > **These files live OUTSIDE this repo** (in the Claude project-memory dir above), so a bare name like `multica-0.3.0-standalone-2026-07-02.md` referenced anywhere in this doc is NOT a repo path — `git`/filesystem lookups at the repo root will not find it. Read it via the absolute path above. They are intentionally not committed (per-user, cross-session context).
 
 **For a new session, start here:**
+- `0.5.0-fork-ship-2026-07-31.md` — **Current release (2026-07-31).** Wave-1 schema-first upstream integration: 6 migrations (`client_usage_daily` 207-211 + `task_usage_authoritative_cost` 213), `POST /api/client-usage` route wired + end-to-end smoke green, latent sqlc regen for the wave 2 schema. **Desktop ship complete** — `/Applications/Multica.app` = 0.5.0; 7-step chain walked with the manual asar-repack fallback (`electron-builder --dir` hit the known `app-builder-bin@5.0.0-alpha.13` network deadlock). 4 fork-hygiene worktrees pre-created for the cloud physical-deletion PRs (A/B/C/D). Read before any 0.5.x touch.
 - `project-init-doc-2026-07-14.md` — Full fork snapshot for 0.3.20 (still useful for high-level architecture; some flag / manifest details are superseded by 0.3.22+).
 - `0.3.24-ship-2026-07-15.md` — Forecast SSE + interactive-chart. Read before any 0.3.25+ version bump or DMG rebuild.
 - `0.3.22-ship-2026-07-15.md` — Claude Research Lab consolidation ship log. Read before touching the `claude_science_lab` flag, install handler, or any consolidated lab route.
