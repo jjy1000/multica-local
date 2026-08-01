@@ -913,7 +913,7 @@ Real failure modes that took non-trivial debugging. NOT obvious from reading the
 
 ## Memory Index (cross-session)
 
-Before editing any subsystem with a known-regression or regression-suspect surface, read the matching memory file in `~/.claude/projects/-Users-jiangjianyan-jjy-multica-main/memory/`. The full index is in `MEMORY.md` next to the files (one line per memory, descriptive title only).
+Before editing any subsystem with a known-regression or regression-suspect surface, read the matching memory file in `~/.claude/projects/-Users-jiangjianyan-jjy-multica-main/memory/` (the session slug keeps the pre-rename `multica-main` name — the project dir was renamed `multica-exploration-dev` on 2026-08-01, but the memory store location is unchanged; do NOT recreate it under a new slug). The full index is in `MEMORY.md` next to the files (one line per memory, descriptive title only).
 
 > **These files live OUTSIDE this repo** (in the Claude project-memory dir above), so a bare name like `multica-0.3.0-standalone-2026-07-02.md` referenced anywhere in this doc is NOT a repo path — `git`/filesystem lookups at the repo root will not find it. Read it via the absolute path above. They are intentionally not committed (per-user, cross-session context).
 
