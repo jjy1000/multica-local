@@ -192,3 +192,13 @@ LEFT JOIN issue i
        ON i.id = atq.issue_id
 WHERE sm.squad_id = $1
 ORDER BY sm.created_at ASC, atq.dispatched_at DESC NULLS LAST;
+
+-- name: UpdateSquadInstructions :one
+-- 0.5.3: instructions-only write-back used by the self-opt runner. Narrower
+-- than UpdateSquad so an optimizer edit can never clobber name/description/
+-- leader the user changed meanwhile.
+UPDATE squad SET
+    instructions = $2,
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $3
+RETURNING *;

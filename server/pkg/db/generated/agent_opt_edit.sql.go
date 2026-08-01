@@ -14,18 +14,23 @@ import (
 const createAgentOptEdit = `-- name: CreateAgentOptEdit :one
 
 INSERT INTO agent_opt_edit (
-    agent_id, run_id, workspace_id, edit_type,
+    agent_id, target_type, target_id, subject_scope,
+    run_id, workspace_id, edit_type,
     before_text, after_text, rationale, accepted, iteration,
     application, validation_score, validation_reason,
     instructions_snapshot, applied_by, corrected_task_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $16::uuid, $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10, $11, $12, $13, $14,
+    $15, $17, $18
 )
-RETURNING id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id
+RETURNING id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope
 `
 
 type CreateAgentOptEditParams struct {
-	AgentID              pgtype.UUID    `json:"agent_id"`
+	TargetType           string         `json:"target_type"`
+	TargetID             pgtype.UUID    `json:"target_id"`
+	SubjectScope         string         `json:"subject_scope"`
 	RunID                pgtype.UUID    `json:"run_id"`
 	WorkspaceID          pgtype.UUID    `json:"workspace_id"`
 	EditType             string         `json:"edit_type"`
@@ -38,18 +43,26 @@ type CreateAgentOptEditParams struct {
 	ValidationScore      pgtype.Numeric `json:"validation_score"`
 	ValidationReason     pgtype.Text    `json:"validation_reason"`
 	InstructionsSnapshot pgtype.Text    `json:"instructions_snapshot"`
+	AgentID              pgtype.UUID    `json:"agent_id"`
 	AppliedBy            pgtype.Text    `json:"applied_by"`
 	CorrectedTaskID      pgtype.UUID    `json:"corrected_task_id"`
 }
 
-// agent_opt_edit: SkillOpt-style instruction edit ledger (0.5.2). Every
-// add/delete/replace edit the optimizer proposes for an agent's
-// instructions is recorded — accepted edits (written back to
-// agent.instructions) and rejected ones (negative experience, never
-// re-proposed). See migration 229.
+// agent_opt_edit: SkillOpt-style edit ledger (0.5.2, generalized 0.5.3).
+// Every add/delete/replace edit the optimizer proposes for an optimizable
+// subject (agent / skill / squad / autopilot) is recorded — accepted edits
+// (written back to the subject's instruction text) and rejected ones
+// (negative experience, never re-proposed). See migrations 229-232.
+//
+// 0.5.3 polymorphic subjects: target_type ∈ ('agent','skill','squad',
+// 'autopilot') + target_id point at the subject row. agent_id is kept for
+// legacy rows (pre-0.5.3 rows have target_type='agent', target_id=agent_id)
+// and is NULL for non-agent rows written by 0.5.3+.
 func (q *Queries) CreateAgentOptEdit(ctx context.Context, arg CreateAgentOptEditParams) (AgentOptEdit, error) {
 	row := q.db.QueryRow(ctx, createAgentOptEdit,
-		arg.AgentID,
+		arg.TargetType,
+		arg.TargetID,
+		arg.SubjectScope,
 		arg.RunID,
 		arg.WorkspaceID,
 		arg.EditType,
@@ -62,6 +75,7 @@ func (q *Queries) CreateAgentOptEdit(ctx context.Context, arg CreateAgentOptEdit
 		arg.ValidationScore,
 		arg.ValidationReason,
 		arg.InstructionsSnapshot,
+		arg.AgentID,
 		arg.AppliedBy,
 		arg.CorrectedTaskID,
 	)
@@ -84,25 +98,49 @@ func (q *Queries) CreateAgentOptEdit(ctx context.Context, arg CreateAgentOptEdit
 		&i.InstructionsSnapshot,
 		&i.AppliedBy,
 		&i.CorrectedTaskID,
+		&i.TargetType,
+		&i.TargetID,
+		&i.SubjectScope,
 	)
 	return i, err
 }
 
 const deleteAgentOptEditsByAgent = `-- name: DeleteAgentOptEditsByAgent :exec
 DELETE FROM agent_opt_edit
-WHERE agent_id = $1 AND workspace_id = $2
+WHERE target_type = 'agent' AND target_id = $1 AND workspace_id = $2
 `
 
 type DeleteAgentOptEditsByAgentParams struct {
-	AgentID     pgtype.UUID `json:"agent_id"`
+	TargetID    pgtype.UUID `json:"target_id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 }
 
-// Archive closure: when an agent is archived (soft delete), its trust +
-// optimization records must disappear too. The hard-delete path is covered
-// by FK ON DELETE CASCADE; this covers the archive path.
+// Archive closure (0.5.2, generalized 0.5.3): when a subject is archived
+// (soft delete), its optimization records must disappear too. The
+// hard-delete path is covered by FK ON DELETE CASCADE; this covers the
+// archive path. agent-only for now (the archive handlers for skill / squad /
+// autopilot do not hard-delete rows — see migrations 008 / 084 / 042).
 func (q *Queries) DeleteAgentOptEditsByAgent(ctx context.Context, arg DeleteAgentOptEditsByAgentParams) error {
-	_, err := q.db.Exec(ctx, deleteAgentOptEditsByAgent, arg.AgentID, arg.WorkspaceID)
+	_, err := q.db.Exec(ctx, deleteAgentOptEditsByAgent, arg.TargetID, arg.WorkspaceID)
+	return err
+}
+
+const deleteAgentOptEditsBySubject = `-- name: DeleteAgentOptEditsBySubject :exec
+DELETE FROM agent_opt_edit
+WHERE target_type = $1 AND target_id = $2 AND workspace_id = $3
+`
+
+type DeleteAgentOptEditsBySubjectParams struct {
+	TargetType  string      `json:"target_type"`
+	TargetID    pgtype.UUID `json:"target_id"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+// Generalized archive closure: removes every edit row for a (target_type,
+// target_id) subject. Used by skill / squad / autopilot archive paths and by
+// any future subject type.
+func (q *Queries) DeleteAgentOptEditsBySubject(ctx context.Context, arg DeleteAgentOptEditsBySubjectParams) error {
+	_, err := q.db.Exec(ctx, deleteAgentOptEditsBySubject, arg.TargetType, arg.TargetID, arg.WorkspaceID)
 	return err
 }
 
@@ -139,7 +177,7 @@ func (q *Queries) DeleteAgentTrustProfile(ctx context.Context, arg DeleteAgentTr
 }
 
 const getAgentOptEdit = `-- name: GetAgentOptEdit :one
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id FROM agent_opt_edit
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -149,7 +187,7 @@ type GetAgentOptEditParams struct {
 }
 
 // Single edit row (apply / reject endpoint reads it first to resolve the
-// agent + before/after text for re-application).
+// subject + before/after text for re-application).
 func (q *Queries) GetAgentOptEdit(ctx context.Context, arg GetAgentOptEditParams) (AgentOptEdit, error) {
 	row := q.db.QueryRow(ctx, getAgentOptEdit, arg.ID, arg.WorkspaceID)
 	var i AgentOptEdit
@@ -171,28 +209,37 @@ func (q *Queries) GetAgentOptEdit(ctx context.Context, arg GetAgentOptEditParams
 		&i.InstructionsSnapshot,
 		&i.AppliedBy,
 		&i.CorrectedTaskID,
+		&i.TargetType,
+		&i.TargetID,
+		&i.SubjectScope,
 	)
 	return i, err
 }
 
 const listAgentOptEditsByAgent = `-- name: ListAgentOptEditsByAgent :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id FROM agent_opt_edit
-WHERE agent_id = $1 AND workspace_id = $2
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
+WHERE target_type = $1 AND target_id = $2 AND workspace_id = $3
 ORDER BY created_at DESC
-LIMIT $3
+LIMIT $4
 `
 
 type ListAgentOptEditsByAgentParams struct {
-	AgentID     pgtype.UUID `json:"agent_id"`
+	TargetType  string      `json:"target_type"`
+	TargetID    pgtype.UUID `json:"target_id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	Limit       int32       `json:"limit"`
 }
 
-// Per-agent edit history, newest first. The runner uses this to build the
+// Per-subject edit history, newest first. The runner uses this to build the
 // rejection buffer (skip any proposal whose before+after match a rejected
-// edit) and to report the agent's optimization track record.
+// edit) and to report the subject's optimization track record.
 func (q *Queries) ListAgentOptEditsByAgent(ctx context.Context, arg ListAgentOptEditsByAgentParams) ([]AgentOptEdit, error) {
-	rows, err := q.db.Query(ctx, listAgentOptEditsByAgent, arg.AgentID, arg.WorkspaceID, arg.Limit)
+	rows, err := q.db.Query(ctx, listAgentOptEditsByAgent,
+		arg.TargetType,
+		arg.TargetID,
+		arg.WorkspaceID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -218,6 +265,9 @@ func (q *Queries) ListAgentOptEditsByAgent(ctx context.Context, arg ListAgentOpt
 			&i.InstructionsSnapshot,
 			&i.AppliedBy,
 			&i.CorrectedTaskID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.SubjectScope,
 		); err != nil {
 			return nil, err
 		}
@@ -230,7 +280,7 @@ func (q *Queries) ListAgentOptEditsByAgent(ctx context.Context, arg ListAgentOpt
 }
 
 const listAgentOptEditsByRun = `-- name: ListAgentOptEditsByRun :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id FROM agent_opt_edit
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
 WHERE run_id = $1
 ORDER BY iteration ASC, created_at ASC
 `
@@ -264,6 +314,9 @@ func (q *Queries) ListAgentOptEditsByRun(ctx context.Context, runID pgtype.UUID)
 			&i.InstructionsSnapshot,
 			&i.AppliedBy,
 			&i.CorrectedTaskID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.SubjectScope,
 		); err != nil {
 			return nil, err
 		}
@@ -276,7 +329,7 @@ func (q *Queries) ListAgentOptEditsByRun(ctx context.Context, runID pgtype.UUID)
 }
 
 const listAgentOptEditsByWorkspaceAndApplication = `-- name: ListAgentOptEditsByWorkspaceAndApplication :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id FROM agent_opt_edit
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
 WHERE workspace_id = $1 AND application = $2
 ORDER BY
     (CASE WHEN corrected_task_id IS NOT NULL THEN validation_score + $5 ELSE validation_score END) DESC NULLS LAST,
@@ -331,6 +384,9 @@ func (q *Queries) ListAgentOptEditsByWorkspaceAndApplication(ctx context.Context
 			&i.InstructionsSnapshot,
 			&i.AppliedBy,
 			&i.CorrectedTaskID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.SubjectScope,
 		); err != nil {
 			return nil, err
 		}
@@ -343,25 +399,32 @@ func (q *Queries) ListAgentOptEditsByWorkspaceAndApplication(ctx context.Context
 }
 
 const listAppliedAgentOptEdits = `-- name: ListAppliedAgentOptEdits :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id FROM agent_opt_edit
-WHERE agent_id = $1 AND workspace_id = $2 AND application = 'applied'
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
+WHERE target_type = $1 AND target_id = $2 AND workspace_id = $3
+  AND application = 'applied'
 ORDER BY created_at DESC
-LIMIT $3
+LIMIT $4
 `
 
 type ListAppliedAgentOptEditsParams struct {
-	AgentID     pgtype.UUID `json:"agent_id"`
+	TargetType  string      `json:"target_type"`
+	TargetID    pgtype.UUID `json:"target_id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	Limit       int32       `json:"limit"`
 }
 
 // Post-hoc commit-gate revalidation (0.5.2 adversarial review d1): the next
-// run re-scores the agent's most recent auto-applied edit(s) against their
+// run re-scores the subject's most recent auto-applied edit(s) against their
 // pre-edit snapshots. Newest first so each run re-validates the newest
 // applied edit (auto-apply is rate-capped at 1/run, so there is at most one
 // new applied edit per run to re-score).
 func (q *Queries) ListAppliedAgentOptEdits(ctx context.Context, arg ListAppliedAgentOptEditsParams) ([]AgentOptEdit, error) {
-	rows, err := q.db.Query(ctx, listAppliedAgentOptEdits, arg.AgentID, arg.WorkspaceID, arg.Limit)
+	rows, err := q.db.Query(ctx, listAppliedAgentOptEdits,
+		arg.TargetType,
+		arg.TargetID,
+		arg.WorkspaceID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -387,6 +450,9 @@ func (q *Queries) ListAppliedAgentOptEdits(ctx context.Context, arg ListAppliedA
 			&i.InstructionsSnapshot,
 			&i.AppliedBy,
 			&i.CorrectedTaskID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.SubjectScope,
 		); err != nil {
 			return nil, err
 		}
@@ -399,7 +465,7 @@ func (q *Queries) ListAppliedAgentOptEdits(ctx context.Context, arg ListAppliedA
 }
 
 const listExpiredSuggestedAgentOptEdits = `-- name: ListExpiredSuggestedAgentOptEdits :many
-SELECT id, agent_id, workspace_id
+SELECT id, target_type, target_id, workspace_id
 FROM agent_opt_edit
 WHERE application = 'suggested'
   AND created_at < $1
@@ -413,7 +479,8 @@ type ListExpiredSuggestedAgentOptEditsParams struct {
 
 type ListExpiredSuggestedAgentOptEditsRow struct {
 	ID          pgtype.UUID `json:"id"`
-	AgentID     pgtype.UUID `json:"agent_id"`
+	TargetType  string      `json:"target_type"`
+	TargetID    pgtype.UUID `json:"target_id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 }
 
@@ -430,7 +497,12 @@ func (q *Queries) ListExpiredSuggestedAgentOptEdits(ctx context.Context, arg Lis
 	items := []ListExpiredSuggestedAgentOptEditsRow{}
 	for rows.Next() {
 		var i ListExpiredSuggestedAgentOptEditsRow
-		if err := rows.Scan(&i.ID, &i.AgentID, &i.WorkspaceID); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.WorkspaceID,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -442,20 +514,21 @@ func (q *Queries) ListExpiredSuggestedAgentOptEdits(ctx context.Context, arg Lis
 }
 
 const listNegativeExperienceEdits = `-- name: ListNegativeExperienceEdits :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id FROM agent_opt_edit
-WHERE agent_id = $1 AND workspace_id = $2
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
+WHERE target_type = $1 AND target_id = $2 AND workspace_id = $3
   AND application IN ('rejected', 'reverted')
 ORDER BY created_at DESC
-LIMIT $3
+LIMIT $4
 `
 
 type ListNegativeExperienceEditsParams struct {
-	AgentID     pgtype.UUID `json:"agent_id"`
+	TargetType  string      `json:"target_type"`
+	TargetID    pgtype.UUID `json:"target_id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
 	Limit       int32       `json:"limit"`
 }
 
-// Per-agent negative-experience buffer for the optimizer: ONLY 'rejected'
+// Per-subject negative-experience buffer for the optimizer: ONLY 'rejected'
 // and 'reverted' rows count as "do not re-propose" (0.5.2 adversarial review
 // d6/d7). Suggested / ignored / applied rows are NOT negative experience —
 // ignored stays re-proposable, applied is live in the instructions, and
@@ -464,7 +537,12 @@ type ListNegativeExperienceEditsParams struct {
 // reverted (before,after) pair be re-proposed would undo the user's explicit
 // rollback (d6).
 func (q *Queries) ListNegativeExperienceEdits(ctx context.Context, arg ListNegativeExperienceEditsParams) ([]AgentOptEdit, error) {
-	rows, err := q.db.Query(ctx, listNegativeExperienceEdits, arg.AgentID, arg.WorkspaceID, arg.Limit)
+	rows, err := q.db.Query(ctx, listNegativeExperienceEdits,
+		arg.TargetType,
+		arg.TargetID,
+		arg.WorkspaceID,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -490,6 +568,9 @@ func (q *Queries) ListNegativeExperienceEdits(ctx context.Context, arg ListNegat
 			&i.InstructionsSnapshot,
 			&i.AppliedBy,
 			&i.CorrectedTaskID,
+			&i.TargetType,
+			&i.TargetID,
+			&i.SubjectScope,
 		); err != nil {
 			return nil, err
 		}
@@ -509,7 +590,7 @@ SET application = $2,
     applied_by = COALESCE($5, applied_by),
     updated_at = now()
 WHERE id = $1 AND workspace_id = $3
-RETURNING id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id
+RETURNING id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope
 `
 
 type UpdateAgentOptEditApplicationParams struct {
@@ -552,6 +633,9 @@ func (q *Queries) UpdateAgentOptEditApplication(ctx context.Context, arg UpdateA
 		&i.InstructionsSnapshot,
 		&i.AppliedBy,
 		&i.CorrectedTaskID,
+		&i.TargetType,
+		&i.TargetID,
+		&i.SubjectScope,
 	)
 	return i, err
 }

@@ -705,6 +705,40 @@ func (q *Queries) UpdateSkill(ctx context.Context, arg UpdateSkillParams) (Skill
 	return i, err
 }
 
+const updateSkillContent = `-- name: UpdateSkillContent :one
+UPDATE skill SET
+    content = $2,
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $3
+RETURNING id, workspace_id, name, description, content, config, created_by, created_at, updated_at
+`
+
+type UpdateSkillContentParams struct {
+	ID          pgtype.UUID `json:"id"`
+	Content     string      `json:"content"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+// 0.5.3: content-only write-back used by the self-opt runner. Narrower than
+// UpdateSkill so an optimizer edit can never clobber name/description/config
+// the user changed meanwhile.
+func (q *Queries) UpdateSkillContent(ctx context.Context, arg UpdateSkillContentParams) (Skill, error) {
+	row := q.db.QueryRow(ctx, updateSkillContent, arg.ID, arg.Content, arg.WorkspaceID)
+	var i Skill
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Name,
+		&i.Description,
+		&i.Content,
+		&i.Config,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const upsertSkillFile = `-- name: UpsertSkillFile :one
 INSERT INTO skill_file (skill_id, path, content)
 VALUES ($1, $2, $3)

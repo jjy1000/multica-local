@@ -422,6 +422,51 @@ func (q *Queries) ListAgentTrustProfilesByWorkspace(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listLowTrustAgents = `-- name: ListLowTrustAgents :many
+SELECT DISTINCT p.agent_id
+FROM agent_trust_profile p
+WHERE p.workspace_id = $1
+  AND p.score < $2
+  AND EXISTS (
+      SELECT 1 FROM agent_trust_event e
+      WHERE e.agent_id = p.agent_id
+        AND e.workspace_id = p.workspace_id
+        AND e.event_type IN ('correction', 'review_fail')
+        AND e.created_at >= $3
+  )
+`
+
+type ListLowTrustAgentsParams struct {
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Score       pgtype.Numeric     `json:"score"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+// 0.5.3: low-trust subjects that MANDATE optimization — agents whose
+// current trust score is below the given threshold AND who have at least
+// one correction / review_fail event in the window. Used by the runner's
+// deferral gate: a workspace with such an agent must never defer (the
+// system is mandated to fix what the user corrected).
+func (q *Queries) ListLowTrustAgents(ctx context.Context, arg ListLowTrustAgentsParams) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listLowTrustAgents, arg.WorkspaceID, arg.Score, arg.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var agent_id pgtype.UUID
+		if err := rows.Scan(&agent_id); err != nil {
+			return nil, err
+		}
+		items = append(items, agent_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTrustLearningEvents = `-- name: ListTrustLearningEvents :many
 SELECT e.agent_id, a.name AS agent_name, e.event_type, e.note,
        e.issue_id, e.created_at

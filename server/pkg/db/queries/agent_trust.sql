@@ -116,3 +116,21 @@ WHERE e.workspace_id = $1
   AND e.event_type IN ('correction', 'review_fail')
 ORDER BY e.created_at DESC
 LIMIT $3;
+
+-- name: ListLowTrustAgents :many
+-- 0.5.3: low-trust subjects that MANDATE optimization — agents whose
+-- current trust score is below the given threshold AND who have at least
+-- one correction / review_fail event in the window. Used by the runner's
+-- deferral gate: a workspace with such an agent must never defer (the
+-- system is mandated to fix what the user corrected).
+SELECT DISTINCT p.agent_id
+FROM agent_trust_profile p
+WHERE p.workspace_id = $1
+  AND p.score < $2
+  AND EXISTS (
+      SELECT 1 FROM agent_trust_event e
+      WHERE e.agent_id = p.agent_id
+        AND e.workspace_id = p.workspace_id
+        AND e.event_type IN ('correction', 'review_fail')
+        AND e.created_at >= $3
+  );

@@ -423,3 +423,14 @@ ON CONFLICT (autopilot_id, user_type, user_id) DO NOTHING;
 DELETE FROM autopilot_subscriber
 WHERE autopilot_id = $1;
 
+
+-- name: UpdateAutopilotPrompt :one
+-- 0.5.3: prompt-text write-back used by the self-opt runner. Touches only
+-- description + issue_title_template (the trainable text); status /
+-- assignee / schedule stay untouched.
+UPDATE autopilot SET
+    description = COALESCE($2, description),
+    issue_title_template = COALESCE($3, issue_title_template),
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $4
+RETURNING *;

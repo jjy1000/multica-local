@@ -66,6 +66,9 @@ type AgentOptEdit struct {
 	InstructionsSnapshot pgtype.Text        `json:"instructions_snapshot"`
 	AppliedBy            pgtype.Text        `json:"applied_by"`
 	CorrectedTaskID      pgtype.UUID        `json:"corrected_task_id"`
+	TargetType           string             `json:"target_type"`
+	TargetID             pgtype.UUID        `json:"target_id"`
+	SubjectScope         string             `json:"subject_scope"`
 }
 
 type AgentRuntime struct {

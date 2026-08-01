@@ -189,3 +189,49 @@ SELECT COUNT(*)
 FROM agent_self_opt_run
 WHERE workspace_id = $1
   AND status IN ('pending', 'running');
+
+-- name: ListChangedSkillsForSelfOpt :many
+-- 0.5.3: skill-content scan for the self-opt runner. Skills are optimizable
+-- subjects when they have non-empty content AND were touched within the
+-- scan window (updated_at >= since). content is the trainable text (the
+-- SKILL.md body); description stays a non-trainable summary.
+SELECT s.id, s.workspace_id, s.name, s.description, s.content, s.updated_at
+FROM skill s
+WHERE s.workspace_id = $1
+  AND s.content <> ''
+  AND s.updated_at >= $2
+ORDER BY s.updated_at DESC
+LIMIT $3;
+
+-- name: ListChangedSquadsForSelfOpt :many
+-- 0.5.3: squad scan for the self-opt runner. Squad instructions (migration
+-- 088) are the trainable text; description is a non-trainable summary.
+-- Only squads touched within the window are candidates.
+SELECT s.id, s.workspace_id, s.name, s.description, s.instructions, s.updated_at
+FROM squad s
+WHERE s.workspace_id = $1
+  AND s.instructions <> ''
+  AND s.updated_at >= $2
+ORDER BY s.updated_at DESC
+LIMIT $3;
+
+-- name: ListChangedAutopilotsForSelfOpt :many
+-- 0.5.3: autopilot scan for the self-opt runner. The trainable text is the
+-- issue_title_template (what the autopilot generates) + description (its
+-- operating brief). Only autopilots that produced at least one completed
+-- run within the window are candidates — an autopilot that never fired has
+-- no behavioral evidence to optimize on.
+SELECT a.id, a.workspace_id, a.title, a.description, a.issue_title_template,
+       a.updated_at
+FROM autopilot a
+WHERE a.workspace_id = $1
+  AND a.status <> 'archived'
+  AND a.updated_at >= $2
+  AND EXISTS (
+      SELECT 1 FROM autopilot_run r
+      WHERE r.autopilot_id = a.id
+        AND r.status = 'completed'
+        AND r.completed_at >= $2
+  )
+ORDER BY a.updated_at DESC
+LIMIT $3;

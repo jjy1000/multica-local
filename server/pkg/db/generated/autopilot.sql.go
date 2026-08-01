@@ -1271,6 +1271,53 @@ func (q *Queries) UpdateAutopilotLastRunAt(ctx context.Context, id pgtype.UUID) 
 	return err
 }
 
+const updateAutopilotPrompt = `-- name: UpdateAutopilotPrompt :one
+UPDATE autopilot SET
+    description = COALESCE($2, description),
+    issue_title_template = COALESCE($3, issue_title_template),
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $4
+RETURNING id, workspace_id, title, description, assignee_id, status, execution_mode, issue_title_template, created_by_type, created_by_id, last_run_at, created_at, updated_at, assignee_type, project_id
+`
+
+type UpdateAutopilotPromptParams struct {
+	ID                 pgtype.UUID `json:"id"`
+	Description        pgtype.Text `json:"description"`
+	IssueTitleTemplate pgtype.Text `json:"issue_title_template"`
+	WorkspaceID        pgtype.UUID `json:"workspace_id"`
+}
+
+// 0.5.3: prompt-text write-back used by the self-opt runner. Touches only
+// description + issue_title_template (the trainable text); status /
+// assignee / schedule stay untouched.
+func (q *Queries) UpdateAutopilotPrompt(ctx context.Context, arg UpdateAutopilotPromptParams) (Autopilot, error) {
+	row := q.db.QueryRow(ctx, updateAutopilotPrompt,
+		arg.ID,
+		arg.Description,
+		arg.IssueTitleTemplate,
+		arg.WorkspaceID,
+	)
+	var i Autopilot
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Title,
+		&i.Description,
+		&i.AssigneeID,
+		&i.Status,
+		&i.ExecutionMode,
+		&i.IssueTitleTemplate,
+		&i.CreatedByType,
+		&i.CreatedByID,
+		&i.LastRunAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AssigneeType,
+		&i.ProjectID,
+	)
+	return i, err
+}
+
 const updateAutopilotRunCompleted = `-- name: UpdateAutopilotRunCompleted :one
 UPDATE autopilot_run
 SET status = 'completed', completed_at = now(), result = $2

@@ -167,3 +167,13 @@ FROM agent_skill ask
 JOIN skill s ON s.id = ask.skill_id
 WHERE s.workspace_id = $1
 ORDER BY s.name ASC;
+
+-- name: UpdateSkillContent :one
+-- 0.5.3: content-only write-back used by the self-opt runner. Narrower than
+-- UpdateSkill so an optimizer edit can never clobber name/description/config
+-- the user changed meanwhile.
+UPDATE skill SET
+    content = $2,
+    updated_at = now()
+WHERE id = $1 AND workspace_id = $3
+RETURNING *;
