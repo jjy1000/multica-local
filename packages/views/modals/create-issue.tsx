@@ -228,6 +228,8 @@ function LabPickerRow({
 }) {
   const { t: tModals } = useT("modals");
   const { data: flags } = useExperimentalFlags();
+  // 0.5.3: action-type lab navigation (agent_creation_studio).
+  const router = useNavigation();
   // Wait for the flag query to settle. Skipping the placeholder while
   // the request is in flight would cause a flicker from "missing row"
   // to "row present" once the query resolves — the placeholder keeps
@@ -240,7 +242,11 @@ function LabPickerRow({
     );
   }
   const enabledCount = flags.filter((f) => f.enabled).length;
-  if (enabledCount === 0) {
+  // 0.5.3: always-show action labs (agent_creation_studio) must keep the
+  // row visible even when NO flag is enabled — the entry is a user
+  // action reachable without a Labs opt-in.
+  const hasAlwaysShow = flags.some((f) => f.always_show_in_lab_picker);
+  if (enabledCount === 0 && !hasAlwaysShow) {
     // All flags off → no lab UI. Dialog returns to its original
     // layout with no extra chrome.
     return null;
@@ -274,6 +280,15 @@ function LabPickerRow({
           }
         }}
         onClearAssignee={clearAssignee}
+        onAction={(actionKey) => {
+          // 0.5.3: action-type lab dispatch (mirrors issue-detail.tsx).
+          // The picker routes a DISABLED always-show entry here — open
+          // the studio view. No lab_source is bound (the leader is not
+          // installed while the flag is off).
+          if (actionKey === "agent_creation_studio") {
+            router.push("/experimental/agent-creation-studio");
+          }
+        }}
         triggerRender={
           // Inline label inside the trigger button so the user
           // sees the chosen lab name (or a "pick a lab" hint) even
