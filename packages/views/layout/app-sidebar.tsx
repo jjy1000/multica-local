@@ -47,6 +47,7 @@ import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@multica/ui/components/ui/collapsible";
 import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
+import { CappedNumberFlow } from "@multica/ui/components/ui/number-flow";
 import { StatusIcon } from "../issues/components/status-icon";
 import { useIssueDraftStore } from "@multica/core/issues/stores/draft-store";
 import { openCreateIssueWithPreference } from "@multica/core/issues/stores/create-mode-store";
@@ -753,9 +754,11 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                         <item.icon />
                         <span>{t(($) => $.nav[item.labelKey])}</span>
                         {item.key === "inbox" && unreadCount > 0 && (
-                          <span className="ml-auto text-xs">
-                            {unreadCount > 99 ? "99+" : unreadCount}
-                          </span>
+                          <CappedNumberFlow
+                            value={unreadCount}
+                            animated={false}
+                            className="ml-auto text-xs"
+                          />
                         )}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
