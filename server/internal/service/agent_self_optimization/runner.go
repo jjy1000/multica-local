@@ -213,11 +213,12 @@ func Run(ctx context.Context, q *db.Queries, inputs RunInputs, kb KBWriter) (*Ru
 		"matched", len(rows),
 		"filter", filter.String())
 
-	// 3b. Data-sufficiency gate (0.5.2): the optimizer needs evidence to
-	// work with. When the scan yields too few done issues AND the trust
-	// ledger is quiet, park the run as deferred (the Service persists
-	// status='deferred' + deferred_until) instead of burning a thin
-	// report. The scheduler re-attempts once the window passes.
+	// 3b. Data-sufficiency gate (0.5.2, widened 0.5.3): the optimizer needs
+	// evidence to work with. When the scan yields too few done issues AND
+	// the trust ledger is quiet AND no other subject changed, park the run
+	// as deferred (the Service persists status='deferred' + deferred_until)
+	// instead of burning a thin report. The scheduler re-attempts once the
+	// window passes.
 	trustCount, terr := q.CountAgentTrustEventsByType(ctx, db.CountAgentTrustEventsByTypeParams{
 		WorkspaceID: inputs.WorkspaceID,
 		EventType:   "correction",
@@ -226,9 +227,50 @@ func Run(ctx context.Context, q *db.Queries, inputs RunInputs, kb KBWriter) (*Ru
 	if terr != nil {
 		slog.Warn("agent-self-opt: trust count failed; assuming 0", "workspace", inputs.WorkspaceID, "err", terr)
 	}
-	if len(rows) < MinIssuesForOptimize && int(trustCount) < MinTrustEventsForOptimize {
+	// 0.5.3: other-subject scans widen the evidence pool. A run with
+	// nothing on the issue/trust side but a changed skill/squad/autopilot
+	// is still worth a pass (those edits are editorial, human-confirmed).
+	skills, serr := q.ListChangedSkillsForSelfOpt(ctx, db.ListChangedSkillsForSelfOptParams{
+		WorkspaceID: inputs.WorkspaceID,
+		UpdatedAt:   pgtype.Timestamptz{Time: since, Valid: true},
+		Limit:       int32(MaxIssuesPerRun),
+	})
+	if serr != nil {
+		slog.Warn("agent-self-opt: skill scan failed; treating as empty", "workspace", inputs.WorkspaceID, "err", serr)
+	}
+	squads, qerr := q.ListChangedSquadsForSelfOpt(ctx, db.ListChangedSquadsForSelfOptParams{
+		WorkspaceID: inputs.WorkspaceID,
+		UpdatedAt:   pgtype.Timestamptz{Time: since, Valid: true},
+		Limit:       int32(MaxIssuesPerRun),
+	})
+	if qerr != nil {
+		slog.Warn("agent-self-opt: squad scan failed; treating as empty", "workspace", inputs.WorkspaceID, "err", qerr)
+	}
+	autopilots, aerr := q.ListChangedAutopilotsForSelfOpt(ctx, db.ListChangedAutopilotsForSelfOptParams{
+		WorkspaceID: inputs.WorkspaceID,
+		UpdatedAt:   pgtype.Timestamptz{Time: since, Valid: true},
+		Limit:       int32(MaxIssuesPerRun),
+	})
+	if aerr != nil {
+		slog.Warn("agent-self-opt: autopilot scan failed; treating as empty", "workspace", inputs.WorkspaceID, "err", aerr)
+	}
+	// Low-trust mandate (0.5.3): a workspace with a low-trust agent (score
+	// < OptimizeTrustThreshold AND negative evidence) must NOT defer — the
+	// system is mandated to fix it. Scan the ledger for any such agent.
+	hasLowTrustSubject := false
+	if lowTrustAgents, lerr := q.ListLowTrustAgents(ctx, db.ListLowTrustAgentsParams{
+		WorkspaceID: inputs.WorkspaceID,
+		Score:       floatToNumericLocal(OptimizeTrustThreshold),
+		CreatedAt:   pgtype.Timestamptz{Time: since, Valid: true},
+	}); lerr == nil {
+		hasLowTrustSubject = len(lowTrustAgents) > 0
+	} else {
+		slog.Warn("agent-self-opt: low-trust scan failed; deferral gate assumes none", "workspace", inputs.WorkspaceID, "err", lerr)
+	}
+	if len(rows) < MinIssuesForOptimize && int(trustCount) < MinTrustEventsForOptimize &&
+		len(skills) == 0 && len(squads) == 0 && len(autopilots) == 0 && !hasLowTrustSubject {
 		reason := fmt.Sprintf(
-			"insufficient data: %d done issues, %d trust corrections in window (need ≥ %d issues OR ≥ %d trust events)",
+			"insufficient data: %d done issues, %d trust corrections in window (need ≥ %d issues OR ≥ %d trust events), no changed skills/squads/autopilots, no low-trust subjects",
 			len(rows), trustCount, MinIssuesForOptimize, MinTrustEventsForOptimize)
 		return &RunResult{
 			Deferred:       true,
@@ -238,12 +280,13 @@ func Run(ctx context.Context, q *db.Queries, inputs RunInputs, kb KBWriter) (*Ru
 		}, nil
 	}
 
-	// 3c. SkillOpt-style optimization (0.5.2): group evidence per agent
-	// and propose bounded instruction edits, validation-gated, written
-	// back to agent.instructions on acceptance. Falls back gracefully to
-	// the heuristic suggestions below when no provider CLI is available.
+	// 3c. SkillOpt-style optimization (0.5.2, generalized 0.5.3): group
+	// evidence per subject (agents + skills + squads + autopilots) and
+	// propose bounded instruction edits, validation-gated, written back to
+	// the subject's instruction text on acceptance. Falls back gracefully
+	// to the heuristic suggestions below when no provider CLI is available.
 	optimizer := NewOptimizer()
-	appliedEdits, suggestedEdits, rejectedEdits, optErr := optimizeAllAgents(ctx, q, optimizer, inputs.WorkspaceID, rows)
+	appliedEdits, suggestedEdits, rejectedEdits, optErr := optimizeAllSubjects(ctx, q, optimizer, inputs.WorkspaceID, rows, skills, squads, autopilots)
 	if optErr != nil {
 		slog.Info("agent-self-opt: optimizer unavailable; using heuristics only",
 			"workspace", inputs.WorkspaceID, "err", optErr)
@@ -378,21 +421,26 @@ func scanDoneIssues(
 	return rows, nil
 }
 
-// optimizeAllAgents runs the SkillOpt-style optimizer per agent that has
-// evidence in the scan window. Returns the applied / suggested / rejected
-// edits. Only APPLIED edits are written back to agent.instructions; all
-// three buckets are recorded in agent_opt_edit (suggested edits wait for
-// human confirmation, rejected edits are negative experience). An error is
-// returned only when the LLM seam is completely unavailable — the caller
-// falls back to heuristics.
-func optimizeAllAgents(
+// optimizeAllSubjects runs the SkillOpt-style optimizer per subject that has
+// evidence in the scan window. Subjects are the four optimizable kinds:
+// agents (done issues + trust ledger), skills (content), squads
+// (instructions), autopilots (issue_title_template). Returns the applied /
+// suggested / rejected edits. Only APPLIED edits are written back to the
+// subject's instruction text; all three buckets are recorded in
+// agent_opt_edit (suggested edits wait for human confirmation, rejected
+// edits are negative experience). An error is returned only when the LLM
+// seam is completely unavailable — the caller falls back to heuristics.
+func optimizeAllSubjects(
 	ctx context.Context,
 	q *db.Queries,
 	opt *Optimizer,
 	workspaceID pgtype.UUID,
 	rows []db.ListDoneIssuesForSelfOptRow,
+	skills []db.ListChangedSkillsForSelfOptRow,
+	squads []db.ListChangedSquadsForSelfOptRow,
+	autopilots []db.ListChangedAutopilotsForSelfOptRow,
 ) (applied, suggested, rejected []InstructionEdit, err error) {
-	// Group done issues by assignee.
+	// Group done issues by assignee agent.
 	byAgent := make(map[uuid.UUID][]db.ListDoneIssuesForSelfOptRow)
 	for _, r := range rows {
 		if !r.AssigneeID.Valid || r.AssigneeType.String != "agent" {
@@ -401,110 +449,165 @@ func optimizeAllAgents(
 		aid := uuid.UUID(r.AssigneeID.Bytes)
 		byAgent[aid] = append(byAgent[aid], r)
 	}
-	if len(byAgent) == 0 {
-		return nil, nil, nil, nil
+
+	// 0.5.3 low-trust-first ordering: agents with corrections / failed
+	// reviews (the trust-mandated optimization targets) run BEFORE the
+	// rest, so a run that hits the LLM budget still fixes the subjects the
+	// user explicitly flagged.
+	type agentItem struct {
+		aid    uuid.UUID
+		issues []db.ListDoneIssuesForSelfOptRow
+		neg    bool
 	}
+	agentItems := make([]agentItem, 0, len(byAgent))
+	for aid, issues := range byAgent {
+		neg := false
+		// Peek the trust ledger for negative evidence (cheap: limit 1
+		// correction/review_fail scan is not available, so reuse the
+		// per-agent loader below — here we only need the ordering hint).
+		evts, terr := q.ListAgentTrustEventsByAgent(ctx, db.ListAgentTrustEventsByAgentParams{
+			AgentID:     pgtype.UUID{Bytes: [16]byte(aid), Valid: true},
+			WorkspaceID: workspaceID,
+			Limit:       20,
+		})
+		if terr == nil {
+			for _, e := range evts {
+				if e.EventType == "correction" || e.EventType == "review_fail" {
+					neg = true
+					break
+				}
+			}
+		}
+		agentItems = append(agentItems, agentItem{aid: aid, issues: issues, neg: neg})
+	}
+	// Negative-evidence agents first, then by issue count desc (more
+	// evidence = higher optimization priority).
+	sort.SliceStable(agentItems, func(i, j int) bool {
+		if agentItems[i].neg != agentItems[j].neg {
+			return agentItems[i].neg
+		}
+		return len(agentItems[i].issues) > len(agentItems[j].issues)
+	})
 
 	var firstErr error
 
-	// 0.5.2: run agents in parallel — per-agent LLM calls dominate the
-	// run wall-clock (propose + validate per agent, ~4-60s each depending
-	// on provider). A workspace with 6 active agents would otherwise take
-	// 6 × 2 calls serially. Bounded concurrency keeps provider CLI
-	// spawning sane and stays under the run's MaxRunLifetime.
+	// 0.5.2: run subjects in parallel — per-subject LLM calls dominate the
+	// run wall-clock (propose + validate per subject, ~4-60s each depending
+	// on provider). Bounded concurrency keeps provider CLI spawning sane
+	// and stays under the run's MaxRunLifetime.
 	const maxAgentParallel = 3
 	sem := make(chan struct{}, maxAgentParallel)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	for aid, issues := range byAgent {
-		wg.Add(1)
-		go func(aid uuid.UUID, issues []db.ListDoneIssuesForSelfOptRow) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+	// 0.5.3: generic per-subject optimizer invocation. The runner loads the
+	// subject's current text + rejection buffer, runs the optimizer, and
+	// writes back only applied edits. The trust ledger is agent-only.
+	runSubject := func(targetType string, targetID pgtype.UUID, targetName, currentText string, issues []db.ListDoneIssuesForSelfOptRow) {
+		defer wg.Done()
+		sem <- struct{}{}
+		defer func() { <-sem }()
 
-			agent, aerr := q.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{
-				ID:          pgtype.UUID{Bytes: [16]byte(aid), Valid: true},
-				WorkspaceID: workspaceID,
-			})
-			if aerr != nil {
-				return // agent vanished mid-run; skip
-			}
+		ev := OptimizeEvidence{
+			TargetType:  targetType,
+			TargetID:    targetID,
+			TargetName:  targetName,
+			CurrentText: currentText,
+			Issues:      issues,
+		}
+		if targetType == SubjectAgent {
 			trustEvents, terr := q.ListAgentTrustEventsByAgent(ctx, db.ListAgentTrustEventsByAgentParams{
-				AgentID:     agent.ID,
+				AgentID:     targetID,
 				WorkspaceID: workspaceID,
 				Limit:       20,
 			})
 			if terr != nil {
 				trustEvents = nil
 			}
-			// Negative-experience buffer (0.5.2 adversarial review d6/d7):
-			// ONLY 'rejected' + 'reverted' edits are fed to the optimizer as
-			// "do not re-propose". Suggested / ignored rows stay out — ignored
-			// is re-proposable, and a user-reverted edit must never be
-			// re-applied identically.
-			rejectedHist, rerr := q.ListNegativeExperienceEdits(ctx, db.ListNegativeExperienceEditsParams{
-				AgentID:     agent.ID,
-				WorkspaceID: workspaceID,
-				Limit:       RejectionBufferSize,
-			})
-			if rerr != nil {
-				rejectedHist = nil
-			}
-
+			ev.TrustEvents = trustEvents
 			// Hard-block: the primary product agent (and lab agents, via
 			// isLabManaged in the optimizer) never auto-applies — even if
 			// the marker is present, the block wins.
-			enrolled := enrollmentMarker(agent) && !isHardBlockedAgent(agent.Name)
-			ev := OptimizeEvidence{
-				AgentID:             agent.ID,
-				AgentName:           agent.Name,
-				CurrentInstructions: instructionsOf(agent),
-				Issues:              issues,
-				TrustEvents:         trustEvents,
-				RejectedEdits:       rejectedHist,
-				AutoApplyEnrolled:   enrolled,
-			}
-			// Post-hoc commit-gate revalidation (0.5.2 adversarial review d1):
-			// before proposing NEW edits, the next run re-scores the agent's
-			// previously auto-applied edits against their pre-edit snapshots
-			// and rolls back any that regressed. Best-effort — a gate failure
-			// (no LLM) just skips; the next run re-tries.
-			if rerr := opt.RevalidateAppliedEdits(ctx, q, agent, workspaceID); rerr != nil {
-				slog.Warn("agent-self-opt: post-hoc revalidation skipped",
-					"agent", agent.Name, "err", rerr)
-			}
-			appliedA, suggestedA, rejectedA, finalState, oerr := opt.OptimizeAgent(ctx, q, ev)
-			if oerr != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = oerr
-				}
-				mu.Unlock()
-				return
-			}
-			// Write back the cumulative instruction state ONCE, but only
-			// when at least one edit was APPLIED (suggested edits wait for
-			// human confirmation and must not change instructions).
-			if len(appliedA) > 0 && finalState != instructionsOf(agent) {
-				if _, uerr := q.UpdateAgent(ctx, db.UpdateAgentParams{
-					ID:           agent.ID,
-					Instructions: pgtype.Text{String: finalState, Valid: true},
-				}); uerr != nil {
-					slog.Warn("agent-self-opt: instruction write-back failed",
-						"agent", agent.Name, "err", uerr)
-				} else {
-					slog.Info("agent-self-opt: instructions updated",
-						"agent", agent.Name, "applied", len(appliedA), "suggested", len(suggestedA))
-				}
-			}
+			ev.AutoApplyEnrolled = enrollmentMarkerStr(currentText) && !isHardBlockedAgent(targetName)
+		}
+		// Negative-experience buffer (0.5.2 adversarial review d6/d7):
+		// ONLY 'rejected' + 'reverted' edits are fed to the optimizer as
+		// "do not re-propose". Suggested / ignored rows stay out — ignored
+		// is re-proposable, and a user-reverted edit must never be
+		// re-applied identically.
+		rejectedHist, rerr := q.ListNegativeExperienceEdits(ctx, db.ListNegativeExperienceEditsParams{
+			TargetType:  targetType,
+			TargetID:    targetID,
+			WorkspaceID: workspaceID,
+			Limit:       RejectionBufferSize,
+		})
+		if rerr != nil {
+			rejectedHist = nil
+		}
+		ev.RejectedEdits = rejectedHist
+
+		// Post-hoc commit-gate revalidation (0.5.2 adversarial review d1):
+		// before proposing NEW edits, the next run re-scores the subject's
+		// previously auto-applied edits against their pre-edit snapshots
+		// and rolls back any that regressed. Best-effort — a gate failure
+		// (no LLM) just skips; the next run re-tries.
+		if rerr := opt.RevalidateAppliedEdits(ctx, q, targetType, targetID, targetName, currentText, workspaceID); rerr != nil {
+			slog.Warn("agent-self-opt: post-hoc revalidation skipped",
+				"subject", targetName, "err", rerr)
+		}
+		appliedA, suggestedA, rejectedA, finalState, oerr := opt.OptimizeSubject(ctx, q, ev)
+		if oerr != nil {
 			mu.Lock()
-			applied = append(applied, appliedA...)
-			suggested = append(suggested, suggestedA...)
-			rejected = append(rejected, rejectedA...)
+			if firstErr == nil {
+				firstErr = oerr
+			}
 			mu.Unlock()
-		}(aid, issues)
+			return
+		}
+		// Write back the cumulative instruction state ONCE, but only
+		// when at least one edit was APPLIED (suggested edits wait for
+		// human confirmation and must not change the text). Agent writes
+		// go through UpdateAgent; other subjects are suggested-only by
+		// construction (writeBackText refuses them), so only agents land
+		// here in practice.
+		if len(appliedA) > 0 && finalState != currentText && targetType == SubjectAgent {
+			if _, uerr := q.UpdateAgent(ctx, db.UpdateAgentParams{
+				ID:           targetID,
+				Instructions: pgtype.Text{String: finalState, Valid: true},
+			}); uerr != nil {
+				slog.Warn("agent-self-opt: instruction write-back failed",
+					"subject", targetName, "err", uerr)
+			} else {
+				slog.Info("agent-self-opt: instructions updated",
+					"subject", targetName, "applied", len(appliedA), "suggested", len(suggestedA))
+			}
+		}
+		mu.Lock()
+		applied = append(applied, appliedA...)
+		suggested = append(suggested, suggestedA...)
+		rejected = append(rejected, rejectedA...)
+		mu.Unlock()
+	}
+
+	for _, it := range agentItems {
+		wg.Add(1)
+		go runSubject(SubjectAgent, pgtype.UUID{Bytes: [16]byte(it.aid), Valid: true}, "", "", it.issues)
+	}
+	for _, s := range skills {
+		wg.Add(1)
+		go runSubject(SubjectSkill, s.ID, s.Name, s.Content, nil)
+	}
+	for _, sq := range squads {
+		wg.Add(1)
+		go runSubject(SubjectSquad, sq.ID, sq.Name, sq.Instructions, nil)
+	}
+	for _, a := range autopilots {
+		text := a.IssueTitleTemplate.String
+		if strings.TrimSpace(text) == "" {
+			text = a.Description.String
+		}
+		wg.Add(1)
+		go runSubject(SubjectAutopilot, a.ID, a.Title, text, nil)
 	}
 	wg.Wait()
 	return applied, suggested, rejected, firstErr
@@ -524,6 +627,12 @@ const EnrollmentMarker = "【self-opt:enroll】"
 // enrollmentMarker reports whether the agent has opted into auto-apply.
 func enrollmentMarker(a db.Agent) bool {
 	return strings.Contains(a.Instructions, EnrollmentMarker)
+}
+
+// enrollmentMarkerStr is the string form used by the generalized runner
+// (the agent's current text is already loaded as a string).
+func enrollmentMarkerStr(text string) bool {
+	return strings.Contains(text, EnrollmentMarker)
 }
 
 // primaryAgentName is the hard-blocked primary product agent — never
@@ -797,7 +906,7 @@ func renderReportMarkdown(r RunReport) string {
 			default:
 				mark = "❌ 已拒绝"
 			}
-			fmt.Fprintf(&b, "- **%s** [%s] %s", mark, e.EditType, e.AgentName)
+			fmt.Fprintf(&b, "- **%s** [%s] %s", mark, e.EditType, e.TargetName)
 			if e.ValidationScore > 0 {
 				fmt.Fprintf(&b, " _(评分 %.0f)_", e.ValidationScore)
 			}

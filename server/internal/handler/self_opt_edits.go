@@ -32,8 +32,13 @@ import (
 // and the audit trail). Scores are floats for the renderer.
 type SelfOptEditDTO struct {
 	ID               string  `json:"id"`
-	AgentID          string  `json:"agent_id"`
+	AgentID          string  `json:"agent_id,omitempty"`
 	AgentName        string  `json:"agent_name,omitempty"`
+	// TargetType + TargetID (0.5.3): the optimizable subject this edit
+	// targets — agent | skill | squad | autopilot. AgentName is the
+	// subject's display name for all four kinds.
+	TargetType       string  `json:"target_type"`
+	TargetID         string  `json:"target_id,omitempty"`
 	EditType         string  `json:"edit_type"`
 	BeforeText       string  `json:"before_text"`
 	AfterText        string  `json:"after_text"`
@@ -49,11 +54,17 @@ type SelfOptEditDTO struct {
 func toSelfOptEditDTO(row db.AgentOptEdit) SelfOptEditDTO {
 	dto := SelfOptEditDTO{
 		ID:          uuid.UUID(row.ID.Bytes).String(),
-		AgentID:     uuid.UUID(row.AgentID.Bytes).String(),
 		EditType:    row.EditType,
 		BeforeText:  row.BeforeText,
 		AfterText:   row.AfterText,
 		Application: row.Application,
+	}
+	dto.TargetType = row.TargetType
+	if row.TargetID.Valid {
+		dto.TargetID = uuid.UUID(row.TargetID.Bytes).String()
+	}
+	if row.AgentID.Valid {
+		dto.AgentID = uuid.UUID(row.AgentID.Bytes).String()
 	}
 	if row.AppliedBy.Valid {
 		dto.AppliedBy = row.AppliedBy.String

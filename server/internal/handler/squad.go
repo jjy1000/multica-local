@@ -499,6 +499,16 @@ func (h *Handler) DeleteSquad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 0.5.3 delete-closure: the squad's optimization edit ledger must
+	// disappear with it (agent_opt_edit.target_id carries no FK).
+	if err := h.Queries.DeleteAgentOptEditsBySubject(r.Context(), db.DeleteAgentOptEditsBySubjectParams{
+		TargetType:  "squad",
+		TargetID:    squad.ID,
+		WorkspaceID: squad.WorkspaceID,
+	}); err != nil {
+		slog.Warn("archive squad: purge opt edits failed", "squad_id", uuidToString(squad.ID), "error", err)
+	}
+
 	h.publish(protocol.EventSquadDeleted, workspaceID, "member", userID, map[string]any{
 		"squad_id":  uuidToString(squad.ID),
 		"leader_id": uuidToString(squad.LeaderID),

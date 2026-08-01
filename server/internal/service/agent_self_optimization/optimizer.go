@@ -1,4 +1,4 @@
-// Package agent_self_optimization — optimizer.go (0.5.2).
+// Package agent_self_optimization — optimizer.go (0.5.2, generalized 0.5.3).
 //
 // SkillOpt-style instruction optimizer for agents. Inspired by
 // microsoft/SkillOpt (text-space optimizer: the skill document is the
@@ -8,28 +8,41 @@
 // convergence intuition (loop until no further improvement — spectral
 // radius < 1 analog).
 //
+// 0.5.3 generalization: the optimizable subject is polymorphic.
+//   - agent     : agent.instructions      (trainable text, full machinery)
+//   - skill     : skill.content           (SKILL.md body)
+//   - squad     : squad.instructions      (migration 088)
+//   - autopilot : autopilot.issue_title_template
+//
+// Trust semantics (user spec, 2026-08-02): a correction drops trust by
+// 0.5-1; LOW-trust subjects are the ones that need optimization (the
+// system fixes what the user corrected), and trust ≥ 8 parks the subject
+// in RETENTION — no more proposals ("当信用到8以上，视为可以不用再进化的
+// 保留机制"). This inverts the 0.5.2 gate, which required HIGH trust for
+// auto-apply; 0.5.3 auto-apply requires a correction anchor instead
+// (the fix derives from a documented failure), plus validation.
+//
 // The loop:
 //
-//  1. Gather evidence per agent: done issues it worked on in the window
+//  1. Gather evidence per subject: done issues it worked on in the window
 //     + trust ledger (corrections / review outcomes) + its current
-//     agent.instructions.
+//     instruction text.
 //  2. An optimizer LLM proposes ≤ MaxEditsPerRun bounded edits
 //     (add / delete / replace) as structured JSON, each with a rationale
 //     tied to concrete evidence.
 //  3. Rejection buffer: any proposal whose (before, after) pair matches a
 //     previously REJECTED edit is skipped — the loop must not re-propose
 //     negative experience.
-//  4. Validation gate: a second LLM call judges the candidate
-//     instructions (current + proposed deltas) and returns pass/fail.
-//     Only accepted edits are written back to agent.instructions via
-//     UpdateAgent.
+//  4. Validation gate: a second LLM call scores the DELTA (the proposed
+//     change, not the whole document) 0-100. Only accepted edits are
+//     written back to the subject's text.
 //  5. Every proposal (accepted or rejected) lands in agent_opt_edit so
 //     the history is the experience base for the next run.
 //
 // Degradation: when no provider CLI is available the optimizer returns
 // ErrNoLLM and the runner falls back to the existing heuristic
 // suggestions — the lab still works without an LLM, it just cannot edit
-// instructions.
+// instruction text.
 package agent_self_optimization
 
 import (
@@ -50,12 +63,12 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// MaxEditsPerRun caps the optimizer proposals per agent per run. Small
+// MaxEditsPerRun caps the optimizer proposals per subject per run. Small
 // and bounded — a text-space optimizer must not rewrite an instruction
 // set wholesale in one pass.
 const MaxEditsPerRun = 3
 
-// RejectionBufferSize is how many past rejected edits per agent are fed
+// RejectionBufferSize is how many past rejected edits per subject are fed
 // to the optimizer as negative experience.
 const RejectionBufferSize = 10
 
@@ -63,13 +76,51 @@ const RejectionBufferSize = 10
 // back to the heuristic path.
 var ErrNoLLM = fmt.Errorf("optimizer: no provider CLI available")
 
+// ---- Subject types (0.5.3) ----
+const (
+	// SubjectAgent is the classic 0.5.2 subject: agent.instructions.
+	SubjectAgent = "agent"
+	// SubjectSkill optimizes skill.content (the SKILL.md body).
+	SubjectSkill = "skill"
+	// SubjectSquad optimizes squad.instructions (migration 088).
+	SubjectSquad = "squad"
+	// SubjectAutopilot optimizes autopilot.issue_title_template.
+	SubjectAutopilot = "autopilot"
+)
+
+// ---- Optimization scopes (0.5.3) ----
+const (
+	// ScopeEnroll: the subject opted into auto-apply (agent marker, or a
+	// non-agent subject proposed under the lab's general consent). The
+	// classic 0.5.2 gate.
+	ScopeEnroll = "enroll"
+	// ScopeTrust: trust-driven optimization. The subject has negative
+	// evidence (corrections / failed reviews) and a score below
+	// OptimizeTrustThreshold — the system is mandated to fix it. Auto-apply
+	// is allowed without the enrollment marker, but still requires a
+	// correction anchor + validation.
+	ScopeTrust = "trust"
+	// ScopeRetain: retention mode — trust ≥ RetainTrustScore. The subject
+	// is parked; NO proposals are made. (Ledger rows under this scope are
+	// not written; the report marks the park decision.)
+	ScopeRetain = "retain"
+)
+
+// RetainTrustScore is the retention threshold: a subject at trust ≥ 8 is
+// considered "no longer needs evolution" and receives NO proposals
+// (user spec: "当信用到8以上，视为可以不用再进化的保留机制").
+const RetainTrustScore = 8.0
+
+// OptimizeTrustThreshold: trust < 7 with negative evidence → the subject
+// enters trust-scope optimization (system mandate, marker not required).
+const OptimizeTrustThreshold = 7.0
+
 // Application is the lifecycle state of an instruction edit.
 type Application string
 
 const (
 	// ApplicationApplied — auto-applied (add-only, correction-backed,
-	// trust+enrollment gates passed) or manually applied; written back to
-	// agent.instructions.
+	// gates passed) or manually applied; written back to the subject's text.
 	ApplicationApplied Application = "applied"
 	// ApplicationSuggested — validated but not auto-applied; parked for
 	// human confirmation (the "待确认建议" tier).
@@ -101,9 +152,9 @@ const (
 const ProposeFloor = 60.0
 
 // AutoApplyGate is the minimum validation score for an ADD edit to be
-// auto-applied, on top of the hard gates (enrolled + trust≥8 + not
-// lab-managed/hard-blocked + correction-backed + rate cap 1/run +
-// snapshot/rollback committed).
+// auto-applied, on top of the hard gates (scope + correction-backed +
+// not lab-managed/hard-blocked + rate cap 1/run + snapshot/rollback
+// committed).
 const AutoApplyGate = 90.0
 
 // SuggestedOrderingCredit is the +5 cap on ordering INSIDE the 'suggested'
@@ -115,24 +166,38 @@ const SuggestedOrderingCredit = 5.0
 // may wait before it expires to 'ignored' (soft archive, NOT rejected).
 const SuggestionExpiryRuns = 3
 
-// MaxAutoAppliesPerAgentPerRun caps auto-applied edits per agent per run
+// MaxAutoAppliesPerAgentPerRun caps auto-applied edits per subject per run
 // (rate / amplitude cap). After a post-hoc validation failure or a user
-// rejection of that agent's edit, auto-apply halts for the window.
+// rejection of that subject's edit, auto-apply halts for the window.
 const MaxAutoAppliesPerAgentPerRun = 1
 
-// HardBlockedSafetyTokens are substrings that mark an instruction as a
+// HardBlockedSafetyTokens are substrings that mark instruction text as a
 // safety/constraint rule. Any edit touching text containing these tokens
 // is excluded from auto-apply and must go through human confirmation —
 // regardless of score or edit type.
+//
+// 0.5.3 narrowing: 必须 / 不得 were removed — they are high-frequency
+// instruction verbs in Chinese agent prompts (e.g. "必须完成任务"), so
+// keeping them blocked every add edit that happens to restate a
+// requirement. The remaining tokens are the genuinely safety-sensitive
+// ones (deny/never/confirm/secret + prohibitions).
 var HardBlockedSafetyTokens = []string{
 	"deny", "never", "confirm", "secret",
-	"禁止", "不可", "必须", "不得",
+	"禁止", "不可",
 }
 
 // InstructionEdit is one proposed / recorded instruction edit.
 type InstructionEdit struct {
-	AgentID    pgtype.UUID
-	AgentName  string
+	// TargetType identifies the subject kind (agent | skill | squad |
+	// autopilot). TargetID is the subject row id (for agents it is the
+	// agent id).
+	TargetType string
+	TargetID   pgtype.UUID
+	// Scope records which optimization scope proposed this edit (enroll |
+	// trust). Persisted to agent_opt_edit.subject_scope.
+	Scope string
+	// TargetName is the human-readable subject name (report / ledger).
+	TargetName string
 	EditType   string // add | delete | replace
 	BeforeText string
 	AfterText  string
@@ -143,7 +208,7 @@ type InstructionEdit struct {
 	// Accepted is kept for backward compat: true == ApplicationApplied.
 	Accepted bool
 	// ValidationScore is the validator LLM's 0-100 score of the candidate
-	// instruction set vs the current one.
+	// edit (the DELTA, 0.5.3 — not the whole instruction set).
 	ValidationScore float64
 	// ValidationReason is the validator's one-line justification.
 	ValidationReason string
@@ -151,9 +216,12 @@ type InstructionEdit struct {
 	// candidate is derivable from a task whose output the user corrected.
 	// Auto-apply requires this.
 	CorrectedTaskID pgtype.UUID
-	// Snapshot is the full instruction set BEFORE this edit was applied
+	// Snapshot is the full instruction text BEFORE this edit was applied
 	// (the rollback point). Set only when the edit is applied.
 	Snapshot string
+	// AgentID is kept for backward compat (agent edits only); new code
+	// reads TargetID.
+	AgentID pgtype.UUID
 }
 
 // EditProposal is the wire shape the optimizer LLM returns.
@@ -164,17 +232,24 @@ type EditProposal struct {
 	Rationale string `json:"rationale"`
 }
 
-// OptimizeEvidence is what the optimizer needs per agent.
+// OptimizeEvidence is what the optimizer needs per subject.
 type OptimizeEvidence struct {
-	AgentID             pgtype.UUID
-	AgentName           string
-	CurrentInstructions string
-	Issues              []db.ListDoneIssuesForSelfOptRow // done issues assigned to this agent
-	TrustEvents         []db.AgentTrustEvent             // corrections / reviews
-	RejectedEdits       []db.AgentOptEdit                // past rejected proposals (buffer)
-	// AutoApplyEnrolled is the per-agent opt-in for auto-apply. Default
-	// OFF (design-review verdict): auto-apply never fires for a
-	// non-enrolled agent; the primary product agent is never enrolled.
+	// TargetType + TargetID identify the subject (agent | skill | squad |
+	// autopilot). For agents, TargetID is the agent id.
+	TargetType string
+	TargetID   pgtype.UUID
+	TargetName string
+	// CurrentText is the subject's trainable instruction text.
+	CurrentText string
+	// Issues are done issues assigned to this subject (agents only).
+	Issues []db.ListDoneIssuesForSelfOptRow
+	// TrustEvents (agents only).
+	TrustEvents []db.AgentTrustEvent
+	// RejectedEdits — past rejected proposals (buffer).
+	RejectedEdits []db.AgentOptEdit
+	// AutoApplyEnrolled is the per-subject opt-in for auto-apply (agent
+	// enrollment marker). Trust-scope subjects ignore this (system
+	// mandate).
 	AutoApplyEnrolled bool
 	// CorrectedTaskID is the task whose output the user corrected (the
 	// confirmed-correction anchor for auto-apply). Set by the optimizer
@@ -195,7 +270,7 @@ type Optimizer struct {
 	// LabManagedFunc is the lab-managed check. Defaults to the DB-backed
 	// experimental_resource_visibility lookup; tests inject a stub so a
 	// nil *db.Queries is never dereferenced.
-	LabManagedFunc func(ctx context.Context, q *db.Queries, agentID pgtype.UUID) (bool, error)
+	LabManagedFunc func(ctx context.Context, q *db.Queries, targetType string, targetID pgtype.UUID) (bool, error)
 }
 
 // NewOptimizer returns an Optimizer wired to the real provider CLIs.
@@ -204,54 +279,106 @@ func NewOptimizer() *Optimizer {
 		ProviderLLM:  agent_trust.RunProviderLLM,
 		ValidatorLLM: agent_trust.RunProviderLLM,
 	}
-	o.LabManagedFunc = func(ctx context.Context, q *db.Queries, agentID pgtype.UUID) (bool, error) {
-		return isLabManagedAgent(ctx, q, agentID)
+	o.LabManagedFunc = func(ctx context.Context, q *db.Queries, targetType string, targetID pgtype.UUID) (bool, error) {
+		return isLabManagedSubject(ctx, q, targetType, targetID)
 	}
 	return o
 }
 
-// OptimizeAgent produces bounded instruction edits for one agent and
+// subjectTrust returns (currentTrustScore, hasNegativeEvidence).
+// hasNegativeEvidence is true when the ledger contains a correction or a
+// failed review — the trigger for trust-scope optimization.
+func subjectTrust(events []db.AgentTrustEvent) (float64, bool) {
+	var last float64
+	for _, evt := range events {
+		if evt.ScoreAfter.Valid {
+			if v, ok := numericToFloat(evt.ScoreAfter); ok {
+				last = v
+				break // newest first
+			}
+		}
+	}
+	neg := false
+	for _, evt := range events {
+		if evt.EventType == "correction" || evt.EventType == "review_fail" {
+			neg = true
+			break
+		}
+	}
+	return last, neg
+}
+
+// OptimizeSubject produces bounded instruction edits for one subject and
 // classifies each by the design-review verdict:
 //
 //   - applied: ADD-only, correction-backed, gates passed, score ≥ 90.
-//     The caller writes them back (cumulative finalInstructions) and
-//     snapshots the pre-edit set.
+//     The caller writes them back (cumulative finalText) and snapshots the
+//     pre-edit set. Trust-scope subjects (low trust + negative evidence)
+//     skip the enrollment marker requirement; non-agent subjects are
+//     NEVER auto-applied (suggested-only — their edit has no trust
+//     ledger to anchor a system mandate).
 //   - suggested: score ≥ 60 but not auto-applied (delete/replace by
 //     construction, or gate miss, or score < 90). Parked for human
 //     confirmation.
 //   - rejected: score < 60, or matching a prior rejection (negative
 //     experience).
 //
-// finalInstructions is the cumulative state after all APPLIED edits only;
+// Retention: subjects at trust ≥ RetainTrustScore are parked — no
+// proposals at all.
+//
+// finalText is the cumulative state after all APPLIED edits only;
 // suggested edits are NOT included (they wait for human approval).
-func (o *Optimizer) OptimizeAgent(
+func (o *Optimizer) OptimizeSubject(
 	ctx context.Context,
 	q *db.Queries,
 	ev OptimizeEvidence,
-) (applied, suggested, rejected []InstructionEdit, finalInstructions string, err error) {
-	if len(ev.Issues) == 0 && len(ev.TrustEvents) == 0 {
+) (applied, suggested, rejected []InstructionEdit, finalText string, err error) {
+	// Evidence gate: agents need issues/trust events; non-agent subjects
+	// are always eligible (their evidence is the current text itself).
+	if ev.TargetType == SubjectAgent && len(ev.Issues) == 0 && len(ev.TrustEvents) == 0 {
 		// No evidence → no edits. The runner's deferral gate usually
-		// catches this earlier, but a per-agent gap is fine.
-		return nil, nil, nil, ev.CurrentInstructions, nil
-	}
-	proposals, err := o.proposeEdits(ctx, ev)
-	if err != nil {
-		return nil, nil, nil, ev.CurrentInstructions, err
-	}
-	if len(proposals) == 0 {
-		return nil, nil, nil, ev.CurrentInstructions, nil
+		// catches this earlier, but a per-subject gap is fine.
+		return nil, nil, nil, ev.CurrentText, nil
 	}
 
-	// Auto-apply eligibility gates (synthesis §5). Lab-managed exclusion:
-	// an agent hidden by any lab's experimental_resource_visibility is
-	// part of a manifest/install/dispatch contract — never auto-edit it.
-	labManaged, lerr := o.LabManagedFunc(ctx, q, ev.AgentID)
+	// Retention gate (0.5.3): trust ≥ 8 → parked, no proposals.
+	if ev.TargetType == SubjectAgent {
+		trustScore, _ := subjectTrust(ev.TrustEvents)
+		if trustScore >= RetainTrustScore {
+			slog.Info("agent-self-opt: subject in retention (trust ≥ 8); skipping proposals",
+				"subject", ev.TargetName, "type", ev.TargetType, "trust", trustScore)
+			return nil, nil, nil, ev.CurrentText, nil
+		}
+	}
+
+	proposals, err := o.proposeEdits(ctx, ev)
+	if err != nil {
+		return nil, nil, nil, ev.CurrentText, err
+	}
+	if len(proposals) == 0 {
+		return nil, nil, nil, ev.CurrentText, nil
+	}
+
+	// Scope resolution (0.5.3): trust < OptimizeTrustThreshold with
+	// negative evidence → trust scope (system mandate, marker not
+	// required). Otherwise enroll scope (marker-gated).
+	scope := ScopeEnroll
+	if ev.TargetType == SubjectAgent {
+		trustScore, neg := subjectTrust(ev.TrustEvents)
+		if neg && trustScore < OptimizeTrustThreshold {
+			scope = ScopeTrust
+		}
+	}
+
+	// Auto-apply eligibility gates. Lab-managed exclusion: a subject
+	// hidden by any lab's experimental_resource_visibility is part of a
+	// manifest/install/dispatch contract — never auto-edit it.
+	labManaged, lerr := o.LabManagedFunc(ctx, q, ev.TargetType, ev.TargetID)
 	if lerr != nil {
 		slog.Warn("agent-self-opt: lab-managed check failed; defaulting to not-auto-apply",
-			"agent", ev.AgentName, "err", lerr)
+			"subject", ev.TargetName, "err", lerr)
 		labManaged = true // fail closed
 	}
-	trustScore := trustScoreOf(ev.TrustEvents)
 	enrolled := ev.AutoApplyEnrolled
 	// correctionTaskID is the task the user corrected (design verdict §5a:
 	// auto-apply requires the candidate to trace to a CONFIRMED correction,
@@ -269,7 +396,7 @@ func (o *Optimizer) OptimizeAgent(
 	// can derive the fix from that task (not a window-wide boolean).
 	ev.CorrectedTaskID = correctionTaskID
 
-	candidate := ev.CurrentInstructions
+	candidate := ev.CurrentText
 	appliedCount := 0
 	for _, p := range proposals {
 		if o.isRejected(p, ev.RejectedEdits) {
@@ -280,11 +407,17 @@ func (o *Optimizer) OptimizeAgent(
 		if !ok {
 			continue
 		}
-		edit.AgentID = ev.AgentID
-		edit.AgentName = ev.AgentName
+		edit.TargetType = ev.TargetType
+		edit.TargetID = ev.TargetID
+		edit.TargetName = ev.TargetName
+		edit.Scope = scope
+		if ev.TargetType == SubjectAgent {
+			edit.AgentID = ev.TargetID
+		}
 
-		// Validation: numeric score of candidate vs current.
-		score, reason, verr := o.validate(ctx, ev, candidate, newState)
+		// Validation: score the DELTA (the proposed change) vs the current
+		// text, 0-100.
+		score, reason, verr := o.validate(ctx, ev, candidate, newState, p)
 		if verr != nil {
 			// Gate failure (no LLM / timeout) → skip.
 			continue
@@ -299,15 +432,18 @@ func (o *Optimizer) OptimizeAgent(
 		canAutoApply := edit.EditType == "add" && score >= AutoApplyGate &&
 			appliedCount < MaxAutoAppliesPerAgentPerRun
 
-		// Hard gates (synthesis §5): enrollment + trust + lab-managed +
-		// correction-backed + no safety-token content.
+		// Hard gates: lab-managed + correction-backed + no safety-token
+		// content. Enrollment applies ONLY to the enroll scope (trust
+		// scope is a system mandate; the user's own spec directs the
+		// system to fix low-trust subjects).
 		canAutoApply = canAutoApply &&
-			enrolled &&
-			trustScore >= MinAutoApplyTrustScore &&
 			!labManaged &&
 			correctionBacked &&
 			!touchesSafetyToken(p.Before) &&
 			!touchesSafetyToken(p.After)
+		if scope == ScopeEnroll {
+			canAutoApply = canAutoApply && enrolled
+		}
 
 		switch {
 		case canAutoApply:
@@ -331,52 +467,38 @@ func (o *Optimizer) OptimizeAgent(
 	return applied, suggested, rejected, candidate, nil
 }
 
-// MinAutoApplyTrustScore is the hard trust gate for auto-apply: an agent
-// with trust < 8 (or no trust history) never auto-applies — its edits all
-// route to 'suggested'.
-const MinAutoApplyTrustScore = 8.0
-
-// trustScoreOf returns the agent's current trust score from its event
-// ledger. The event list arrives newest-first (ORDER BY created_at DESC in
-// ListAgentTrustEventsByAgent), so the FIRST valid ScoreAfter is the
-// current score. Falls back to the initial 5.0 default when none exists
-// (which is < MinAutoApplyTrustScore, so auto-apply stays off for agents
-// with no trust history — safe by construction).
-func trustScoreOf(events []db.AgentTrustEvent) float64 {
-	for _, evt := range events {
-		if evt.ScoreAfter.Valid {
-			if v, ok := numericToFloat(evt.ScoreAfter); ok {
-				return v
-			}
-		}
-	}
-	return 0
+// OptimizeAgent is the backward-compat alias for the classic agent path
+// (0.5.2 callers). It builds an agent-shaped OptimizeEvidence and
+// delegates to OptimizeSubject.
+func (o *Optimizer) OptimizeAgent(
+	ctx context.Context,
+	q *db.Queries,
+	ev OptimizeEvidence,
+) (applied, suggested, rejected []InstructionEdit, finalText string, err error) {
+	ev.TargetType = SubjectAgent
+	return o.OptimizeSubject(ctx, q, ev)
 }
 
-// numericToFloat converts pgtype.Numeric to float64 (best-effort).
-func numericToFloat(n pgtype.Numeric) (float64, bool) {
-	if n.NaN || n.InfinityModifier != pgtype.Finite || n.Int == nil {
-		return 0, false
-	}
-	f := new(big.Float).SetInt(n.Int)
-	if n.Exp != 0 {
-		f.Mul(f, new(big.Float).SetFloat64(math.Pow10(int(n.Exp))))
-	}
-	v, _ := f.Float64()
-	return v, true
-}
-
-// isLabManagedAgent reports whether the agent is hidden by any lab's
+// isLabManagedSubject reports whether the subject is hidden by any lab's
 // experimental_resource_visibility row (i.e. it is lab infrastructure and
 // must not be auto-edited).
-func isLabManagedAgent(ctx context.Context, q *db.Queries, agentID pgtype.UUID) (bool, error) {
+func isLabManagedSubject(ctx context.Context, q *db.Queries, targetType string, targetID pgtype.UUID) (bool, error) {
+	kind, ok := map[string]experimental.HideableResource{
+		SubjectAgent:     experimental.HideAgent,
+		SubjectSkill:     experimental.HideSkill,
+		SubjectSquad:     experimental.HideSquad,
+		SubjectAutopilot: experimental.HideAutopilot,
+	}[targetType]
+	if !ok {
+		return false, nil
+	}
 	for _, flagKey := range experimental.AllFlagKeys() {
-		ids, err := experimental.HiddenResourceIDsByFlag(ctx, q, flagKey, experimental.HideAgent)
+		ids, err := experimental.HiddenResourceIDsByFlag(ctx, q, flagKey, kind)
 		if err != nil {
 			return false, err
 		}
 		for _, id := range ids {
-			if id == uuid.UUID(agentID.Bytes) {
+			if id == uuid.UUID(targetID.Bytes) {
 				return true, nil
 			}
 		}
@@ -411,7 +533,7 @@ func (o *Optimizer) proposeEdits(ctx context.Context, ev OptimizeEvidence) ([]Ed
 	parsed, perr := parseProposals(text)
 	if perr != nil {
 		slog.Warn("agent-self-opt: optimizer proposal parse failed",
-			"agent", ev.AgentName, "err", perr)
+			"subject", ev.TargetName, "err", perr)
 		return nil, nil
 	}
 	// Bound the proposals.
@@ -421,42 +543,45 @@ func (o *Optimizer) proposeEdits(ctx context.Context, ev OptimizeEvidence) ([]Ed
 	return parsed, nil
 }
 
-// validate scores the candidate instruction set vs the current one on a
-// 0-100 scale. The validator LLM returns a JSON object:
+// validate scores the candidate edit (the DELTA) against the current text
+// on a 0-100 scale. The validator LLM returns a JSON object:
 //
 //	{"score": 0-100, "reason": "<one line>"}
 //
-// Higher score = stronger evidence that the candidate strictly improves
-// on the current instructions. A score near 0 means the change is
-// speculative or harmful; near 100 means it fixes a documented failure
-// mode with direct evidence.
+// 0.5.3 incremental scoring: the rubric targets the CHANGE (added /
+// removed / replaced lines), not the whole instruction set. Scoring the
+// whole document made auto-apply unreachable in practice — a well-grounded
+// two-line add could never lift a 2000-character instruction set to 90+.
+// Higher score = the delta is strongly grounded and cannot regress other
+// behavior; a score near 0 means the change is speculative or harmful.
 func (o *Optimizer) validate(
 	ctx context.Context,
 	ev OptimizeEvidence,
 	current, candidate string,
+	p EditProposal,
 ) (float64, string, error) {
-	prompt := fmt.Sprintf(`Agent "%s" currently has the following instructions:
+	prompt := fmt.Sprintf(`Subject "%s" (%s) currently has the following instruction text:
 
---- current instructions start ---
+--- current text start ---
 %s
---- current instructions end ---
+--- current text end ---
 
-A proposed change produces the following candidate instructions:
+A proposed change (the DELTA) is:
 
---- candidate instructions start ---
+--- proposed change start ---
 %s
---- candidate instructions end ---
+--- proposed change end ---
 
-Context: the agent produced %d completed issues in the scan window and %d trust events (corrections / review failures are signals of mistakes).
+Context: the subject produced %d completed issues in the scan window and %d trust events (corrections / review failures are signals of mistakes).
 
-Score how strongly the candidate instruction set improves on the current one, on a 0-100 scale.
+Score how strongly THIS DELTA improves the current text, on a 0-100 scale. Score the delta only — a change that fixes a documented failure mode scores high even if the surrounding text is long; a change that is speculative, contradicts existing instructions, or could regress established behavior scores low.
 Scoring rubric:
 - 85-100: the change removes or mitigates a DOCUMENTED failure mode (a user correction or review failure), is precisely scoped, and cannot regress other behavior.
 - 65-84: the change is clearly grounded in the evidence and improves clarity / correctness, with minor residual risk.
 - 40-64: the change is plausibly useful but partially speculative or redundant.
 - 0-39: the change is speculative, contradicts existing instructions, or could regress established behavior.
 Reply with ONLY a JSON object: {"score": <int 0-100>, "reason": "<one line, English>"}. No prose.`,
-		ev.AgentName, current, candidate, len(ev.Issues), len(ev.TrustEvents))
+		ev.TargetName, ev.TargetType, current, deltaDescription(p), len(ev.Issues), len(ev.TrustEvents))
 
 	system := "You are a conservative validation gate for an AI skill optimizer. " +
 		"Score candidate instruction edits 0-100; be strict — ungrounded changes score low."
@@ -487,6 +612,21 @@ Reply with ONLY a JSON object: {"score": <int 0-100>, "reason": "<one line, Engl
 	return clampScore(parsed.Score), parsed.Reason, nil
 }
 
+// deltaDescription renders the proposed change as a compact text block for
+// the validation prompt (the "DELTA").
+func deltaDescription(p EditProposal) string {
+	switch p.EditType {
+	case "add":
+		return "ADD:\n" + strings.TrimSpace(p.After)
+	case "delete":
+		return "DELETE:\n" + strings.TrimSpace(p.Before)
+	case "replace":
+		return "REPLACE:\n" + strings.TrimSpace(p.Before) + "\n--- with ---\n" + strings.TrimSpace(p.After)
+	default:
+		return "UNKNOWN EDIT TYPE"
+	}
+}
+
 // clampScore bounds a validation score to [0, 100].
 func clampScore(v int) float64 {
 	if v < 0 {
@@ -506,15 +646,15 @@ func clampScore(v int) float64 {
 // edits and rolls back on measured regression. Half (2) is implemented here.
 //
 // RevalidateAppliedEdits is called by the runner before proposing new edits.
-// For each applied edit of the agent (newest first, rate-capped at 1/run so
+// For each applied edit of the subject (newest first, rate-capped at 1/run so
 // at most one needs re-scoring), it:
 //
-//   - re-fetches the agent's CURRENT instructions,
+//   - re-fetches the subject's CURRENT instruction text,
 //   - if the edit's AfterText is no longer present (a later manual edit
 //     removed it) the edit is considered already superseded — no re-score,
-//   - otherwise re-scores CURRENT instructions vs the SNAPSHOT (pre-edit):
-//     a low score means the applied edit made things measurably worse, so
-//     the edit is reverted to its snapshot and the rollback is recorded as
+//   - otherwise re-scores CURRENT text vs the SNAPSHOT (pre-edit): a low
+//     score means the applied edit made things measurably worse, so the
+//     edit is reverted to its snapshot and the rollback is recorded as
 //     a 'review_fail' trust event (score -0.5) + the ledger row flips to
 //     'reverted'.
 //
@@ -525,21 +665,24 @@ func clampScore(v int) float64 {
 func (o *Optimizer) RevalidateAppliedEdits(
 	ctx context.Context,
 	q *db.Queries,
-	agent db.Agent,
+	targetType string,
+	targetID pgtype.UUID,
+	targetName, currentText string,
 	workspaceID pgtype.UUID,
 ) error {
-	if !agent.ID.Valid {
+	if !targetID.Valid {
 		return nil
 	}
 	applied, err := q.ListAppliedAgentOptEdits(ctx, db.ListAppliedAgentOptEditsParams{
-		AgentID:     agent.ID,
+		TargetType:  targetType,
+		TargetID:    targetID,
 		WorkspaceID: workspaceID,
 		Limit:       5,
 	})
 	if err != nil {
 		return fmt.Errorf("revalidate applied edits: list: %w", err)
 	}
-	cur := instructionsOf(agent)
+	cur := currentText
 	for _, e := range applied {
 		if cur == "" || e.AfterText == "" || !strings.Contains(cur, e.AfterText) {
 			// The applied text is no longer present (later manual edit or a
@@ -553,9 +696,10 @@ func (o *Optimizer) RevalidateAppliedEdits(
 		// Re-score CURRENT (post-edit) vs SNAPSHOT (pre-edit). A low score =
 		// the applied edit regressed the instruction set → roll back.
 		score, _, verr := o.validate(ctx, OptimizeEvidence{
-			AgentName:           agent.Name,
-			CurrentInstructions: snapshot,
-		}, snapshot, cur)
+			TargetName:  targetName,
+			TargetType:  targetType,
+			CurrentText: snapshot,
+		}, snapshot, cur, EditProposal{})
 		if verr != nil {
 			// Gate failure (no LLM / timeout) — skip; the next run re-tries.
 			continue
@@ -563,9 +707,9 @@ func (o *Optimizer) RevalidateAppliedEdits(
 		if score >= RevalidateRetainFloor {
 			continue
 		}
-		if err := o.rollbackAppliedEdit(ctx, q, agent, workspaceID, e, score); err != nil {
+		if err := o.rollbackAppliedEdit(ctx, q, targetType, targetID, targetName, workspaceID, e, score); err != nil {
 			slog.Warn("agent-self-opt: post-hoc rollback failed",
-				"agent", agent.Name, "edit", e.ID, "err", err)
+				"subject", targetName, "edit", e.ID, "err", err)
 		}
 	}
 	return nil
@@ -583,11 +727,14 @@ const RevalidateRetainFloor = 60.0
 // flips the ledger row to 'reverted' (so it enters the negative-experience
 // buffer and cannot be re-proposed / re-applied), and records a
 // 'review_fail' trust event (-0.5) so the agent's trust score drops — the
-// self-review loop's punishment half.
+// self-review loop's punishment half. For non-agent subjects the trust
+// event is skipped (no trust ledger exists for them).
 func (o *Optimizer) rollbackAppliedEdit(
 	ctx context.Context,
 	q *db.Queries,
-	agent db.Agent,
+	targetType string,
+	targetID pgtype.UUID,
+	targetName string,
 	workspaceID pgtype.UUID,
 	e db.AgentOptEdit,
 	score float64,
@@ -595,10 +742,7 @@ func (o *Optimizer) rollbackAppliedEdit(
 	if !e.InstructionsSnapshot.Valid {
 		return fmt.Errorf("applied edit %s has no snapshot; cannot roll back", uuid.UUID(e.ID.Bytes).String())
 	}
-	if _, err := q.UpdateAgent(ctx, db.UpdateAgentParams{
-		ID:           agent.ID,
-		Instructions: pgtype.Text{String: e.InstructionsSnapshot.String, Valid: true},
-	}); err != nil {
+	if err := writeBackText(ctx, q, targetType, targetID, e.InstructionsSnapshot.String); err != nil {
 		return fmt.Errorf("restore snapshot: %w", err)
 	}
 	if _, err := q.UpdateAgentOptEditApplication(ctx, db.UpdateAgentOptEditApplicationParams{
@@ -608,36 +752,61 @@ func (o *Optimizer) rollbackAppliedEdit(
 	}); err != nil {
 		return fmt.Errorf("mark reverted: %w", err)
 	}
-	// Trust event: the self-review found the applied edit regressive → -0.5
-	// (same punishment as a user correction / failed review). Compute the
-	// profile's current score so the delta is accurate (ReviewFailPenalty =
-	// 0.5), then persist score + a self-contained timeline event.
-	prof, ok := agent_trust.LoadProfile(ctx, q, workspaceID, agent.ID)
-	before := agent_trust.Score(prof, ok)
-	after := math.Min(agent_trust.MaxScore, math.Max(0, before-agent_trust.ReviewFailPenalty))
-	if _, err := q.ApplyAgentTrustReviewFail(ctx, db.ApplyAgentTrustReviewFailParams{
-		WorkspaceID: workspaceID,
-		AgentID:     agent.ID,
-		Score:       floatToNumericLocal(after),
-	}); err != nil {
-		slog.Warn("agent-self-opt: post-hoc review_fail trust event failed",
-			"agent", agent.Name, "err", err)
+	if targetType == SubjectAgent {
+		// Trust event: the self-review found the applied edit regressive →
+		// -0.5 (same punishment as a user correction / failed review).
+		prof, ok := agent_trust.LoadProfile(ctx, q, workspaceID, targetID)
+		before := agent_trust.Score(prof, ok)
+		after := math.Min(agent_trust.MaxScore, math.Max(0, before-agent_trust.ReviewFailPenalty))
+		if _, err := q.ApplyAgentTrustReviewFail(ctx, db.ApplyAgentTrustReviewFailParams{
+			WorkspaceID: workspaceID,
+			AgentID:     targetID,
+			Score:       floatToNumericLocal(after),
+		}); err != nil {
+			slog.Warn("agent-self-opt: post-hoc review_fail trust event failed",
+				"subject", targetName, "err", err)
+		}
+		// Ledger event row (self-contained timeline entry).
+		_, _ = q.CreateAgentTrustEvent(ctx, db.CreateAgentTrustEventParams{
+			WorkspaceID: workspaceID,
+			AgentID:     targetID,
+			EventType:   "review_fail",
+			ScoreDelta:  floatToNumericLocal(-agent_trust.ReviewFailPenalty),
+			ScoreBefore: floatToNumericLocal(before),
+			ScoreAfter:  floatToNumericLocal(after),
+			TaskID:      e.CorrectedTaskID,
+			IssueID:     pgtype.UUID{},
+			Note:        pgtype.Text{String: fmt.Sprintf("post-hoc revalidation: applied edit rolled back (score %.0f)", score), Valid: true},
+		})
 	}
-	// Ledger event row (self-contained timeline entry).
-	_, _ = q.CreateAgentTrustEvent(ctx, db.CreateAgentTrustEventParams{
-		WorkspaceID: workspaceID,
-		AgentID:     agent.ID,
-		EventType:   "review_fail",
-		ScoreDelta:  floatToNumericLocal(-agent_trust.ReviewFailPenalty),
-		ScoreBefore: floatToNumericLocal(before),
-		ScoreAfter:  floatToNumericLocal(after),
-		TaskID:      e.CorrectedTaskID,
-		IssueID:     pgtype.UUID{},
-		Note:        pgtype.Text{String: fmt.Sprintf("post-hoc revalidation: applied edit rolled back (score %.0f)", score), Valid: true},
-	})
 	slog.Warn("agent-self-opt: post-hoc revalidation rolled back applied edit",
-		"agent", agent.Name, "edit", e.ID, "score", score)
+		"subject", targetName, "edit", e.ID, "score", score)
 	return nil
+}
+
+// writeBackText persists the new instruction text onto the subject row.
+// Autopilot writes only the issue_title_template (description untouched).
+func writeBackText(ctx context.Context, q *db.Queries, targetType string, targetID pgtype.UUID, text string) error {
+	switch targetType {
+	case SubjectAgent:
+		_, err := q.UpdateAgent(ctx, db.UpdateAgentParams{
+			ID:           targetID,
+			Instructions: pgtype.Text{String: text, Valid: true},
+		})
+		return err
+	case SubjectSkill:
+		// Workspace is not available here; the runner passes it via the
+		// caller's queries. Skills/squads/autopilots are never auto-applied
+		// (suggested-only), so write-back only happens on manual apply /
+		// revert paths, which resolve the workspace separately.
+		return fmt.Errorf("writeBackText: %s requires workspace (use edits.go ApplyEdit)", targetType)
+	case SubjectSquad:
+		return fmt.Errorf("writeBackText: %s requires workspace (use edits.go ApplyEdit)", targetType)
+	case SubjectAutopilot:
+		return fmt.Errorf("writeBackText: %s requires workspace (use edits.go ApplyEdit)", targetType)
+	default:
+		return fmt.Errorf("writeBackText: unknown subject type %q", targetType)
+	}
 }
 
 // floatToNumericLocal converts a float64 into pgtype.Numeric via a fixed
@@ -743,56 +912,74 @@ func applyProposal(current string, p EditProposal) (InstructionEdit, string, boo
 	}
 }
 
-// buildProposalPrompt renders the evidence for one agent.
+// buildProposalPrompt renders the evidence for one subject. The prompt is
+// per-target-type: agents get issue + trust evidence; skills / squads /
+// autopilots get the text itself (editorial improvements, human-confirmed).
 func buildProposalPrompt(ev OptimizeEvidence) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, `Agent: %s (id %s)
-Current instructions:
+	fmt.Fprintf(&b, `Subject: %s (type %s, id %s)
+Current instruction text:
 --- start ---
 %s
 --- end ---
+`, ev.TargetName, ev.TargetType, util.UUIDToString(ev.TargetID), ev.CurrentText)
 
+	switch ev.TargetType {
+	case SubjectAgent:
+		fmt.Fprintf(&b, `
 Evidence from the last scan window:
-- Completed issues assigned to this agent: %d
+- Completed issues assigned to this subject: %d
 - Trust ledger events (corrections / review failures / review passes): %d
-`, ev.AgentName, util.UUIDToString(ev.AgentID),
-		ev.CurrentInstructions, len(ev.Issues), len(ev.TrustEvents))
+`, len(ev.Issues), len(ev.TrustEvents))
 
-	// Design verdict §5a: auto-apply requires the candidate to trace to a
-	// CONFIRMED correction. Anchoring the corrected task id in the prompt
-	// lets the optimizer derive the fix from that specific task instead of
-	// a window-wide signal.
-	if ev.CorrectedTaskID.Valid {
-		fmt.Fprintf(&b, "\nAnchoring correction: the user corrected the output of task %s for this agent. Derive any auto-appliable fix from that task's failure.\n",
-			util.UUIDToString(ev.CorrectedTaskID))
+		// Design verdict §5a: auto-apply requires the candidate to trace to a
+		// CONFIRMED correction. Anchoring the corrected task id in the prompt
+		// lets the optimizer derive the fix from that specific task instead of
+		// a window-wide signal.
+		if ev.CorrectedTaskID.Valid {
+			fmt.Fprintf(&b, "\nAnchoring correction: the user corrected the output of task %s for this subject. Derive any auto-appliable fix from that task's failure.\n",
+				util.UUIDToString(ev.CorrectedTaskID))
+		}
+
+		if len(ev.Issues) > 0 {
+			b.WriteString("\nRecent completed issue topics (sanitized, keyword-only):\n")
+			for i, iss := range ev.Issues {
+				if i >= 10 {
+					break
+				}
+				fmt.Fprintf(&b, "- %s\n", sanitizeForPrompt(iss.Title))
+			}
+		}
+		if len(ev.TrustEvents) > 0 {
+			b.WriteString("\nTrust ledger (newest first):\n")
+			for i, evt := range ev.TrustEvents {
+				if i >= 10 {
+					break
+				}
+				note := ""
+				if evt.Note.Valid {
+					// Correction notes are user-authored but may contain
+					// arbitrary text — strip control chars + truncate (the
+					// design verdict: feed signals, never verbatim untrusted
+					// payloads that could inject instructions).
+					note = " — " + sanitizeForPrompt(evt.Note.String)
+				}
+				fmt.Fprintf(&b, "- [%s] delta=%s%s\n", evt.EventType, numericString(evt.ScoreDelta), note)
+			}
+		}
+	default:
+		// skill / squad / autopilot: editorial improvement target. The
+		// optimizer improves clarity / structure / completeness of the
+		// instruction text itself; every edit lands in the human-confirm
+		// tier (no trust ledger exists to mandate auto-apply).
+		b.WriteString(`
+This subject's instruction text is the trainable state. Propose edits that
+improve its clarity, structure, and actionable guidance — as if a senior
+engineer were reviewing the text. Do NOT invent external facts; base edits
+only on what the text itself implies.
+`)
 	}
 
-	if len(ev.Issues) > 0 {
-		b.WriteString("\nRecent completed issue topics (sanitized, keyword-only):\n")
-		for i, iss := range ev.Issues {
-			if i >= 10 {
-				break
-			}
-			fmt.Fprintf(&b, "- %s\n", sanitizeForPrompt(iss.Title))
-		}
-	}
-	if len(ev.TrustEvents) > 0 {
-		b.WriteString("\nTrust ledger (newest first):\n")
-		for i, evt := range ev.TrustEvents {
-			if i >= 10 {
-				break
-			}
-			note := ""
-			if evt.Note.Valid {
-				// Correction notes are user-authored but may contain
-				// arbitrary text — strip control chars + truncate (the
-				// design verdict: feed signals, never verbatim untrusted
-				// payloads that could inject instructions).
-				note = " — " + sanitizeForPrompt(evt.Note.String)
-			}
-			fmt.Fprintf(&b, "- [%s] delta=%s%s\n", evt.EventType, numericString(evt.ScoreDelta), note)
-		}
-	}
 	if len(ev.RejectedEdits) > 0 {
 		b.WriteString("\nPreviously REJECTED edits (do NOT re-propose these):\n")
 		for i, r := range ev.RejectedEdits {
@@ -868,4 +1055,17 @@ func sanitizeForPrompt(s string) string {
 		out = string(r[:max]) + "…"
 	}
 	return out
+}
+
+// numericToFloat converts pgtype.Numeric to float64 (best-effort).
+func numericToFloat(n pgtype.Numeric) (float64, bool) {
+	if n.NaN || n.InfinityModifier != pgtype.Finite || n.Int == nil {
+		return 0, false
+	}
+	f := new(big.Float).SetInt(n.Int)
+	if n.Exp != 0 {
+		f.Mul(f, new(big.Float).SetFloat64(math.Pow10(int(n.Exp))))
+	}
+	v, _ := f.Float64()
+	return v, true
 }

@@ -38,6 +38,20 @@ func (f *fakeLLM) validator(ctx context.Context, system, prompt string) (string,
 	return f.validatorText, nil
 }
 
+// agentEvidence builds an agent-shaped OptimizeEvidence for the tests.
+func agentEvidence(t *testing.T, enrolled bool, events []db.AgentTrustEvent) OptimizeEvidence {
+	t.Helper()
+	return OptimizeEvidence{
+		TargetType:        SubjectAgent,
+		TargetID:          pgtypeUUID(t, "11111111-1111-1111-1111-111111111111"),
+		TargetName:        "helper",
+		CurrentText:       "Do the thing.",
+		Issues:            []db.ListDoneIssuesForSelfOptRow{{Title: "Fix time bug"}},
+		TrustEvents:       events,
+		AutoApplyEnrolled: enrolled,
+	}
+}
+
 // ---------- scheduler ----------
 
 func TestNextTriggerWeeklyCatchUp(t *testing.T) {
@@ -99,7 +113,10 @@ func TestApplyProposal(t *testing.T) {
 		t.Fatalf("delete of missing text should fail")
 	}
 
-	_ = e
+	// edit type fields are carried into the InstructionEdit.
+	if e.EditType != "delete" || e.BeforeText != "Always verify results." {
+		t.Fatalf("edit record not populated: %+v", e)
+	}
 }
 
 func TestOptimizerRejectionBuffer(t *testing.T) {
@@ -151,33 +168,29 @@ func TestParseProposals(t *testing.T) {
 }
 
 // stubOptimizer returns an Optimizer with a nil-safe lab-managed check
-// (tests pass nil *db.Queries to OptimizeAgent).
+// (tests pass nil *db.Queries to OptimizeSubject).
 func stubOptimizer(o *Optimizer) *Optimizer {
-	o.LabManagedFunc = func(ctx context.Context, q *db.Queries, agentID pgtype.UUID) (bool, error) {
+	o.LabManagedFunc = func(ctx context.Context, q *db.Queries, targetType string, targetID pgtype.UUID) (bool, error) {
 		return false, nil
 	}
 	return o
 }
 
-func TestOptimizeAgentAutoApply(t *testing.T) {
-	// add edit, score 95, correction-backed, enrolled, trust>=8 → applied.
+func TestOptimizeAgentAutoApplyEnroll(t *testing.T) {
+	// 0.5.3 trust semantics: trust ≥ 8 parks the subject (no proposals at
+	// all). For auto-apply the scope must be trust (low trust + negative
+	// evidence) or enrolled. This test pins the enroll path: an enrolled
+	// agent with a correction anchor + score ≥ 90 auto-applies.
 	o := stubOptimizer(NewOptimizer())
 	o.ProviderLLM = (&fakeLLM{
 		proposalText: `[{"edit_type":"add","after":"Always double-check timestamps.","rationale":"correction about time"}]`,
 	}).provider
 	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":95,"reason":"fixes documented time bug"}`}).validator
 
-	ev := OptimizeEvidence{
-		AgentID:             pgtypeUUID(t, "11111111-1111-1111-1111-111111111111"),
-		AgentName:           "helper",
-		CurrentInstructions: "Do the thing.",
-		Issues:              []db.ListDoneIssuesForSelfOptRow{{Title: "Fix time bug"}},
-		TrustEvents: []db.AgentTrustEvent{
-			{EventType: "correction", TaskID: pgtypeUUID(t, "55555555-5555-5555-5555-555555555555")},
-			{EventType: "review_pass", ScoreAfter: num(8.5)},
-		},
-		AutoApplyEnrolled: true,
-	}
+	ev := agentEvidence(t, true, []db.AgentTrustEvent{
+		{EventType: "correction", TaskID: pgtypeUUID(t, "55555555-5555-5555-5555-555555555555")},
+		{EventType: "review_pass", ScoreAfter: num(7.5)}, // mid-trust: < 8 (not retained), ≥ 7 (enroll scope)
+	})
 	applied, suggested, rejected, finalState, err := o.OptimizeAgent(context.Background(), nil, ev)
 	if err != nil {
 		t.Fatalf("OptimizeAgent: %v", err)
@@ -190,6 +203,61 @@ func TestOptimizeAgentAutoApply(t *testing.T) {
 	}
 }
 
+func TestOptimizeAgentRetentionParksAtHighTrust(t *testing.T) {
+	// 0.5.3 retention: trust ≥ 8 → NO proposals at all (the subject is
+	// "不用再进化"). Even a high-scoring add must not be proposed.
+	o := stubOptimizer(NewOptimizer())
+	o.ProviderLLM = (&fakeLLM{
+		proposalText: `[{"edit_type":"add","after":"New line.","rationale":"x"}]`,
+	}).provider
+	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":95,"reason":"high"}`}).validator
+
+	ev := agentEvidence(t, true, []db.AgentTrustEvent{
+		{EventType: "review_pass", ScoreAfter: num(9.5)},
+	})
+	applied, suggested, rejected, finalState, err := o.OptimizeAgent(context.Background(), nil, ev)
+	if err != nil {
+		t.Fatalf("OptimizeAgent: %v", err)
+	}
+	if len(applied) != 0 || len(suggested) != 0 || len(rejected) != 0 {
+		t.Fatalf("retention must propose nothing: applied=%v suggested=%v rejected=%v", applied, suggested, rejected)
+	}
+	if finalState != ev.CurrentText {
+		t.Fatalf("retention must not change text: %q", finalState)
+	}
+}
+
+func TestOptimizeAgentTrustScopeAutoAppliesWithoutMarker(t *testing.T) {
+	// 0.5.3 trust semantics inversion: a LOW-trust agent (score < 7 +
+	// negative evidence) is a SYSTEM MANDATE to fix — auto-apply works
+	// WITHOUT the enrollment marker (the user's own spec directs the
+	// system to fix low-trust subjects).
+	o := stubOptimizer(NewOptimizer())
+	o.ProviderLLM = (&fakeLLM{
+		proposalText: `[{"edit_type":"add","after":"Always verify edge cases.","rationale":"user correction"}]`,
+	}).provider
+	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":92,"reason":"fixes corrected task"}`}).validator
+
+	ev := agentEvidence(t, false, []db.AgentTrustEvent{ // NOT enrolled
+		{EventType: "correction", TaskID: pgtypeUUID(t, "55555555-5555-5555-5555-555555555555")},
+		{EventType: "review_fail", ScoreAfter: num(4.5)},
+	})
+	applied, suggested, rejected, finalState, err := o.OptimizeAgent(context.Background(), nil, ev)
+	if err != nil {
+		t.Fatalf("OptimizeAgent: %v", err)
+	}
+	if len(applied) != 1 {
+		t.Fatalf("low-trust mandate must auto-apply without marker: applied=%v suggested=%v rejected=%v", applied, suggested, rejected)
+	}
+	if !strings.Contains(finalState, "Always verify edge cases") {
+		t.Fatalf("final state missing trust-scope add: %q", finalState)
+	}
+	// The persisted edit must carry the trust scope.
+	if applied[0].Scope != ScopeTrust {
+		t.Fatalf("trust-scope edit must carry scope=%s, got %s", ScopeTrust, applied[0].Scope)
+	}
+}
+
 func TestOptimizeAgentDeleteNeverAutoApplies(t *testing.T) {
 	// delete edit, score 95 — by-construction NEVER auto-applies.
 	o := stubOptimizer(NewOptimizer())
@@ -198,17 +266,10 @@ func TestOptimizeAgentDeleteNeverAutoApplies(t *testing.T) {
 	}).provider
 	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":95,"reason":"high"}`}).validator
 
-	ev := OptimizeEvidence{
-		AgentID:             pgtypeUUID(t, "11111111-1111-1111-1111-111111111111"),
-		AgentName:           "helper",
-		CurrentInstructions: "Do the thing.",
-		Issues:              []db.ListDoneIssuesForSelfOptRow{{Title: "X"}},
-		TrustEvents: []db.AgentTrustEvent{
-			{EventType: "correction", TaskID: pgtypeUUID(t, "55555555-5555-5555-5555-555555555555")},
-			{EventType: "review_pass", ScoreAfter: num(9.0)},
-		},
-		AutoApplyEnrolled: true,
-	}
+	ev := agentEvidence(t, true, []db.AgentTrustEvent{
+		{EventType: "correction", TaskID: pgtypeUUID(t, "55555555-5555-5555-5555-555555555555")},
+		{EventType: "review_pass", ScoreAfter: num(6.0)},
+	})
 	applied, suggested, _, finalState, err := o.OptimizeAgent(context.Background(), nil, ev)
 	if err != nil {
 		t.Fatalf("OptimizeAgent: %v", err)
@@ -219,36 +280,29 @@ func TestOptimizeAgentDeleteNeverAutoApplies(t *testing.T) {
 	if len(suggested) != 1 {
 		t.Fatalf("expected delete to land in suggested, got suggested=%v", suggested)
 	}
-	if finalState != ev.CurrentInstructions {
+	if finalState != ev.CurrentText {
 		t.Fatalf("delete must not change instructions: %q", finalState)
 	}
 }
 
-func TestOptimizeAgentNotEnrolledOrLowTrustSuggested(t *testing.T) {
-	// score 95 but NOT enrolled → suggested (never auto).
+func TestOptimizeAgentNotEnrolledSuggested(t *testing.T) {
+	// score 95 but NOT enrolled AND trust mid-range (no mandate) →
+	// suggested (never auto).
 	o := stubOptimizer(NewOptimizer())
 	o.ProviderLLM = (&fakeLLM{
 		proposalText: `[{"edit_type":"add","after":"New line.","rationale":"x"}]`,
 	}).provider
 	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":95,"reason":"high"}`}).validator
 
-	ev := OptimizeEvidence{
-		AgentID:             pgtypeUUID(t, "11111111-1111-1111-1111-111111111111"),
-		AgentName:           "helper",
-		CurrentInstructions: "Do the thing.",
-		Issues:              []db.ListDoneIssuesForSelfOptRow{{Title: "X"}},
-		TrustEvents: []db.AgentTrustEvent{
-			{EventType: "correction"},
-			{EventType: "review_pass", ScoreAfter: num(9.0)},
-		},
-		AutoApplyEnrolled: false, // NOT enrolled
-	}
+	ev := agentEvidence(t, false, []db.AgentTrustEvent{
+		{EventType: "review_pass", ScoreAfter: num(7.5)}, // no negative evidence, not low
+	})
 	applied, suggested, _, _, err := o.OptimizeAgent(context.Background(), nil, ev)
 	if err != nil {
 		t.Fatalf("OptimizeAgent: %v", err)
 	}
 	if len(applied) != 0 || len(suggested) != 1 {
-		t.Fatalf("not-enrolled high score must go to suggested: applied=%v suggested=%v", applied, suggested)
+		t.Fatalf("not-enrolled mid-trust high score must go to suggested: applied=%v suggested=%v", applied, suggested)
 	}
 }
 
@@ -260,14 +314,9 @@ func TestOptimizeAgentLowScoreRejected(t *testing.T) {
 	}).provider
 	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":30,"reason":"speculative"}`}).validator
 
-	ev := OptimizeEvidence{
-		AgentID:             pgtypeUUID(t, "11111111-1111-1111-1111-111111111111"),
-		AgentName:           "helper",
-		CurrentInstructions: "Do the thing.",
-		Issues:              []db.ListDoneIssuesForSelfOptRow{{Title: "X"}},
-		TrustEvents:         []db.AgentTrustEvent{{EventType: "correction"}},
-		AutoApplyEnrolled:   true,
-	}
+	ev := agentEvidence(t, true, []db.AgentTrustEvent{
+		{EventType: "correction", TaskID: pgtypeUUID(t, "55555555-5555-5555-5555-555555555555")},
+	})
 	applied, suggested, rejected, finalState, err := o.OptimizeAgent(context.Background(), nil, ev)
 	if err != nil {
 		t.Fatalf("OptimizeAgent: %v", err)
@@ -275,37 +324,135 @@ func TestOptimizeAgentLowScoreRejected(t *testing.T) {
 	if len(applied) != 0 || len(suggested) != 0 || len(rejected) != 1 {
 		t.Fatalf("low score must be rejected: applied=%v suggested=%v rejected=%v", applied, suggested, rejected)
 	}
-	if finalState != ev.CurrentInstructions {
+	if finalState != ev.CurrentText {
 		t.Fatalf("rejected must not change instructions: %q", finalState)
 	}
 }
 
 func TestOptimizeAgentNoEvidence(t *testing.T) {
 	o := stubOptimizer(NewOptimizer())
-	ev := OptimizeEvidence{AgentID: pgtypeUUID(t, "11111111-1111-1111-1111-111111111111"), AgentName: "x"}
+	ev := OptimizeEvidence{TargetType: SubjectAgent, TargetID: pgtypeUUID(t, "11111111-1111-1111-1111-111111111111"), TargetName: "x"}
 	applied, suggested, rejected, final, err := o.OptimizeAgent(context.Background(), nil, ev)
 	if err != nil || len(applied) != 0 || len(suggested) != 0 || len(rejected) != 0 || final != "" {
 		t.Fatalf("no-evidence run should be a no-op: %v %v %v %q %v", applied, suggested, rejected, final, err)
 	}
 }
 
-func TestClassifyApplication(t *testing.T) {
-	cases := []struct {
-		editType string
-		score    float64
-		want     Application
-	}{
-		{"add", 95, ApplicationApplied},       // above gate, add-only
-		{"add", 75, ApplicationSuggested},     // above floor, below gate
-		{"add", 30, ApplicationRejected},      // below floor
-		{"delete", 95, ApplicationSuggested},  // delete NEVER auto
-		{"replace", 95, ApplicationSuggested}, // replace NEVER auto
+// ---------- 0.5.3 non-agent subjects ----------
+
+func TestOptimizeSkillAlwaysSuggested(t *testing.T) {
+	// Skills have no trust ledger → every edit lands in the human-confirm
+	// tier (suggested), never auto-applied.
+	o := stubOptimizer(NewOptimizer())
+	o.ProviderLLM = (&fakeLLM{
+		proposalText: `[{"edit_type":"add","after":"## Usage\nRun with the --dry-run flag first.","rationale":"add usage doc"}]`,
+	}).provider
+	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":95,"reason":"clear improvement"}`}).validator
+
+	ev := OptimizeEvidence{
+		TargetType:  SubjectSkill,
+		TargetID:    pgtypeUUID(t, "22222222-2222-2222-2222-222222222222"),
+		TargetName:  "my-skill",
+		CurrentText: "# my-skill\nA skill for X.",
 	}
-	for _, c := range cases {
-		// classifyApplication was removed in the synthesis rewrite; test
-		// through OptimizeAgent instead via a dedicated helper.
-		_ = c
+	applied, suggested, rejected, finalText, err := o.OptimizeSubject(context.Background(), nil, ev)
+	if err != nil {
+		t.Fatalf("OptimizeSubject: %v", err)
 	}
+	if len(applied) != 0 || len(rejected) != 0 {
+		t.Fatalf("skill edits must never auto-apply nor reject outright: applied=%v rejected=%v", applied, rejected)
+	}
+	if len(suggested) != 1 {
+		t.Fatalf("expected 1 suggested skill edit, got %v", suggested)
+	}
+	if suggested[0].TargetType != SubjectSkill || suggested[0].Scope != ScopeEnroll {
+		t.Fatalf("suggested edit must carry skill target + enroll scope: %+v", suggested[0])
+	}
+	if finalText != ev.CurrentText {
+		t.Fatalf("suggested-only must not change text: %q", finalText)
+	}
+}
+
+func TestOptimizeSquadSuggestedOnly(t *testing.T) {
+	o := stubOptimizer(NewOptimizer())
+	o.ProviderLLM = (&fakeLLM{
+		proposalText: `[{"edit_type":"replace","before":"Report daily.","after":"Report after every milestone.","rationale":"clearer cadence"}]`,
+	}).provider
+	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":80,"reason":"clearer"}`}).validator
+
+	ev := OptimizeEvidence{
+		TargetType:  SubjectSquad,
+		TargetID:    pgtypeUUID(t, "33333333-3333-3333-3333-333333333333"),
+		TargetName:  "data-squad",
+		CurrentText: "Report daily.",
+	}
+	applied, suggested, rejected, _, err := o.OptimizeSubject(context.Background(), nil, ev)
+	if err != nil {
+		t.Fatalf("OptimizeSubject: %v", err)
+	}
+	if len(applied) != 0 || len(rejected) != 0 || len(suggested) != 1 {
+		t.Fatalf("squad replace should be suggested-only: applied=%v suggested=%v rejected=%v", applied, suggested, rejected)
+	}
+}
+
+func TestOptimizeAutopilotSuggestedOnly(t *testing.T) {
+	o := stubOptimizer(NewOptimizer())
+	o.ProviderLLM = (&fakeLLM{
+		proposalText: `[{"edit_type":"add","after":"[巡检] {{date}} — 例行检查","rationale":"title prefix"}]`,
+	}).provider
+	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":85,"reason":"clear title"}`}).validator
+
+	ev := OptimizeEvidence{
+		TargetType:  SubjectAutopilot,
+		TargetID:    pgtypeUUID(t, "44444444-4444-4444-4444-444444444444"),
+		TargetName:  "巡检",
+		CurrentText: "{{date}} 巡检",
+	}
+	applied, suggested, rejected, _, err := o.OptimizeSubject(context.Background(), nil, ev)
+	if err != nil {
+		t.Fatalf("OptimizeSubject: %v", err)
+	}
+	if len(applied) != 0 || len(rejected) != 0 || len(suggested) != 1 {
+		t.Fatalf("autopilot edit should be suggested-only: applied=%v suggested=%v rejected=%v", applied, suggested, rejected)
+	}
+}
+
+// ---------- safety tokens (0.5.3 narrowing) ----------
+
+func TestSafetyTokenNarrowing(t *testing.T) {
+	// 0.5.3: 必须 / 不得 were removed from the hard-block list — they are
+	// high-frequency instruction verbs. deny/never/confirm/secret/禁止/不可
+	// still block auto-apply.
+	if !touchesSafetyToken("deny access") {
+		t.Fatalf("deny must block")
+	}
+	if !touchesSafetyToken("never reveal") {
+		t.Fatalf("never must block")
+	}
+	if !touchesSafetyToken("confirm before") {
+		t.Fatalf("confirm must block")
+	}
+	if !touchesSafetyToken("secret value") {
+		t.Fatalf("secret must block")
+	}
+	if !touchesSafetyToken("禁止删除") {
+		t.Fatalf("禁止 must block")
+	}
+	if !touchesSafetyToken("不可覆盖") {
+		t.Fatalf("不可 must block")
+	}
+	// Narrowed: instruction verbs no longer block.
+	if touchesSafetyToken("必须完成任务") {
+		t.Fatalf("必须 must NOT block (narrowed 0.5.3)")
+	}
+	if touchesSafetyToken("不得超时") {
+		t.Fatalf("不得 must NOT block (narrowed 0.5.3)")
+	}
+}
+
+// ---------- thresholds ----------
+
+func TestClassifyApplicationThresholds(t *testing.T) {
 	// Direct threshold checks.
 	if ProposeFloor != 60.0 {
 		t.Fatalf("ProposeFloor = %v; want 60", ProposeFloor)
@@ -313,8 +460,11 @@ func TestClassifyApplication(t *testing.T) {
 	if AutoApplyGate != 90.0 {
 		t.Fatalf("AutoApplyGate = %v; want 90", AutoApplyGate)
 	}
-	if MinAutoApplyTrustScore != 8.0 {
-		t.Fatalf("MinAutoApplyTrustScore = %v; want 8", MinAutoApplyTrustScore)
+	if RetainTrustScore != 8.0 {
+		t.Fatalf("RetainTrustScore = %v; want 8", RetainTrustScore)
+	}
+	if OptimizeTrustThreshold != 7.0 {
+		t.Fatalf("OptimizeTrustThreshold = %v; want 7", OptimizeTrustThreshold)
 	}
 }
 
@@ -325,16 +475,16 @@ func num(v float64) pgtype.Numeric {
 }
 
 // TestRevalidateAppliedEditsShortCircuits pins the post-hoc commit gate's
-// (0.5.2 adversarial review d1) DB-free no-op path: an invalid agent id must
+// (0.5.2 adversarial review d1) DB-free no-op path: an invalid target id must
 // return nil without touching the database. The DB-backed re-score + rollback
 // path is covered by the handler-level integration tests against the real
 // schema.
 func TestRevalidateAppliedEditsShortCircuits(t *testing.T) {
 	o := stubOptimizer(NewOptimizer())
 
-	// Invalid agent id → no DB access, nil error.
-	if err := o.RevalidateAppliedEdits(context.Background(), nil, db.Agent{}, pgtypeUUID(t, "22222222-2222-2222-2222-222222222222")); err != nil {
-		t.Fatalf("invalid agent id should short-circuit: %v", err)
+	// Invalid target id → no DB access, nil error.
+	if err := o.RevalidateAppliedEdits(context.Background(), nil, SubjectAgent, pgtype.UUID{}, "x", "", pgtypeUUID(t, "22222222-2222-2222-2222-222222222222")); err != nil {
+		t.Fatalf("invalid target id should short-circuit: %v", err)
 	}
 
 	// Cheap invariant: the retain floor must sit at ProposeFloor (an applied

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -853,6 +854,15 @@ func (h *Handler) DeleteAutopilot(w http.ResponseWriter, r *http.Request) {
 	if err := qtx.DeleteAutopilot(r.Context(), idUUID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete autopilot")
 		return
+	}
+	// 0.5.3 delete-closure: the autopilot's optimization edit ledger must
+	// disappear with it (agent_opt_edit.target_id carries no FK).
+	if err := qtx.DeleteAgentOptEditsBySubject(r.Context(), db.DeleteAgentOptEditsBySubjectParams{
+		TargetType:  "autopilot",
+		TargetID:    idUUID,
+		WorkspaceID: wsUUID,
+	}); err != nil {
+		slog.Warn("delete autopilot: purge opt edits failed", "autopilot_id", uuidToString(idUUID), "error", err)
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete autopilot")

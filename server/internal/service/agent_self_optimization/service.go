@@ -326,6 +326,9 @@ func (s *Service) recordOptEdits(ctx context.Context, runID, workspaceID pgtype.
 		}
 		if _, err := s.queries.CreateAgentOptEdit(ctx, db.CreateAgentOptEditParams{
 			AgentID:              edit.AgentID,
+			TargetType:           edit.TargetType,
+			TargetID:             edit.TargetID,
+			SubjectScope:         edit.Scope,
 			RunID:                runID,
 			WorkspaceID:          workspaceID,
 			EditType:             edit.EditType,
@@ -342,7 +345,7 @@ func (s *Service) recordOptEdits(ctx context.Context, runID, workspaceID pgtype.
 			CorrectedTaskID:      correctedTaskID,
 		}); err != nil {
 			slog.Warn("agent-self-opt: edit ledger write failed",
-				"run", runID, "agent", edit.AgentName, "err", err)
+				"run", runID, "subject", edit.TargetName, "err", err)
 		}
 	}
 	for _, e := range result.OptEdits {

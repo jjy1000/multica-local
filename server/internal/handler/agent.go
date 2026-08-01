@@ -1477,12 +1477,11 @@ func (h *Handler) ArchiveAgent(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("archive agent: purge trust events failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
 	}
 	if err := h.Queries.DeleteAgentOptEditsByAgent(r.Context(), db.DeleteAgentOptEditsByAgentParams{
-		AgentID:     agent.ID,
+		TargetID:    agent.ID,
 		WorkspaceID: wsIDForPurge,
 	}); err != nil {
 		slog.Warn("archive agent: purge opt edits failed", append(logger.RequestAttrs(r), "error", err, "agent_id", id)...)
 	}
-
 	wsID := uuidToString(archived.WorkspaceID)
 	slog.Info("agent archived", append(logger.RequestAttrs(r), "agent_id", id, "workspace_id", wsID)...)
 	resp := agentToResponse(archived)

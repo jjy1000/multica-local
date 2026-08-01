@@ -566,6 +566,16 @@ func (h *Handler) DeleteSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete skill")
 		return
 	}
+	// 0.5.3 delete-closure: the skill's optimization edit ledger must
+	// disappear with it (agent_opt_edit.target_id carries no FK; the
+	// self-opt loop must not keep proposing edits for a deleted skill).
+	if err := h.Queries.DeleteAgentOptEditsBySubject(r.Context(), db.DeleteAgentOptEditsBySubjectParams{
+		TargetType:  "skill",
+		TargetID:    skill.ID,
+		WorkspaceID: skill.WorkspaceID,
+	}); err != nil {
+		slog.Warn("delete skill: purge opt edits failed", "skill_id", uuidToString(skill.ID), "error", err)
+	}
 	actorType, actorID := h.resolveActor(r, requestUserID(r), uuidToString(skill.WorkspaceID))
 	h.publish(protocol.EventSkillDeleted, uuidToString(skill.WorkspaceID), actorType, actorID, map[string]any{"skill_id": uuidToString(skill.ID)})
 	w.WriteHeader(http.StatusNoContent)
