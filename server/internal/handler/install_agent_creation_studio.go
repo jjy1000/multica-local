@@ -58,7 +58,62 @@ func (h *Handler) InstallAgentCreationStudio(ctx context.Context, userID, worksp
 	if err := experimental.Claim(ctx, h.Queries, agentCreationStudioSource, experimental.LockAgent, agentID); err != nil {
 		return fmt.Errorf("agent lock: %w", err)
 	}
+	// 0.5.3 visibility: hide the workspace's agent-engineering resources
+	// (智能体工程师团队 squad + its members) from the regular agent/squad
+	// lists — they are lab infrastructure, shown only when the lab flag is
+	// on. By-name lookup keeps this generic across workspaces; a missing
+	// member is skipped (the lab's own leader is provisioned above).
+	upsertAgentCreationStudioVisibility(ctx, h, workspaceUUID)
 	return nil
+}
+
+// agentCreationStudioTeam is the squad + member names whose resources must
+// be hidden behind the lab flag (migration 234 seeds this for the primary
+// workspace; this helper re-seeds by name for any workspace).
+const agentCreationStudioTeam = "智能体工程师团队"
+
+var agentCreationStudioMemberNames = []string{
+	"智能体工程负责人",
+	"智能体专家",
+	"外挂知识库专家",
+	"自动化专家",
+	"技能专家",
+	"智能体优化专家",
+}
+
+// upsertAgentCreationStudioVisibility resolves the engineering squad +
+// members by name in the workspace and seeds their visibility rows under
+// the agent_creation_studio flag. Idempotent (ON CONFLICT DO NOTHING);
+// missing rows are skipped silently — the squad may not exist in every
+// workspace.
+func upsertAgentCreationStudioVisibility(ctx context.Context, h *Handler, workspaceID pgtype.UUID) {
+	if h == nil || h.Queries == nil {
+		return
+	}
+	if sq, err := h.Queries.GetSquadByWorkspaceAndName(ctx, db.GetSquadByWorkspaceAndNameParams{
+		WorkspaceID: workspaceID,
+		Name:        agentCreationStudioTeam,
+	}); err == nil {
+		_ = h.Queries.InsertExperimentalResourceVisibility(ctx, db.InsertExperimentalResourceVisibilityParams{
+			FlagKey:      agentCreationStudioSource,
+			ResourceType: string(experimental.HideSquad),
+			ResourceID:   sq.ID,
+		})
+	}
+	for _, name := range agentCreationStudioMemberNames {
+		ag, err := h.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
+			WorkspaceID: workspaceID,
+			Name:        name,
+		})
+		if err != nil {
+			continue // not present in this workspace; skip
+		}
+		_ = h.Queries.InsertExperimentalResourceVisibility(ctx, db.InsertExperimentalResourceVisibilityParams{
+			FlagKey:      agentCreationStudioSource,
+			ResourceType: string(experimental.HideAgent),
+			ResourceID:   ag.ID,
+		})
+	}
 }
 
 // upsertAgentCreationExpert finds-or-creates the studio leader agent.
