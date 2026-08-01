@@ -66,12 +66,17 @@ type agentSelfOptAutopilotSpec struct {
 func agentSelfOptAutopilots() []agentSelfOptAutopilotSpec {
 	return []agentSelfOptAutopilotSpec{
 		{
-			title:       "SkillOpt-Multica 每日自进化循环",
+			// 0.5.3: title matches the legacy 2026-06 row (migration 150
+			// seeded its visibility ID). The pre-0.5.3 no-space titles
+			// created DUPLICATE rows on re-install whose visibility never
+			// landed (migration 235 fixes the existing dupes). Keep the
+			// space-separated titles so re-install upserts the SAME row.
+			title:       "SkillOpt-Multica · 每日 00:00 自进化循环",
 			description: "SkillOpt-Multica · 每日 00:00 自进化循环,对工作区的 Skill 做体检与改进。",
 			cron:        "0 0 * * *",
 		},
 		{
-			title:       "智能体工程师团队·每3工作日批量优化",
+			title:       "智能体工程师团队 · 每3工作日批量优化",
 			description: "智能体工程师团队驱动的每3工作日批量优化任务。",
 			cron:        "0 2 * * 1-5", // weekday 02:00 (3 workday cadence is enforced by shouldSkipDispatch, not the cron)
 		},
