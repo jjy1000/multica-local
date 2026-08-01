@@ -232,6 +232,7 @@ func (s *Service) runScheduler(ctx context.Context, userID, workspaceID pgtype.U
 		}
 	}
 }
+
 // executeRun is the shared body for both the scheduler tick path
 // and the manual-trigger HTTP path. Returns the created run row id.
 func (s *Service) executeRun(ctx context.Context, runID pgtype.UUID, workspaceID pgtype.UUID, triggerKind string, kb KBWriter) {
@@ -251,19 +252,102 @@ func (s *Service) executeRun(ctx context.Context, runID pgtype.UUID, workspaceID
 		return
 	}
 
+	// 0.5.2: deferred path — source data too thin. Persist the deferral
+	// instead of a report; the scheduler re-attempts after the window.
+	if result.Deferred {
+		if _, derr := s.queries.UpdateAgentSelfOptRunDeferred(ctx, db.UpdateAgentSelfOptRunDeferredParams{
+			ID:             runID,
+			DeferredReason: pgtype.Text{String: result.DeferredReason, Valid: true},
+			DeferredUntil:  pgtype.Timestamptz{Time: result.DeferredUntil, Valid: true},
+			DataCount:      int32(result.DataCount),
+		}); derr != nil {
+			slog.Warn("agent-self-opt: deferral persist failed",
+				"run", runID, "err", derr)
+		}
+		slog.Info("agent-self-opt: run deferred (insufficient data)",
+			"run", runID, "reason", result.DeferredReason)
+		return
+	}
+
+	// 0.5.2: record SkillOpt edits in the ledger (accepted + rejected both
+	// count as experience for the next run).
+	s.recordOptEdits(ctx, runID, workspaceID, result)
+
 	promptJSON, mErr := MarshalPromptSuggestions(result.PromptSuggestions)
 	if mErr != nil {
 		slog.Warn("agent-self-opt: marshal suggestions failed",
 			"run", runID, "err", mErr)
 	}
 	_, _ = s.queries.UpdateAgentSelfOptRunResult(ctx, db.UpdateAgentSelfOptRunResultParams{
-		ID:                  runID,
-		PromptSuggestions:   promptJSON,
-		ReportMd:            pgtype.Text{String: result.ReportMarkdown, Valid: true},
-		SourceIssueCount:    int32(result.SourceIssueCount),
-		KbAppendixPath:      pgtype.Text{String: result.KBAppendixPath, Valid: result.KBAppendixPath != ""},
-		CreatedIssueID:      result.CreatedIssueID,
+		ID:                runID,
+		PromptSuggestions: promptJSON,
+		ReportMd:          pgtype.Text{String: result.ReportMarkdown, Valid: true},
+		SourceIssueCount:  int32(result.SourceIssueCount),
+		KbAppendixPath:    pgtype.Text{String: result.KBAppendixPath, Valid: result.KBAppendixPath != ""},
+		CreatedIssueID:    result.CreatedIssueID,
 	})
+}
+
+// recordOptEdits persists every instruction edit of a run into
+// agent_opt_edit with its application state (applied / suggested /
+// rejected) + validation score. Applied edits were already written back
+// to agent.instructions by the runner; suggested edits wait for human
+// confirmation; rejected edits are permanent negative experience.
+func (s *Service) recordOptEdits(ctx context.Context, runID, workspaceID pgtype.UUID, result *RunResult) {
+	record := func(edit InstructionEdit) {
+		if !edit.AgentID.Valid {
+			return
+		}
+		app := string(edit.Application)
+		if app == "" {
+			// Backward-compat default: pre-0.5.2 callers that only set
+			// Accepted fall back to applied/rejected.
+			if edit.Accepted {
+				app = string(ApplicationApplied)
+			} else {
+				app = string(ApplicationRejected)
+			}
+		}
+		var score pgtype.Numeric
+		if edit.ValidationScore > 0 {
+			_ = score.Scan(fmt.Sprintf("%.1f", edit.ValidationScore))
+		}
+		// applied_by is ONLY meaningful for applied edits (design-review d4:
+		// a rejected/suggested edit recording applied_by=auto is misleading).
+		// Non-applied edits write NULL (nullable column + sqlc.narg) so the
+		// row passes the CHECK and the ledger records "not applied by anyone".
+		var appliedBy pgtype.Text
+		if edit.Application == ApplicationApplied {
+			appliedBy = pgtype.Text{String: "auto", Valid: true}
+		}
+		var correctedTaskID pgtype.UUID
+		if edit.CorrectedTaskID.Valid {
+			correctedTaskID = edit.CorrectedTaskID
+		}
+		if _, err := s.queries.CreateAgentOptEdit(ctx, db.CreateAgentOptEditParams{
+			AgentID:              edit.AgentID,
+			RunID:                runID,
+			WorkspaceID:          workspaceID,
+			EditType:             edit.EditType,
+			BeforeText:           edit.BeforeText,
+			AfterText:            edit.AfterText,
+			Rationale:            pgtype.Text{String: edit.Rationale, Valid: edit.Rationale != ""},
+			Accepted:             edit.Application == ApplicationApplied,
+			Iteration:            1,
+			Application:          app,
+			ValidationScore:      score,
+			ValidationReason:     pgtype.Text{String: edit.ValidationReason, Valid: edit.ValidationReason != ""},
+			InstructionsSnapshot: pgtype.Text{String: edit.Snapshot, Valid: edit.Snapshot != ""},
+			AppliedBy:            appliedBy,
+			CorrectedTaskID:      correctedTaskID,
+		}); err != nil {
+			slog.Warn("agent-self-opt: edit ledger write failed",
+				"run", runID, "agent", edit.AgentName, "err", err)
+		}
+	}
+	for _, e := range result.OptEdits {
+		record(e)
+	}
 }
 
 // MaxRunLifetime caps how long a single runner can hold status='running'.
@@ -271,6 +355,38 @@ func (s *Service) executeRun(ctx context.Context, runID pgtype.UUID, workspaceID
 // is bounded by the SQL scan + heuristic computation, which should
 // complete in well under an hour even on a 1000-issue workspace.
 const MaxRunLifetime = 2 * time.Hour
+
+// SuggestionExpiryWindow is how long an undecided suggestion may wait
+// before the expiry sweep soft-archives it to 'ignored' (NOT 'rejected' —
+// design-review verdict: a busy user's inaction must not poison the
+// rejection buffer). ~3 weekly runs.
+var SuggestionExpiryWindow = 21 * 24 * time.Hour
+
+// expireSuggestions soft-archives suggestions older than the expiry window
+// to 'ignored'. Runs once per scheduler tick (cheap, bounded). Ignored
+// edits stay re-proposable with fresh validation; they never enter the
+// rejection buffer.
+func (s *Service) expireSuggestions(ctx context.Context) {
+	rows, err := s.queries.ListExpiredSuggestedAgentOptEdits(ctx, db.ListExpiredSuggestedAgentOptEditsParams{
+		CreatedAt: pgtype.Timestamptz{Time: time.Now().Add(-SuggestionExpiryWindow), Valid: true},
+		Limit:     200,
+	})
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	ids := make([]pgtype.UUID, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.ID)
+	}
+	if err := s.queries.UpdateAgentOptEditApplicationByIDs(ctx, db.UpdateAgentOptEditApplicationByIDsParams{
+		Column1:     ids,
+		Application: string(ApplicationIgnored),
+	}); err != nil {
+		slog.Warn("agent-self-opt: suggestion expiry sweep failed", "err", err)
+		return
+	}
+	slog.Info("agent-self-opt: suggestions expired to ignored", "count", len(rows))
+}
 
 // maybeFire runs the gate check + advisory lock + Run() call. The
 // advisory lock keeps two daemons (or a daemon + a manual CLI
@@ -285,6 +401,10 @@ func (s *Service) maybeFire(ctx context.Context, userID, workspaceID pgtype.UUID
 	if !flagOnForUser(ctx, s.queries, userID) {
 		return
 	}
+	// 0.5.2: run the suggestion expiry sweep on the first tick of a
+	// schedule so undecided suggestions degrade to 'ignored' instead of
+	// rotting in the queue (design-review verdict: never expire-to-rejected).
+	s.expireSuggestions(ctx)
 	// 1. Last successful run → schedule reference point.
 	var lastSuccess time.Time
 	last, err := s.queries.LastSuccessfulAgentSelfOptRun(ctx, workspaceID)
@@ -296,6 +416,22 @@ func (s *Service) maybeFire(ctx context.Context, userID, workspaceID pgtype.UUID
 		return
 	}
 
+	// 1b. Deferral gate (0.5.2): if the latest run is still parked as
+	// 'deferred' and its retry window has not passed, skip this tick.
+	// The runner parked the run because the source data was too thin;
+	// re-firing now would just produce another thin report.
+	deferred, derr := s.queries.LatestDeferredAgentSelfOptRun(ctx, workspaceID)
+	if derr == nil && deferred.DeferredUntil.Valid && time.Now().Before(deferred.DeferredUntil.Time) {
+		slog.Info("agent-self-opt: run deferred, retry window not passed",
+			"workspace", workspaceID, "run", deferred.ID,
+			"until", deferred.DeferredUntil.Time)
+		return
+	} else if derr != nil && derr != pgx.ErrNoRows {
+		slog.Warn("agent-self-opt: read deferred run failed",
+			"workspace", workspaceID, "err", derr)
+		return
+	}
+
 	s.mu.Lock()
 	loc := s.localClock
 	kb := s.kb
@@ -304,6 +440,20 @@ func (s *Service) maybeFire(ctx context.Context, userID, workspaceID pgtype.UUID
 	next := NextTrigger(lastSuccess, time.Now(), loc)
 	if time.Now().Before(next) {
 		// Not yet — try again next tick.
+		return
+	}
+
+	// 1c. In-flight guard (0.5.2): a catch-up tick can race a manual
+	// trigger or a Resume re-launch. Stacking runs on the same workspace
+	// ends in duplicate issue-number errors; skip when one is already
+	// pending/running.
+	active, aerr := s.queries.CountActiveAgentSelfOptRuns(ctx, workspaceID)
+	if aerr != nil {
+		slog.Warn("agent-self-opt: count active runs failed", "workspace", workspaceID, "err", aerr)
+		return
+	}
+	if active > 0 {
+		slog.Info("agent-self-opt: run already in flight; skip", "workspace", workspaceID, "active", active)
 		return
 	}
 
@@ -364,6 +514,16 @@ func (s *Service) maybeFire(ctx context.Context, userID, workspaceID pgtype.UUID
 func (s *Service) TriggerManualRun(ctx context.Context, callerUserID, workspaceID pgtype.UUID) (pgtype.UUID, error) {
 	if !flagOnForUser(ctx, s.queries, callerUserID) {
 		return pgtype.UUID{}, fmt.Errorf("agent_self_optimization flag is off for caller")
+	}
+	// 0.5.2 in-flight guard (same as the scheduler tick): a manual trigger
+	// while a catch-up run is active would stack runs and race the issue
+	// number constraint.
+	active, aerr := s.queries.CountActiveAgentSelfOptRuns(ctx, workspaceID)
+	if aerr != nil {
+		return pgtype.UUID{}, fmt.Errorf("count active runs: %w", aerr)
+	}
+	if active > 0 {
+		return pgtype.UUID{}, fmt.Errorf("a self-opt run is already in flight for this workspace")
 	}
 	pending, err := s.queries.CreateAgentSelfOptRun(ctx, db.CreateAgentSelfOptRunParams{
 		WorkspaceID: workspaceID,

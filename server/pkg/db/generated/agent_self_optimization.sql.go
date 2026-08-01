@@ -11,6 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countActiveAgentSelfOptRuns = `-- name: CountActiveAgentSelfOptRuns :one
+SELECT COUNT(*)
+FROM agent_self_opt_run
+WHERE workspace_id = $1
+  AND status IN ('pending', 'running')
+`
+
+// 0.5.2: how many runs are pending or running for a workspace. The
+// scheduler + manual trigger consult this before creating a new run so
+// concurrent triggers (catch-up tick + manual button + Resume) cannot
+// stack runs that race on the issue-number unique constraint.
+func (q *Queries) CountActiveAgentSelfOptRuns(ctx context.Context, workspaceID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countActiveAgentSelfOptRuns, workspaceID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAgentSelfOptRun = `-- name: CreateAgentSelfOptRun :one
 
 INSERT INTO agent_self_opt_run (
@@ -18,7 +36,7 @@ INSERT INTO agent_self_opt_run (
 ) VALUES (
     $1, $2, $3
 )
-RETURNING id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id
+RETURNING id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id, deferred_reason, deferred_until, data_count
 `
 
 type CreateAgentSelfOptRunParams struct {
@@ -52,12 +70,15 @@ func (q *Queries) CreateAgentSelfOptRun(ctx context.Context, arg CreateAgentSelf
 		&i.KbAppendixPath,
 		&i.ErrorMessage,
 		&i.CreatedIssueID,
+		&i.DeferredReason,
+		&i.DeferredUntil,
+		&i.DataCount,
 	)
 	return i, err
 }
 
 const getAgentSelfOptRun = `-- name: GetAgentSelfOptRun :one
-SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id
+SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id, deferred_reason, deferred_until, data_count
 FROM agent_self_opt_run
 WHERE id = $1
 `
@@ -80,6 +101,9 @@ func (q *Queries) GetAgentSelfOptRun(ctx context.Context, id pgtype.UUID) (Agent
 		&i.KbAppendixPath,
 		&i.ErrorMessage,
 		&i.CreatedIssueID,
+		&i.DeferredReason,
+		&i.DeferredUntil,
+		&i.DataCount,
 	)
 	return i, err
 }
@@ -108,7 +132,7 @@ func (q *Queries) GetExperimentalPrefEnabled(ctx context.Context, arg GetExperim
 }
 
 const lastSuccessfulAgentSelfOptRun = `-- name: LastSuccessfulAgentSelfOptRun :one
-SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id
+SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id, deferred_reason, deferred_until, data_count
 FROM agent_self_opt_run
 WHERE workspace_id = $1
   AND status = 'done'
@@ -135,12 +159,50 @@ func (q *Queries) LastSuccessfulAgentSelfOptRun(ctx context.Context, workspaceID
 		&i.KbAppendixPath,
 		&i.ErrorMessage,
 		&i.CreatedIssueID,
+		&i.DeferredReason,
+		&i.DeferredUntil,
+		&i.DataCount,
+	)
+	return i, err
+}
+
+const latestDeferredAgentSelfOptRun = `-- name: LatestDeferredAgentSelfOptRun :one
+SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id, deferred_reason, deferred_until, data_count
+FROM agent_self_opt_run
+WHERE workspace_id = $1
+  AND status = 'deferred'
+ORDER BY started_at DESC
+LIMIT 1
+`
+
+// 0.5.2: the scheduler consults this before firing a new run — if the
+// latest run for the workspace is still deferred (retry window open),
+// the ticker skips rather than stacking another run.
+func (q *Queries) LatestDeferredAgentSelfOptRun(ctx context.Context, workspaceID pgtype.UUID) (AgentSelfOptRun, error) {
+	row := q.db.QueryRow(ctx, latestDeferredAgentSelfOptRun, workspaceID)
+	var i AgentSelfOptRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Status,
+		&i.TriggerKind,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.SourceIssueCount,
+		&i.PromptSuggestions,
+		&i.ReportMd,
+		&i.KbAppendixPath,
+		&i.ErrorMessage,
+		&i.CreatedIssueID,
+		&i.DeferredReason,
+		&i.DeferredUntil,
+		&i.DataCount,
 	)
 	return i, err
 }
 
 const listAgentSelfOptRunsByWorkspace = `-- name: ListAgentSelfOptRunsByWorkspace :many
-SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id
+SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id, deferred_reason, deferred_until, data_count
 FROM agent_self_opt_run
 WHERE workspace_id = $1
 ORDER BY started_at DESC
@@ -178,6 +240,9 @@ func (q *Queries) ListAgentSelfOptRunsByWorkspace(ctx context.Context, arg ListA
 			&i.KbAppendixPath,
 			&i.ErrorMessage,
 			&i.CreatedIssueID,
+			&i.DeferredReason,
+			&i.DeferredUntil,
+			&i.DataCount,
 		); err != nil {
 			return nil, err
 		}
@@ -325,7 +390,7 @@ func (q *Queries) ListOptedInUsers(ctx context.Context) ([]pgtype.UUID, error) {
 }
 
 const listPendingAgentSelfOptRuns = `-- name: ListPendingAgentSelfOptRuns :many
-SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id
+SELECT id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id, deferred_reason, deferred_until, data_count
 FROM agent_self_opt_run
 WHERE status IN ('pending', 'running')
 ORDER BY started_at ASC
@@ -355,6 +420,9 @@ func (q *Queries) ListPendingAgentSelfOptRuns(ctx context.Context) ([]AgentSelfO
 			&i.KbAppendixPath,
 			&i.ErrorMessage,
 			&i.CreatedIssueID,
+			&i.DeferredReason,
+			&i.DeferredUntil,
+			&i.DataCount,
 		); err != nil {
 			return nil, err
 		}
@@ -384,6 +452,55 @@ func (q *Queries) LockAgentSelfOptRun(ctx context.Context, dollar_1 string) (boo
 	return locked, err
 }
 
+const updateAgentSelfOptRunDeferred = `-- name: UpdateAgentSelfOptRunDeferred :one
+UPDATE agent_self_opt_run
+SET status = 'deferred',
+    deferred_reason = $2,
+    deferred_until = $3,
+    data_count = $4,
+    finished_at = now()
+WHERE id = $1
+RETURNING id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id, deferred_reason, deferred_until, data_count
+`
+
+type UpdateAgentSelfOptRunDeferredParams struct {
+	ID             pgtype.UUID        `json:"id"`
+	DeferredReason pgtype.Text        `json:"deferred_reason"`
+	DeferredUntil  pgtype.Timestamptz `json:"deferred_until"`
+	DataCount      int32              `json:"data_count"`
+}
+
+// 0.5.2: park a run whose source data is too thin. status='deferred',
+// deferred_until = the retry window after which the scheduler may
+// re-attempt it. The run stays visible in history with a hint.
+func (q *Queries) UpdateAgentSelfOptRunDeferred(ctx context.Context, arg UpdateAgentSelfOptRunDeferredParams) (AgentSelfOptRun, error) {
+	row := q.db.QueryRow(ctx, updateAgentSelfOptRunDeferred,
+		arg.ID,
+		arg.DeferredReason,
+		arg.DeferredUntil,
+		arg.DataCount,
+	)
+	var i AgentSelfOptRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.Status,
+		&i.TriggerKind,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.SourceIssueCount,
+		&i.PromptSuggestions,
+		&i.ReportMd,
+		&i.KbAppendixPath,
+		&i.ErrorMessage,
+		&i.CreatedIssueID,
+		&i.DeferredReason,
+		&i.DeferredUntil,
+		&i.DataCount,
+	)
+	return i, err
+}
+
 const updateAgentSelfOptRunResult = `-- name: UpdateAgentSelfOptRunResult :one
 UPDATE agent_self_opt_run
 SET prompt_suggestions = $2,
@@ -394,7 +511,7 @@ SET prompt_suggestions = $2,
     status = 'done',
     finished_at = now()
 WHERE id = $1
-RETURNING id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id
+RETURNING id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id, deferred_reason, deferred_until, data_count
 `
 
 type UpdateAgentSelfOptRunResultParams struct {
@@ -433,6 +550,9 @@ func (q *Queries) UpdateAgentSelfOptRunResult(ctx context.Context, arg UpdateAge
 		&i.KbAppendixPath,
 		&i.ErrorMessage,
 		&i.CreatedIssueID,
+		&i.DeferredReason,
+		&i.DeferredUntil,
+		&i.DataCount,
 	)
 	return i, err
 }
@@ -444,7 +564,7 @@ SET status = $2,
                        THEN now() ELSE finished_at END,
     error_message = $3
 WHERE id = $1
-RETURNING id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id
+RETURNING id, workspace_id, status, trigger_kind, started_at, finished_at, source_issue_count, prompt_suggestions, report_md, kb_appendix_path, error_message, created_issue_id, deferred_reason, deferred_until, data_count
 `
 
 type UpdateAgentSelfOptRunStatusParams struct {
@@ -472,6 +592,9 @@ func (q *Queries) UpdateAgentSelfOptRunStatus(ctx context.Context, arg UpdateAge
 		&i.KbAppendixPath,
 		&i.ErrorMessage,
 		&i.CreatedIssueID,
+		&i.DeferredReason,
+		&i.DeferredUntil,
+		&i.DataCount,
 	)
 	return i, err
 }

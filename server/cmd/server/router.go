@@ -31,8 +31,9 @@ import (
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
-	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
+	agent_trust "github.com/multica-ai/multica/server/internal/service/agent_trust"
+	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
@@ -178,6 +179,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		h.DaemonFeatureFlags = featureflagdispatch.NewEvaluator(opts.FeatureFlags)
 	}
 	h.TaskService.Metrics = opts.BusinessMetrics
+	// Trust gate (0.5.2): wire the agent_self_optimization trust service so
+	// completed sub-agent tasks go through score-gated self-review. Always
+	// on (the reviewer itself fail-opens when no provider CLI exists).
+	h.TaskService.Trust = agent_trust.NewService()
+	h.TrustService = agent_trust.NewService()
 	h.IssueService.Metrics = opts.BusinessMetrics
 	if opts.DaemonWakeup != nil {
 		h.TaskService.Wakeup = opts.DaemonWakeup
@@ -898,6 +904,24 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Post("/runs", h.TriggerSelfOptRun)
 			r.Get("/runs/{id}", h.GetSelfOptRun)
 			r.Post("/runs/{id}/cancel", h.CancelSelfOptRun)
+			// 0.5.2: edit ledger (human-confirm tier). {id} routes must be
+			// distinct from {id} above — chi matches by segment count, so
+			// /edits and /runs are separate subtrees (no conflict).
+			r.Get("/edits", h.ListSelfOptEdits)
+			r.Post("/edits/{id}/apply", h.ApplySelfOptEdit)
+			r.Post("/edits/{id}/reject", h.RejectSelfOptEdit)
+			r.Post("/edits/{id}/ignore", h.IgnoreSelfOptEdit)
+			r.Post("/edits/{id}/revert", h.RevertSelfOptEdit)
+		})
+
+		// 0.5.2: agent trust score + self-review ledger. Same gating style
+		// as /api/experimental/self-opt (per-user flag check inside the
+		// handlers; flag off → 404).
+		r.Route("/api/experimental/trust", func(r chi.Router) {
+			r.Get("/profiles", h.ListTrustProfiles)
+			r.Get("/events", h.ListTrustEvents)
+			r.Post("/{agentId}/correct", h.CorrectAgentTrust)
+			r.Post("/{agentId}/review", h.ReviewAgentTrust)
 		})
 
 		// --- User-scoped routes (no workspace context required) ---

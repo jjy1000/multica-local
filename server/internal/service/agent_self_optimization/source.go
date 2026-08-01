@@ -103,7 +103,7 @@ func NewSourceFilter(ctx context.Context, q *db.Queries) (*SourceFilter, error) 
 		hidden = append(hidden, id)
 	}
 	return &SourceFilter{
-		HiddenAgentIDs:  hidden,
+		HiddenAgentIDs:   hidden,
 		HiddenAgentNames: append([]string(nil), hiddenAgentNames...),
 	}, nil
 }

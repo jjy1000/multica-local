@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -53,34 +54,71 @@ const LookbackWindow = 30 * 24 * time.Hour
 // column. The shape is append-only — adding fields does not break
 // existing rows because the renderer ignores unknown keys.
 type PromptSuggestion struct {
-	AgentID          uuid.UUID `json:"agent_id"`
-	AgentName        string    `json:"agent_name"`
-	CurrentExcerpt   string    `json:"current_excerpt,omitempty"`
-	SuggestedChange  string    `json:"suggested_change"`
-	Rationale        string    `json:"rationale"`
-	Confidence       float64   `json:"confidence"` // 0.0-1.0
-	BackingIssueIDs  []uuid.UUID `json:"backing_issue_ids,omitempty"`
+	AgentID         uuid.UUID   `json:"agent_id"`
+	AgentName       string      `json:"agent_name"`
+	CurrentExcerpt  string      `json:"current_excerpt,omitempty"`
+	SuggestedChange string      `json:"suggested_change"`
+	Rationale       string      `json:"rationale"`
+	Confidence      float64     `json:"confidence"` // 0.0-1.0
+	BackingIssueIDs []uuid.UUID `json:"backing_issue_ids,omitempty"`
 }
 
 // RunReport is the markdown report rendered into
 // agent_self_opt_run.report_md. Sections are stable (the renderer
 // parses by heading); new sections go below.
 type RunReport struct {
-	WorkspaceID      uuid.UUID         `json:"-"`
-	StartedAt        time.Time         `json:"started_at"`
-	FinishedAt       time.Time         `json:"finished_at"`
-	SourceIssueCount int               `json:"source_issue_count"`
+	WorkspaceID      uuid.UUID          `json:"-"`
+	StartedAt        time.Time          `json:"started_at"`
+	FinishedAt       time.Time          `json:"finished_at"`
+	SourceIssueCount int                `json:"source_issue_count"`
 	Suggestions      []PromptSuggestion `json:"suggestions"`
-	FailureThemes    []FailureTheme    `json:"failure_themes,omitempty"`
+	FailureThemes    []FailureTheme     `json:"failure_themes,omitempty"`
+	// TrustLearning (0.5.2) is the "what did users correct and why" section:
+	// corrections + failed reviews in the scan window, folded into the
+	// learning loop (Boris Cherny ablation principle — remove → add back
+	// line by line → test).
+	TrustLearning []TrustLearningItem `json:"trust_learning,omitempty"`
+	// OptEdits (0.5.2): SkillOpt-style instruction edits from this run
+	// (applied + suggested + rejected, distinguished by Application),
+	// recorded in agent_opt_edit.
+	OptEdits []InstructionEdit `json:"opt_edits,omitempty"`
+	// SuggestedEdits (0.5.2): the subset of OptEdits awaiting human
+	// confirmation — surfaced in the view's 待确认建议 section.
+	SuggestedEdits []InstructionEdit `json:"suggested_edits,omitempty"`
+}
+
+// TrustLearningItem is one correction / failed-review event the runner
+// surfaces in the report so the user sees *why* agents keep failing.
+type TrustLearningItem struct {
+	AgentName string    `json:"agent_name"`
+	AgentID   uuid.UUID `json:"agent_id"`
+	EventType string    `json:"event_type"` // "correction" | "review_fail"
+	Note      string    `json:"note,omitempty"`
+	IssueID   uuid.UUID `json:"issue_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // FailureTheme is a heuristic cluster of titles that share keywords.
 // 0.3.46+ may replace this with an LLM-driven summary.
 type FailureTheme struct {
-	Theme      string   `json:"theme"`
-	IssueCount int      `json:"issue_count"`
+	Theme      string      `json:"theme"`
+	IssueCount int         `json:"issue_count"`
 	SampleIDs  []uuid.UUID `json:"sample_ids,omitempty"`
 }
+
+// MinIssuesForOptimize is the deferral threshold: below this many done
+// issues AND this few trust events the run is parked (deferred) instead
+// of producing a report — the optimizer would have no evidence to work
+// with (0.5.2 spec: "如果历史数据不够的则记录后待记录后进行优化").
+const MinIssuesForOptimize = 5
+
+// MinTrustEventsForOptimize is the companion threshold for the trust
+// ledger side of the deferral gate.
+const MinTrustEventsForOptimize = 3
+
+// DeferralRetryWindow is how long a deferred run waits before the
+// scheduler may re-attempt it (data accumulates in the meantime).
+const DeferralRetryWindow = 24 * time.Hour
 
 // RunInputs captures the per-run inputs the runner needs. Passed by
 // value so the runner is goroutine-safe across concurrent workspaces.
@@ -95,13 +133,24 @@ type RunInputs struct {
 
 // RunResult is what the runner returns to Service for persistence.
 type RunResult struct {
-	RunID              pgtype.UUID
-	CreatedIssueID     pgtype.UUID
-	SourceIssueCount   int
-	Report             RunReport
-	ReportMarkdown     string
-	PromptSuggestions  []PromptSuggestion
-	KBAppendixPath     string
+	RunID             pgtype.UUID
+	CreatedIssueID    pgtype.UUID
+	SourceIssueCount  int
+	Report            RunReport
+	ReportMarkdown    string
+	PromptSuggestions []PromptSuggestion
+	KBAppendixPath    string
+	// Deferred (0.5.2): when the source data is too thin, the runner sets
+	// this and the Service persists status='deferred' instead of 'done'.
+	Deferred       bool
+	DeferredReason string
+	DeferredUntil  time.Time
+	DataCount      int
+	// OptEdits (0.5.2): all edits proposed this run (applied / suggested /
+	// rejected), recorded in agent_opt_edit. SuggestedEdits is the subset
+	// awaiting human confirmation (surfaced in the 待确认建议 section).
+	OptEdits       []InstructionEdit
+	SuggestedEdits []InstructionEdit
 }
 
 // Run executes one self-opt pass. Caller (Service.Tick) holds the
@@ -164,11 +213,67 @@ func Run(ctx context.Context, q *db.Queries, inputs RunInputs, kb KBWriter) (*Ru
 		"matched", len(rows),
 		"filter", filter.String())
 
-	// 4. Group + derive suggestions (heuristic for MVP).
+	// 3b. Data-sufficiency gate (0.5.2): the optimizer needs evidence to
+	// work with. When the scan yields too few done issues AND the trust
+	// ledger is quiet, park the run as deferred (the Service persists
+	// status='deferred' + deferred_until) instead of burning a thin
+	// report. The scheduler re-attempts once the window passes.
+	trustCount, terr := q.CountAgentTrustEventsByType(ctx, db.CountAgentTrustEventsByTypeParams{
+		WorkspaceID: inputs.WorkspaceID,
+		EventType:   "correction",
+		CreatedAt:   pgtype.Timestamptz{Time: since, Valid: true},
+	})
+	if terr != nil {
+		slog.Warn("agent-self-opt: trust count failed; assuming 0", "workspace", inputs.WorkspaceID, "err", terr)
+	}
+	if len(rows) < MinIssuesForOptimize && int(trustCount) < MinTrustEventsForOptimize {
+		reason := fmt.Sprintf(
+			"insufficient data: %d done issues, %d trust corrections in window (need ≥ %d issues OR ≥ %d trust events)",
+			len(rows), trustCount, MinIssuesForOptimize, MinTrustEventsForOptimize)
+		return &RunResult{
+			Deferred:       true,
+			DeferredReason: reason,
+			DeferredUntil:  time.Now().Add(DeferralRetryWindow),
+			DataCount:      len(rows),
+		}, nil
+	}
+
+	// 3c. SkillOpt-style optimization (0.5.2): group evidence per agent
+	// and propose bounded instruction edits, validation-gated, written
+	// back to agent.instructions on acceptance. Falls back gracefully to
+	// the heuristic suggestions below when no provider CLI is available.
+	optimizer := NewOptimizer()
+	appliedEdits, suggestedEdits, rejectedEdits, optErr := optimizeAllAgents(ctx, q, optimizer, inputs.WorkspaceID, rows)
+	if optErr != nil {
+		slog.Info("agent-self-opt: optimizer unavailable; using heuristics only",
+			"workspace", inputs.WorkspaceID, "err", optErr)
+	}
+
+	// 4. Group + derive suggestions (heuristic baseline — the optimizer
+	// edits above are the primary output; these keywords remain the
+	// fallback when no provider CLI is available).
 	suggestions, themes := deriveSuggestions(rows)
+
+	// 4b. Trust learning (0.5.2): pull corrections + failed reviews in the
+	// scan window so the loop learns from *why* agents fail, not just from
+	// keyword clustering.
+	trustLearning := scanTrustLearning(ctx, q, inputs.WorkspaceID, since)
 
 	// 5. Create the self-opt issue (lab_source='agent_self_optimization'
 	// → automatically hidden from the main panel via exclude_lab).
+	// The runner bypasses IssueService.Create (no broadcast / enqueue
+	// needed for an auto-archived lab report), but it MUST allocate the
+	// workspace issue number the same way — issue.number is NOT nullable
+	// and has a (workspace_id, number) UNIQUE constraint; without the
+	// counter every self-opt issue would collide on number=0. 0.5.2 fix:
+	// the pre-0.5.2 runner created exactly one issue successfully
+	// (number=0) and every subsequent run failed with
+	// "duplicate key value violates unique constraint
+	// uq_issue_workspace_number".
+	issueNumber, nerr := q.IncrementIssueCounter(ctx, inputs.WorkspaceID)
+	if nerr != nil {
+		return nil, fmt.Errorf("increment issue counter: %w", nerr)
+	}
 	issueTitle := fmt.Sprintf("[self-opt] 学习报告 · %s",
 		time.Now().Format("2006-01-02 15:04"))
 	created, err := q.CreateIssue(ctx, db.CreateIssueParams{
@@ -177,6 +282,7 @@ func Run(ctx context.Context, q *db.Queries, inputs RunInputs, kb KBWriter) (*Ru
 		Description:  pgtype.Text{String: buildIssueDescription(rows, suggestions), Valid: true},
 		Status:       "done", // immediately done; the row carries the report
 		Priority:     "low",
+		Number:       issueNumber,
 		AssigneeType: pgtype.Text{String: "agent", Valid: true},
 		// AssigneeID is the 智能体优化专家 agent — provisioned by
 		// install_agent_self_opt.go on flag-on. Its UUID is a
@@ -199,7 +305,10 @@ func Run(ctx context.Context, q *db.Queries, inputs RunInputs, kb KBWriter) (*Ru
 		return nil, fmt.Errorf("create self-opt issue: %w", err)
 	}
 
-	// 6. Compose the report markdown.
+	// 6. Compose the report markdown. All edits (applied + suggested +
+	// rejected) land in the report's 优化编辑 section; suggested ones are
+	// additionally surfaced for human confirmation.
+	allEdits := append(append(append([]InstructionEdit{}, appliedEdits...), suggestedEdits...), rejectedEdits...)
 	report := RunReport{
 		WorkspaceID:      uuid.UUID(inputs.WorkspaceID.Bytes),
 		StartedAt:        time.Now(),
@@ -207,6 +316,8 @@ func Run(ctx context.Context, q *db.Queries, inputs RunInputs, kb KBWriter) (*Ru
 		SourceIssueCount: len(rows),
 		Suggestions:      suggestions,
 		FailureThemes:    themes,
+		TrustLearning:    trustLearning,
+		OptEdits:         allEdits,
 	}
 	md := renderReportMarkdown(report)
 
@@ -228,6 +339,8 @@ func Run(ctx context.Context, q *db.Queries, inputs RunInputs, kb KBWriter) (*Ru
 		ReportMarkdown:    md,
 		PromptSuggestions: suggestions,
 		KBAppendixPath:    kbPath,
+		OptEdits:          allEdits,
+		SuggestedEdits:    suggestedEdits,
 	}, nil
 }
 
@@ -265,6 +378,196 @@ func scanDoneIssues(
 	return rows, nil
 }
 
+// optimizeAllAgents runs the SkillOpt-style optimizer per agent that has
+// evidence in the scan window. Returns the applied / suggested / rejected
+// edits. Only APPLIED edits are written back to agent.instructions; all
+// three buckets are recorded in agent_opt_edit (suggested edits wait for
+// human confirmation, rejected edits are negative experience). An error is
+// returned only when the LLM seam is completely unavailable — the caller
+// falls back to heuristics.
+func optimizeAllAgents(
+	ctx context.Context,
+	q *db.Queries,
+	opt *Optimizer,
+	workspaceID pgtype.UUID,
+	rows []db.ListDoneIssuesForSelfOptRow,
+) (applied, suggested, rejected []InstructionEdit, err error) {
+	// Group done issues by assignee.
+	byAgent := make(map[uuid.UUID][]db.ListDoneIssuesForSelfOptRow)
+	for _, r := range rows {
+		if !r.AssigneeID.Valid || r.AssigneeType.String != "agent" {
+			continue
+		}
+		aid := uuid.UUID(r.AssigneeID.Bytes)
+		byAgent[aid] = append(byAgent[aid], r)
+	}
+	if len(byAgent) == 0 {
+		return nil, nil, nil, nil
+	}
+
+	var firstErr error
+
+	// 0.5.2: run agents in parallel — per-agent LLM calls dominate the
+	// run wall-clock (propose + validate per agent, ~4-60s each depending
+	// on provider). A workspace with 6 active agents would otherwise take
+	// 6 × 2 calls serially. Bounded concurrency keeps provider CLI
+	// spawning sane and stays under the run's MaxRunLifetime.
+	const maxAgentParallel = 3
+	sem := make(chan struct{}, maxAgentParallel)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for aid, issues := range byAgent {
+		wg.Add(1)
+		go func(aid uuid.UUID, issues []db.ListDoneIssuesForSelfOptRow) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			agent, aerr := q.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{
+				ID:          pgtype.UUID{Bytes: [16]byte(aid), Valid: true},
+				WorkspaceID: workspaceID,
+			})
+			if aerr != nil {
+				return // agent vanished mid-run; skip
+			}
+			trustEvents, terr := q.ListAgentTrustEventsByAgent(ctx, db.ListAgentTrustEventsByAgentParams{
+				AgentID:     agent.ID,
+				WorkspaceID: workspaceID,
+				Limit:       20,
+			})
+			if terr != nil {
+				trustEvents = nil
+			}
+			// Negative-experience buffer (0.5.2 adversarial review d6/d7):
+			// ONLY 'rejected' + 'reverted' edits are fed to the optimizer as
+			// "do not re-propose". Suggested / ignored rows stay out — ignored
+			// is re-proposable, and a user-reverted edit must never be
+			// re-applied identically.
+			rejectedHist, rerr := q.ListNegativeExperienceEdits(ctx, db.ListNegativeExperienceEditsParams{
+				AgentID:     agent.ID,
+				WorkspaceID: workspaceID,
+				Limit:       RejectionBufferSize,
+			})
+			if rerr != nil {
+				rejectedHist = nil
+			}
+
+			// Hard-block: the primary product agent (and lab agents, via
+			// isLabManaged in the optimizer) never auto-applies — even if
+			// the marker is present, the block wins.
+			enrolled := enrollmentMarker(agent) && !isHardBlockedAgent(agent.Name)
+			ev := OptimizeEvidence{
+				AgentID:             agent.ID,
+				AgentName:           agent.Name,
+				CurrentInstructions: instructionsOf(agent),
+				Issues:              issues,
+				TrustEvents:         trustEvents,
+				RejectedEdits:       rejectedHist,
+				AutoApplyEnrolled:   enrolled,
+			}
+			// Post-hoc commit-gate revalidation (0.5.2 adversarial review d1):
+			// before proposing NEW edits, the next run re-scores the agent's
+			// previously auto-applied edits against their pre-edit snapshots
+			// and rolls back any that regressed. Best-effort — a gate failure
+			// (no LLM) just skips; the next run re-tries.
+			if rerr := opt.RevalidateAppliedEdits(ctx, q, agent, workspaceID); rerr != nil {
+				slog.Warn("agent-self-opt: post-hoc revalidation skipped",
+					"agent", agent.Name, "err", rerr)
+			}
+			appliedA, suggestedA, rejectedA, finalState, oerr := opt.OptimizeAgent(ctx, q, ev)
+			if oerr != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = oerr
+				}
+				mu.Unlock()
+				return
+			}
+			// Write back the cumulative instruction state ONCE, but only
+			// when at least one edit was APPLIED (suggested edits wait for
+			// human confirmation and must not change instructions).
+			if len(appliedA) > 0 && finalState != instructionsOf(agent) {
+				if _, uerr := q.UpdateAgent(ctx, db.UpdateAgentParams{
+					ID:           agent.ID,
+					Instructions: pgtype.Text{String: finalState, Valid: true},
+				}); uerr != nil {
+					slog.Warn("agent-self-opt: instruction write-back failed",
+						"agent", agent.Name, "err", uerr)
+				} else {
+					slog.Info("agent-self-opt: instructions updated",
+						"agent", agent.Name, "applied", len(appliedA), "suggested", len(suggestedA))
+				}
+			}
+			mu.Lock()
+			applied = append(applied, appliedA...)
+			suggested = append(suggested, suggestedA...)
+			rejected = append(rejected, rejectedA...)
+			mu.Unlock()
+		}(aid, issues)
+	}
+	wg.Wait()
+	return applied, suggested, rejected, firstErr
+}
+
+// instructionsOf extracts the current instruction text (may be empty).
+func instructionsOf(a db.Agent) string {
+	return strings.TrimSpace(a.Instructions)
+}
+
+// EnrollmentMarker is the opt-in token a user adds to an agent's
+// instructions to enable auto-apply for that agent. Default OFF — no
+// schema change, the marker doubles as visible consent in the instruction
+// text itself.
+const EnrollmentMarker = "【self-opt:enroll】"
+
+// enrollmentMarker reports whether the agent has opted into auto-apply.
+func enrollmentMarker(a db.Agent) bool {
+	return strings.Contains(a.Instructions, EnrollmentMarker)
+}
+
+// primaryAgentName is the hard-blocked primary product agent — never
+// auto-enrolled, never auto-applied.
+const primaryAgentName = "Multica Helper"
+
+// isHardBlockedAgent reports whether the agent sits on the hard-block
+// list (the primary product agent + lab agents are excluded from
+// auto-apply regardless of score).
+func isHardBlockedAgent(name string) bool {
+	return name == primaryAgentName
+}
+
+// scanTrustLearning pulls correction / review_fail events in the window,
+// newest first, bounded so a busy workspace cannot blow the report.
+func scanTrustLearning(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, since time.Time) []TrustLearningItem {
+	rows, err := q.ListTrustLearningEvents(ctx, db.ListTrustLearningEventsParams{
+		WorkspaceID: workspaceID,
+		CreatedAt:   pgtype.Timestamptz{Time: since, Valid: true},
+		Limit:       50,
+	})
+	if err != nil {
+		slog.Warn("agent-self-opt: trust learning scan failed", "workspace", workspaceID, "err", err)
+		return nil
+	}
+	out := make([]TrustLearningItem, 0, len(rows))
+	for _, r := range rows {
+		item := TrustLearningItem{
+			AgentName: r.AgentName,
+			AgentID:   uuid.UUID(r.AgentID.Bytes),
+			EventType: r.EventType,
+			CreatedAt: r.CreatedAt.Time,
+		}
+		if r.Note.Valid {
+			item.Note = r.Note.String
+		}
+		if r.IssueID.Valid {
+			item.IssueID = uuid.UUID(r.IssueID.Bytes)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 // wordSplit splits a Chinese + English mix title into normalised
 // tokens. Whitespace + punctuation are separators; CJK characters are
 // each their own 1-gram token. Returned slice is sorted/deduped by the
@@ -290,10 +593,10 @@ func tokenize(text string) []string {
 // issues and emit a prompt_suggestion per agent.
 func deriveSuggestions(rows []db.ListDoneIssuesForSelfOptRow) ([]PromptSuggestion, []FailureTheme) {
 	type agentAccum struct {
-		name    string
-		id      uuid.UUID
-		issues  []uuid.UUID
-		titles  []string
+		name   string
+		id     uuid.UUID
+		issues []uuid.UUID
+		titles []string
 	}
 	byAgent := make(map[uuid.UUID]*agentAccum)
 	for _, r := range rows {
@@ -463,7 +766,61 @@ func renderReportMarkdown(r RunReport) string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("---\n\n_由 agent_self_optimization 服务在 daemon 内自动生成,0.3.46+ 将接入 LLM rationale。_\n")
+	if len(r.TrustLearning) > 0 {
+		b.WriteString("## 信任学习(纠正与审核失败)\n\n")
+		b.WriteString("_消融原则:每次纠正 = 一次删除→逐行加回→测试验证。以下事件来自信任评分账本(agent_trust_event)。_\n\n")
+		for _, item := range r.TrustLearning {
+			kind := "纠正"
+			if item.EventType == "review_fail" {
+				kind = "审核失败"
+			}
+			fmt.Fprintf(&b, "- **[%s]** %s(%s) %s", kind, item.AgentName,
+				item.CreatedAt.Format("2006-01-02 15:04"), "")
+			if item.Note != "" {
+				fmt.Fprintf(&b, " — %s", item.Note)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(r.OptEdits) > 0 {
+		b.WriteString("## 优化编辑(SkillOpt)\n\n")
+		b.WriteString("_分级验证:达到阈值的自动应用(写回 instructions,经验被智能体自己学习),接近阈值的待人工确认,其余作为负经验进入缓冲。_\n\n")
+		for _, e := range r.OptEdits {
+			var mark string
+			switch e.Application {
+			case ApplicationApplied:
+				mark = "✅ 自动应用"
+			case ApplicationSuggested:
+				mark = "📝 待确认"
+			default:
+				mark = "❌ 已拒绝"
+			}
+			fmt.Fprintf(&b, "- **%s** [%s] %s", mark, e.EditType, e.AgentName)
+			if e.ValidationScore > 0 {
+				fmt.Fprintf(&b, " _(评分 %.0f)_", e.ValidationScore)
+			}
+			b.WriteString("\n")
+			switch e.EditType {
+			case "add":
+				fmt.Fprintf(&b, "  - 新增: `%s`\n", e.AfterText)
+			case "delete":
+				fmt.Fprintf(&b, "  - 删除: `%s`\n", e.BeforeText)
+			case "replace":
+				fmt.Fprintf(&b, "  - 替换: `%s` → `%s`\n", e.BeforeText, e.AfterText)
+			}
+			if e.Rationale != "" {
+				fmt.Fprintf(&b, "  - 依据: %s\n", e.Rationale)
+			}
+			if e.ValidationReason != "" {
+				fmt.Fprintf(&b, "  - 验证: %s\n", e.ValidationReason)
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("---\n\n_由 agent_self_optimization 服务在 daemon 内自动生成。0.5.2:报告纳入信任学习(纠正/审核失败)事件。_\n")
 	return b.String()
 }
 

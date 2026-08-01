@@ -26,11 +26,11 @@ func (f *fakePrefQuerier) GetExperimentalPrefEnabled(ctx context.Context, arg db
 var _ PrefQuerier = (*fakePrefQuerier)(nil)
 
 // TestFlagOnForUser covers the five branches of flagOnForUser:
-//   1. zero-value UUID → false (defensive guard)
-//   2. no pref row (ErrNoRows) → false (not opted in)
-//   3. enabled=true → true
-//   4. enabled=false → false
-//   5. DB error → false (never silently enable on transient failure)
+//  1. zero-value UUID → false (defensive guard)
+//  2. no pref row (ErrNoRows) → false (not opted in)
+//  3. enabled=true → true
+//  4. enabled=false → false
+//  5. DB error → false (never silently enable on transient failure)
 func TestFlagOnForUser(t *testing.T) {
 	ctx := context.Background()
 	var uuidVal pgtype.UUID

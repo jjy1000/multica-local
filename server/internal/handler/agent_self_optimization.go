@@ -55,18 +55,18 @@ type SelfOptRunListResponse struct {
 // pre-decoded JSON so the renderer can iterate without a second
 // round-trip. ReportMd is the full markdown body.
 type SelfOptRunDTO struct {
-	ID                string                 `json:"id"`
-	WorkspaceID       string                 `json:"workspace_id"`
-	Status            string                 `json:"status"`
-	TriggerKind       string                 `json:"trigger_kind"`
-	StartedAt         string                 `json:"started_at"`
-	FinishedAt        string                 `json:"finished_at,omitempty"`
-	SourceIssueCount  int                    `json:"source_issue_count"`
-	PromptSuggestions []any                  `json:"prompt_suggestions"`
-	ReportMd          string                 `json:"report_md,omitempty"`
-	KBAppendixPath    string                 `json:"kb_appendix_path,omitempty"`
-	ErrorMessage      string                 `json:"error_message,omitempty"`
-	CreatedIssueID    string                 `json:"created_issue_id,omitempty"`
+	ID                string `json:"id"`
+	WorkspaceID       string `json:"workspace_id"`
+	Status            string `json:"status"`
+	TriggerKind       string `json:"trigger_kind"`
+	StartedAt         string `json:"started_at"`
+	FinishedAt        string `json:"finished_at,omitempty"`
+	SourceIssueCount  int    `json:"source_issue_count"`
+	PromptSuggestions []any  `json:"prompt_suggestions"`
+	ReportMd          string `json:"report_md,omitempty"`
+	KBAppendixPath    string `json:"kb_appendix_path,omitempty"`
+	ErrorMessage      string `json:"error_message,omitempty"`
+	CreatedIssueID    string `json:"created_issue_id,omitempty"`
 }
 
 // ListSelfOptRuns handles GET /api/experimental/self-opt/runs.
@@ -84,6 +84,11 @@ func (h *Handler) ListSelfOptRuns(w http.ResponseWriter, r *http.Request) {
 	wsID, err := parseSelfOptWorkspaceID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 0.5.2 adversarial review s2 residual: membership gate on the read
+	// surface — a flag-opted-in user must not list another workspace's runs.
+	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(wsID), "workspace not found"); !ok {
 		return
 	}
 	limit := 20
@@ -138,6 +143,12 @@ func (h *Handler) GetSelfOptRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "read self-opt run: "+err.Error())
 		return
 	}
+	// 0.5.2 adversarial review s2 residual: the run is fetched by id; the
+	// caller must be a member of the run's workspace before its report is
+	// returned (guessed run ids must not leak another workspace's data).
+	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(row.WorkspaceID), "workspace not found"); !ok {
+		return
+	}
 	writeJSON(w, http.StatusOK, toSelfOptRunDTO(row))
 }
 
@@ -185,6 +196,12 @@ func (h *Handler) TriggerSelfOptRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "workspace_id: "+err.Error())
 		return
 	}
+	// 0.5.2 adversarial review s2 residual: a flag-opted-in user must not
+	// trigger a run (which writes issues + edits + instructions) in a
+	// workspace they do not belong to.
+	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(wsID), "workspace not found"); !ok {
+		return
+	}
 	runID, err := h.SelfOptService.TriggerManualRun(r.Context(), callerUserID, wsID)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
@@ -207,6 +224,21 @@ func (h *Handler) CancelSelfOptRun(w http.ResponseWriter, r *http.Request) {
 	runID, err := parseSelfOptRunID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 0.5.2 adversarial review s2 residual: cancel must be scoped to a run
+	// whose workspace the caller belongs to — a guessed run id must not let
+	// a non-member cancel another workspace's run.
+	row, rerr := h.Queries.GetAgentSelfOptRun(r.Context(), runID)
+	if rerr != nil {
+		if errors.Is(rerr, pgx.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "read self-opt run: "+rerr.Error())
+		return
+	}
+	if _, ok := h.requireWorkspaceMember(w, r, uuidToString(row.WorkspaceID), "workspace not found"); !ok {
 		return
 	}
 	_, err = h.Queries.UpdateAgentSelfOptRunStatus(r.Context(), db.UpdateAgentSelfOptRunStatusParams{

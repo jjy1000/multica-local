@@ -156,3 +156,36 @@ SELECT enabled
 FROM experimental_pref
 WHERE user_id = $1
   AND flag_key = $2;
+-- name: UpdateAgentSelfOptRunDeferred :one
+-- 0.5.2: park a run whose source data is too thin. status='deferred',
+-- deferred_until = the retry window after which the scheduler may
+-- re-attempt it. The run stays visible in history with a hint.
+UPDATE agent_self_opt_run
+SET status = 'deferred',
+    deferred_reason = $2,
+    deferred_until = $3,
+    data_count = $4,
+    finished_at = now()
+WHERE id = $1
+RETURNING *;
+
+-- name: LatestDeferredAgentSelfOptRun :one
+-- 0.5.2: the scheduler consults this before firing a new run — if the
+-- latest run for the workspace is still deferred (retry window open),
+-- the ticker skips rather than stacking another run.
+SELECT *
+FROM agent_self_opt_run
+WHERE workspace_id = $1
+  AND status = 'deferred'
+ORDER BY started_at DESC
+LIMIT 1;
+
+-- name: CountActiveAgentSelfOptRuns :one
+-- 0.5.2: how many runs are pending or running for a workspace. The
+-- scheduler + manual trigger consult this before creating a new run so
+-- concurrent triggers (catch-up tick + manual button + Resume) cannot
+-- stack runs that race on the issue-number unique constraint.
+SELECT COUNT(*)
+FROM agent_self_opt_run
+WHERE workspace_id = $1
+  AND status IN ('pending', 'running');

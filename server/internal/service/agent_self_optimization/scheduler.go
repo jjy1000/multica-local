@@ -23,10 +23,11 @@ import (
 	"time"
 )
 
-// MinRunInterval is the user-visible "每四天" cadence. Hard-coded — a
-// feature flag here would defeat the cadence's whole point (the user
-// asked for "every 4 days, fixed").
-const MinRunInterval = 96 * time.Hour
+// MinRunInterval is the user-visible "每 7 天(每周)" cadence. 0.5.2:
+// raised from 96h (every 4 days) to 168h (weekly) per the user's
+// "每周一次,工作日上午 10 点" spec. Hard-coded — a feature flag here
+// would defeat the cadence's whole point.
+const MinRunInterval = 7 * 24 * time.Hour
 
 // TargetLocalHour is the wall-clock hour at which a run should fire,
 // expressed in the user's local timezone (the runner resolves the
@@ -60,12 +61,20 @@ const TargetLocalMinute = 0
 // loc). The runner should NOT fire at this instant automatically —
 // it schedules a tick that compares now() against NextTrigger and
 // fires only when now() ≥ result.
+//
+// Catch-up semantics (0.5.2): when the last successful run is older
+// than MinRunInterval, the returned instant is `now` (the earliest
+// eligible wall-clock moment), NOT the next weekday 10:00. This is
+// what makes the "missed run while the Mac was closed / app not
+// running" case self-heal: the ticker fires within the next minute of
+// the app being opened. The weekday-10:00 gate still applies to the
+// steady-state cadence.
 func NextTrigger(lastSuccess, now time.Time, loc *time.Location) time.Time {
 	if loc == nil {
 		loc = time.UTC
 	}
 
-	// 1. Earliest allowed instant = max(now, lastSuccess + 96h).
+	// 1. Earliest allowed instant = max(now, lastSuccess + MinRunInterval).
 	earliest := now
 	if !lastSuccess.IsZero() {
 		afterInterval := lastSuccess.Add(MinRunInterval)
@@ -74,17 +83,15 @@ func NextTrigger(lastSuccess, now time.Time, loc *time.Location) time.Time {
 		}
 	}
 
-	// 2. From earliest, walk forward to the next weekday 10:00 local.
-	candidate := nextWeekdayTenAM(earliest, loc)
-
-	// 3. Belt-and-braces: if candidate landed before earliest (can
-	// happen when lastSuccess + 96h falls mid-day and the next 10:00
-	// is later today), re-anchor to earliest and walk again.
-	if candidate.Before(earliest) {
-		candidate = nextWeekdayTenAM(earliest, loc)
+	// 2. Catch-up: if we are already past the interval gate (the
+	// previous run is ≥ 1 week old), fire as soon as the ticker sees
+	// us — the app was presumably closed / the machine asleep during
+	// the missed window. The weekday-10:00 alignment only shapes the
+	// steady-state cadence, not the catch-up.
+	if earliest.After(now) {
+		return nextWeekdayTenAM(earliest, loc)
 	}
-
-	return candidate
+	return now
 }
 
 // nextWeekdayTenAM returns the next instant at or after `from` whose
