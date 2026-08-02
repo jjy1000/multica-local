@@ -190,14 +190,16 @@ describe("LabPicker", () => {
     expect(labels.some((l) => l.includes("自优化"))).toBe(false);
   });
 
-  it("0.5.4.x: always_show_in_lab_picker + flag ON binds the lab directly (no inline panel)", () => {
-    // 0.5.4.x click-through contract: when the `agent_creation_studio`
-    // flag is enabled, tapping 智能体创建 in the LabPicker writes
-    // `lab_source='agent_creation_studio'` and lets the server's
-    // 0.3.46 P0#4 contract rewrite the assignee to
-    // `agent_creation_expert`. The user gets a single click that
-    // "just starts" — no inline RecentLabsPanel detour. The panel
-    // is reserved for the flag-OFF case (see next test).
+  it("0.5.5: agent_creation_studio never appears in the picker (product-level resource)", () => {
+    // 0.5.5 promotes `agent_creation_studio` to a product-level
+    // resource. The leader `agent_creation_expert` is boot-provisioned
+    // and surfaces in the AssigneePicker directly — no LabPicker
+    // entry, no opt-in flag, no inline info panel. The picker is
+    // therefore empty for the studio regardless of `enabled` or
+    // `always_show_in_lab_picker` (defense in depth: the catalog
+    // also flipped AlwaysShowInLabPicker to false, but the client
+    // hard-codes a HIDDEN_LAB_KEYS set as a second layer of
+    // protection so a future catalog drift never re-surfaces it).
     mockFlags.value = [
       { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
       { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: true, always_show_in_lab_picker: true },
@@ -205,108 +207,62 @@ describe("LabPicker", () => {
     const { onUpdate, onClearAssignee } = renderPicker();
     const trigger = document.querySelector("button[aria-haspopup]")!;
     fireEvent.click(trigger);
-    // Main list: None + claude_science_lab + agent_creation_studio = 3.
-    expect(document.querySelectorAll("button[data-picker-item]").length).toBe(3);
-    const studioItem = Array.from(
+    // Main list: None + claude_science_lab = 2. The studio is dropped.
+    expect(document.querySelectorAll("button[data-picker-item]").length).toBe(2);
+    const labels = Array.from(
       document.querySelectorAll("button[data-picker-item]"),
-    ).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
-    expect(studioItem).toBeTruthy();
-
-    fireEvent.click(studioItem);
-    // Tapping the studio entry when the flag is on binds the lab
-    // directly — same as any other issue-bound lab. The server will
-    // rewrite the assignee via 0.3.46 P0#4, so the parent clears it
-    // optimistically via onClearAssignee.
-    expect(onClearAssignee).toHaveBeenCalledTimes(1);
+    ).map((el) => el.textContent ?? "");
+    expect(labels.some((l) => l.includes("智能体创建"))).toBe(false);
+    // And tapping any remaining row (claude_science_lab) still
+    // works as a normal lab bind — the studio removal did not break
+    // the rest of the picker.
+    const claude = document.querySelectorAll("button[data-picker-item]")[1]!;
+    fireEvent.click(claude);
     expect(onUpdate).toHaveBeenCalledWith({
-      lab_source: "agent_creation_studio",
+      lab_source: "claude_science_lab",
       lab_mode: "sole",
     });
-    // The info panel must NOT appear in the flag-on path.
-    expect(
-      document.querySelector("[data-recent-labs-panel]"),
-    ).toBeNull();
+    expect(onClearAssignee).toHaveBeenCalled();
   });
 
-  it("0.5.4.x: always_show_in_lab_picker + flag OFF opens the inline info panel", () => {
-    // 0.5.4.x click-through contract (flag-OFF branch): the lab's
-    // leader isn't installed yet, so direct dispatch would 400 on
-    // the server. The picker swaps its popover body to the read-only
-    // `RecentLabsPanel` (recent agents / skills / squads + a hint
-    // pointing the user at the Labs settings tab to enable the
-    // flag). Tapping the entry does NOT bind `lab_source` and does
-    // NOT fire onClearAssignee.
+  it("0.5.5: agent_self_optimization never appears in the picker", () => {
+    // `agent_self_optimization` was already `hide_from_issue_lab_picker`
+    // before 0.5.5, but the client now also hard-codes it in
+    // HIDDEN_LAB_KEYS as a defense-in-depth layer (the catalog could
+    // someday drop the hide flag; the client must not surface it
+    // regardless). Verify both the absence and that the user still
+    // gets a usable picker for the other labs.
     mockFlags.value = [
       { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
-      { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: false, always_show_in_lab_picker: true },
+      { key: "agent_self_optimization", title: { zh: "智能体优化", en: "Agent Self-Opt" }, enabled: true },
     ];
-    const { onUpdate, onClearAssignee } = renderPicker();
+    renderPicker();
     const trigger = document.querySelector("button[aria-haspopup]")!;
     fireEvent.click(trigger);
-    // Main list: None + claude_science_lab + agent_creation_studio = 3.
-    expect(document.querySelectorAll("button[data-picker-item]").length).toBe(3);
-    const studioItem = Array.from(
+    const labels = Array.from(
       document.querySelectorAll("button[data-picker-item]"),
-    ).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
-    expect(studioItem).toBeTruthy();
-
-    fireEvent.click(studioItem);
-    // Flag-off branch: opens the panel, no bind, no clear.
-    expect(onUpdate).not.toHaveBeenCalled();
-    expect(onClearAssignee).not.toHaveBeenCalled();
-    // The popover body now hosts RecentLabsPanel (data attribute +
-    // data-lab-source tagger), and the studio entry is no longer
-    // present in the main list — the view has swapped.
-    expect(
-      document.querySelector("[data-recent-labs-panel]"),
-    ).not.toBeNull();
-    expect(
-      document.querySelector("[data-lab-source=\"agent_creation_studio\"]"),
-    ).not.toBeNull();
+    ).map((el) => el.textContent ?? "");
+    expect(labels.some((l) => l.includes("智能体优化"))).toBe(false);
+    // The other labs still render.
+    expect(labels.some((l) => l.includes("Claude"))).toBe(true);
   });
 
-  it("0.5.4.x: popover close resets the flag-OFF info panel back to the main list", () => {
-    // 0.5.4.x view-reset contract: when the popover closes after the
-    // user opened the flag-OFF info panel, the next open shows the
-    // main list again (the `useEffect([open])` in LabPicker resets
-    // the view state). Re-tapping the studio entry while the flag
-    // is off opens a fresh panel; while the flag is on it binds
-    // directly (covered by the test above).
+  it("0.5.5: an empty picker (only product-level labs available) still renders the None row", () => {
+    // When every catalog flag is either a hidden product-level
+    // resource (agent_creation_studio / agent_self_optimization) or
+    // a non-issue-bound lab (llm_wiki_bridge / agent_self_optimization
+    // already hidden), the picker collapses to a single "None" row.
+    // The issue-detail UX is now: assign a regular assignee; if the
+    // user wants the Agent Creation expert they pick it from
+    // AssigneePicker, not from the lab picker.
     mockFlags.value = [
-      { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: false, always_show_in_lab_picker: true },
+      { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: true, always_show_in_lab_picker: true },
+      { key: "agent_self_optimization", title: { zh: "智能体优化", en: "Agent Self-Opt" }, enabled: true, hide_from_issue_lab_picker: true },
     ];
-    const { onUpdate } = renderPicker();
+    renderPicker();
     const trigger = document.querySelector("button[aria-haspopup]")!;
     fireEvent.click(trigger);
-    const studioItem = Array.from(
-      document.querySelectorAll("button[data-picker-item]"),
-    ).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
-    fireEvent.click(studioItem);
-    expect(
-      document.querySelector("[data-recent-labs-panel]"),
-    ).not.toBeNull();
-
-    // Close the popover via the outside-click affordance the
-    // Radix Popover uses — fire a `pointerdown` on the body. The
-    // picker's `useEffect([open])` then resets the view.
-    fireEvent.pointerDown(document.body);
-    fireEvent.click(document.body);
-    // Re-open: the main list comes back, RecentLabsPanel is gone.
-    fireEvent.click(trigger);
-    expect(
-      document.querySelector("[data-recent-labs-panel]"),
-    ).toBeNull();
-    // And clicking the studio entry now triggers a fresh swap.
-    const studioItemAgain = Array.from(
-      document.querySelectorAll("button[data-picker-item]"),
-    ).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
-    fireEvent.click(studioItemAgain);
-    expect(
-      document.querySelector("[data-recent-labs-panel]"),
-    ).not.toBeNull();
-    // No update was emitted throughout — the flag-OFF path is
-    // strictly informational until the user enables the flag and
-    // re-binds through the picker.
-    expect(onUpdate).not.toHaveBeenCalled();
+    expect(document.querySelectorAll("button[data-picker-item]").length).toBe(1);
+    expect(document.querySelector("button[data-picker-item]")).toHaveTextContent("None");
   });
 });

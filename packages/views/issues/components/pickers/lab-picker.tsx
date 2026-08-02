@@ -178,20 +178,31 @@ export function LabPicker({
   // user still flips these flags on in the Labs settings tab — only
   // the per-issue picker omits them.
   //
-  // 0.5.4.x: `agent_creation_studio` is still listed when `enabled=false`
-  // thanks to `always_show_in_lab_picker` — flag-off users must be able
-  // to discover the lab from the picker (the inline `RecentLabsPanel`
-  // shown in that case explains what the lab is and what enabling the
-  // flag would unlock). When the flag IS enabled, the same entry behaves
-  // like any other issue-bound lab: selecting it writes
-  // `lab_source='agent_creation_studio'` and the server auto-rewrites
-  // the assignee to `agent_creation_expert` via the 0.3.46 P0#4
-  // contract. See the `onClick` branch below for the split.
+  // 0.5.5: `agent_creation_studio` and `agent_self_optimization` are
+  // **product-level resources**, not opt-in labs. Their leaders
+  // (`agent_creation_expert` + `智能体优化专家`) are boot-provisioned
+  // and surface in the AssigneePicker directly — no LabPicker detour,
+  // no "enable flag" toggle. The flags still exist in the catalog
+  // (so legacy `issue.lab_source` lookups resolve) but the picker
+  // must never list them: an empty 0.5.5 picker is the right
+  // product UX. We hard-code the hidden-key set here as a defense
+  // in depth against any future catalog flag flip.
+  //
+  // (Before 0.5.4.x: `agent_creation_studio` was always-shown so
+  // flag-off users could discover the lab via the RecentLabsPanel.
+  // 0.5.5 promotes the lab to a product feature, so the discovery
+  // surface moves to the AssigneePicker + the agent's own card in
+  // the settings/agents tab.)
+  const HIDDEN_LAB_KEYS = new Set<string>([
+    "agent_creation_studio",
+    "agent_self_optimization",
+  ]);
   const entries = useMemo(() => {
     const out: { id: string; title: string; enabled: boolean }[] = [
       { id: "", title: t(($) => $.pickers.lab.picker_none) ?? "None", enabled: true },
     ];
     for (const flag of flags ?? []) {
+      if (HIDDEN_LAB_KEYS.has(flag.key)) continue;
       if (!flag.enabled && !flag.always_show_in_lab_picker) continue;
       if (flag.hide_from_issue_lab_picker) continue;
       out.push({
@@ -235,28 +246,15 @@ export function LabPicker({
                 key={entry.id}
                 selected={entry.id === (labSource ?? "")}
                 onClick={() => {
-                  // 0.5.4.x split for `agent_creation_studio`:
-                  //
-                  //   - flag ON  → bind `lab_source` directly (same
-                  //     path as every other issue-bound lab). The
-                  //     server's 0.3.46 P0#4 contract rewrites the
-                  //     assignee to `agent_creation_expert` so the
-                  //     user gets a single click that "just starts".
-                  //     The popover closes; the user sees the lab
-                  //     chip + a queued task.
-                  //   - flag OFF → the leader isn't installed and
-                  //     direct dispatch would 400 on the server, so
-                  //     we open the read-only `RecentLabsPanel` (a
-                  //     "here's what the lab is + a single escape
-                  //     back" info surface) instead of binding.
-                  //     The user can still close the popover, go to
-                  //     the Labs settings tab, enable the flag, and
-                  //     come back to bind the lab.
-                  if (entry.id === "agent_creation_studio" && !entry.enabled) {
-                    setView("recent");
-                    setOpen(true);
-                    return;
-                  }
+                  // 0.5.5: the flag-on special-case for
+                  // `agent_creation_studio` is gone. The studio is
+                  // now a product-level resource reachable through
+                  // the AssigneePicker (the leader agent
+                  // `agent_creation_expert` is boot-provisioned). The
+                  // entry is no longer in this picker's `entries` list
+                  // (HIDDEN_LAB_KEYS drops it), so the body of this
+                  // callback only fires for the labs that are still
+                  // genuinely opt-in.
                   const nextLab = entry.id === "" ? null : entry.id;
                   // Clear-or-set: if the user picked the currently selected
                   // lab (no-op on the source side), do nothing. Otherwise

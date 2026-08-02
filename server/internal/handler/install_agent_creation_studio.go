@@ -18,12 +18,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/experimental"
-	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -117,6 +115,22 @@ func upsertAgentCreationStudioVisibility(ctx context.Context, h *Handler, worksp
 }
 
 // upsertAgentCreationExpert finds-or-creates the studio leader agent.
+//
+// 0.5.5: this helper is now also called from `boot_provision_product_labs.go`
+// at server startup, BEFORE the local daemon has registered a runtime row.
+// The previous implementation relied on `resolveWorkspaceOnlineRuntime`
+// returning a valid UUID at call time — true under user-triggered install
+// (the daemon is already online by then) but always false under cold boot
+// (no daemon has registered yet). Without a fix, `CreateAgent` would fail
+// the `agent.runtime_id` NOT NULL constraint (SQLSTATE 23502).
+//
+// The fix mirrors the 0.3.35 fallback used by install_claude_science.go:
+// when no online local runtime exists, provision a synthetic offline stub
+// runtime so the leader agent row satisfies the FK. Once the user later
+// starts the local daemon, the existing `rebindLabAgentsToOnlineRuntime`
+// path re-points the agent's runtime_id at the live daemon (the studio
+// leader agent name is in `labLeaderAgentNames` so it is rebound
+// automatically on the next install or daemon bootstrap walk).
 func upsertAgentCreationExpert(ctx context.Context, h *Handler, workspaceID pgtype.UUID) (pgtype.UUID, error) {
 	if existing, err := h.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
 		WorkspaceID: workspaceID,
@@ -124,14 +138,22 @@ func upsertAgentCreationExpert(ctx context.Context, h *Handler, workspaceID pgty
 	}); err == nil {
 		return existing.ID, nil
 	}
-	// 0.3.35: bind the leader agent to a real daemon when one is online.
-	// Without this the dispatched task rows land on an agent with
-	// RuntimeID invalid → daemon never picks them up.
-	runtimeID := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID)
+	// 0.3.35 + 0.5.5: try the online local runtime first; on miss,
+	// fall back to a synthetic offline stub so the agent row can
+	// satisfy `agent.runtime_id` NOT NULL even on cold boot (before
+	// the daemon has registered). The stub is the same shape as
+	// install_claude_science.go's `upsertClaudeScienceRuntime` —
+	// stable daemon_id, offline status, metadata tag for audit.
+	runtimeID, err := resolveOrSynthesizeProductRuntime(ctx, h, workspaceID)
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("resolve product runtime: %w", err)
+	}
 	if !runtimeID.Valid {
-		slog.Info("upsertAgentCreationExpert: no online local runtime; "+
-			"agent created without runtime — dispatched tasks wait until the daemon is online",
-			"workspace_id", util.UUIDToString(workspaceID))
+		// Both the online lookup and the synthetic upsert returned
+		// invalid. Treat as a hard fail — the boot hook logs and
+		// the next user-triggered install will retry once the DB is
+		// healthier.
+		return pgtype.UUID{}, errors.New("no online local runtime and synthetic runtime upsert returned invalid id")
 	}
 	created, err := h.Queries.CreateAgent(ctx, db.CreateAgentParams{
 		WorkspaceID:        workspaceID,

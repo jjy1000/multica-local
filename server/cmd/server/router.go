@@ -713,6 +713,19 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		}
 	}
 
+	// 0.5.5: boot-provision the agent_creation_studio leader
+	// (`agent_creation_expert`) into every workspace. The studio is
+	// now a product-level resource (catalog DefaultVal=true), so the
+	// 0.3.46 P0#4 leader-rewrite path will look for this agent on
+	// every issue creation/update and silently no-op if it is missing.
+	// Provisioning at boot makes the AssigneePicker just work without
+	// any user "install" step. Non-fatal: a transient DB failure
+	// logs at warn and the next leader-rewrite call self-heals via
+	// `Handler.EnsureProductAgentForWorkspace` (lazy fallback).
+	if pool != nil {
+		h.BootProvisionProductLabs(context.Background())
+	}
+
 	// Realtime subsystem metrics — connection counts, slow-client evictions,
 	// and per-event-type send QPS counters. Exposed as JSON so it can be
 	// scraped by ops or surfaced in the admin UI without adding a Prometheus

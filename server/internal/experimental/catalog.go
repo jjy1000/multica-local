@@ -373,12 +373,18 @@ var Catalog = []Flag{
 		// leader is the user's execution partner and must appear in
 		// pickers/assignee display.
 		Key:        "agent_creation_studio",
-		DefaultVal: false,
-		// 0.5.3: action-type lab whose entry must be reachable from the
-		// issue LabPicker EVEN WHEN the flag is OFF — the user opens the
-		// creator without first opting in via Labs. When enabled, the
-		// entry additionally binds lab_source + dispatches to the leader.
-		AlwaysShowInLabPicker: true,
+		DefaultVal: true,
+		// 0.5.5: the studio is now a product-level resource, not an
+		// opt-in lab. The `agent_creation_expert` leader agent is
+		// boot-provisioned by `boot_provision_product_labs.go` and
+		// surfaces directly in the AssigneePicker (no LabPicker detour,
+		// no "enable flag" toggle). The flag stays in the catalog for
+		// backward-compat (any legacy `lab_source='agent_creation_studio'`
+		// issue is still read-resolvable; the runtime short-circuits to
+		// the leader via `defaultLabLeaderForKey`), but the UI no longer
+		// surfaces it. AlwaysShowInLabPicker is removed so a 0.5.5 client
+		// never lists the entry.
+		AlwaysShowInLabPicker: false,
 		Title: LocalizedString{
 			En: "Agent Creation Studio",
 			Zh: "智能体创建",
