@@ -34,11 +34,18 @@ import { MythosView } from "./pages/mythos-view";
 import { PythiaView } from "./pages/pythia-view";
 import { LLMWikiBridgeView } from "./pages/llm-wiki-bridge-view";
 import { CodeCanvasView } from "./pages/code-canvas-view";
-import { AgentCreationStudioView } from "./pages/agent-creation-studio-view";
-// 0.5.2: merged self-opt view (overview + history + trust + events).
-// Replaces the 0.3.20 placeholder (agent-self-optimization-view.tsx)
-// and the 0.3.45.1 history-only view (self-opt-history-view.tsx).
-import { SelfOptView } from "./pages/self-opt-view";
+// 0.5.4: agent-creation-studio page deleted — the studio is now an
+// issue-bound lab. Users pick it in the LabPicker, and tasks dispatch
+// to `agent_creation_expert` (which then authors the resources via
+// `multica-creating-agents` / `multica-lab-builder` skills). A
+// dedicated creator view is no longer needed.
+// 0.5.6: SelfOptView import removed. The merged self-opt view
+// (overview + history + trust + events) lived at
+// /experimental/agent-self-optimization and
+// /experimental/self-opt-history; both routes are removed because
+// the self-opt loop is product-level and the user-facing surface
+// is the /autopilots page (where the 2 self-opt autopilots
+// appear as ordinary autopilot rows).
 // 0.3.60: generic user-plugin shell route wrapper. Manifest-driven
 // tab layout for user_* lab plugins (see experimentalLabRouteFor in
 // packages/views/modals/create-issue.tsx).
@@ -156,30 +163,16 @@ export const appRoutes: RouteObject[] = [
         handle: { title: "Code Canvas" },
       },
       {
-        // 0.5.2: merged self-opt view (overview + history + trust +
-        // events). Both legacy paths (agent-self-optimization and
-        // self-opt-history) render the same merged view so old
-        // bookmarks keep working.
-        path: "experimental/agent-self-optimization",
-        element: <SelfOptView />,
-        handle: { title: "Agent Self-Optimization" },
+        // 0.5.6: removed the agent_self_optimization view. The
+        // self-opt loop is product-level and controlled via the
+        // /autopilots page; the historical HTTP surface at
+        // /api/experimental/self-opt/* is still served by the
+        // Go backend (read-only history, manual trigger) but the
+        // dedicated React view is gone.
       },
       {
-        path: "experimental/self-opt-history",
-        element: <SelfOptView />,
-        handle: { title: "智能体自优化" },
-      },
-      {
-        // 0.3.45: action-type lab. Pre-workspace route (no
-        // :workspaceSlug prefix) on purpose — the studio's body
-        // is workspace-agnostic; the active workspace is read
-        // implicitly when the user submits a creation. The
-        // optional `?from_issue=<id>` query param is set by the
-        // LabPicker.onAction dispatch so the studio header can
-        // show a "返回 issue《xxx》" link.
-        path: "experimental/agent-creation-studio",
-        element: <AgentCreationStudioView />,
-        handle: { title: "Agent Creation Studio" },
+        // 0.5.6: removed the self-opt-history view. Same rationale
+        // as the agent_self_optimization removal above.
       },
       {
         // 0.3.60: generic user plugin shell. The slug comes from the URL

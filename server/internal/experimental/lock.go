@@ -80,7 +80,10 @@ const (
 	SourceMythosSwarm Source = "mythos_swarm"
 	// 0.3.27 B4: source for the agent_self_optimization lab. Same
 	// rationale as the deprecated SourceConstitutionAgent (retired in
-	// 0.3.57, migration 165).
+	// 0.3.57, migration 165). 0.5.6: the catalog literal is removed
+	// but the source string is preserved so historical
+	// `experimental_resource_lock` rows still match by string, and
+	// migration 237 can clean them up.
 	SourceAgentSelfOptimization Source = "agent_self_optimization"
 	// 0.3.54: source for the pythia_oracle lab. Used by
 	// install_pythia.go which provisions a `pythia_runtime` leader
@@ -94,9 +97,9 @@ const (
 	// agent + the bundled run.sh /health stub subprocess.
 	SourceCodeCanvas Source = "code_canvas"
 	// 0.5.3: source for the agent_creation_studio lab (0.3.45 action
-	// entry, upgraded to an issue-bound lab). Used by
-	// install_agent_creation_studio.go which provisions the
-	// `agent_creation_expert` leader agent that owns created resources.
+	// entry, upgraded to an issue-bound lab). 0.5.6: catalog literal
+	// removed; the source string stays so historical lock rows still
+	// match by string, and migration 237 can clean them up.
 	SourceAgentCreationStudio Source = "agent_creation_studio"
 )
 

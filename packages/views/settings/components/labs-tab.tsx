@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, FlaskConical, RefreshCw, Package } from "lucide-react";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Label } from "@multica/ui/components/ui/label";
@@ -99,21 +99,17 @@ export function LabsTab() {
   const [installAllPending, setInstallAllPending] = useState(false);
   const [installAllSummary, setInstallAllSummary] = useState<string | null>(null);
 
-  // 0.5.5.2: hide product-level flags from the Labs tab. These
-  // flags stay in the catalog for legacy lookup (e.g.
-  // `issue.lab_source='agent_creation_studio'` resolution) but are
-  // product-level resources — they are boot-provisioned and the
-  // user controls them through the AssigneePicker / autopilot
-  // `enabled` field, not through this toggle. Surfacing the toggle
-  // here would let the user disable a product feature by accident.
-  const PRODUCT_LEVEL_LAB_KEYS = new Set<string>([
-    "agent_creation_studio",
-    "agent_self_optimization",
-  ]);
-  const displayedFlags = useMemo(
-    () => (flags ?? []).filter((f) => !PRODUCT_LEVEL_LAB_KEYS.has(f.key)),
-    [flags],
-  );
+  // 0.5.6: `agent_creation_studio` and `agent_self_optimization`
+  // were promoted to product-level resources (0.5.5) and the
+  // catalog literals were removed (0.5.6). The catalog no longer
+  // returns these keys, so the 0.5.5.2 `PRODUCT_LEVEL_LAB_KEYS`
+  // black-list is no longer needed. The display list is the
+  // remaining opt-in catalog entries (claude_science_lab /
+  // pythia_oracle / mythos_swarm / llm_wiki_bridge / code_canvas
+  // / chat_pin_ui). Future product-level flags should be added to
+  // the catalog's `HideFromIssueLabPicker` (or removed entirely)
+  // rather than duplicated here.
+  const displayedFlags = flags ?? [];
 
   async function runInstallAll() {
     setInstallAllPending(true);

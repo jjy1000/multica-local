@@ -844,17 +844,20 @@ func (s *AutopilotService) shouldSkipDispatch(ctx context.Context, ap db.Autopil
 	if !ap.AssigneeID.Valid {
 		return "autopilot has no assignee", true
 	}
-	// 0.3.17 Labs gate: if this autopilot is in the
-	// agent_self_optimization hidden set AND the user has not opted
-	// into the flag (the catalog default is false), short-circuit
-	// before we resolve any leader / open any tx / enqueue any work.
-	// The reason string is stable so existing dashboards that group
-	// skip reasons by substring do not need updating.
-	if _, hidden := agentSelfOptimizationAutopilotIDs[ap.ID]; hidden {
-		if !experimental.DefaultFor("agent_self_optimization") {
-			return "autopilot hidden by agent_self_optimization flag", true
-		}
-	}
+	// 0.3.17 Labs gate: the `agentSelfOptimizationAutopilotIDs` hidden
+	// set was used to short-circuit dispatch when the user had not
+	// opted into the `agent_self_optimization` flag. 0.5.6: that flag
+	// is no longer in the catalog — the 2 self-opt autopilots
+	// (SkillOpt-Multica daily + 智能体工程师团队 per-3-workday) are
+	// ordinary autopilot rows that the user controls via the
+	// autopilot's own `enabled` field. The hidden set is kept (the
+	// variable still resolves correctly if a future catalog flip
+	// re-creates the flag) but the per-flag gate is removed so the
+	// autopilots always fire when their `enabled=true` row is
+	// scheduled.
+	_ = agentSelfOptimizationAutopilotIDs // 0.5.6: hidden set is
+	// unused; preserved so future catalog-flip cleanup can reuse
+	// the loader path.
 	// (The 0.3.20 constitution_agent gate was retired in 0.3.57 with
 	// migration 165. The autopilot scheduler no longer carries a
 	// per-flag hidden set for it; the 3 CTR/CSIL/TAOL autopilot rows

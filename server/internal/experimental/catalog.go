@@ -298,107 +298,25 @@ var Catalog = []Flag{
 		LoopbackService:                 "code_canvas",
 		HidesDeliverableInIssueTimeline: true,
 	},
-	{
-		// agent_self_optimization: hides the 「智能体优化专家」 agent
-		// and its 2 autopilots (per-3-workday bulk optimization +
-		// daily SkillOpt-Multica self-evolution loop) plus the
-		// `skillopt-multica` Skill behind an opt-in toggle. Off by
-		// default — these features run autonomous edits to agents /
-		// skills / autopilots across the workspace, so the flag exists
-		// to keep them out of the visible agent team + automation list
-		// until the user explicitly opts in. Visibility is enforced
-		// via experimental_resource_visibility rows + autopilot
-		// scheduler skip; the agent row stays in the squad so its
-		// leader briefs still resolve.
-		Key:        "agent_self_optimization",
-		DefaultVal: true,
-		Title: LocalizedString{
-			En: "Agent Self-Optimization Loop",
-			Zh: "智能体自优化循环",
-		},
-		Description: LocalizedString{
-			En: "Hosts the 智能体优化专家 agent + 2 autopilots (SkillOpt-Multica daily self-evolution loop + per-3-workday bulk optimization) + skillopt-multica Skill as a product-level automation. Always on — control per-autopilot via the autopilot's own `enabled` field (multica autopilot update) instead of a Labs toggle. The flag stays in the catalog for legacy lookup, but the 0.5.5.1 refactor moved the gate from `experimental_pref` to per-autopilot enable so the user controls self-evolution from the automation page directly.",
-			Zh: "承载「智能体优化专家」智能体 + 2 条 autopilot(SkillOpt-Multica 每日自进化循环 + 每3工作日批量优化)+ skillopt-multica 技能,作为产品级自动化能力。总是启用 —— 通过 autopilot 自身的 `enabled` 字段(multica autopilot update)控制每条 autopilot,而非 Labs tab 开关。Flag 保留在 catalog 用于 legacy 查找,0.5.5.1 重构后门控从 `experimental_pref` 改为 per-autopilot enable,用户在自动化工程页直接控制。",
-		},
-		ManifestPath: "experiments/agent_self_optimization/manifest.json",
-		// inline: the flag is purely a legacy lookup key now. No subprocess;
-		// no proxy; no install handler. The 2 autopilots + 智能体优化专家
-		// leader agent are boot-provisioned by the agent_self_optimization
-		// service (0.3.45.1, always-on regardless of catalog default).
-		RuntimeKind: "inline",
-		// Self-driven scheduler (per-3-workday bulk optimization +
-		// SkillOpt-Multica daily loop). The autopilot's own `enabled`
-		// field is the user-facing gate; per-issue picking is meaningless.
-		HideFromIssueLabPicker:          true,
-		HidesDeliverableInIssueTimeline: true,
-	},
+	// 0.5.6: `agent_self_optimization` and `agent_creation_studio`
+	// are no longer catalog entries. The two flags were promoted to
+	// product-level resources in 0.5.5 (boot-provisioned leader
+	// agents, autopilot-row `enabled` control, no Labs tab toggle)
+	// and 0.5.5.1 decoupled the self-opt control surface; 0.5.6
+	// removes the catalog literals entirely so a future
+	// `experimental.DefaultFor("agent_creation_studio")` returns
+	// `false` instead of relying on a never-queried stub. The runtime
+	// (service/agent_self_optimization/*) and the leader agents
+	// (agent_creation_expert, 智能体优化专家) live on — they are
+	// product-level resources, not catalog entries. See
+	// .omc/0.5.6-ship-2026-08-02.md for the full rationale.
+	//
 	// 0.3.57 catalog cleanup: the 0.3.20 constitution_agent flag is
 	// RETIRED (see migration 165). Visibility constants in visibility.go
 	// and the SourceConstitutionAgent enum value in lock.go were deleted
 	// alongside the flag. The skill, autopilots, and agent row live on
 	// past that point only via historical lock rows; existing tables were
 	// not dropped because migration data must remain forward-compatible.
-	{
-		// agent_creation_studio (0.3.45): action-type lab distinct
-		// from the visibility-gated flags above. Instead of hiding or
-		// installing hidden agents, it surfaces an in-Labs editor
-		// ("studio") where the user explicitly drafts agent / skill /
-		// squad resources, then submits the existing POST /api/agents,
-		// /api/skills, /api/squads endpoints. Created resources are
-		// normal user-visible rows (no HideableResource rows seeded)
-		// so they participate in the main product immediately — but
-		// the entry point itself lives behind the lab toggle, keeping
-		// the "build a team" affordance out of the main product chrome.
-		//
-		// Unlike agent_self_optimization (which
-		// is a visibility gate with zero new HTTP routes), this flag
-		// exposes no install handler, no HideableResource, no
-		// experimental_resource_lock rows. The only thing it ships is
-		// entry_points.issue_panel_action on the manifest and a
-		// pre-workspace /experimental/agent-creation-studio route.
-		//
-		// 0.3.45 hard constraint: the action entry point fires through
-		// LabPicker's `onAction` callback, NOT through issue.lab_source
-		// — so the lab/assignee mutex, assignDefaultLabAgentOnUpdate,
-		// and the IssueLabsSection sidebar link all stay oblivious to
-		// the studio. This keeps the studio orthogonal to the existing
-		// remaining inline / visibility-gate pairs.
-		//
-		// 0.5.3: the studio is ALSO an issue-bound lab — selecting it in
-		// the LabPicker main list writes issue.lab_source='agent_creation_studio'
-		// and the leader (agent_creation_expert, provisioned by
-		// install_agent_creation_studio.go) is auto-assigned via the
-		// 0.3.46 P0#4 rewrite contract. The manual creator (action
-		// footer) stays. The lab does NOT seed visibility rows: the
-		// leader is the user's execution partner and must appear in
-		// pickers/assignee display.
-		Key:        "agent_creation_studio",
-		DefaultVal: true,
-		// 0.5.5: the studio is now a product-level resource, not an
-		// opt-in lab. The `agent_creation_expert` leader agent is
-		// boot-provisioned by `boot_provision_product_labs.go` and
-		// surfaces directly in the AssigneePicker (no LabPicker detour,
-		// no "enable flag" toggle). The flag stays in the catalog for
-		// backward-compat (any legacy `lab_source='agent_creation_studio'`
-		// issue is still read-resolvable; the runtime short-circuits to
-		// the leader via `defaultLabLeaderForKey`), but the UI no longer
-		// surfaces it. AlwaysShowInLabPicker is removed so a 0.5.5 client
-		// never lists the entry.
-		AlwaysShowInLabPicker: false,
-		Title: LocalizedString{
-			En: "Agent Creation Studio",
-			Zh: "智能体创建",
-		},
-		Description: LocalizedString{
-			En: "Draft and create agent, skill, or squad resources from inside Labs. Created resources are normal user-visible rows; they appear in the main product immediately. Off by default — the studio sits behind an opt-in toggle so the main product chrome stays focused.",
-			Zh: "在实验室内编写并创建智能体 / 技能 / 团队资源。新建资源为普通用户可见行, 立即在主产品中出现。默认关闭 —— 编辑器隐藏在 opt-in 开关后, 保持主产品界面简洁。",
-		},
-		ManifestPath: "experiments/agent_creation_studio/manifest.json",
-		// inline: no subprocess, no proxy, no install handler. The
-		// studio runs purely inside the renderer (ChatWindow-shaped
-		// orchestrator) and round-trips through existing REST APIs.
-		RuntimeKind: "inline",
-	},
 }
 
 // userPluginMu guards the dynamic user plugin layer. Built-in flags

@@ -2993,9 +2993,12 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 		// owned by manager-factory.ts.
 		return "code_canvas_worker", true
 	case "agent_creation_studio":
-		// 0.5.3: the studio leader agent (install_agent_creation_studio.go).
-		// Picking the lab in LabPicker auto-assigns the issue to this agent
-		// so the creation task dispatches to a live runtime.
+		// 0.5.5: the studio leader agent is boot-provisioned by
+		// `boot_provision_product_labs.go` and surfaces directly in
+		// the AssigneePicker. 0.5.6: the flag literal is removed
+		// from the catalog, but the case stays so any legacy
+		// `lab_source='agent_creation_studio'` issue still resolves
+		// to the leader (the 0.3.46 P0#4 leader-rewrite contract).
 		return AgentCreationExpertName, true
 	case "mythos_swarm":
 		// Mythos owns the roster via its own runner; auto-assign is

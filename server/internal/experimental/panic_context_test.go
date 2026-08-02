@@ -70,13 +70,17 @@ func TestPopEmptyReturnsFalse(t *testing.T) {
 
 func TestPanicContextSurvivesErrorReturn(t *testing.T) {
 	defer PopPanicFlagContext()
-	SetPanicFlagContext("agent_self_optimization", "scheduler skip")
+	// 0.5.6: the test no longer uses the `agent_self_optimization`
+	// string literal — that flag is removed from the catalog and
+	// the magic string is no longer meaningful here. The pop/push
+	// contract is the same regardless of the payload string.
+	SetPanicFlagContext("product_level_placeholder", "scheduler skip")
 	// Return an error via errors.New (non-panic). Slot must persist.
 	if err := errors.New("non-panic error"); err == nil {
 		t.Fatal("test bug")
 	}
 	key, ctx, ok := PopPanicFlagContext()
-	if !ok || key != "agent_self_optimization" || ctx != "scheduler skip" {
-		t.Errorf("got (%q, %q, ok=%v), want agent_self_optimization/scheduler skip/true", key, ctx, ok)
+	if !ok || key != "product_level_placeholder" || ctx != "scheduler skip" {
+		t.Errorf("got (%q, %q, ok=%v), want product_level_placeholder/scheduler skip/true", key, ctx, ok)
 	}
 }

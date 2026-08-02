@@ -1,4 +1,4 @@
-// Package agent_self_optimization — service.go (0.3.45.1 + 0.3.45.2 + 0.5.5.1).
+// Package agent_self_optimization — service.go (0.3.45.1 + 0.3.45.2 + 0.5.5.1 + 0.5.6).
 //
 // Per-workspace scheduler + runner host. Mirrors the mythos
 // Service pattern (see server/internal/service/mythos/runner.go):

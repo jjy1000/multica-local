@@ -1,28 +1,27 @@
-// Package handler — agent_self_optimization.go (0.3.45.1).
+// Package handler — agent_self_optimization.go (0.3.45.1 + 0.5.6).
 //
-// HTTP surface for the agent_self_optimization lab history view:
+// HTTP surface for the agent self-optimization history view (the
+// product-level "self-evolution loop"):
 //   - GET  /api/experimental/self-opt/runs            → list runs
 //   - GET  /api/experimental/self-opt/runs/{id}       → single run detail
 //   - POST /api/experimental/self-opt/runs            → manual trigger
 //   - POST /api/experimental/self-opt/runs/{id}/cancel → cancel a pending run
 //
-// All endpoints require auth + workspace membership. The flag-gate
-// lives at experimentalFlagEnabled("agent_self_optimization") for
-// caller identity: flag off → 404 for everything (the routes
-// register, but the handler 404s so the existence of the flag is not
-// leaked to clients).
+// All endpoints require auth + workspace membership.
 //
-// 0.3.45.2: gate reads per-user experimental_pref first, falling
-// back to catalog default. This is the same decision logic the
-// RequireExperimentalFlag middleware uses (see
-// experimental_guard.go::experimentalFlagEnabled), but we cannot
-// apply that middleware here because agent_self_optimization has a
-// user-facing history surface that must work even when the catalog
-// default is OFF — only the opt-in user's calls should 404.
-//
-// Why 404 (not 403): a 403 would confirm the flag exists. 404 means
-// "this surface does not exist for your client" — same posture as the
-// other Labs platform endpoints (see claude_lab_forecast.go,
+// 0.5.6: the per-flag gate is removed. The catalog literal
+// `agent_self_optimization` is gone, so `experimentalFlagEnabled`
+// would always return false and the gate would 404 every call. The
+// endpoints are unconditionally reachable. The 2 self-opt autopilots
+// remain ordinary autopilot rows; users control cadence via the
+// autopilot's own `enabled` field (multica autopilot update
+// --disabled). The 0.3.46 P0#4 / 0.5.5.1 contract still applies:
+// the 智能体优化专家 leader agent + the 2 self-opt autopilots are
+// boot-provisioned by the agent_self_optimization service
+// (0.3.45.1) and the trust / agent_opt_edit ledger runs are managed
+// by the same service. The /api/experimental/self-opt/* HTTP
+// surface is the user-facing read view; manual triggers here are
+// equivalent to `multica self-opt trigger <workspace>`.
 // llm_wiki_bridge.go).
 
 package handler
@@ -77,10 +76,9 @@ type SelfOptRunDTO struct {
 //	limit         default 20, max 100
 //	offset        default 0
 func (h *Handler) ListSelfOptRuns(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
-		http.NotFound(w, r)
-		return
-	}
+	// 0.5.6: agent_self_optimization is no longer a catalog flag.
+	// The endpoint is unconditionally reachable — the per-flag gate
+	// is removed alongside the catalog literal.
 	wsID, err := parseSelfOptWorkspaceID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -125,10 +123,8 @@ func (h *Handler) ListSelfOptRuns(w http.ResponseWriter, r *http.Request) {
 
 // GetSelfOptRun handles GET /api/experimental/self-opt/runs/{id}.
 func (h *Handler) GetSelfOptRun(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
-		http.NotFound(w, r)
-		return
-	}
+	// 0.5.6: agent_self_optimization is no longer a catalog flag.
+	// The endpoint is unconditionally reachable.
 	runID, err := parseSelfOptRunID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -166,10 +162,9 @@ func (h *Handler) GetSelfOptRun(w http.ResponseWriter, r *http.Request) {
 // succeeding). This prevents a future "global opt-in by accident"
 // regression: only opted-in users can trigger runs.
 func (h *Handler) TriggerSelfOptRun(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
-		http.NotFound(w, r)
-		return
-	}
+	// 0.5.6: agent_self_optimization is no longer a catalog flag.
+	// The endpoint is unconditionally reachable. Membership gating
+	// (workspace access) is still enforced by the router middleware.
 	if h.SelfOptService == nil {
 		writeError(w, http.StatusServiceUnavailable, "self-opt service not initialised")
 		return
@@ -217,10 +212,8 @@ func (h *Handler) TriggerSelfOptRun(w http.ResponseWriter, r *http.Request) {
 // in-flight runner will see the next state transition (or the
 // advisory lock will release) and exit cleanly.
 func (h *Handler) CancelSelfOptRun(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
-		http.NotFound(w, r)
-		return
-	}
+	// 0.5.6: agent_self_optimization is no longer a catalog flag.
+	// The endpoint is unconditionally reachable.
 	runID, err := parseSelfOptRunID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

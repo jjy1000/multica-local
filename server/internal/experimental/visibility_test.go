@@ -1,7 +1,6 @@
 package experimental
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -11,6 +10,11 @@ import (
 // visibility.go. The flags are deployment-fixed UUIDs; if any of them
 // is malformed the catalog helper will panic on init, but a unit test
 // gives a clearer failure mode and documents the intent.
+//
+// 0.5.6: the `agent_self_optimization` catalog literal is removed.
+// The visibility constants are still referenced by migration 237
+// (which cleans up the corresponding lock / visibility rows), so
+// the UUIDs must stay valid.
 func TestAgentSelfOptimizationIDsAreValid(t *testing.T) {
 	t.Parallel()
 
@@ -31,21 +35,22 @@ func TestAgentSelfOptimizationIDsAreValid(t *testing.T) {
 	}
 }
 
-// TestCatalogHasAgentSelfOptimizationFlag locks in the catalog
-// presence so a future cleanup that drops the flag without removing
-// the visibility constants will fail loudly here.
-func TestCatalogHasAgentSelfOptimizationFlag(t *testing.T) {
+// TestAgentSelfOptimizationFlagRemovedFromCatalog pins the 0.5.6
+// contract: the `agent_self_optimization` flag is a product-level
+// resource, not a Labs tier flag, so the catalog literal must be
+// gone. (Visibility constants in visibility.go are kept — they
+// are still referenced by migration 237 to identify the rows to
+// delete — but the catalog entry that would have driven the
+// 0.3.17 per-flag gate is removed.) A future cleanup that
+// silently re-adds the catalog literal will fail loudly here.
+func TestAgentSelfOptimizationFlagRemovedFromCatalog(t *testing.T) {
 	t.Parallel()
 
 	for _, f := range Catalog {
 		if f.Key == "agent_self_optimization" {
-			if f.DefaultVal {
-				t.Fatal("agent_self_optimization must default to false per Labs constraint")
-			}
-			return
+			t.Fatal("agent_self_optimization must NOT be in catalog (0.5.6: product-level resource)")
 		}
 	}
-	t.Fatal("agent_self_optimization missing from experimental.Catalog")
 }
 
 // TestIsKnownHideableResource guards the resource type enum against
@@ -98,36 +103,14 @@ func TestUUIDsToPgtype(t *testing.T) {
 	}
 }
 
-// TestAgentSelfOptimizationDescriptions renders the bilingual title
-// + description so a translator dropping one of the locales surfaces
-// as a test failure rather than an empty UI card.
-func TestAgentSelfOptimizationDescriptions(t *testing.T) {
-	t.Parallel()
-
-	var flag *Flag
-	for i, f := range Catalog {
-		if f.Key == "agent_self_optimization" {
-			flag = &Catalog[i]
-			break
-		}
-	}
-	if flag == nil {
-		t.Fatal("agent_self_optimization flag missing from catalog")
-	}
-	if strings.TrimSpace(flag.Title.En) == "" {
-		t.Error("agent_self_optimization title.en is empty")
-	}
-	if strings.TrimSpace(flag.Title.Zh) == "" {
-		t.Error("agent_self_optimization title.zh is empty")
-	}
-	if strings.TrimSpace(flag.Description.En) == "" {
-		t.Error("agent_self_optimization description.en is empty")
-	}
-	if strings.TrimSpace(flag.Description.Zh) == "" {
-		t.Error("agent_self_optimization description.zh is empty")
-	}
-}
-
+// (0.5.6: the `agent_self_optimization` description rendering test
+// was removed alongside the catalog literal. The agent / autopilot
+// / skill still carry their own descriptions in the DB; that
+// coverage is not lost — it is exercised by the
+// `agent_self_optimization` work-in-progress view (0.5.5.x kept
+// the view; 0.5.6 removed it). The title / description i18n keys
+// are kept in packages/views/locales for any future re-introduction.)
+//
 // (no constitution_agent visibility tests remain — the flag was
 // retired in 0.3.57 with migration 165. Visibility constants were
 // removed alongside the catalog entry; nothing here to assert.)

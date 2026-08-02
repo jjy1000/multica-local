@@ -190,32 +190,30 @@ describe("LabPicker", () => {
     expect(labels.some((l) => l.includes("自优化"))).toBe(false);
   });
 
-  it("0.5.5: agent_creation_studio never appears in the picker (product-level resource)", () => {
-    // 0.5.5 promotes `agent_creation_studio` to a product-level
-    // resource. The leader `agent_creation_expert` is boot-provisioned
-    // and surfaces in the AssigneePicker directly — no LabPicker
-    // entry, no opt-in flag, no inline info panel. The picker is
-    // therefore empty for the studio regardless of `enabled` or
-    // `always_show_in_lab_picker` (defense in depth: the catalog
-    // also flipped AlwaysShowInLabPicker to false, but the client
-    // hard-codes a HIDDEN_LAB_KEYS set as a second layer of
-    // protection so a future catalog drift never re-surfaces it).
+  it("0.5.6: the picker renders only catalog-returned opt-in flags (no product-level resources)", () => {
+    // 0.5.6 contract: `agent_creation_studio` and
+    // `agent_self_optimization` are no longer in the catalog. The
+    // picker therefore lists only the remaining opt-in flags the
+    // server returns (claude_science_lab here). The mock simulates
+    // the 0.5.6 server shape: those two keys are absent from
+    // `useExperimentalFlags`'s return. 0.5.5.2's HIDDEN_LAB_KEYS
+    // client-side black-list is removed; the catalog itself is now
+    // the source of truth.
     mockFlags.value = [
       { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
-      { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: true, always_show_in_lab_picker: true },
+      { key: "mythos_swarm", title: { zh: "Mythos 蜂群", en: "Mythos Swarm" }, enabled: true },
     ];
     const { onUpdate, onClearAssignee } = renderPicker();
     const trigger = document.querySelector("button[aria-haspopup]")!;
     fireEvent.click(trigger);
-    // Main list: None + claude_science_lab = 2. The studio is dropped.
-    expect(document.querySelectorAll("button[data-picker-item]").length).toBe(2);
+    expect(document.querySelectorAll("button[data-picker-item]").length).toBe(3); // None + 2 flags
     const labels = Array.from(
       document.querySelectorAll("button[data-picker-item]"),
     ).map((el) => el.textContent ?? "");
-    expect(labels.some((l) => l.includes("智能体创建"))).toBe(false);
-    // And tapping any remaining row (claude_science_lab) still
-    // works as a normal lab bind — the studio removal did not break
-    // the rest of the picker.
+    // None + claude_science_lab + mythos_swarm.
+    expect(labels.some((l) => l.includes("Claude"))).toBe(true);
+    expect(labels.some((l) => l.includes("Mythos"))).toBe(true);
+    // Tapping a row still works as a normal lab bind.
     const claude = document.querySelectorAll("button[data-picker-item]")[1]!;
     fireEvent.click(claude);
     expect(onUpdate).toHaveBeenCalledWith({
@@ -225,40 +223,13 @@ describe("LabPicker", () => {
     expect(onClearAssignee).toHaveBeenCalled();
   });
 
-  it("0.5.5: agent_self_optimization never appears in the picker", () => {
-    // `agent_self_optimization` was already `hide_from_issue_lab_picker`
-    // before 0.5.5, but the client now also hard-codes it in
-    // HIDDEN_LAB_KEYS as a defense-in-depth layer (the catalog could
-    // someday drop the hide flag; the client must not surface it
-    // regardless). Verify both the absence and that the user still
-    // gets a usable picker for the other labs.
-    mockFlags.value = [
-      { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
-      { key: "agent_self_optimization", title: { zh: "智能体优化", en: "Agent Self-Opt" }, enabled: true },
-    ];
-    renderPicker();
-    const trigger = document.querySelector("button[aria-haspopup]")!;
-    fireEvent.click(trigger);
-    const labels = Array.from(
-      document.querySelectorAll("button[data-picker-item]"),
-    ).map((el) => el.textContent ?? "");
-    expect(labels.some((l) => l.includes("智能体优化"))).toBe(false);
-    // The other labs still render.
-    expect(labels.some((l) => l.includes("Claude"))).toBe(true);
-  });
-
-  it("0.5.5: an empty picker (only product-level labs available) still renders the None row", () => {
-    // When every catalog flag is either a hidden product-level
-    // resource (agent_creation_studio / agent_self_optimization) or
-    // a non-issue-bound lab (llm_wiki_bridge / agent_self_optimization
-    // already hidden), the picker collapses to a single "None" row.
-    // The issue-detail UX is now: assign a regular assignee; if the
-    // user wants the Agent Creation expert they pick it from
-    // AssigneePicker, not from the lab picker.
-    mockFlags.value = [
-      { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: true, always_show_in_lab_picker: true },
-      { key: "agent_self_optimization", title: { zh: "智能体优化", en: "Agent Self-Opt" }, enabled: true, hide_from_issue_lab_picker: true },
-    ];
+  it("0.5.6: an empty catalog collapses the picker to a single None row", () => {
+    // 0.5.6: when the server returns an empty flags list (which
+    // happens in a single-user fork with only product-level
+    // resources — no opt-in flags enabled), the picker renders
+    // only the "None" row. The user picks the leader agent from
+    // the AssigneePicker instead.
+    mockFlags.value = [];
     renderPicker();
     const trigger = document.querySelector("button[aria-haspopup]")!;
     fireEvent.click(trigger);

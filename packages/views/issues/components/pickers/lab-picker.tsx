@@ -26,53 +26,46 @@
 //     it (lab owns the roster), enhancer mode does NOT (the user
 //     must keep their assignee).
 //
-// 0.3.45 hoist / 0.5.4 inline panel / 0.5.4.x click-through:
 //
-//   - 0.3.45: the `agent_creation_studio` lab shipped as an action-type
-//     lab with an `onAction` footer callback that routed the user to a
-//     pre-workspace `/experimental/agent-creation-studio` creator page.
-//   - 0.5.4 (creator page deleted): the studio is an issue-bound lab —
-//     selecting it in the LabPicker main list writes
-//     `issue.lab_source='agent_creation_studio'` and the leader
-//     (`agent_creation_expert`, provisioned by
-//     `install_agent_creation_studio.go`) is auto-assigned via the
-//     0.3.46 P0#4 leader-rewrite contract. The dedicated creator page
-//     was removed; the studio now authors resources by dispatching a
-//     task to the leader.
-//   - 0.5.4.x (this revision): when the flag IS enabled, tapping
-//     `智能体创建` binds the lab directly — same as any other
-//     issue-bound lab. The user gets the "click once, start now"
-//     experience: bind → server PATCH → 0.3.46 P0#4 rewrites the
-//     assignee to `agent_creation_expert` → task is queued.
+// 0.5.6: the lab picker is now a thin wrapper over the remaining
+// opt-in catalog flags. The two product-level flags
+// (`agent_creation_studio`, `agent_self_optimization`) that 0.5.5
+// lifted out of the Labs tier no longer appear here, the
+// `RecentLabsPanel` and its read-only history view are deleted
+// (the leader agents are reachable through the AssigneePicker
+// instead), and the inline info panel state machine is removed
+// (no second view to swap into).
 //
-//     The inline `RecentLabsPanel` is now only shown when the flag is
-//     OFF. The panel explains what the lab is (because the leader is
-//     not yet installed and direct dispatch would fail on the server)
-//     and gives the user a single-click escape hatch back to the main
-//     list. Once the user enables the flag in Labs settings, every
-//     subsequent picker tap binds the lab directly.
+// 0.5.5: HIDDEN_LAB_KEYS hard-coded the two product-level flags
+// as a defense in depth. 0.5.6 removes the set: the catalog
+// itself no longer returns those keys (catalog.go removed the Flag
+// literals), so a client-side black-list is no longer needed.
 //
-//     The panel is a read-only history view (`RecentLabsPanel.tsx`),
-//     not a creation surface — creating new agents/skills/squads is
-//     always done by dispatching a task to the leader, which calls
-//     `multica-creating-agents` / `multica-lab-builder` skills.
+// 0.5.4.x / 0.5.5.2 / 0.5.5.3: a series of UI tweaks (click-through
+// dispatch, "open panel" removal, ProductLevelBanner) layered on
+// top of the original 0.3.45 action-type lab. 0.5.6 subsumes all
+// of them by removing the relevant flags from the picker entirely.
 //
 // This picker writes both `issue.lab_source` and `issue.lab_mode`
 // through the same `onUpdate` callback. The caller is responsible
 // for routing both fields into the underlying mutation.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useExperimentalFlags } from "@multica/core/experimental";
 import { useT } from "../../../i18n";
 import { PropertyPicker, PickerItem } from "./property-picker";
-import { RecentLabsPanel } from "./recent-labs-panel";
 
 export type LabMode = "sole" | "enhancer";
 
 interface LabPickerProps {
-  /** Current workspace id. Required for the inline info panel
-   *  (`RecentLabsPanel` reads agents/skills/squads lists scoped to this
-   *  workspace). Callers should pass `useWorkspaceId()`. */
+  /** Current workspace id. Reserved for future per-workspace filtering
+   *  (e.g. a future per-workspace "lab overrides" sheet). The picker
+   *  itself does not consume it any more — the inline
+   *  `RecentLabsPanel` that required it was removed in 0.5.6.
+   *
+   *  Kept in the public LabPickerProps surface so the issue-detail
+   *  call site does not have to be updated alongside the picker
+   *  rewrite. */
   wsId: string;
   /** Current lab_source value on the issue. null/undefined = no lab. */
   labSource: string | null | undefined;
@@ -124,7 +117,7 @@ interface LabPickerProps {
  * defaults to 'sole' if the caller never set one explicitly.
  */
 export function LabPicker({
-  wsId,
+  wsId: _wsId, // 0.5.6: reserved for future per-workspace filtering
   labSource,
   labMode,
   onUpdate,
@@ -141,23 +134,6 @@ export function LabPicker({
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
 
-  // 0.5.4 inline-panel state machine.
-  //
-  //   "main"   — the default lab-list view (entries + mythos mode tabs).
-  //   "recent" — the read-only info panel for `agent_creation_studio`,
-  //              showing recent agents / skills / squads + a one-line
-  //              hint. Picking this entry never binds `lab_source`;
-  //              it only flips the local view so the popover swaps
-  //              content while staying open.
-  //
-  // The view resets to "main" whenever the popover closes — the
-  // `useEffect` below handles that. The "back to list" button the
-  // panel renders on its own footer calls the same setter directly.
-  const [view, setView] = useState<"main" | "recent">("main");
-  useEffect(() => {
-    if (!open) setView("main");
-  }, [open]);
-
   // Build the picker entries once per flag list change. We surface every
   // ENABLED flag the catalog exposes so users can flip back and forth
   // freely; a separate "no lab" entry is always first (id="") so
@@ -172,37 +148,24 @@ export function LabPicker({
   //
   // 0.3.45.8: also drop flags whose catalog.HideFromIssueLabPicker is
   // true. Those are infrastructure / self-driven labs (llm_wiki_bridge,
-  // agent_self_optimization) that take effect globally once enabled;
-  // picking them per-issue is a UX trap because the issue-level
-  // lab_source value would never be consulted by the runtime. The
-  // user still flips these flags on in the Labs settings tab — only
-  // the per-issue picker omits them.
+  // code_canvas) that take effect globally once enabled; picking
+  // them per-issue is a UX trap because the issue-level lab_source
+  // value would never be consulted by the runtime. The user still
+  // flips these flags on in the Labs settings tab — only the
+  // per-issue picker omits them.
   //
-  // 0.5.5: `agent_creation_studio` and `agent_self_optimization` are
-  // **product-level resources**, not opt-in labs. Their leaders
-  // (`agent_creation_expert` + `智能体优化专家`) are boot-provisioned
-  // and surface in the AssigneePicker directly — no LabPicker detour,
-  // no "enable flag" toggle. The flags still exist in the catalog
-  // (so legacy `issue.lab_source` lookups resolve) but the picker
-  // must never list them: an empty 0.5.5 picker is the right
-  // product UX. We hard-code the hidden-key set here as a defense
-  // in depth against any future catalog flag flip.
-  //
-  // (Before 0.5.4.x: `agent_creation_studio` was always-shown so
-  // flag-off users could discover the lab via the RecentLabsPanel.
-  // 0.5.5 promotes the lab to a product feature, so the discovery
-  // surface moves to the AssigneePicker + the agent's own card in
-  // the settings/agents tab.)
-  const HIDDEN_LAB_KEYS = new Set<string>([
-    "agent_creation_studio",
-    "agent_self_optimization",
-  ]);
+  // 0.5.6: the catalog no longer returns the
+  // `agent_creation_studio` / `agent_self_optimization` keys at
+  // all, so the prior 0.5.5 / 0.5.5.2 / 0.5.5.3 client-side
+  // `HIDDEN_LAB_KEYS` black-list is removed. Any future
+  // product-level flag should be added to the catalog's
+  // `HideFromIssueLabPicker` instead of duplicating the
+  // black-list here.
   const entries = useMemo(() => {
     const out: { id: string; title: string; enabled: boolean }[] = [
       { id: "", title: t(($) => $.pickers.lab.picker_none) ?? "None", enabled: true },
     ];
     for (const flag of flags ?? []) {
-      if (HIDDEN_LAB_KEYS.has(flag.key)) continue;
       if (!flag.enabled && !flag.always_show_in_lab_picker) continue;
       if (flag.hide_from_issue_lab_picker) continue;
       out.push({
@@ -231,17 +194,7 @@ export function LabPicker({
       trigger={<span aria-hidden />}
     >
       <div className="space-y-1.5 p-1.5">
-        {view === "recent" ? (
-          // Inline info panel for `agent_creation_studio`. Renders
-          // recent agents/skills/squads + a hint line. Picking the
-          // entry never bound `lab_source` — the issue stays in
-          // whatever state it was in before the popover opened. The
-          // panel renders its own back-to-list footer; popover close
-          // also resets the view via the `useEffect` above.
-          <RecentLabsPanel wsId={wsId} onClose={() => setView("main")} />
-        ) : (
-          <>
-            {entries.map((entry) => (
+        {entries.map((entry) => (
               <PickerItem
                 key={entry.id}
                 selected={entry.id === (labSource ?? "")}
@@ -361,8 +314,6 @@ export function LabPicker({
                 </div>
               </div>
             )}
-          </>
-        )}
       </div>
     </PropertyPicker>
   );

@@ -544,24 +544,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallMythos(context.Background(), userID, workspaceID)
 			})
-		// 0.3.27 B4: agent_self_optimization install handler. The
-		// Install* function idempotently provisions the agent +
-		// autopilots; once they exist the scheduler's shouldSkipDispatch
-		// gate is no longer dead code. (The 0.3.20 constitution_agent
-		// sibling was retired in 0.3.57 with migration 165.)
-		//
-		// 0.5.5.1: agent_self_optimization is product-level. The
-		// agent + 2 autopilots are boot-provisioned by the
-		// agent_self_optimization service (0.3.45.1, always-on). The
-		// install handler is kept for legacy compatibility (older
-		// `multica experimental install agent_self_optimization`
-		// calls still work and idempotently upsert the same rows) but
-		// the Labs tab no longer surfaces a toggle, so the typical
-		// user never hits this path.
-		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceAgentSelfOptimization),
-			func(userID, workspaceID string) error {
-				return hh.InstallAgentSelfOptimization(context.Background(), userID, workspaceID)
-			})
+		// 0.3.27 B4: agent_self_optimization install handler. Removed
+		// in 0.5.6 — the agent + 2 autopilots are boot-provisioned by
+		// the agent_self_optimization service (0.3.45.1, always-on)
+		// and the catalog flag is gone, so there is no longer an
+		// `experimental install agent_self_optimization` entry point.
 		// 0.3.54: pythia_oracle + code_canvas install handlers. Both
 		// follow the same shape as install_mythos.go: a single leader
 		// agent row is upserted and claimed under the lab's source.
@@ -582,10 +569,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// issue.lab_source='agent_creation_studio' and the leader agent
 		// (agent_creation_expert) is auto-assigned, so user-delegated
 		// creation tasks dispatch to it. The manual creator stays.
-		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceAgentCreationStudio),
-			func(userID, workspaceID string) error {
-				return hh.InstallAgentCreationStudio(context.Background(), userID, workspaceID)
-			})
+		//
+		// 0.5.6: removed entirely. The `agent_creation_expert` leader
+		// agent is boot-provisioned by `boot_provision_product_labs.go`;
+		// the install handler is no longer reachable, the catalog
+		// literal is gone, and the Labs tab does not surface the lab.
 	}
 
 	// 0.3.60: boot-time user plugin loading. Merge active user plugins
