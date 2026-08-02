@@ -787,10 +787,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // for the active issue's `lab_source` — pre-0.3.49.1 this used a
   // hardcoded `VIEW_LAB_SOURCES` const.
   const { data: flagCatalog } = useExperimentalFlags();
-  // 0.5.2: enabled-flag lookup for the trust correction entry. Reads the
-  // same server catalog as the timeline filter above.
-  const flagEnabled = (key: string) =>
-    flagCatalog?.some((f) => f.key === key && f.enabled) === true;
   // Workspace owners and admins moderate any comment authored by anyone
   // (mirrors backend `comment.go:507-512`). Computed here so per-comment
   // rendering doesn't have to re-derive it for every row.
@@ -1611,7 +1607,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           <PropRow label="Lab">
             <span className="flex items-center gap-1.5 min-w-0">
               <LabPicker
-                wsId={wsId}
                 labSource={issue.lab_source ?? null}
                 labMode={issue.lab_mode ?? null}
                 onUpdate={(u) =>
@@ -1811,21 +1806,19 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
 
       {/* 0.5.2: trust correction entry — the user flags the assigned
           agent's output as wrong (score -0.5, feeds the self-opt
-          learning loop). Shown when the issue has an agent assignee,
-          the self-opt flag is enabled, and the assignee is not a
-          lab-hidden agent (their trust isn't user-managed). */}
-      {issue.assignee_type === "agent" &&
-        issue.assignee_id &&
-        wsId &&
-        flagEnabled("agent_self_optimization") && (
-          <div className="flex flex-col gap-1 px-2">
-            <AgentTrustCorrectButton
-              wsId={wsId}
-              agentId={issue.assignee_id}
-              issueId={id}
-            />
-          </div>
-        )}
+          learning loop). Shown when the issue has an agent assignee
+          (lab-hidden agents are excluded in AgentTrustCorrectButton —
+          their trust isn't user-managed). 0.5.6: self-opt is product
+          level (catalog literal removed), so no flag gate. */}
+      {issue.assignee_type === "agent" && issue.assignee_id && wsId && (
+        <div className="flex flex-col gap-1 px-2">
+          <AgentTrustCorrectButton
+            wsId={wsId}
+            agentId={issue.assignee_id}
+            issueId={id}
+          />
+        </div>
+      )}
 
       {/* Details */}
       <div>

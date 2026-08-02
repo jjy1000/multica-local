@@ -57,11 +57,8 @@
     "chat_pin_ui_enabled_badge": "Chat Pin enabled",
     "experimental_llm_wiki": "LLM Wiki",
     "experimental_llm_wiki_bridge": "LLM Wiki Bridge",
-    "experimental_claude_science_runtime": "Claude Science Runtime",
     "experimental_claude_science_lab": "Claude Research Lab",
     "experimental_code_canvas": "Code Canvas",
-    "experimental_agent_self_optimization": "Agent Self-Optimization",
-    "experimental_self_opt_history": "Agent Self-Optimization History",
     "error_fallback": "Sidebar failed to render.",
     "error_retry": "Retry"
   }

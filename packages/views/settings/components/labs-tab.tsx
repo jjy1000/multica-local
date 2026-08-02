@@ -254,16 +254,6 @@ export function LabsTab() {
           {installAllPending ? "运行中…" : "运行 install"}
         </Button>
       </div>
-      {/* 0.5.5.2: product-level flag filter. `agent_creation_studio`
-          and `agent_self_optimization` are product-level resources
-          (0.5.5 + 0.5.5.1 refactor: boot-provisioned leader agents,
-          self-opt gated on autopilot `enabled` instead of the
-          per-user pref row). They must not appear as toggles here:
-          a user flipping the row would set `enabled=false` on a
-          product-level flag and silently break the 0.3.46 P0#4
-          leader-rewrite path. Mirrors the `HIDDEN_LAB_KEYS` set in
-          `issue-detail.tsx::LabPicker` — both layers carry the same
-          product-level key set as defense in depth. */}
       {displayedFlags.map((flag) => {
         const title = flag.title[localized] || flag.title.en;
         const description = flag.description[localized] || flag.description.en;

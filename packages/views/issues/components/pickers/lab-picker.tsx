@@ -58,15 +58,6 @@ import { PropertyPicker, PickerItem } from "./property-picker";
 export type LabMode = "sole" | "enhancer";
 
 interface LabPickerProps {
-  /** Current workspace id. Reserved for future per-workspace filtering
-   *  (e.g. a future per-workspace "lab overrides" sheet). The picker
-   *  itself does not consume it any more — the inline
-   *  `RecentLabsPanel` that required it was removed in 0.5.6.
-   *
-   *  Kept in the public LabPickerProps surface so the issue-detail
-   *  call site does not have to be updated alongside the picker
-   *  rewrite. */
-  wsId: string;
   /** Current lab_source value on the issue. null/undefined = no lab. */
   labSource: string | null | undefined;
   /** Current lab_mode value on the issue. null/undefined = no mode.
@@ -117,7 +108,6 @@ interface LabPickerProps {
  * defaults to 'sole' if the caller never set one explicitly.
  */
 export function LabPicker({
-  wsId: _wsId, // 0.5.6: reserved for future per-workspace filtering
   labSource,
   labMode,
   onUpdate,
@@ -199,15 +189,6 @@ export function LabPicker({
                 key={entry.id}
                 selected={entry.id === (labSource ?? "")}
                 onClick={() => {
-                  // 0.5.5: the flag-on special-case for
-                  // `agent_creation_studio` is gone. The studio is
-                  // now a product-level resource reachable through
-                  // the AssigneePicker (the leader agent
-                  // `agent_creation_expert` is boot-provisioned). The
-                  // entry is no longer in this picker's `entries` list
-                  // (HIDDEN_LAB_KEYS drops it), so the body of this
-                  // callback only fires for the labs that are still
-                  // genuinely opt-in.
                   const nextLab = entry.id === "" ? null : entry.id;
                   // Clear-or-set: if the user picked the currently selected
                   // lab (no-op on the source side), do nothing. Otherwise
@@ -235,13 +216,13 @@ export function LabPicker({
                     }
                     onUpdate({ lab_source: "mythos_swarm", lab_mode: effectiveMode });
                   } else {
-                    // Any non-mythos lab (including `agent_creation_studio`
-                    // when the flag is enabled) clears the assignee — the
-                    // lab owns the roster, and the 0.3.46 P0#4 contract
-                    // will rewrite it to the lab's leader if no assignee
-                    // was carried. Mode is conceptually irrelevant for
-                    // non-mythos labs; the backend accepts "sole" by
-                    // default and the renderer doesn't show it.
+                    // Any non-mythos lab clears the assignee — the
+                    // lab owns the roster, and the 0.3.46 P0#4
+                    // contract will rewrite it to the lab's leader if
+                    // no assignee was carried. Mode is conceptually
+                    // irrelevant for non-mythos labs; the backend
+                    // accepts "sole" by default and the renderer
+                    // doesn't show it.
                     if (onClearAssignee) {
                       onClearAssignee();
                     }

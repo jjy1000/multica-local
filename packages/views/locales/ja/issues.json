@@ -453,14 +453,7 @@
       "mode_sole": "単独実行",
       "mode_enhancer": "拡張",
       "mode_sole_hint": "Mythos が完結 · 担当者をクリア",
-      "mode_enhancer_hint": "Mythos が計画 · 担当者エージェントに委譲",
-      "recent_panel_hint": "最近作成したエージェント・スキル・チームをここで確認できます。研究室プラグイン設定で「エージェント作成」を有効化すると、ピッカーから新しいタスクを直接ディスパッチできます。",
-      "recent_section_agents": "エージェント",
-      "recent_section_skills": "スキル",
-      "recent_section_squads": "チーム",
-      "recent_panel_empty": "まだエージェント・スキル・チームがありません。この研究室プラグインを選択してタスクをディスパッチすれば、エキスパートが作成します。",
-      "recent_item_created_at": "{date} に作成",
-      "recent_panel_back": "← 実験室一覧に戻る"
+      "mode_enhancer_hint": "Mythos が計画 · 担当者エージェントに委譲"
     }
   },
   "lab_section": {

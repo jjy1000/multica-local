@@ -1,14 +1,4 @@
 {
-  "agent_creation_studio_view": {
-    "tab_agent": "智能体",
-    "tab_skill": "技能",
-    "tab_squad": "团队",
-    "field_name": "名称",
-    "field_description": "描述",
-    "compat_label": "",
-    "compat_hint": "",
-    "submit_create": "创建"
-  },
   "user_plugins": {
     "title": "用户插件",
     "create": "创建插件",
@@ -59,31 +49,6 @@
     "artifact_table_invalid": "表格数据格式无效。",
     "artifact_download": "下载",
     "artifact_unsupported": "不支持的产物类型"
-  },
-  "self_opt_history_view": {
-    "header_label": "智能体自优化历史",
-    "page_title": "智能体自优化历史",
-    "page_intro": "定时每四天一次扫描已完结任务(非实验性 agent),派生 prompt 改进建议。每条 run 自动创建一条带实验室图标的问题,在主面板按「实验性任务」过滤后展示;报告全文见右侧面板。",
-    "cadence_label": "每 4 天一次 · 工作日 10:00(本地时区)",
-    "refresh_btn": "刷新",
-    "trigger_btn": "立即运行",
-    "loading_label": "加载中…",
-    "empty_label": "暂无自优化 run。点击「立即运行」手动触发一次,或等待下个工作日 10:00 自动触发。",
-    "select_detail_hint": "选择左侧的 run 查看报告全文与建议清单。",
-    "run_detail_title": "报告详情",
-    "suggestions_title": "建议清单",
-    "report_md_summary": "完整 Markdown 报告",
-    "kb_label": "KB 写入",
-    "open_issue_link": "打开对应 issue →",
-    "source_issue_label": "源 issue",
-    "suggestion_count_label": "条建议",
-    "confidence_label": "置信度",
-    "status_done_scheduled": "完成",
-    "status_done_manual": "手动",
-    "status_running": "运行中",
-    "status_failed": "失败",
-    "status_cancelled": "已取消",
-    "status_pending": "等待"
   },
   "forecast_stream": {
     "title": "实时预测",

@@ -23,12 +23,11 @@ import (
 // installable labs were added one PR at a time and are all listed
 // here so the fallback stays in sync with the registry.
 var installableSources = map[string]bool{
-	string(experimental.SourceClaudeScience):         true,
-	string(experimental.SourceClaudeScienceLab):     true,
-	string(experimental.SourceMythosSwarm):           true,
-	string(experimental.SourceAgentSelfOptimization): true,
-	string(experimental.SourcePythiaOracle):          true,
-	string(experimental.SourceCodeCanvas):            true,
+	string(experimental.SourceClaudeScience):     true,
+	string(experimental.SourceClaudeScienceLab): true,
+	string(experimental.SourceMythosSwarm):       true,
+	string(experimental.SourcePythiaOracle):      true,
+	string(experimental.SourceCodeCanvas):        true,
 }
 
 // isInstallableFlag reports whether key is a registered installable

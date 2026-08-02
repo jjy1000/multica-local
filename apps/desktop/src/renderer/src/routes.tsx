@@ -163,18 +163,6 @@ export const appRoutes: RouteObject[] = [
         handle: { title: "Code Canvas" },
       },
       {
-        // 0.5.6: removed the agent_self_optimization view. The
-        // self-opt loop is product-level and controlled via the
-        // /autopilots page; the historical HTTP surface at
-        // /api/experimental/self-opt/* is still served by the
-        // Go backend (read-only history, manual trigger) but the
-        // dedicated React view is gone.
-      },
-      {
-        // 0.5.6: removed the self-opt-history view. Same rationale
-        // as the agent_self_optimization removal above.
-      },
-      {
         // 0.3.60: generic user plugin shell. The slug comes from the URL
         // param; the view fetches plugin info from /api/user-plugins and
         // renders the manifest-driven tab layout.

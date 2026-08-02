@@ -35,16 +35,10 @@ function renderPicker(props: Partial<React.ComponentProps<typeof LabPicker>> = {
   });
   const onUpdate = vi.fn();
   const onClearAssignee = vi.fn();
-  // The 0.5.4 inline info panel is workspace-scoped (RecentLabsPanel
-  // reads agents/skills/squads lists under this id). Tests that don't
-  // care about the panel pass through the default; tests that exercise
-  // the recent panel either supply an explicit wsId or rely on the
-  // mocked workspace queries below to return empty fixtures.
   const result = render(
     <QueryClientProvider client={queryClient}>
       <I18nProvider resources={TEST_RESOURCES} locale="en">
         <LabPicker
-          wsId="test-ws"
           labSource={null}
           onUpdate={onUpdate}
           onClearAssignee={onClearAssignee}
@@ -136,7 +130,7 @@ describe("LabPicker", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <I18nProvider resources={TEST_RESOURCES} locale="en">
-          <LabPicker wsId="test-ws" labSource={null} onUpdate={onUpdate} />
+          <LabPicker labSource={null} onUpdate={onUpdate} />
         </I18nProvider>
       </QueryClientProvider>,
     );

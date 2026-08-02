@@ -50,7 +50,7 @@ export function MythosView({ issueId: initialIssueId = null }: { issueId?: strin
         <Intro />
         {!flagEnabled && <FlagOffNotice />}
         {flagEnabled && <EnabledStateCard />}
-        <RosterCard />
+        {flagEnabled && <RosterCard />}
         {flagEnabled && <RunForm initialIssueId={initialIssueId} />}
       </main>
     </div>

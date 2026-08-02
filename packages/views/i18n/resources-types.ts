@@ -29,11 +29,11 @@ import type billing from "../locales/en/billing.json";
 import type pythia from "../locales/en/pythia.json";
 import type mythos from "../locales/en/mythos.json";
 import type claudeLab from "../locales/en/claude-lab.json";
-// 0.3.45: action-type lab entry point — distinct from claude-lab /
-// pythia / mythos namespaces because the Agent Creation Studio
-// spans agents, skills and squads and is not a single lab surface.
-// See apps/desktop/src/renderer/src/pages/agent-creation-studio-view.tsx
-// for the consumer.
+// 0.5.4: experimental namespace now hosts user_plugins /
+// forecast_stream. The agent_creation_studio creator page was
+// deleted — the studio is now a product-level resource reachable
+// through the AssigneePicker, and its UI strings live in
+// issues.json under pickers.lab.*.
 import type experimental from "../locales/en/experimental.json";
 
 // Module augmentation enables i18next v26 selector API across the monorepo:

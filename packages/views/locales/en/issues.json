@@ -472,14 +472,7 @@
       "mode_sole": "Standalone",
       "mode_enhancer": "Enhancer",
       "mode_sole_hint": "Mythos owns the issue end-to-end · clears the assignee",
-      "mode_enhancer_hint": "Mythos plans first · hands off to your agent/squad",
-      "recent_panel_hint": "View your recently created agents, skills, and squads. Enable the Agent Creation lab in Labs settings to dispatch new tasks to the expert from the picker.",
-      "recent_section_agents": "Agents",
-      "recent_section_skills": "Skills",
-      "recent_section_squads": "Squads",
-      "recent_panel_empty": "No agents, skills, or squads yet — pick this lab to dispatch a task and let the expert create one for you.",
-      "recent_item_created_at": "Created {date}",
-      "recent_panel_back": "← Back to lab list"
+      "mode_enhancer_hint": "Mythos plans first · hands off to your agent/squad"
     }
   },
   "lab_section": {

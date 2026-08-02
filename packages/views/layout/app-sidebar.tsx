@@ -39,7 +39,6 @@ import {
   Sparkles,
   TestTubes,
   ClipboardList,
-  Wrench,
   Pin,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
@@ -182,7 +181,6 @@ const experimentalIconByKey: Record<string, typeof FlaskConical> = {
   mythos_swarm: Network,
   llm_wiki_bridge: ClipboardList,
   code_canvas: Code2,
-  agent_self_optimization: Wrench,
   // (0.3.57: constitution_agent removed alongside the lab retirement.)
   chat_pin_ui: Pin,
 };

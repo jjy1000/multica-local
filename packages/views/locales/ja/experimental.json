@@ -1,14 +1,4 @@
 {
-  "agent_creation_studio_view": {
-    "tab_agent": "エージェント",
-    "tab_skill": "スキル",
-    "tab_squad": "チーム",
-    "field_name": "名称",
-    "field_description": "説明",
-    "compat_label": "憲法互換",
-    "compat_hint": "0.3.45 UI プレースホルダ — 0.3.45.1 で system_key フィールドを接続",
-    "submit_create": "作成"
-  },
   "user_plugins": {
     "title": "ユーザープラグイン",
     "create": "プラグイン作成",
@@ -59,31 +49,6 @@
     "artifact_table_invalid": "テーブルデータの形式が無効です。",
     "artifact_download": "ダウンロード",
     "artifact_unsupported": "サポートされていない成果物タイプ"
-  },
-  "self_opt_history_view": {
-    "header_label": "エージェント自己最適化履歴",
-    "page_title": "エージェント自己最適化履歴",
-    "page_intro": "4 日ごとに完了タスク(実験的エージェント除外)をスキャンし、prompt 改善提案を導出します。各 run はラボバッジ付き issue を自動作成します。",
-    "cadence_label": "4 日ごと · 平日 10:00(ローカル)",
-    "refresh_btn": "更新",
-    "trigger_btn": "今すぐ実行",
-    "loading_label": "読み込み中…",
-    "empty_label": "自己最適化 run はありません。「今すぐ実行」で手動起動するか、次の平日 10:00 までお待ちください。",
-    "select_detail_hint": "左の run を選択すると、レポートと提案を表示します。",
-    "run_detail_title": "レポート詳細",
-    "suggestions_title": "提案一覧",
-    "report_md_summary": "完全な Markdown レポート",
-    "kb_label": "KB 書き込み",
-    "open_issue_link": "関連 issue を開く →",
-    "source_issue_label": "ソース issue",
-    "suggestion_count_label": "件の提案",
-    "confidence_label": "信頼度",
-    "status_done_scheduled": "完了",
-    "status_done_manual": "手動",
-    "status_running": "実行中",
-    "status_failed": "失敗",
-    "status_cancelled": "キャンセル",
-    "status_pending": "待機"
   },
   "forecast_stream": {
     "title": "ライブ予測",
