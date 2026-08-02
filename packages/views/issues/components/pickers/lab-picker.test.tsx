@@ -35,10 +35,16 @@ function renderPicker(props: Partial<React.ComponentProps<typeof LabPicker>> = {
   });
   const onUpdate = vi.fn();
   const onClearAssignee = vi.fn();
+  // The 0.5.4 inline info panel is workspace-scoped (RecentLabsPanel
+  // reads agents/skills/squads lists under this id). Tests that don't
+  // care about the panel pass through the default; tests that exercise
+  // the recent panel either supply an explicit wsId or rely on the
+  // mocked workspace queries below to return empty fixtures.
   const result = render(
     <QueryClientProvider client={queryClient}>
       <I18nProvider resources={TEST_RESOURCES} locale="en">
         <LabPicker
+          wsId="test-ws"
           labSource={null}
           onUpdate={onUpdate}
           onClearAssignee={onClearAssignee}
@@ -130,7 +136,7 @@ describe("LabPicker", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <I18nProvider resources={TEST_RESOURCES} locale="en">
-          <LabPicker labSource={null} onUpdate={onUpdate} />
+          <LabPicker wsId="test-ws" labSource={null} onUpdate={onUpdate} />
         </I18nProvider>
       </QueryClientProvider>,
     );
@@ -160,71 +166,6 @@ describe("LabPicker", () => {
     expect(onUpdate).not.toHaveBeenCalled();
   });
 
-  it("0.3.45: action sub-menu is rendered ONLY when onAction is supplied", () => {
-    // Two phases in one test using `unmount()` to keep DOM
-    // disjoint: the second `render` would otherwise leave two
-    // popover triggers (with stale popovers) and break
-    // `querySelector` lookups.
-    //
-    // Phase A — no onAction: the action footer MUST be absent so
-    // existing web/desktop callers that never wired the callback
-    // see no visual change.
-    const onUpdateA = vi.fn();
-    const queryClientA = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    const { unmount: unmountA } = render(
-      <QueryClientProvider client={queryClientA}>
-        <I18nProvider resources={TEST_RESOURCES} locale="en">
-          <LabPicker labSource={null} onUpdate={onUpdateA} />
-        </I18nProvider>
-      </QueryClientProvider>,
-    );
-    const triggerA = document.querySelector("button[aria-haspopup]")!;
-    fireEvent.click(triggerA);
-    expect(
-      document.querySelector("[data-lab-picker-action-group]"),
-    ).toBeNull();
-    unmountA();
-
-    // Phase B — onAction supplied: action footer MUST render.
-    // The footer is rendered inside the built-in `footer` slot of
-    // PropertyPicker (separate from the children list) so arrow-key
-    // navigation skips it — the click handler is the only contract
-    // that fires it.
-    const onAction = vi.fn();
-    const onUpdateB = vi.fn();
-    const queryClientB = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
-    render(
-      <QueryClientProvider client={queryClientB}>
-        <I18nProvider resources={TEST_RESOURCES} locale="en">
-          <LabPicker
-            labSource={null}
-            onUpdate={onUpdateB}
-            onAction={onAction}
-          />
-        </I18nProvider>
-      </QueryClientProvider>,
-    );
-    const triggerB = document.querySelector("button[aria-haspopup]")!;
-    fireEvent.click(triggerB);
-    const actionGroup = document.querySelector(
-      "[data-lab-picker-action-group]",
-    );
-    expect(actionGroup).not.toBeNull();
-
-    // Click the action row → onAction fires, onUpdate never does,
-    // issue.lab_source is untouched.
-    const actionItem = actionGroup!.querySelector(
-      "button[data-picker-item]",
-    )!;
-    fireEvent.click(actionItem);
-    expect(onAction).toHaveBeenCalledWith("agent_creation_studio");
-    expect(onUpdateB).not.toHaveBeenCalled();
-  });
-
   it("0.3.45.8: hides flags whose hide_from_issue_lab_picker is true", () => {
     // llm_wiki_bridge and agent_self_optimization are infrastructure
     // / self-driven labs — enabled means global, not per-issue. The
@@ -249,28 +190,123 @@ describe("LabPicker", () => {
     expect(labels.some((l) => l.includes("自优化"))).toBe(false);
   });
 
-  it("0.5.3: shows always_show_in_lab_picker flags even when disabled", () => {
-    // agent_creation_studio is an action-type lab — the entry must be
-    // reachable from the issue LabPicker even before the user opts in
-    // via Labs (flag off). The picker shows it; clicking routes to
-    // onAction (the manual creator) instead of binding lab_source.
+  it("0.5.4.x: always_show_in_lab_picker + flag ON binds the lab directly (no inline panel)", () => {
+    // 0.5.4.x click-through contract: when the `agent_creation_studio`
+    // flag is enabled, tapping 智能体创建 in the LabPicker writes
+    // `lab_source='agent_creation_studio'` and lets the server's
+    // 0.3.46 P0#4 contract rewrite the assignee to
+    // `agent_creation_expert`. The user gets a single click that
+    // "just starts" — no inline RecentLabsPanel detour. The panel
+    // is reserved for the flag-OFF case (see next test).
+    mockFlags.value = [
+      { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
+      { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: true, always_show_in_lab_picker: true },
+    ];
+    const { onUpdate, onClearAssignee } = renderPicker();
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(trigger);
+    // Main list: None + claude_science_lab + agent_creation_studio = 3.
+    expect(document.querySelectorAll("button[data-picker-item]").length).toBe(3);
+    const studioItem = Array.from(
+      document.querySelectorAll("button[data-picker-item]"),
+    ).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
+    expect(studioItem).toBeTruthy();
+
+    fireEvent.click(studioItem);
+    // Tapping the studio entry when the flag is on binds the lab
+    // directly — same as any other issue-bound lab. The server will
+    // rewrite the assignee via 0.3.46 P0#4, so the parent clears it
+    // optimistically via onClearAssignee.
+    expect(onClearAssignee).toHaveBeenCalledTimes(1);
+    expect(onUpdate).toHaveBeenCalledWith({
+      lab_source: "agent_creation_studio",
+      lab_mode: "sole",
+    });
+    // The info panel must NOT appear in the flag-on path.
+    expect(
+      document.querySelector("[data-recent-labs-panel]"),
+    ).toBeNull();
+  });
+
+  it("0.5.4.x: always_show_in_lab_picker + flag OFF opens the inline info panel", () => {
+    // 0.5.4.x click-through contract (flag-OFF branch): the lab's
+    // leader isn't installed yet, so direct dispatch would 400 on
+    // the server. The picker swaps its popover body to the read-only
+    // `RecentLabsPanel` (recent agents / skills / squads + a hint
+    // pointing the user at the Labs settings tab to enable the
+    // flag). Tapping the entry does NOT bind `lab_source` and does
+    // NOT fire onClearAssignee.
     mockFlags.value = [
       { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
       { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: false, always_show_in_lab_picker: true },
     ];
-    const onAction = vi.fn();
-    const { onUpdate } = renderPicker({ onAction });
+    const { onUpdate, onClearAssignee } = renderPicker();
     const trigger = document.querySelector("button[aria-haspopup]")!;
     fireEvent.click(trigger);
-    const items = document.querySelectorAll("button[data-picker-item]");
-    // None + claude_science_lab + agent_creation_studio = 3 items, plus
-    // the footer action item ("+ Create agent / skill / squad").
-    expect(items.length).toBe(4);
-    const studioItem = Array.from(items).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
+    // Main list: None + claude_science_lab + agent_creation_studio = 3.
+    expect(document.querySelectorAll("button[data-picker-item]").length).toBe(3);
+    const studioItem = Array.from(
+      document.querySelectorAll("button[data-picker-item]"),
+    ).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
     expect(studioItem).toBeTruthy();
-    // Clicking the disabled entry routes to onAction, NOT onUpdate.
+
     fireEvent.click(studioItem);
-    expect(onAction).toHaveBeenCalledWith("agent_creation_studio");
+    // Flag-off branch: opens the panel, no bind, no clear.
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(onClearAssignee).not.toHaveBeenCalled();
+    // The popover body now hosts RecentLabsPanel (data attribute +
+    // data-lab-source tagger), and the studio entry is no longer
+    // present in the main list — the view has swapped.
+    expect(
+      document.querySelector("[data-recent-labs-panel]"),
+    ).not.toBeNull();
+    expect(
+      document.querySelector("[data-lab-source=\"agent_creation_studio\"]"),
+    ).not.toBeNull();
+  });
+
+  it("0.5.4.x: popover close resets the flag-OFF info panel back to the main list", () => {
+    // 0.5.4.x view-reset contract: when the popover closes after the
+    // user opened the flag-OFF info panel, the next open shows the
+    // main list again (the `useEffect([open])` in LabPicker resets
+    // the view state). Re-tapping the studio entry while the flag
+    // is off opens a fresh panel; while the flag is on it binds
+    // directly (covered by the test above).
+    mockFlags.value = [
+      { key: "agent_creation_studio", title: { zh: "智能体创建", en: "Agent Creation" }, enabled: false, always_show_in_lab_picker: true },
+    ];
+    const { onUpdate } = renderPicker();
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(trigger);
+    const studioItem = Array.from(
+      document.querySelectorAll("button[data-picker-item]"),
+    ).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
+    fireEvent.click(studioItem);
+    expect(
+      document.querySelector("[data-recent-labs-panel]"),
+    ).not.toBeNull();
+
+    // Close the popover via the outside-click affordance the
+    // Radix Popover uses — fire a `pointerdown` on the body. The
+    // picker's `useEffect([open])` then resets the view.
+    fireEvent.pointerDown(document.body);
+    fireEvent.click(document.body);
+    // Re-open: the main list comes back, RecentLabsPanel is gone.
+    fireEvent.click(trigger);
+    expect(
+      document.querySelector("[data-recent-labs-panel]"),
+    ).toBeNull();
+    // And clicking the studio entry now triggers a fresh swap.
+    const studioItemAgain = Array.from(
+      document.querySelectorAll("button[data-picker-item]"),
+    ).find((el) => (el.textContent ?? "").includes("智能体创建"))!;
+    fireEvent.click(studioItemAgain);
+    expect(
+      document.querySelector("[data-recent-labs-panel]"),
+    ).not.toBeNull();
+    // No update was emitted throughout — the flag-OFF path is
+    // strictly informational until the user enables the flag and
+    // re-binds through the picker.
     expect(onUpdate).not.toHaveBeenCalled();
   });
 });

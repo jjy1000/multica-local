@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.3 (installed at `/Applications/Multica.app`).** Self-optimization generalized from agents to four subjects (agent/skill/squad/autopilot): trust ≥ 8 = retention (no more proposals), trust < 7 + corrections = mandated auto-fix (migration 232: `agent_opt_edit` polymorphic `target_type`/`target_id`/`subject_scope`; migration 233 fixes a 0.5.2 `updated_at` column drift). Agent Creation Studio upgraded to an issue-bound lab (`agent_creation_expert` leader, auto-dispatch). See `.omc/release-notes-0.5.3.md` + `.omc/0.5.3-ship-2026-08-02.md`. Previous: 0.5.2 agent self-optimization loop (trust-score ledger migration 228, SkillOpt-style edit ledger + two-stage application migrations 229-231, post-hoc commit gate `RevalidateAppliedEdits`). **Main working directory was renamed `multica-main` → `multica-exploration-dev` (2026-08-01).** Still deferred: `dashboard.go` cost wire-up (needs `foldRestrictedAgents` fix — see `.omc/plans/upstream-integration-0.5.0-proposal-rev2.md`), 93 fork-only files still on old text-size utilities, cloud physical-deletion PRs A/B/C/D on kept branches (`fork-hygiene-a/b/c/d`).
+> **Current release: 0.5.4 (installed at `/Applications/Multica.app`).** `agent_creation_studio` lab ships with a **click-through picker UX**: when the flag is ON, tapping 智能体创建 in any issue's LabPicker binds `issue.lab_source='agent_creation_studio'` directly and the 0.3.46 P0#4 contract rewrites the assignee to `agent_creation_expert` (one click → task queued). When the flag is OFF, the picker swaps its popover body to the read-only `RecentLabsPanel` (recent agents / skills / squads + a hint pointing the user at Labs settings to enable the flag) so direct dispatch doesn't 400 on a missing leader. Previous 0.5.4.studio (now superseded) shipped a "always-swap-to-panel" UX that broke the "智能体工程创建就是团队,直接开始" expectation. 0.5.3 generalized self-optimization from agents to four subjects (agent/skill/squad/autopilot, migrations 232-233: polymorphic `agent_opt_edit.target_type`/`target_id`/`subject_scope` + 0.5.2 `updated_at` drift fix). **Main working directory was renamed `multica-main` → `multica-exploration-dev` (2026-08-01).** Shipped via **manual asar repack** because `app-builder-bin@5.0.0-alpha.13` ENOENTs on a fork-0.3.63 stale `multica-main` path (CLAUDE.md "Ship chain fallback: manual asar repack (0.3.63+)"). Still deferred: `dashboard.go` cost wire-up (needs `foldRestrictedAgents` fix — see `.omc/plans/upstream-integration-0.5.0-proposal-rev2.md`), 93 fork-only files still on old text-size utilities, cloud physical-deletion PRs A/B/C/D on kept branches (`fork-hygiene-a/b/c/d`).
 
 > Keep this file short and authoritative: rules here should be hard to infer from code or easy to get wrong.
 
@@ -86,6 +86,42 @@ Multica is an AI-native task management platform for small teams, with agents as
 - `packages/tsconfig/` — shared TypeScript config.
 
 Shared packages export raw `.ts` / `.tsx` and are compiled by consuming apps. Dependency direction: `views -> core + ui`; `core` and `ui` must stay independent.
+
+### Data Flow (60-second mental model)
+
+A new session that needs to understand "where does an issue go when I assign it to an agent" can read this section instead of grepping across `server/`, `daemon/`, and `apps/`.
+
+```
+  ┌──────────────────────────┐
+  │  Renderer (desktop/web)  │  TanStack Query + Zustand
+  │  packages/views/issues   │
+  └────────────┬─────────────┘
+               │  HTTP (api.rawRequest) + WS (gorilla)
+               ▼
+  ┌──────────────────────────┐
+  │  server/internal/handler │  Chi router, sqlc, membership-gated
+  │  → service/* (issue.go) │
+  │  → agent_self_optimization / mythos / claude_science_runtime
+  └────────────┬─────────────┘
+               │  sqlc queries
+               ▼
+  ┌──────────────────────────┐
+  │  PostgreSQL 17 + pgvector│  multica DB (shared across worktrees;
+  │  (Docker or native PG)  │  schema is forward-only additive)
+  └────────────┬─────────────┘
+               ▲
+               │  WS push (daemon heartbeat, task updates)
+  ┌────────────┴─────────────┐
+  │  Local Daemon            │  Spawns Claude Code / Codex / copilot /
+  │  server/cmd/multica      │  openclaw / opencode / hermes / etc.
+  │  + apps/desktop/src/main │  against the user's chosen runtime
+  │   /daemon-manager.ts     │  (workspace-scoped runtime row)
+  └──────────────────────────┘
+```
+
+Lifecycle of a single assigned task: **PATCH `issue.assignee_*`** → server `assignDefaultLabAgent` (if lab-bound) → daemon claim on `agent_task_queue` → daemon `LoadAgentSkillsForClaim` injects builtin skills + workspace skill rows → subprocess spawns the agent CLI → progress streams over WS → renderer patches Query cache via `["agent-task-snapshot"]` invalidation.
+
+Labs add a parallel path: **issue.lab_source='agent_creation_studio'** → server `defaultLabLeaderForKey` resolves to `agent_creation_expert` → same `agent_task_queue` claim, but the leader agent's bundled skill (`multica-creating-agents`) authors the resource. The renderer-side `LabPicker` is the only entry point that writes `lab_source`; `IssueLabsSection` is the only read-side surface.
 
 ## State Rules
 

@@ -1587,27 +1587,31 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               "open lab panel" external link on `issue.lab_source`
               being truthy.
 
-              Why hoist now: the 0.3.45 agent_creation_studio entry
-              point lives inside the LabPicker popover as a footer
-              sub-menu (LabPicker.onAction). Hiding the entire
-              row when no lab is set would put the "create a new
-              agent / skill / squad" affordance behind a UX
-              dead-end — users see nothing, click nothing, never
-              discover the studio. Keeping the row alive at all
-              times (default chrome reads "No lab") makes the
-              action footer discoverable from any issue, while
-              the existing lab-bound flow remains untouched.
+              0.5.4.x click-through: when the `agent_creation_studio`
+              flag is enabled, tapping 智能体创建 binds the lab
+              directly (same as every other issue-bound lab) and the
+              server auto-rewrites the assignee to
+              `agent_creation_expert` via the 0.3.46 P0#4 contract —
+              a single click that "just starts" the lab. When the
+              flag is OFF the picker swaps its popover body to the
+              read-only RecentLabsPanel (a "here's what the lab is +
+              a single escape back" info surface) because direct
+              dispatch would 400 on the server (the leader isn't
+              installed yet). The user can then enable the flag in
+              the Labs settings tab and re-tap to bind.
+
+              Keeping the row alive at all times (default chrome
+              reads "No lab") makes the picker discoverable from any
+              issue, while the existing lab-bound flow remains
+              untouched.
 
               The Lab ↔ assignee mutex, IssueLabsSection, and
-              assignDefaultLabAgentOnUpdate are all oblivious to
-              the action path — they fire only via onUpdate →
-              handleUpdateField → PATCH `issue.lab_source`.
-              Action clicks route the renderer to
-              /experimental/agent-creation-studio?from_issue=<id>
-              instead, so no PATCH touches the issue row. */}
+              assignDefaultLabAgentOnUpdate fire only via onUpdate →
+              handleUpdateField → PATCH `issue.lab_source`. */}
           <PropRow label="Lab">
             <span className="flex items-center gap-1.5 min-w-0">
               <LabPicker
+                wsId={wsId}
                 labSource={issue.lab_source ?? null}
                 labMode={issue.lab_mode ?? null}
                 onUpdate={(u) =>
@@ -1622,19 +1626,6 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                     assignee_id: null,
                   })
                 }
-                onAction={(actionKey) => {
-                  // 0.3.45 action-type lab dispatch. Currently only
-                  // `agent_creation_studio` is registered; future
-                  // action-type labs (e.g. a skill-only studio) can
-                  // share the same dispatch by branching here.
-                  if (actionKey === "agent_creation_studio") {
-                    const issueId = issue.id ?? "";
-                    const qs = issueId
-                      ? `?from_issue=${encodeURIComponent(issueId)}`
-                      : "";
-                    router.push(`/experimental/agent-creation-studio${qs}`);
-                  }
-                }}
                 align="start"
               />
               {issue.lab_source &&
