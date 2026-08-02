@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   XCircle,
   Inbox,
+  Sparkles,
+  Cog,
 } from "lucide-react";
 import { api } from "@multica/core/api";
 import { useExperimentalFlag } from "@multica/core/experimental";
@@ -24,13 +26,16 @@ import { useWorkspaceId } from "@multica/core/hooks";
 // lab. Replaces the 0.3.20 placeholder (agent-self-optimization-view.tsx)
 // and the 0.3.45.1 history-only view (self-opt-history-view.tsx).
 //
-// Tabs:
-//   1. 循环概览 — what the loop is, the trust score contract, the
-//      ablation principle, and a manual "立即运行" trigger.
-//   2. 运行历史 — run list + report detail (former SelfOptHistoryView).
-//   3. 信任评分 — trust leaderboard (agent_trust_profile rows).
-//   4. 事件时间线 — corrections / reviews (agent_trust_event rows) plus a
-//      "纠正智能体" entry (score -0.5, the correction trigger).
+// 0.5.5.3: the page is now a product-level documentation / status
+// overview, NOT an opt-in lab. The agent_self_optimization flag is
+// product-level (catalog DefaultVal=true, flag gate stubbed), the
+// 2 self-opt autopilots are normal autopilot rows, and the user
+// controls the cadence via the autopilot's own `enabled` field.
+//
+// This page therefore no longer offers a "立即运行" / "重新启用"
+// affordance — the "manual run" path is just a regular trigger of
+// the existing scheduler; the trust / history / suggestions tabs
+// remain the user-facing read surfaces for the loop's results.
 //
 // Network contract: every call goes through api.rawRequest (per CLAUDE.md
 // "Experimental tab network calls (0.3.30)") — bare fetch() silently fails
@@ -98,7 +103,13 @@ type TabKey = "overview" | "history" | "trust" | "events" | "suggestions";
 
 export function SelfOptView() {
   useT("experimental");
-  const enabled = useExperimentalFlag("agent_self_optimization", false);
+  // 0.5.5.3: agent_self_optimization is product-level (catalog
+  // DefaultVal=true, 0.5.5.1 refactor). The per-user pref gate is
+  // gone, so the hook's return value is always true. The flag-off
+  // branch is kept as a defensive placeholder for the (theoretical)
+  // case where a future refactor breaks the catalog — the user
+  // should still see a coherent empty state instead of a crash.
+  const enabled = useExperimentalFlag("agent_self_optimization", true);
   const [tab, setTab] = useState<TabKey>("overview");
   if (!enabled) {
     return <FlagOffPlaceholder />;
@@ -108,6 +119,7 @@ export function SelfOptView() {
       <Header />
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-8">
         <Intro />
+        <ProductLevelBanner />
         <TabBar tab={tab} onTab={setTab} />
         {tab === "overview" && <OverviewTab />}
         {tab === "history" && <HistoryTab />}
@@ -124,7 +136,7 @@ function FlagOffPlaceholder() {
     <div className="flex h-full w-full flex-col overflow-y-auto bg-background">
       <Header />
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-12 text-body text-muted-foreground">
-        <p>智能体自优化未启用。请先在「设置 → 试验性功能」中打开「智能体自优化」开关,再返回此处查看循环、历史与信任评分。</p>
+        <p>智能体自优化循环不可用。请检查 <code className="rounded bg-muted px-1 py-0.5 text-xs">FF_AGENT_SELF_OPTIMIZATION</code> env override 或 catalog 配置。</p>
       </main>
     </div>
   );
@@ -156,6 +168,52 @@ function Intro() {
         信任偏低且有纠正记录的智能体会被优先自动优化。若错过(电脑关机 / 未开 app),下次启动自动补跑;
         历史数据不足时自动排队待数据充足后优化。
       </p>
+    </section>
+  );
+}
+
+// 0.5.5.3: product-level banner. The agent_self_optimization flag is
+// product-level now (catalog DefaultVal=true, 0.5.5.1 refactor), so
+// there is no Labs toggle for the user to flip. The 2 self-opt
+// autopilots (SkillOpt-Multica daily + per-3-workday bulk) are
+// normal autopilot rows; users control cadence via the autopilot's
+// own `enabled` field (multica autopilot update --disabled, or the
+// 自动化工程 page). This banner surfaces that fact at the top of
+// the view so anyone landing here from a bookmark / 0.3.20-era
+// link gets the right mental model immediately.
+function ProductLevelBanner() {
+  return (
+    <section
+      data-product-level-banner
+      className="rounded-lg border border-emerald-400/40 bg-emerald-500/5 p-4"
+    >
+      <div className="flex items-start gap-3">
+        <Sparkles
+          className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+          aria-hidden
+        />
+        <div className="flex-1 space-y-1.5">
+          <h2 className="text-title-sm font-semibold text-foreground">
+            本功能已升格为产品内置
+          </h2>
+          <p className="text-body-sm leading-relaxed text-muted-foreground">
+            智能体自优化循环不再属于「实验性功能」。控制入口从 Labs tab 的 flag toggle
+            改为自动化工程页里每条 autopilot 自身的 <code className="rounded bg-muted px-1 py-0.5 text-xs">enabled</code> 字段
+            —— <code className="rounded bg-muted px-1 py-0.5 text-xs">SkillOpt-Multica · 每日 00:00</code> 与
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">智能体工程师团队 · 每3工作日</code> 各自由你单独 enable / disable。
+          </p>
+          <p className="text-body-sm leading-relaxed text-muted-foreground">
+            本页面仍是「读视图」:查看最近 run 状态、待确认建议、信任评分、事件时间线。如果你想关掉某条 cadence,
+            去 <AppLink href="/autopilots" className="underline underline-offset-2">自动化工程</AppLink> 页改对应 autopilot 即可。
+          </p>
+          <div className="flex items-center gap-2 pt-1 text-xs text-muted-foreground">
+            <Cog className="h-3.5 w-3.5" aria-hidden />
+            <span>
+              通过 <code className="rounded bg-muted px-1 py-0.5">multica autopilot list</code> 查看 / 修改 / 删除
+            </span>
+          </div>
+        </div>
+      </div>
     </section>
   );
 }

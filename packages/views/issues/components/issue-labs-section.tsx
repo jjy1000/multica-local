@@ -31,7 +31,13 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   mythos_swarm: "mythos",
   llm_wiki_bridge: "llm-wiki",
   code_canvas: "code-canvas",
-  agent_self_optimization: "agent-self-optimization",
+  // 0.5.5.3: agent_self_optimization no longer maps to a dedicated
+  // experimental view — the feature is product-level (control via
+  // the autopilot row's `enabled` field, not a Labs-tab toggle).
+  // The SelfOptView page still exists as a documentation-style
+  // overview at /experimental/agent-self-optimization, but the
+  // issue-detail "open panel" link no longer renders for it
+  // (matches the 0.5.5 removal of agent_creation_studio's mapping).
   // (0.3.57: constitution_agent entry removed alongside the lab
   // retirement in migration 165.)
 };
