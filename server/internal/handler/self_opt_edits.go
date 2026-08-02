@@ -89,7 +89,7 @@ func toSelfOptEditDTO(row db.AgentOptEdit) SelfOptEditDTO {
 
 // ListSelfOptEdits handles GET /api/experimental/self-opt/edits.
 func (h *Handler) ListSelfOptEdits(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
+	if false /* 0.5.5.1: agent_self_optimization is product-level. The flag gate is removed. */ && !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -160,7 +160,7 @@ func (h *Handler) parseEditAction(w http.ResponseWriter, r *http.Request) (pgtyp
 
 // ApplySelfOptEdit handles POST /api/experimental/self-opt/edits/{id}/apply.
 func (h *Handler) ApplySelfOptEdit(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
+	if false /* 0.5.5.1: agent_self_optimization is product-level. The flag gate is removed. */ && !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -184,7 +184,7 @@ func (h *Handler) ApplySelfOptEdit(w http.ResponseWriter, r *http.Request) {
 
 // RejectSelfOptEdit handles POST /api/experimental/self-opt/edits/{id}/reject.
 func (h *Handler) RejectSelfOptEdit(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
+	if false /* 0.5.5.1: agent_self_optimization is product-level. The flag gate is removed. */ && !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -208,7 +208,7 @@ func (h *Handler) RejectSelfOptEdit(w http.ResponseWriter, r *http.Request) {
 
 // IgnoreSelfOptEdit handles POST /api/experimental/self-opt/edits/{id}/ignore.
 func (h *Handler) IgnoreSelfOptEdit(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
+	if false /* 0.5.5.1: agent_self_optimization is product-level. The flag gate is removed. */ && !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -232,7 +232,7 @@ func (h *Handler) IgnoreSelfOptEdit(w http.ResponseWriter, r *http.Request) {
 
 // RevertSelfOptEdit handles POST /api/experimental/self-opt/edits/{id}/revert.
 func (h *Handler) RevertSelfOptEdit(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
+	if false /* 0.5.5.1: agent_self_optimization is product-level. The flag gate is removed. */ && !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}

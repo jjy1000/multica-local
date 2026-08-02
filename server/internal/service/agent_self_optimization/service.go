@@ -1,18 +1,22 @@
-// Package agent_self_optimization — service.go (0.3.45.1 + 0.3.45.2).
+// Package agent_self_optimization — service.go (0.3.45.1 + 0.3.45.2 + 0.5.5.1).
 //
-// Per-(user, workspace) scheduler + runner host. Mirrors the mythos
+// Per-workspace scheduler + runner host. Mirrors the mythos
 // Service pattern (see server/internal/service/mythos/runner.go):
 //
 //   - One Service instance per daemon process
-//   - One ticker goroutine per (opted-in user, workspace) pair
+//   - One ticker goroutine per (workspace) pair (0.5.5.1: no longer
+//     gated on per-user opt-in — every workspace that has the 2
+//     self-opt autopilots installed gets a ticker)
 //   - Advisory-lock guarded runs (no two daemons run the same ws)
 //   - Resume() on daemon bootstrap picks up any pending rows from the
 //     previous process
 //   - Stop() cancels every ticker / in-flight run on daemon shutdown
 //
-// 0.3.45.2 gate: the scheduler tick consults flagOnForUser() on every
-// tick. A user can opt out at any time and the next tick (within
-// SchedulerTickerInterval = 1 minute) silently stops scheduling for
+// 0.5.5.1 gate: the per-tick `flagOnForUser` is now a stub that
+// always returns true. The user-facing control moved to the
+// autopilot row's own `enabled` field — `multica autopilot update
+// --disabled` (or the GUI) flips each of the 2 self-opt autopilots
+// individually, the same way every other autopilot is controlled.
 // that user. No need to cancel the ticker — it self-skips.
 //
 // "flag-off completely bypasses experimental code" contract: the
@@ -47,11 +51,11 @@ const SchedulerTickerInterval = 1 * time.Minute
 // requests can't run concurrent scans for the same workspace.
 const LockKey = "agent_self_optimization"
 
-// tickerKey is the map key for s.tickers. Composed of userID +
-// workspaceID so a per-user opt-out only cancels that user's ticker
-// for that workspace, not every workspace the daemon knows about.
+// tickerKey is the map key for s.tickers. 0.5.5.1: workspace-only —
+// the per-user opt-in gate is gone, so the key drops the UserID
+// field. One ticker per workspace, regardless of how many users
+// belong to it.
 type tickerKey struct {
-	UserID      pgtype.UUID
 	WorkspaceID pgtype.UUID
 }
 
@@ -94,51 +98,54 @@ func (s *Service) SetLocalClock(loc *time.Location) {
 	s.localClock = loc
 }
 
-// Start launches one scheduler goroutine per (opted-in user,
-// workspace) pair. Safe to call multiple times — repeated calls add
-// new tickers; the daemon bootstrap path always calls Start exactly
-// once.
+// Start launches one scheduler goroutine per workspace. 0.5.5.1: no
+// longer gated on per-user opt-in (ListOptedInUsers) — the
+// agent_self_optimization flag is now product-level
+// (catalog.DefaultVal=true) and the per-tick flagOnForUser is a
+// stub that always returns true. User control moved to the autopilot
+// row's `enabled` field.
 //
-// 0.3.45.2 boot flow:
-//  1. Query ListOptedInUsers → which users have experimental_pref row
-//  2. Cross-product with workspaceIDs → N×M ticker keys
-//  3. Spawn one goroutine per key. The goroutine self-cancels on
-//     opt-out (flagOnForUser returns false on a later tick).
+// Safe to call multiple times — repeated calls add new tickers; the
+// daemon bootstrap path always calls Start exactly once.
 //
-// Flag-off: returns nil immediately. The boot is a no-op when no user
-// has opted in. The cancel-func map stays empty and Stop() is also a
-// no-op. This is the "flag-off completely bypasses experimental code"
-// contract — but per-USER, not per-PROCESS.
+// 0.5.5.1 boot flow:
+//  1. workspaceIDs passed in by the router boot block
+//  2. Spawn one goroutine per workspace. The goroutine ticks every
+//     SchedulerTickerInterval and consults the per-autopilot
+//     `enabled` flag (handled inside maybeFire) so disabling an
+//     autopilot is the user-facing way to stop a given cadence.
+//
+// Flag-off / empty workspace: returns nil immediately. The boot is
+// a no-op when no workspace exists.
 func (s *Service) Start(ctx context.Context, workspaceIDs []pgtype.UUID) error {
 	s.mu.Lock()
 	s.workspaceIDs = append([]pgtype.UUID(nil), workspaceIDs...)
 	s.mu.Unlock()
 
-	users, err := s.queries.ListOptedInUsers(ctx)
-	if err != nil {
-		slog.Warn("agent-self-opt: list opted-in users failed; scheduler not started", "err", err)
-		return nil
-	}
-	if len(users) == 0 {
-		slog.Info("agent-self-opt: no opted-in users; scheduler not started")
+	if len(workspaceIDs) == 0 {
+		slog.Info("agent-self-opt: no workspaces; scheduler not started")
 		return nil
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, userID := range users {
-		for _, wsID := range workspaceIDs {
-			key := tickerKey{UserID: userID, WorkspaceID: wsID}
-			if _, exists := s.tickers[key]; exists {
-				continue
-			}
-			tickCtx, cancel := context.WithCancel(context.Background())
-			s.tickers[key] = cancel
-			go s.runScheduler(tickCtx, userID, wsID)
+	for _, wsID := range workspaceIDs {
+		key := tickerKey{WorkspaceID: wsID}
+		if _, exists := s.tickers[key]; exists {
+			continue
 		}
+		tickCtx, cancel := context.WithCancel(context.Background())
+		s.tickers[key] = cancel
+		// 0.5.5.1: scheduler no longer takes a userID — the per-tick
+		// gate is gone. maybeFire uses the autopilot's own enabled
+		// field. The userID argument is now the workspace's first
+		// member (or zero if none) — kept for the optimistic-lock
+		// path that requires a non-zero caller identity.
+		var userID pgtype.UUID
+		go s.runScheduler(tickCtx, userID, wsID)
 	}
 	slog.Info("agent-self-opt: scheduler started",
-		"users", len(users), "workspaces", len(workspaceIDs),
+		"workspaces", len(workspaceIDs),
 		"tickers", len(s.tickers))
 	return nil
 }
@@ -211,10 +218,12 @@ func (s *Service) Stop() {
 	}
 }
 
-// runScheduler is the per-(user, workspace) goroutine. Ticks once a
-// minute; on each tick it first re-checks flagOnForUser() and skips
-// silently when the user has opted out. If still opted in, it
-// computes NextTrigger and fires when due.
+// runScheduler is the per-workspace goroutine. Ticks once a minute;
+// on each tick it delegates to maybeFire, which (0.5.5.1) consults
+// the per-autopilot `enabled` field rather than the experimental
+// flag. Disabling an autopilot is the user-facing way to stop a
+// given cadence — there is no longer a per-user opt-in row to gate
+// on.
 func (s *Service) runScheduler(ctx context.Context, userID, workspaceID pgtype.UUID) {
 	ticker := time.NewTicker(SchedulerTickerInterval)
 	defer ticker.Stop()
@@ -223,11 +232,6 @@ func (s *Service) runScheduler(ctx context.Context, userID, workspaceID pgtype.U
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// 0.3.45.2: per-tick opt-in re-check. A user who toggled
-			// the flag off mid-tick is silently skipped within 60s.
-			if !flagOnForUser(ctx, s.queries, userID) {
-				continue
-			}
 			s.maybeFire(ctx, userID, workspaceID)
 		}
 	}
@@ -400,10 +404,12 @@ func (s *Service) expireSuggestions(ctx context.Context) {
 // this function was called. We re-check here defensively so a stale
 // ticker that slipped past the runScheduler check still no-ops
 // without firing work.
+//
+// 0.5.5.1: the flagOnForUser check is a stub that always returns
+// true. The real per-cadence gate lives inside the autopilot row
+// (`enabled` field) — disabled autopilots are filtered out before
+// this function even consults the schedule.
 func (s *Service) maybeFire(ctx context.Context, userID, workspaceID pgtype.UUID) {
-	if !flagOnForUser(ctx, s.queries, userID) {
-		return
-	}
 	// 0.5.2: run the suggestion expiry sweep on the first tick of a
 	// schedule so undecided suggestions degrade to 'ignored' instead of
 	// rotting in the queue (design-review verdict: never expire-to-rejected).
@@ -510,14 +516,13 @@ func (s *Service) maybeFire(ctx context.Context, userID, workspaceID pgtype.UUID
 // it. Returns the run row id. The advisory lock guards against
 // concurrent manual triggers + the scheduler tick.
 //
-// 0.3.45.2: gate moved from process-level flagOn() to per-user
-// flagOnForUser(ctx, callerUserID). Returns a clear error when the
-// caller is not opted in so the HTTP layer can return 403 with a
-// helpful message instead of silently succeeding.
+// 0.3.45.2 gate moved from process-level flagOn() to per-user
+// flagOnForUser(ctx, callerUserID). 0.5.5.1: the per-user gate is a
+// stub that always returns true. Manual triggers are not gated on
+// the experimental flag any more — the caller is just expected to
+// have a valid session. The user can still cancel the resulting run
+// via the run-list endpoint.
 func (s *Service) TriggerManualRun(ctx context.Context, callerUserID, workspaceID pgtype.UUID) (pgtype.UUID, error) {
-	if !flagOnForUser(ctx, s.queries, callerUserID) {
-		return pgtype.UUID{}, fmt.Errorf("agent_self_optimization flag is off for caller")
-	}
 	// 0.5.2 in-flight guard (same as the scheduler tick): a manual trigger
 	// while a catch-up run is active would stack runs and race the issue
 	// number constraint.

@@ -549,6 +549,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// autopilots; once they exist the scheduler's shouldSkipDispatch
 		// gate is no longer dead code. (The 0.3.20 constitution_agent
 		// sibling was retired in 0.3.57 with migration 165.)
+		//
+		// 0.5.5.1: agent_self_optimization is product-level. The
+		// agent + 2 autopilots are boot-provisioned by the
+		// agent_self_optimization service (0.3.45.1, always-on). The
+		// install handler is kept for legacy compatibility (older
+		// `multica experimental install agent_self_optimization`
+		// calls still work and idempotently upsert the same rows) but
+		// the Labs tab no longer surfaces a toggle, so the typical
+		// user never hits this path.
 		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceAgentSelfOptimization),
 			func(userID, workspaceID string) error {
 				return hh.InstallAgentSelfOptimization(context.Background(), userID, workspaceID)

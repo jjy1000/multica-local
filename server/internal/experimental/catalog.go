@@ -311,24 +311,24 @@ var Catalog = []Flag{
 		// scheduler skip; the agent row stays in the squad so its
 		// leader briefs still resolve.
 		Key:        "agent_self_optimization",
-		DefaultVal: false,
+		DefaultVal: true,
 		Title: LocalizedString{
 			En: "Agent Self-Optimization Loop",
 			Zh: "智能体自优化循环",
 		},
 		Description: LocalizedString{
-			En: "Exposes the 智能体优化专家 agent, its 2 autopilots (SkillOpt-Multica daily self-evolution loop + per-3-workday bulk optimization), and the skillopt-multica Skill as an opt-in plugin. Off by default — these features run autonomous edits across the workspace, so keep them hidden until you opt in.",
-			Zh: "将「智能体优化专家」智能体与其 2 条 autopilot(SkillOpt-Multica 每日自进化循环 + 每3工作日批量优化)以及 skillopt-multica 技能作为可选用插件暴露。默认关闭 —— 这些功能会在工作区内自动修改智能体 / 技能 / 自动化,请在明确启用前保持隐藏。",
+			En: "Hosts the 智能体优化专家 agent + 2 autopilots (SkillOpt-Multica daily self-evolution loop + per-3-workday bulk optimization) + skillopt-multica Skill as a product-level automation. Always on — control per-autopilot via the autopilot's own `enabled` field (multica autopilot update) instead of a Labs toggle. The flag stays in the catalog for legacy lookup, but the 0.5.5.1 refactor moved the gate from `experimental_pref` to per-autopilot enable so the user controls self-evolution from the automation page directly.",
+			Zh: "承载「智能体优化专家」智能体 + 2 条 autopilot(SkillOpt-Multica 每日自进化循环 + 每3工作日批量优化)+ skillopt-multica 技能,作为产品级自动化能力。总是启用 —— 通过 autopilot 自身的 `enabled` 字段(multica autopilot update)控制每条 autopilot,而非 Labs tab 开关。Flag 保留在 catalog 用于 legacy 查找,0.5.5.1 重构后门控从 `experimental_pref` 改为 per-autopilot enable,用户在自动化工程页直接控制。",
 		},
 		ManifestPath: "experiments/agent_self_optimization/manifest.json",
-		// inline: the flag is purely a visibility gate (HideableResource
-		// rows hide the agent / 2 autopilots / skill from list queries
-		// and the autopilot scheduler). No subprocess; no proxy.
+		// inline: the flag is purely a legacy lookup key now. No subprocess;
+		// no proxy; no install handler. The 2 autopilots + 智能体优化专家
+		// leader agent are boot-provisioned by the agent_self_optimization
+		// service (0.3.45.1, always-on regardless of catalog default).
 		RuntimeKind: "inline",
 		// Self-driven scheduler (per-3-workday bulk optimization +
-		// SkillOpt-Multica daily loop). The flag owns its own run
-		// cadence — picking it per-issue would imply the user can
-		// trigger a run by creating an issue, which is misleading.
+		// SkillOpt-Multica daily loop). The autopilot's own `enabled`
+		// field is the user-facing gate; per-issue picking is meaningless.
 		HideFromIssueLabPicker:          true,
 		HidesDeliverableInIssueTimeline: true,
 	},

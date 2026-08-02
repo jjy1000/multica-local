@@ -2,72 +2,69 @@ package agent_self_optimization
 
 import (
 	"context"
-	"errors"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// fakePrefQuerier implements PrefQuerier for flagOnForUser tests.
-// The err field takes precedence over enabled when set.
+// fakePrefQuerier implements PrefQuerier. 0.5.5.1: kept for
+// compile-time symmetry — the production code no longer reads from
+// it, but the surface is still in `flag.go` so a future caller does
+// not get a type-resolution error.
 type fakePrefQuerier struct {
 	enabled bool
-	err     error
 }
 
-func (f *fakePrefQuerier) GetExperimentalPrefEnabled(ctx context.Context, arg db.GetExperimentalPrefEnabledParams) (bool, error) {
-	return f.enabled, f.err
+func (f *fakePrefQuerier) GetExperimentalPrefEnabled(_ context.Context, _ db.GetExperimentalPrefEnabledParams) (bool, error) {
+	return f.enabled, nil
 }
 
 // compile-time check that the test fake satisfies PrefQuerier.
 var _ PrefQuerier = (*fakePrefQuerier)(nil)
 
-// TestFlagOnForUser covers the five branches of flagOnForUser:
-//  1. zero-value UUID → false (defensive guard)
-//  2. no pref row (ErrNoRows) → false (not opted in)
-//  3. enabled=true → true
-//  4. enabled=false → false
-//  5. DB error → false (never silently enable on transient failure)
+// TestFlagOnForUser is the 0.5.5.1 stub contract. The previous
+// implementation read `experimental_pref` and gated the self-opt
+// scheduler on a per-user opt-in row. 0.5.5.1 promotes the flag to
+// product-level (catalog.DefaultVal=true) and the gate is removed:
+// every call returns `true` regardless of the underlying querier
+// state. The user-facing control point moved to the autopilot row's
+// own `enabled` field.
+//
+// The test below pins the stub so a future refactor cannot silently
+// re-introduce the per-user gate (a known regression class per
+// 0.3.45.2 / 0.3.46 audit).
 func TestFlagOnForUser(t *testing.T) {
 	ctx := context.Background()
 	var uuidVal pgtype.UUID
 	uuidVal.Scan("3f2d577f-03cf-451c-99ff-ceaf5fef1ef3")
 
-	t.Run("zero UUID returns false", func(t *testing.T) {
-		got := flagOnForUser(ctx, &fakePrefQuerier{enabled: true}, pgtype.UUID{})
-		if got {
-			t.Fatalf("flagOnForUser(zero) = true; want false")
-		}
-	})
+	cases := []struct {
+		name    string
+		querier *fakePrefQuerier
+		uid     pgtype.UUID
+	}{
+		{"zero UUID still returns true (stub)", &fakePrefQuerier{enabled: false}, pgtype.UUID{}},
+		{"any querier state returns true", &fakePrefQuerier{enabled: false}, uuidVal},
+		{"enabled=false querier still returns true", &fakePrefQuerier{enabled: false}, uuidVal},
+		{"enabled=true querier returns true", &fakePrefQuerier{enabled: true}, uuidVal},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if !flagOnForUser(ctx, tc.querier, tc.uid) {
+				t.Fatalf("flagOnForUser(%s) = false; want true (0.5.5.1 stub contract)", tc.name)
+			}
+		})
+	}
+}
 
-	t.Run("ErrNoRows returns false", func(t *testing.T) {
-		got := flagOnForUser(ctx, &fakePrefQuerier{err: pgx.ErrNoRows}, uuidVal)
-		if got {
-			t.Fatalf("flagOnForUser(NoRows) = true; want false")
-		}
-	})
-
-	t.Run("enabled=true returns true", func(t *testing.T) {
-		got := flagOnForUser(ctx, &fakePrefQuerier{enabled: true}, uuidVal)
-		if !got {
-			t.Fatalf("flagOnForUser(enabled=true) = false; want true")
-		}
-	})
-
-	t.Run("enabled=false returns false", func(t *testing.T) {
-		got := flagOnForUser(ctx, &fakePrefQuerier{enabled: false}, uuidVal)
-		if got {
-			t.Fatalf("flagOnForUser(enabled=false) = true; want false")
-		}
-	})
-
-	t.Run("DB error returns false (no silent fallback to catalog default)", func(t *testing.T) {
-		got := flagOnForUser(ctx, &fakePrefQuerier{enabled: true, err: errors.New("simulated db outage")}, uuidVal)
-		if got {
-			t.Fatalf("flagOnForUser(dbErr, enabled=true) = true; want false")
-		}
-	})
+// TestFlagOnExperimental is the 0.5.5.1 catalog-side stub contract.
+// 0.3.45.1 read the catalog default; 0.5.5.1 always returns true
+// because the catalog default itself is now `true` and the value
+// is no longer consulted.
+func TestFlagOnExperimental(t *testing.T) {
+	if !flagOnExperimental() {
+		t.Fatalf("flagOnExperimental() = false; want true (0.5.5.1 stub contract)")
+	}
 }

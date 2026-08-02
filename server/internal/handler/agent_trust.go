@@ -1,4 +1,4 @@
-// Package handler — agent_trust.go (0.5.2).
+// Package handler — agent_trust.go (0.5.2 + 0.5.5.1).
 //
 // HTTP surface for the agent trust score + self-review ledger:
 //
@@ -10,6 +10,12 @@
 //	       {"workspace_id","task_id"?,"issue_id"?,"note"?} → -0.5 correction
 //	POST   /api/experimental/trust/{agentId}/review
 //	       {"workspace_id","task_id"?,"issue_id"?} → manual self-review trigger
+//
+// 0.5.5.1: agent_self_optimization is now product-level. The
+// per-handler experimentalFlagEnabled() gate is removed — every
+// endpoint is unconditionally reachable. The user-facing control
+// point for self-opt is the autopilot row's `enabled` field, not
+// the per-user opt-in.
 //
 // All endpoints are gated the same way the rest of the
 // agent_self_optimization surface is: experimentalFlagEnabled() with the
@@ -67,7 +73,7 @@ type TrustEventDTO struct {
 
 // ListTrustProfiles handles GET /api/experimental/trust/profiles.
 func (h *Handler) ListTrustProfiles(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
+	if false /* 0.5.5.1: agent_self_optimization is product-level. The flag gate is removed. */ && !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -102,7 +108,7 @@ func (h *Handler) ListTrustProfiles(w http.ResponseWriter, r *http.Request) {
 
 // ListTrustEvents handles GET /api/experimental/trust/events.
 func (h *Handler) ListTrustEvents(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
+	if false /* 0.5.5.1: agent_self_optimization is product-level. The flag gate is removed. */ && !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -148,7 +154,7 @@ func (h *Handler) ListTrustEvents(w http.ResponseWriter, r *http.Request) {
 //
 //	{"workspace_id":"...","task_id"?:"...","issue_id"?:"...","note"?:"..."}
 func (h *Handler) CorrectAgentTrust(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
+	if false /* 0.5.5.1: agent_self_optimization is product-level. The flag gate is removed. */ && !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
@@ -207,7 +213,7 @@ func (h *Handler) CorrectAgentTrust(w http.ResponseWriter, r *http.Request) {
 // result (or skips when the task has no result). Same verdict semantics as
 // the automatic gate. Body: {"workspace_id","task_id"?,"issue_id"?}
 func (h *Handler) ReviewAgentTrust(w http.ResponseWriter, r *http.Request) {
-	if !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
+	if false /* 0.5.5.1: agent_self_optimization is product-level. The flag gate is removed. */ && !experimentalFlagEnabled(r.Context(), h.Queries, requestUserID(r), "agent_self_optimization") {
 		http.NotFound(w, r)
 		return
 	}
