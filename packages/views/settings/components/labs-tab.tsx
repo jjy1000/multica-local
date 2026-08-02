@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, FlaskConical, RefreshCw, Package } from "lucide-react";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Label } from "@multica/ui/components/ui/label";
@@ -98,6 +98,22 @@ export function LabsTab() {
   // so the user doesn't have to toggle each flag off-then-on.
   const [installAllPending, setInstallAllPending] = useState(false);
   const [installAllSummary, setInstallAllSummary] = useState<string | null>(null);
+
+  // 0.5.5.2: hide product-level flags from the Labs tab. These
+  // flags stay in the catalog for legacy lookup (e.g.
+  // `issue.lab_source='agent_creation_studio'` resolution) but are
+  // product-level resources — they are boot-provisioned and the
+  // user controls them through the AssigneePicker / autopilot
+  // `enabled` field, not through this toggle. Surfacing the toggle
+  // here would let the user disable a product feature by accident.
+  const PRODUCT_LEVEL_LAB_KEYS = new Set<string>([
+    "agent_creation_studio",
+    "agent_self_optimization",
+  ]);
+  const displayedFlags = useMemo(
+    () => (flags ?? []).filter((f) => !PRODUCT_LEVEL_LAB_KEYS.has(f.key)),
+    [flags],
+  );
 
   async function runInstallAll() {
     setInstallAllPending(true);
@@ -242,7 +258,17 @@ export function LabsTab() {
           {installAllPending ? "运行中…" : "运行 install"}
         </Button>
       </div>
-      {flags.map((flag) => {
+      {/* 0.5.5.2: product-level flag filter. `agent_creation_studio`
+          and `agent_self_optimization` are product-level resources
+          (0.5.5 + 0.5.5.1 refactor: boot-provisioned leader agents,
+          self-opt gated on autopilot `enabled` instead of the
+          per-user pref row). They must not appear as toggles here:
+          a user flipping the row would set `enabled=false` on a
+          product-level flag and silently break the 0.3.46 P0#4
+          leader-rewrite path. Mirrors the `HIDDEN_LAB_KEYS` set in
+          `issue-detail.tsx::LabPicker` — both layers carry the same
+          product-level key set as defense in depth. */}
+      {displayedFlags.map((flag) => {
         const title = flag.title[localized] || flag.title.en;
         const description = flag.description[localized] || flag.description.en;
         const isPending = updateFlag.isPending && updateFlag.variables?.key === flag.key;
