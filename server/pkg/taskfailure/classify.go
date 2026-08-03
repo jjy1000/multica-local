@@ -131,12 +131,35 @@ func Classify(rawError string) Reason {
 	// 6. Provider 5xx / server error. The 5xx regex is checked here
 	//    rather than as plain string matches because the SQL uses an
 	//    anchored regex — see providerHTTP5xxRe's docstring.
+	//
+	//    0.5.8 (fork): the Anthropic SDK also surfaces a "API Error: API
+	//    returned an empty or malformed response (HTTP 200)" error when
+	//    the upstream provider (or a proxy in front of it) returns
+	//    HTTP 200 with a non-JSON / empty body. The SDK treats that as
+	//    a transport-level failure and forwards it verbatim. Without
+	//    this rule it would fall through to ReasonAgentUnknown, the UI
+	//    would surface "empty response" as an opaque failure, and the
+	//    task queue would never re-enqueue the run — even though the
+	//    upstream is unambiguously a provider/network condition. The
+	//    message is published by @anthropic-ai/sdk/src/error.ts
+	//    (EmptyResponseError + APIConnectionError), so any provider
+	//    proxy that emits an HTML login page, an upstream gateway
+	//    200-with-no-body, or a CDN truncated response hits this path.
 	case containsAny(lower,
 		"server had an error",
 		"provider returned error",
 		"internal error",
 		"service unavailable",
 		"bad gateway",
+		// 0.5.8 fork: Anthropic SDK EmptyResponseError / APIConnectionError.
+		// The SDK exports both as named JS classes, so the toString
+		// includes the class name verbatim (e.g. "TypeError: EmptyResponseError: …").
+		// Match both the user-facing message ("empty or malformed response")
+		// AND the class-name forms ("emptyresponseerror", "apiconnectionerror")
+		// so we catch whichever the agent CLI surfaces.
+		"empty or malformed response",
+		"emptyresponseerror",
+		"apiconnectionerror",
 	),
 		providerHTTP5xxRe.MatchString(lower):
 		return ReasonAgentProviderServerError

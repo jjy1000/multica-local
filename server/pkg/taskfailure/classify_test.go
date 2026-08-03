@@ -90,6 +90,15 @@ func TestClassifyRules(t *testing.T) {
 		{"504 at end", "upstream returned 504", ReasonAgentProviderServerError},
 		{"service unavailable", "service unavailable, retry later", ReasonAgentProviderServerError},
 		{"bad gateway", "Bad Gateway: upstream rejected", ReasonAgentProviderServerError},
+		// 0.5.8 fork: Anthropic SDK EmptyResponseError / APIConnectionError.
+		// The SDK fires this when the provider returns HTTP 200 with a
+		// non-JSON / empty body (gateway proxy interception, login HTML
+		// redirect, CDN truncation). Without these cases the in-flight
+		// classifier falls through to ReasonAgentUnknown and the task
+		// queue never re-enqueues the run.
+		{"anthropic empty or malformed response", "API Error: API returned an empty or malformed response (HTTP 200) — check for a proxy or gateway intercepting the request", ReasonAgentProviderServerError},
+		{"anthropic sdk apiconnectionerror", "Error: APIConnectionError: Connection error.", ReasonAgentProviderServerError},
+		{"anthropic sdk emptyresponseerror", "TypeError: EmptyResponseError: Response body为空", ReasonAgentProviderServerError},
 
 		// 7. Provider network.
 		{"stream disconnected", "stream disconnected before completion", ReasonAgentProviderNetwork},
