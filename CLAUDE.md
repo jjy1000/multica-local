@@ -63,6 +63,7 @@ Do **not** re-add any of the above.
 These were intentionally removed in 0.3.x. Future sessions must not re-introduce them even if upstream ships them — the fork's localization contract is deliberate:
 
 - **`constitution_agent` lab** (retired 0.3.57, migration 165). Removed the `宪法智能体` agent, 3 autopilots (CTR/CSIL/TAOL), 4 `experimental_resource_visibility` rows, and the bundled `multica-constitution-agent` skill. If upstream re-adds a constitution lab, do NOT cherry-pick it back — the fork user explicitly rejected it.
+- **`agent_self_optimization` + `agent_creation_studio` experiment flags** (promoted to product-level 0.5.5/0.5.5.1, catalog entries deleted 0.5.6). The runtimes live on as product-level resources: self-opt via `service/agent_self_optimization/*` + the trust ledger, controlled by the 2 self-opt autopilot rows' `enabled` field; the studio as an issue-bound lab (`lab_source='agent_creation_studio'`, leader `agent_creation_expert`) entered from the LabPicker. Do NOT re-add catalog entries, Labs-tab toggles, or `flagEnabled(...)` gates for these keys — a re-added gate on a removed key resolves `false` forever and silently kills the feature (see Known Stability Surfaces: `AgentTrustCorrectButton`). Rationale: `.omc/0.5.6-ship-2026-08-02.md`.
 - **Username-only login user-creation side effects**: `POST /auth/login` still upserts a new user row on every unseen name (no auto-bind to existing workspaces). Do NOT "fix" by binding workspaces across logins — see incident `.omc/incidents/2026-06-27-username-only-login-loses-workspaces.md`.
 - **Inline lab workspace panel on issue detail** (removed 0.3.38). `LabWorkspacePanel`, `pickLabInlineView`, `IssueDetailProps.renderLabInline`, and the `*Inline` view wrappers (`ClaudeLabInline` / `PythiaInline` / `MythosInline` / `LLMWikiBridgeInline`) are all gone. Lab surfaces are reachable ONLY via `/experimental/<suffix>` from the sidebar or `<IssueLabsSection>` "open panel" link.
 
@@ -553,9 +554,9 @@ Unified experiment-development platform: manifest → catalog → registry → I
 ### Architecture (10 PRs, shipped)
 
 - **Manifest** (`apps/desktop/resources/experiments/<flagKey>/manifest.json`): `apiVersion: multica.dev/experiment/v1`, `kind: Experiment`. Declares workspace, capabilities, entry_points, runtime (kind + binary + health_path), surface (proxy_prefix + loopback_service), resources, safety, graduation.
-- **Catalog** (`server/internal/experimental/catalog.go`): `Flag` struct with `ManifestPath`, `RuntimeKind`, `ProxyPrefix`, `LoopbackService`, `Sidebar`. 8 flags registered (current set: `chat_pin_ui`, `claude_science_lab`, `pythia_oracle`, `mythos_swarm`, `llm_wiki_bridge`, `code_canvas`, `agent_self_optimization`, `agent_creation_studio`). `constitution_agent` was retired in 0.3.57 (see Retired Features). `claude_science` and `claude_science_runtime` were removed in 0.3.22 — see "Lab Consolidation" below.
+- **Catalog** (`server/internal/experimental/catalog.go`): `Flag` struct with `ManifestPath`, `RuntimeKind`, `ProxyPrefix`, `LoopbackService`, `Sidebar`. 6 flags registered (current set: `chat_pin_ui`, `claude_science_lab`, `pythia_oracle`, `mythos_swarm`, `llm_wiki_bridge`, `code_canvas`). `agent_self_optimization` and `agent_creation_studio` were promoted to product-level resources in 0.5.5/0.5.5.1 and deleted from the catalog in 0.5.6 (see Retired Features). `constitution_agent` was retired in 0.3.57 (see Retired Features). `claude_science` and `claude_science_runtime` were removed in 0.3.22 — see "Lab Consolidation" below.
 - **Registry** (`server/internal/experimental/registry.go`): singleton replacing scattered registries. `ProxyRoutes()`, `LoopbackURL()`, `RegisterInstallHandler()`, `RunInstall()`, `RunRollback()`, `SidebarEntries()`.
-- **RuntimeKind** enum: `none` (UI toggle only), `inline` (claude_science_lab, llm_wiki_bridge, mythos_swarm, agent_self_optimization, agent_creation_studio), `subprocess` (pythia_oracle, code_canvas — separate process with health check), `headless` (agent runtime). `ManagerFactory` (`apps/desktop/src/main/experimental/manager-factory.ts`) dispatches per flag key, with `loadFlagDescriptors()` boot-time sync that pulls from `/api/experimental-flags`.
+- **RuntimeKind** enum: `none` (UI toggle only), `inline` (claude_science_lab, llm_wiki_bridge, mythos_swarm), `subprocess` (pythia_oracle, code_canvas — separate process with health check), `headless` (agent runtime). `ManagerFactory` (`apps/desktop/src/main/experimental/manager-factory.ts`) dispatches per flag key, with `loadFlagDescriptors()` boot-time sync that pulls from `/api/experimental-flags`.
 - **IPC channels**: `experimental:<flagKey>:<verb>` (get-status, get-url, ensure-up, stop). `setupExperimentalIPC` iterates catalog entries.
 - **LifecycleMarker** (`server/internal/experimental/lock.go`): SHA-256-derived UUID per flag key (prefix `0xEC`).
 - **Safety auto-mount** (`server/internal/handler/experimental_proxy.go`): `injectExperimentalFlagHeader` middleware injects `X-Experimental-Flag` for the safety-net burst breaker.
@@ -694,7 +695,7 @@ A flag's catalog `DefaultVal` may flip to `true` after the opt-in rate stabilise
 
 Hard constraint #2 modified: built-in flags remain developer-only; user-created plugins use the `user_*` namespace, stored in the `user_plugin` table (migration 166), merged into the Registry at boot via `RegisterUserPlugins()` + `MergeUserPlugins()`.
 
-**Architecture:** dual-layer catalog — `catalog.go` static `Catalog` slice (8 built-in flags) + dynamic `userPlugins map[string]Flag` guarded by `userPluginMu`. `IsKnownKey()` / `DefaultFor()` / `AllFlagKeys()` check both layers. Built-in flags always win on key collision.
+**Architecture:** dual-layer catalog — `catalog.go` static `Catalog` slice (6 built-in flags) + dynamic `userPlugins map[string]Flag` guarded by `userPluginMu`. `IsKnownKey()` / `DefaultFor()` / `AllFlagKeys()` check both layers. Built-in flags always win on key collision.
 
 **API endpoints** (all authenticated, no flag gate):
 - `GET/POST /api/user-plugins` — list / create (slug: `^[a-z0-9]+(?:-[a-z0-9]+)*$`, 2-64 chars; `flag_key = "user_" + slug`; 409 on duplicate **among live rows** — migration 168 replaced the full-table UNIQUE on slug/flag_key with partial unique indexes `WHERE status != 'deleted'`, so a soft-deleted slug can be re-created)
@@ -733,7 +734,7 @@ Hard constraint #2 modified: built-in flags remain developer-only; user-created 
 
 ### Two plugin archetypes: tool-lab vs. agent-lab (0.3.63)
 
-The `manifest.capabilities` slots now support two complementary plugin shapes; both are usable by ANY Multica agent, and both are pure user-plugin-layer additions (the 8 built-in labs are untouched).
+The `manifest.capabilities` slots now support two complementary plugin shapes; both are usable by ANY Multica agent, and both are pure user-plugin-layer additions (the 6 built-in labs are untouched).
 
 **Type 1 — tool-lab (no agent, skills auto-bind globally).** A composite of `skills` + optional `autopilots` + optional inline runtime, with empty `agents`/`leader`. Previously `capabilities.skills` was a hollow contract: the docs said "any agent can call them" but a skill only loaded if bound via an `agent_skill` row. Closed in 0.3.63 by **dynamic global injection at task-claim time**:
 
@@ -750,9 +751,11 @@ The `manifest.capabilities` slots now support two complementary plugin shapes; b
 
 Full authoring guidance (both archetypes + the delegate verb) is in `multica-lab-builder/SKILL.md`.
 
-## Agent Self-Optimization & Trust (0.5.2)
+## Agent Self-Optimization & Trust (0.5.2, product-level since 0.5.5.1)
 
-The `agent_self_optimization` lab (catalog default OFF, per-user opt-in via `experimental_pref`) runs a SkillOpt-style loop: the agent's `agent.instructions` is the trainable state, a separate optimizer LLM proposes bounded add/delete/replace edits, a validator LLM scores them, and only validated edits land back in the instructions. It is the fork's implementation of the user's "智能体自由化循环" (Boris Cherny ablation principle: delete → add back line by line → test).
+**Flag status: the `agent_self_optimization` catalog entry is GONE (removed 0.5.6).** What started as an experiment flag was promoted to a product-level resource in 0.5.5; 0.5.5.1 decoupled the control surface and 0.5.6 deleted the catalog literal. Concretely: `service/agent_self_optimization/flag.go` is an always-true compatibility shim; the HTTP endpoints (`/api/experimental/trust/*`, `/self-opt/*`) are unconditionally reachable (membership-gated only, no 404 flag gate); and the user-facing control point is the **`enabled` field of the 2 self-opt autopilot rows** (SkillOpt-Multica daily + per-3-workday bulk), toggled like any other autopilot (GUI or `multica autopilot update --disabled`). Do NOT re-add a flag gate for this key — see Retired Features.
+
+The loop itself runs a SkillOpt-style cycle: the agent's `agent.instructions` is the trainable state, a separate optimizer LLM proposes bounded add/delete/replace edits, a validator LLM scores them, and only validated edits land back in the instructions. It is the fork's implementation of the user's "智能体自由化循环" (Boris Cherny ablation principle: delete → add back line by line → test).
 
 ### Trust-score ledger (migration 228)
 
@@ -782,7 +785,7 @@ The `agent_self_optimization` lab (catalog default OFF, per-user opt-in via `exp
 
 - `server/internal/service/agent_self_optimization/runner.go` — one-pass runner. Data-sufficiency deferral (< 5 done issues AND < 3 trust corrections → `status='deferred'` + retry +24h). Parallel per-agent optimization (`sem=3`). **Must** `IncrementIssueCounter` before `CreateIssue` (the self-opt issue carries `lab_source='agent_self_optimization'` and is auto-hidden from the main panel via `exclude_lab`).
 - `scheduler.go` — weekly cadence (`MinRunInterval=168h`) with catch-up firing immediately when last run > 7d old. `service.go::maybeFire` holds the advisory lock + `CountActiveAgentSelfOptRuns` in-flight guard.
-- HTTP (`server/internal/handler/agent_self_optimization.go` + `self_opt_edits.go`): `GET/POST /self-opt/runs`, `GET /self-opt/runs/{id}`, `POST /self-opt/runs/{id}/cancel`, `GET /self-opt/edits`, `POST /self-opt/edits/{id}/apply|reject|ignore|revert` — all membership-gated; flag off → 404.
+- HTTP (`server/internal/handler/agent_self_optimization.go` + `self_opt_edits.go`): `GET/POST /self-opt/runs`, `GET /self-opt/runs/{id}`, `POST /self-opt/runs/{id}/cancel`, `GET /self-opt/edits`, `POST /self-opt/edits/{id}/apply|reject|ignore|revert` — all membership-gated and unconditionally reachable since 0.5.6 (the per-flag 404 gate was deleted with the catalog entry).
 
 ### Language contract
 
@@ -848,48 +851,19 @@ reference, NOT for implementation guidance:
 > `pickLabInlineView(issue.lab_source)` which dispatches to one
 > of 4 named inline components.
 
-### 0.3.45 action-type lab (NEW)
+### agent_creation_studio — SUPERSEDED (0.3.45 design retired by 0.5.3-0.5.6)
 
-A separate entry point **distinct from issue-bound labs**:
-`agent_creation_studio`. Lives under
-`apps/desktop/resources/experiments/agent_creation_studio/`
-(manifest + pre-workspace route `/experimental/agent-creation-studio`).
-Mounted from issue detail via `LabPicker.onAction` (footer sub-menu
-in the picker popover, NOT in the issue `lab_source` column);
-orthogonal to the existing lab/assignee mutex, `IssueLabsSection`,
-and `assignDefaultLabAgentOnUpdate`.
+**The 0.3.45 "action-type lab" architecture (manifest + pre-workspace route
+`/experimental/agent-creation-studio` + 3-tab orchestrator
+`agent-creation-studio-view.tsx`) no longer exists.** Lineage:
 
-- `server/internal/experimental/catalog.go:121-311` — append the
-  `agent_creation_studio` Flag literal. `DefaultVal: false`,
-  `RuntimeKind: "inline"`, no install handler, no
-  `HideableResource`, no `experimental_resource_lock` rows.
-- `packages/views/issues/components/pickers/lab-picker.tsx` —
-  `onAction?: (actionKey: string) => void` callback wired by the
-  caller (issue-detail) to `router.push("/experimental/agent-creation-studio?from_issue=<id>")`.
-  Footer is rendered only when `onAction` is supplied; arrow-key
-  navigation skips it (built-in `PropertyPicker` footer slot).
-- `apps/desktop/src/renderer/src/pages/agent-creation-studio-view.tsx` —
-  3-tab orchestrator (agent / skill / squad) calling the existing
-  `api.createAgent / createSkill / createSquad` methods directly
-  (no new mutation hook, no new sqlc). Pre-workspace route; does
-  not write `issue.lab_source`.
-- `packages/views/issues/components/issue-detail.tsx:1555` —
-  `LabPicker` PropRow hoisted out of the `issue.lab_source &&`
-  guard so the action footer is always reachable; the
-  `labSourceRouteSuffix` ExternalLink still only renders when
-  `issue.lab_source` is set.
-- `packages/views/locales/{en,zh-Hans,ja,ko}/experimental.json` —
-  new namespace `experimental.agent_creation_studio_view.*`.
-  Registered in `packages/views/locales/index.ts` (4 locales)
-  and typed in `packages/views/i18n/resources-types.ts`
-  (`I18nResources.experimental`).
+- **0.5.3** upgraded the studio to an **issue-bound lab**: `issue.lab_source='agent_creation_studio'`, leader agent `agent_creation_expert` (see Data Flow + Active Contract #2 for the dispatch path).
+- **0.5.4** deleted the dedicated desktop page/route (`routes.tsx` carries the deletion note).
+- **0.5.5** promoted it to a **product-level built-in resource**: leader boot-provisioned in `router.go`, entry via LabPicker, no Labs-tab toggle.
+- **0.5.6** removed the catalog entry entirely (see Retired Features). Nothing lives under `apps/desktop/resources/experiments/agent_creation_studio/` anymore.
 
-Constrained to 0.3.45: NO schema migration, NO new sqlc query,
-NO new IPC channel, NO new visibility row, NO new agent /
-squad / skill. The "与智能体宪法兼容" toggle in each tab is a UI
-placeholder only — wiring `system_key` requires an upstream
-`agent.system_key` column migration this fork has not yet
-shipped (deferred to 0.3.45.1).
+Do not implement against the old route/manifest/3-tab-view description; the
+current contract is the issue-bound lab path plus the LabPicker entry point.
 
 ## Active Contracts (0.3.45.7+) — Polling fallback, lab leader rewrite, by-issue route order
 
@@ -1010,7 +984,7 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 > **These files live OUTSIDE this repo** (in the Claude project-memory dir above), so a bare name like `multica-0.3.0-standalone-2026-07-02.md` referenced anywhere in this doc is NOT a repo path — `git`/filesystem lookups at the repo root will not find it. Read it via the absolute path above. They are intentionally not committed (per-user, cross-session context).
 
 **For a new session, start here:**
-- `0.5.2-self-opt-ship-2026-08-01.md` — **Current release (2026-08-01).** Agent self-optimization loop: trust-score ledger (mig 228), two-stage edit application (migs 229-231, add-only auto-apply + 待确认建议 tier), post-hoc commit gate (`RevalidateAppliedEdits`), and 7 adversarial-review fixes. **Desktop ship complete** — `/Applications/Multica.app` = 0.5.2 (canonical `electron-builder --dir`; the alpha.13 deadlock did NOT trigger this run). P0 gotcha: `applied_by NOT NULL CHECK` broke the entire suggested tier (fixed nullable + `sqlc.narg`). `pgtype.Numeric` must string-scan. Read before any 0.5.2.x touch. Supersedes the 0.5.1 entry below.
+- `0.5.2-self-opt-ship-2026-08-01.md` — 0.5.2 (2026-08-01; no longer the current release — the file header carries the live version). Agent self-optimization loop: trust-score ledger (mig 228), two-stage edit application (migs 229-231, add-only auto-apply + 待确认建议 tier), post-hoc commit gate (`RevalidateAppliedEdits`), and 7 adversarial-review fixes. P0 gotcha: `applied_by NOT NULL CHECK` broke the entire suggested tier (fixed nullable + `sqlc.narg`). `pgtype.Numeric` must string-scan. Read before any self-opt touch; note 0.5.5-0.5.6 later removed the flag gate entirely (see Agent Self-Optimization & Trust section). Supersedes the 0.5.1 entry below.
 - `0.5.1-ui-port-ship-2026-08-01.md` — 0.5.1 (2026-08-01, superseded by 0.5.2). Upstream UI/animation port batch: 5 commits (`c065ae1` `404676a` `bb29b46` `1b0cdb5` `a803f94`) — WCAG contrast + faint/find-match/chat-launcher tokens, Button brand variants, CJK `font-synthesis`, surface system bound, type-scale tokens, NumberFlow + 6 surfaces, 14 animation deltas, Inter italic + Geist Mono variable, 212-file type-scale migration. Desktop ship via manual asar-repack fallback. Worktrees for the 4 fork-hygiene cloud-deletion PRs were **deleted** (branches kept). Main dir renamed `multica-main` → `multica-exploration-dev`.
 - `0.5.0-fork-ship-2026-07-31.md` — 0.5.0 release (schema-first wave-1: `client_usage_daily` + `task_usage` cost). Superseded by 0.5.1; kept for the wave-1 schema/rollup history.
 - `project-init-doc-2026-07-14.md` — Full fork snapshot for 0.3.20 (still useful for high-level architecture; some flag / manifest details are superseded by 0.3.22+).
@@ -1066,4 +1040,4 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 - **User plugin flag keys** always carry the `user_` prefix (`plugin_scanner.go::IsUserPluginKey()`). `GET /api/experimental-flags` returns user plugins with `is_user_plugin: true` — the Labs tab and LabPicker use this to distinguish them from built-in flags. User plugin `DefaultVal` is always `false` (opt-in). Deleting a user plugin soft-deletes the DB row (`status='deleted'`), removes the flag from the in-memory Registry, and cleans up the caller's `experimental_pref` row. The `user_plugin` table (migration 166) enforced `slug` and `flag_key` UNIQUE at the column level; migration 168 (2026-07-28 audit) converted both to **partial unique indexes scoped to live rows** (`WHERE status != 'deleted'`) so a soft-deleted slug can be re-created — all `user_plugin.sql` queries already filter `status != 'deleted'`, and the create handler's 23505 → 409 mapping is unchanged. Slug is immutable after creation.
 - **Server log lives at `~/.multica/profiles/<profile>/server.log`, NOT `~/.multica/server.log`.** `server-manager.ts::serverLogPath()` writes stdout+stderr into the profile dir. The legacy `~/.multica/server.log` (if any) is from a pre-0.3.0 dev run and stays frozen at its last mtime. Always diagnose ship-post behavior from the profile-local log; the daemon/CLI/desktop activity you want to see lives there.
 - **Squad-as-subscriber / squad-as-recipient schema — migration 167 (0.3.61)** extended `issue_subscriber.user_type` and `inbox_item.recipient_type` CHECK constraints to allow `'squad'`, and relaxed `agent_task_queue_accountable_matches_originator` so both columns are independently nullable (only equal-required when both set). The fix matches the upstream latent bug present in `/Users/jiangjianyan/Downloads/multica-main` (verified by zero-byte diff on `subscriber_listeners.go` / `notification_listeners.go`). When reviewing or writing squad assignee paths, schema no longer blocks; if you discover a new place that should *not* subscribe/notify a squad (e.g. squad-as-recipient showing up in a personal inbox), filter at the handler layer — do NOT re-tighten the CHECK constraints and re-introduce the upstream regression. **0.3.63:** the handler-layer squad filter has now landed — `subscriber_listeners.go` skips `*issue.AssigneeType == "squad"` in both the `issue:created` and `issue:updated` assignee-subscription paths, and `notification_listeners.go::notifyDirect` early-returns on `recipientType == "squad"`. This prevents squad-routed subscriber/inbox rows from surfacing in a human member's `ListInbox`. Squads still receive task dispatch via the queue path (unaffected); only the personal-inbox subscription/notification fan-out is short-circuited.
-- **`AgentCreationStudioView` / `plugin-shell-view.tsx` are distinct surfaces.** The studio (route `/experimental/agent-creation-studio`) is for ad-hoc creation of agent/skill/squad rows through the existing REST APIs — no new mutation hook, no new sqlc, no schema column. The plugin shell (route `/experimental/plugin/:pluginSlug`) is for `user_*` lab plugins with manifest-driven tabs. Don't conflate them when routing new lab work; the studio edits *built-in* schema, the shell renders *user* artifacts.
+- **agent creation studio vs `plugin-shell-view.tsx` — distinct surfaces.** The studio is a product-level **issue-bound lab** since 0.5.3-0.5.6 (`issue.lab_source='agent_creation_studio'`, leader `agent_creation_expert` authors agent/skill/squad rows via the bundled `multica-creating-agents` skill); its dedicated `/experimental/agent-creation-studio` route and `AgentCreationStudioView` were deleted in 0.5.4. The plugin shell (route `/experimental/plugin/:pluginSlug`) is for `user_*` lab plugins with manifest-driven tabs. Don't conflate them when routing new lab work; the studio authors *built-in* schema rows, the shell renders *user* artifacts.
