@@ -19,6 +19,95 @@
       "browser_suffix": "（浏览器）",
       "hint": "用于仪表盘、图表和「今天」标签。这是个人偏好，在你的所有工作区中通用。",
       "sync_failed": "保存时区偏好失败。"
+    },
+    "sticky_comment_bar": {
+      "title": "固定评论栏",
+      "hint": "滚动任务页面时，评论栏始终固定在底部。"
+    },
+    "issue_link_new_tab": {
+      "title": "在新标签页打开任务链接",
+      "hint": "点击描述、评论或聊天中的任务链接时，在新标签页中打开，而不是在当前页面跳转。"
+    }
+  },
+  "shortcuts": {
+    "title": "快捷键",
+    "description": "自定义当前设备上的产品操作。点击一个快捷键，然后按下新的组合键。",
+    "search_placeholder": "搜索操作...",
+    "reset_all": "恢复默认设置",
+    "reset_confirm": {
+      "title": "恢复所有快捷键的默认设置？",
+      "description": "这会清除当前设备上的所有自定义快捷键，并恢复默认设置。",
+      "cancel": "取消",
+      "confirm": "恢复全部默认设置"
+    },
+    "reset": "重置",
+    "disable": "停用",
+    "reset_action": "重置「{{action}}」",
+    "disable_action": "停用「{{action}}」快捷键",
+    "record_aria": "修改「{{action}}」的快捷键",
+    "recording": "请按键",
+    "record_hint": "Esc 取消 · Delete 清除",
+    "unassigned": "未设置",
+    "no_results": "没有匹配的快捷键操作。",
+    "conflict_error": "已被「{{action}}」使用。",
+    "reserved_error": "该快捷键已被浏览器或桌面窗口占用。",
+    "send_error": "发送只能使用 Enter 或 Mod + Enter。",
+    "unsafe_error": "这个按键会干扰文字输入或基础键盘导航。",
+    "send_enter_hint": "Shift+Enter 可插入段落、继续列表，或在代码块中换行。",
+    "categories": {
+      "general": "常规",
+      "navigation": "导航"
+    },
+    "actions": {
+      "openSearch": { "label": "打开搜索", "description": "随时搜索内容或运行命令。" },
+      "createIssue": { "label": "新建任务", "description": "打开你常用的任务创建流程。" },
+      "toggleSidebar": { "label": "显示或隐藏侧边栏", "description": "切换主侧边栏的显示状态。" },
+      "toggleChat": { "label": "显示或隐藏聊天窗", "description": "打开或关闭悬浮聊天窗，打开时自动聚焦输入框。" },
+      "findInIssue": { "label": "在任务中查找", "description": "搜索当前打开的任务详情。" },
+      "openThreadNav": { "label": "打开讨论导航", "description": "列出、搜索并跳转当前任务的评论讨论。" },
+      "send": { "label": "发送", "description": "发送聊天消息、评论、回复、反馈和提示词，并在创建弹窗中创建任务。" },
+      "goInbox": { "label": "前往收件箱", "description": "打开工作区收件箱。" },
+      "goChat": { "label": "前往聊天", "description": "打开工作区聊天。" },
+      "goMyIssues": { "label": "前往我的任务", "description": "打开分配给你的任务。" },
+      "goIssues": { "label": "前往任务", "description": "打开任务列表。" },
+      "goProjects": { "label": "前往项目", "description": "打开项目列表。" },
+      "goAutopilots": { "label": "前往自动化", "description": "打开工作区自动化。" },
+      "goAgents": { "label": "前往智能体", "description": "打开智能体列表。" },
+      "goSquads": { "label": "前往小队", "description": "打开小队列表。" },
+      "goUsage": { "label": "前往用量", "description": "打开用量分析。" },
+      "goRuntimes": { "label": "前往运行时", "description": "打开运行时配置。" },
+      "goSkills": { "label": "前往 Skills", "description": "打开 skill 库。" },
+      "goSettings": { "label": "前往设置", "description": "打开工作区设置。" }
+    },
+    "fixed": {
+      "title": "固定的系统快捷键",
+      "description": "窗口和无障碍快捷键保持固定，确保始终可靠。缩放和标签页操作仅适用于桌面端。",
+      "close_tab": "关闭当前标签页",
+      "zoom_in": "放大",
+      "zoom_out": "缩小",
+      "reset_zoom": "重置缩放",
+      "close_dialog": "关闭对话框或菜单"
+    }
+  },
+  "chat": {
+    "floating_title": "悬浮窗",
+    "floating_label": "悬浮聊天窗",
+    "floating_hint": "在每个页面右下角显示悬浮聊天按钮。默认关闭——打开后可随处召唤聊天；关闭时，聊天只在此标签页中可用。"
+  },
+  "issue": {
+    "description": "选择各创建方式的工具栏中常驻显示的字段。隐藏的字段仍可从 ⋯ 菜单使用，有值时会自动显示。",
+    "quick_create_title": "通过智能体创建",
+    "quick_create_description": "快速创建工具栏中显示的字段。",
+    "manual_create_title": "手动创建",
+    "manual_create_description": "手动创建工具栏中显示的字段。",
+    "fields": {
+      "status": "状态",
+      "priority": "优先级",
+      "assignee": "负责人",
+      "labels": "标签",
+      "project": "项目",
+      "due_date": "截止日期",
+      "start_date": "开始日期"
     }
   },
   "page": {

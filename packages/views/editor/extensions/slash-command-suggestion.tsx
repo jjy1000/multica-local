@@ -19,7 +19,11 @@ import { isImeComposing } from "@multica/core/utils";
 import { workspaceKeys } from "@multica/core/workspace/queries";
 import type { Agent, MemberWithUser } from "@multica/core/types";
 import { useT } from "../../i18n";
-import { createSuggestionPopupRender, isPickerAcceptKey } from "./suggestion-popup";
+import { createSuggestionPopupRender } from "./suggestion-popup";
+import {
+  isPickerAcceptKey,
+  pickerNavigationDirection,
+} from "../../common/picker-keys";
 
 const MAX_ITEMS = 20;
 

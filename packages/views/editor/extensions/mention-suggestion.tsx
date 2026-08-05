@@ -42,7 +42,11 @@ import {
   sortUserItemsByRecency,
 } from "./mention-recency";
 import { matchesPinyin } from "./pinyin-match";
-import { createSuggestionPopupRender, isPickerAcceptKey } from "./suggestion-popup";
+import { createSuggestionPopupRender } from "./suggestion-popup";
+import {
+  isPickerAcceptKey,
+  pickerNavigationDirection,
+} from "../../common/picker-keys";
 
 // ---------------------------------------------------------------------------
 // Types
