@@ -413,10 +413,13 @@ func (q *Queries) HasAgentRepliedInThread(ctx context.Context, arg HasAgentRepli
 }
 
 const listCommentsForIssue = `-- name: ListCommentsForIssue :many
-SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, resolved_at, resolved_by_type, resolved_by_id, source_task_id FROM comment
-WHERE issue_id = $1 AND workspace_id = $2
+SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, resolved_at, resolved_by_type, resolved_by_id, source_task_id FROM (
+    SELECT id, issue_id, author_type, author_id, content, type, created_at, updated_at, parent_id, workspace_id, resolved_at, resolved_by_type, resolved_by_id, source_task_id FROM comment
+    WHERE issue_id = $1 AND workspace_id = $2
+    ORDER BY created_at DESC, id DESC
+    LIMIT $3
+) AS recent
 ORDER BY created_at ASC, id ASC
-LIMIT $3
 `
 
 type ListCommentsForIssueParams struct {
@@ -425,9 +428,14 @@ type ListCommentsForIssueParams struct {
 	Limit       int32       `json:"limit"`
 }
 
-// All comments for an issue in chronological order, capped at $3 (DB safety
-// net). Issue p99 is ~30 comments, max ever observed in prod is ~1.1k, so
-// the handler-side cap of 2000 is purely defensive.
+// The NEWEST $3 comments for an issue, returned in chronological order.
+//
+// The inner query takes the window with the keyset ordering so the cap discards
+// the OLDEST rows, and the outer query restores the ascending contract callers
+// rely on. The ordering of the inner window is satisfied by
+// idx_comment_issue_keyset (migration 068). Cap is still defensive — issue p99
+// is ~30 comments, max ever observed is ~1.1k — but "defensive" is not a reason
+// to drop the newest rows when it does fire (MUL-5492).
 func (q *Queries) ListCommentsForIssue(ctx context.Context, arg ListCommentsForIssueParams) ([]Comment, error) {
 	rows, err := q.db.Query(ctx, listCommentsForIssue, arg.IssueID, arg.WorkspaceID, arg.Limit)
 	if err != nil {
