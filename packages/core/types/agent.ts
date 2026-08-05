@@ -228,6 +228,91 @@ export interface AgentTask {
    * shares and screenshots also stay safe).
    */
   relative_work_dir?: string;
+  /**
+   * Resolved accountable-human provenance of this run (MUL-4302 §9): who it ran
+   * "on behalf of", how that was resolved, and the evidence/lineage. Present on
+   * user-facing task surfaces; older backends omit it — render conditionally.
+   */
+  attribution?: TaskAttribution;
+  /**
+   * This run's own token consumption, one entry per (provider, model) it used.
+   * Present on the issue execution-log endpoint only; the daemon claim path
+   * omits it.
+   *
+   * `undefined` (old backend, or a surface that doesn't hydrate it) and `[]`
+   * (backend hydrated, this run has no recorded usage) both mean "no number to
+   * show" and must render as an em dash, never as 0 — a run that predates usage
+   * reporting was not free, we just don't know what it cost.
+   */
+  usage?: TaskUsage[];
+}
+
+/**
+ * One (provider, model) slice of a single run's token usage.
+ *
+ * Field names deliberately match {@link RuntimeUsage} so the same
+ * `estimateCost` / `estimateCostBreakdown` / `estimateCacheSavings` helpers in
+ * `packages/views/runtimes/utils.ts` price a run and a runtime-day identically
+ * — there is exactly one cost formula in the product.
+ *
+ * `cost_usd_ticks` is the provider's own price for this slice (1e-10 USD),
+ * absent when it reported none; those tokens get estimated from the rate table
+ * instead. Unlike the aggregate rows there is no `uncosted_*` split here: a
+ * `task_usage` row is priced or it isn't, so "uncosted" is just "all of them
+ * when cost_usd_ticks is absent", which is what the estimator already assumes.
+ */
+export interface TaskUsage {
+  provider?: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_usd_ticks?: number;
+}
+
+/**
+ * A departed-member-safe user ref resolved from the global user table. `name` /
+ * `email` / `avatar_url` are absent until the server hydrates them (present on
+ * user-facing task surfaces). Render defensively — fall back to a generic label
+ * when only `id` is available. See MUL-4302 §9.
+ */
+export interface AttributionUser {
+  id: string;
+  name?: string;
+  email?: string;
+  avatar_url?: string;
+}
+
+/** The kind-tagged handle to a run's direct cause (comment, autopilot run, ...). */
+export interface TaskEvidence {
+  kind: string;
+  ref_id: string;
+}
+
+/**
+ * The resolved accountable-human provenance of an agent run (MUL-4302 §9). Free-text
+ * `source` (server may add new levels), so switch on it with a default branch.
+ */
+export interface TaskAttribution {
+  /**
+   * Waterfall level that resolved the accountable human:
+   * `direct_human` | `delegation` | `comment_source` | `rule_owner` |
+   * `owner_fallback` | `backfill` | `unattributed`. Never blank.
+   */
+  source: string;
+  /** False for degraded sources (owner_fallback / backfill / unattributed). */
+  precise: boolean;
+  /** The accountable human ("on behalf of"). Absent when unattributed. */
+  initiator?: AttributionUser;
+  /** The authorization human; absent for autopilot runs (rule_owner / owner_fallback). */
+  originator?: AttributionUser;
+  /** The direct cause of the run, for a jump-to-evidence affordance. */
+  evidence?: TaskEvidence;
+  rule_version_id?: string;
+  delegated_from_task_id?: string;
+  retry_of_task_id?: string;
+  rerun_of_task_id?: string;
 }
 
 export interface Agent {

@@ -340,6 +340,17 @@ type AgentTaskResponse struct {
 	InitiatorName  string `json:"initiator_name,omitempty"`  // display name of the initiator
 	InitiatorEmail string `json:"initiator_email,omitempty"` // member email; empty for agent initiators
 	Kind           string `json:"kind"`                      // discriminator: "comment" | "autopilot" | "chat" | "quick_create" | "direct" — used by the activity row to label tasks that have no linked issue
+	// Usage is this run's own token consumption, one entry per (provider, model)
+	// it used — the same grain `task_usage` stores and the same grain the client
+	// prices at. Hydrated only on the issue-facing execution-log endpoint
+	// (ListTasksByIssue); the daemon claim path leaves it nil so the claim
+	// payload does not carry accounting the agent has no use for.
+	//
+	// nil and [] are both "no usage recorded" and the UI renders an em dash for
+	// them — a run that predates usage reporting, or one that died before any
+	// model call, genuinely has no number, and showing 0 would assert it was
+	// free. omitempty keeps both off the wire.
+	Usage []TaskUsageData `json:"usage,omitempty"`
 	// AuthToken is the task-scoped `mat_` token the daemon must inject as
 	// MULTICA_TOKEN in the agent process environment. The server binds it to
 	// this (agent_id, task_id) pair at claim time and treats any request
@@ -361,6 +372,45 @@ type ChatAttachmentMeta struct {
 	ID          string `json:"id"`
 	Filename    string `json:"filename"`
 	ContentType string `json:"content_type,omitempty"`
+}
+
+// CoalescedCommentData carries the full detail of a comment that was folded
+// into a not-yet-started run (MUL-4195) so the daemon can embed it directly in
+// the prompt. The earlier merge path only shipped comment IDs plus a
+// "they are in the triggering thread" hint, which is WRONG when the folded
+// comments span multiple threads (an issue's assignee can be triggered from
+// different threads). Shipping thread_id / author / created_at / content lets
+// the prompt address each folded comment without assuming a single thread or
+// relying on a `--recent N` window that may not cover them all. The mirror
+// struct on the daemon side lives in internal/daemon/types.go with the same
+// JSON field names.
+type CoalescedCommentData struct {
+	ID         string `json:"id"`
+	ThreadID   string `json:"thread_id,omitempty"`
+	AuthorType string `json:"author_type,omitempty"`
+	AuthorName string `json:"author_name,omitempty"`
+	Content    string `json:"content"`
+	CreatedAt  string `json:"created_at,omitempty"`
+}
+
+// TaskUsageData is one (provider, model) slice of a single run's token usage.
+// Field names match the runtime/dashboard usage rows exactly so the client can
+// feed it to the same `estimateCost` / `estimateCacheSavings` helpers without
+// an adapter.
+//
+// CostUsdTicks is the provider's own price for these tokens (1e-10 USD) and is
+// nil when the provider reported none — the client then estimates that slice
+// from its rate table. A pointer, not a zero value: 0 ticks is a real answer
+// ("the provider says this was free") and must stay distinguishable from
+// "the provider said nothing".
+type TaskUsageData struct {
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model"`
+	InputTokens      int64  `json:"input_tokens"`
+	OutputTokens     int64  `json:"output_tokens"`
+	CacheReadTokens  int64  `json:"cache_read_tokens"`
+	CacheWriteTokens int64  `json:"cache_write_tokens"`
+	CostUsdTicks     *int64 `json:"cost_usd_ticks,omitempty"`
 }
 
 // TaskAgentData holds agent info included in claim responses so the daemon

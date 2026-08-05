@@ -587,6 +587,48 @@ export const RuntimeUsageByHourListSchema = z.array(RuntimeUsageByHourSchema);
 // a message from cache or restores text into the input.
 // ---------------------------------------------------------------------------
 
+// Human attribution (MUL-4302 §9): who an agent run is accountable to, and how
+// that human was resolved. Every field is defensive so a departed member, an
+// autopilot run (no originator), or an older backend degrades to a partial
+// object instead of a parse failure.
+const AttributionUserSchema = z.object({
+  id: z.string().default(""),
+  name: z.string().optional(),
+  email: z.string().optional(),
+  avatar_url: z.string().optional(),
+}).loose();
+
+const TaskEvidenceSchema = z.object({
+  kind: z.string().default(""),
+  ref_id: z.string().default(""),
+}).loose();
+
+const TaskAttributionSchema = z.object({
+  source: z.string().default("unattributed"),
+  precise: z.boolean().default(false),
+  initiator: AttributionUserSchema.optional(),
+  originator: AttributionUserSchema.optional(),
+  evidence: TaskEvidenceSchema.optional(),
+  rule_version_id: z.string().optional(),
+  delegated_from_task_id: z.string().optional(),
+  retry_of_task_id: z.string().optional(),
+  rerun_of_task_id: z.string().optional(),
+}).loose();
+
+// One (provider, model) slice of a run's token usage. Token counts default to
+// 0 rather than failing the row: a slice missing one counter is still worth
+// pricing on the counters it does have, and the "we have no usage at all" case
+// is carried by the field's absence, not by a zeroed entry.
+const TaskUsageSchema = z.object({
+  provider: z.string().optional(),
+  model: z.string().default(""),
+  input_tokens: z.number().default(0),
+  output_tokens: z.number().default(0),
+  cache_read_tokens: z.number().default(0),
+  cache_write_tokens: z.number().default(0),
+  cost_usd_ticks: z.number().optional(),
+}).loose();
+
 const AgentTaskResponseSchema = z.object({
   id: z.string(),
   agent_id: z.string().default(""),
@@ -611,7 +653,17 @@ const AgentTaskResponseSchema = z.object({
   kind: z.string().optional(),
   work_dir: z.string().optional(),
   relative_work_dir: z.string().optional(),
+  attribution: TaskAttributionSchema.optional(),
+  // Per-run token usage. Same independent-degradation rule as the coverage
+  // arrays above: usage is additive display metadata, so one malformed entry
+  // must cost the row its usage figure, not erase the whole execution log.
+  // `.catch(undefined)` collapses a bad array to "no usage recorded", which
+  // the UI already renders as an em dash.
+  usage: z.array(TaskUsageSchema).optional().catch(undefined),
 }).loose();
+
+/** Execution-log rows for an issue's task-runs endpoint. */
+export const AgentTaskListSchema = z.array(AgentTaskResponseSchema);
 
 const CancelledChatMessageSchema = z.object({
   chat_session_id: z.string(),

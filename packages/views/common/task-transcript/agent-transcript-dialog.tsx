@@ -20,10 +20,14 @@ import {
   Folder,
   ArrowDownNarrowWide,
   ArrowUpNarrowWide,
+  Info,
+  Coins,
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
 import { copyText } from "@multica/ui/lib/clipboard";
+import { Button } from "@multica/ui/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@multica/ui/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@multica/ui/components/ui/popover";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@multica/ui/components/ui/collapsible";
 import {
   DropdownMenu,
@@ -37,9 +41,17 @@ import { ActorAvatar } from "../actor-avatar";
 import { api } from "@multica/core/api";
 import { useTranscriptViewStore, type TranscriptSortDirection } from "@multica/core/agents/stores";
 import type { AgentTask, Agent, AgentRuntime } from "@multica/core/types/agent";
+import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
 import { redactSecrets } from "./redact";
 import type { TimelineItem } from "./build-timeline";
 import { useT } from "../../i18n";
+import {
+  formatTokens,
+  formatUsd,
+  summarizeTaskUsage,
+} from "../../runtimes/utils";
+import "../../editor/styles/code.css";
+import "./task-transcript.css";
 
 interface AgentTranscriptDialogProps {
   open: boolean;
@@ -327,27 +339,105 @@ export function AgentTranscriptDialog({
 
   const toolCount = items.filter((i) => i.type === "tool_use").length;
 
-  // Status display
-  const statusBadge = isLive ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-info/15 px-2 py-0.5 text-xs font-medium text-info">
-      <Loader2 className="h-3 w-3 animate-spin" />
-      {t(($) => $.transcript.status_running)}
-    </span>
-  ) : task.status === "completed" ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">
-      <CheckCircle2 className="h-3 w-3" />
-      {t(($) => $.transcript.status_completed)}
-    </span>
-  ) : task.status === "failed" ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-medium text-destructive">
-      <XCircle className="h-3 w-3" />
-      {t(($) => $.transcript.status_failed)}
-    </span>
-  ) : (
-    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground capitalize">
-      {task.status}
-    </span>
-  );
+  // Status badge — full state machine, so queued/dispatched/cancelled render as
+  // proper labels instead of raw enum text.
+  const effectiveStatus = isLive ? "running" : task.status;
+  const statusBadge = (() => {
+    const base = "inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-caption font-medium";
+    switch (effectiveStatus) {
+      case "running":
+        return (
+          <span className={cn(base, "bg-info/15 text-info")}>
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {t(($) => $.transcript.status_running)}
+          </span>
+        );
+      case "completed":
+        return (
+          <span className={cn(base, "bg-success/15 text-success")}>
+            <CheckCircle2 className="h-3 w-3" />
+            {t(($) => $.transcript.status_completed)}
+          </span>
+        );
+      case "failed":
+        return (
+          <span className={cn(base, "bg-destructive/15 text-destructive")}>
+            <XCircle className="h-3 w-3" />
+            {t(($) => $.transcript.status_failed)}
+          </span>
+        );
+      case "cancelled":
+        return (
+          <span className={cn(base, "bg-muted text-muted-foreground")}>
+            <XCircle className="h-3 w-3" />
+            {t(($) => $.transcript.status_cancelled)}
+          </span>
+        );
+      case "queued":
+        return (
+          <span className={cn(base, "bg-muted text-muted-foreground")}>
+            {t(($) => $.transcript.status_queued)}
+          </span>
+        );
+      case "dispatched":
+        return (
+          <span className={cn(base, "bg-info/15 text-info")}>
+            {t(($) => $.transcript.status_dispatched)}
+          </span>
+        );
+      case "waiting_local_directory":
+        return (
+          <span className={cn(base, "bg-muted text-muted-foreground")}>
+            {t(($) => $.transcript.status_waiting)}
+          </span>
+        );
+      default:
+        return (
+          <span className={cn(base, "bg-muted text-muted-foreground capitalize")}>
+            {task.status}
+          </span>
+        );
+    }
+  })();
+
+  // Trigger source: one word answering "why does this run exist" — more useful
+  // up front than the runtime/provider diagnostics, which move to the ⓘ popover.
+  const triggerLabel = task.parent_task_id
+    ? t(($) => $.transcript.trigger_retry)
+    : task.kind === "comment" || task.trigger_comment_id
+      ? t(($) => $.transcript.trigger_comment)
+      : task.kind === "autopilot" || task.autopilot_run_id
+        ? t(($) => $.transcript.trigger_autopilot)
+        : task.kind === "chat" || task.chat_session_id
+          ? t(($) => $.transcript.trigger_chat)
+          : task.kind === "quick_create"
+            ? t(($) => $.transcript.trigger_quick_create)
+            : task.kind === "direct" || task.handoff_note
+              ? t(($) => $.transcript.trigger_direct)
+              : t(($) => $.transcript.trigger_initial);
+
+  // Diagnostic detail for the ⓘ popover: everything a reader needs only when
+  // debugging this specific run, kept off the always-visible surface.
+  const providerLabel = runtimeInfo?.provider ? formatProvider(runtimeInfo.provider) : null;
+  const createdLabel = task.created_at ? formatRunTime(task.created_at) : null;
+  const startedLabel = task.started_at ? formatRunTime(task.started_at) : null;
+  const completedLabel = task.completed_at ? formatRunTime(task.completed_at) : null;
+  // This run's own spend. Present on transcripts opened from the issue
+  // execution log (the endpoint that hydrates usage); absent elsewhere, where
+  // the chip and the usage rows below simply don't render.
+  //
+  // `summarizeTaskUsage` prices through the custom-rate store, which it reads
+  // imperatively — subscribing here is what makes a saved rate change reach
+  // this figure, same as on the other usage surfaces.
+  useCustomPricingStore((s) => s.pricings);
+  const usage = summarizeTaskUsage(task.usage);
+  const hasRunDetails =
+    !!runtimeInfo ||
+    !!task.relative_work_dir ||
+    !!createdLabel ||
+    !!startedLabel ||
+    !!completedLabel ||
+    !!usage;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -374,7 +464,111 @@ export function AgentTranscriptDialog({
 
             {statusBadge}
 
-            <div className="ml-auto flex items-center gap-1">
+            <span className="shrink-0 text-caption text-muted-foreground">
+              {triggerLabel}
+            </span>
+
+            {/* What this run cost, in the header of the run you are reading —
+                so "why was this one expensive" is answerable without going
+                back to the list. The split lives one click away in the ⓘ
+                popover. */}
+            {usage && (
+              <span
+                className="flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-micro tabular-nums"
+                title={t(($) => $.transcript.usage_chip_title)}
+              >
+                <Coins aria-hidden="true" className="h-3 w-3 text-muted-foreground" />
+                <span className="font-medium">{formatTokens(usage.tokens)}</span>
+                <span className="text-faint-foreground">·</span>
+                <span className="text-muted-foreground">{formatUsd(usage.cost)}</span>
+              </span>
+            )}
+
+            <div className="flex shrink-0 items-center gap-0.5">
+              {hasRunDetails && (
+                <Popover>
+                  <PopoverTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={t(($) => $.transcript.run_info)}
+                        title={t(($) => $.transcript.run_info)}
+                        className="text-muted-foreground"
+                      />
+                    }
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-3">
+                    <div className="mb-2 text-caption font-medium text-foreground">
+                      {t(($) => $.transcript.run_info)}
+                    </div>
+                    <div className="space-y-1 text-caption">
+                      {runtimeInfo && (
+                        <RunDetailRow
+                          label={t(($) => $.transcript.details_runtime)}
+                          value={runtimeInfo.name}
+                        />
+                      )}
+                      {providerLabel && (
+                        <RunDetailRow label={t(($) => $.transcript.details_provider)} value={providerLabel} />
+                      )}
+                      {runtimeInfo && (
+                        <RunDetailRow label={t(($) => $.transcript.details_mode)} value={runtimeInfo.runtime_mode} />
+                      )}
+                      {task.relative_work_dir && (
+                        <RunDetailRow
+                          label={t(($) => $.transcript.details_workdir)}
+                          value={task.relative_work_dir}
+                          mono
+                          onCopy={handleCopyWorkdir}
+                          copied={copiedWorkdir}
+                          copyTitle={t(($) => $.transcript.copy_workdir)}
+                        />
+                      )}
+                      {createdLabel && (
+                        <RunDetailRow label={t(($) => $.transcript.details_created)} value={createdLabel} />
+                      )}
+                      {startedLabel && (
+                        <RunDetailRow label={t(($) => $.transcript.details_started)} value={startedLabel} />
+                      )}
+                      {completedLabel && (
+                        <RunDetailRow label={t(($) => $.transcript.details_completed)} value={completedLabel} />
+                      )}
+                      {usage && (
+                        <>
+                          <div className="my-2 h-px bg-border" />
+                          <RunDetailRow
+                            label={t(($) => $.transcript.details_input)}
+                            value={formatTokens(usage.input)}
+                          />
+                          <RunDetailRow
+                            label={t(($) => $.transcript.details_output)}
+                            value={formatTokens(usage.output)}
+                          />
+                          {usage.cacheRead > 0 && (
+                            <RunDetailRow
+                              label={t(($) => $.transcript.details_cache_read)}
+                              value={formatTokens(usage.cacheRead)}
+                            />
+                          )}
+                          {usage.cacheWrite > 0 && (
+                            <RunDetailRow
+                              label={t(($) => $.transcript.details_cache_write)}
+                              value={formatTokens(usage.cacheWrite)}
+                            />
+                          )}
+                          <RunDetailRow
+                            label={t(($) => $.transcript.details_cost)}
+                            value={formatUsd(usage.cost)}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
               {items.length > 1 && (
                 <SortDirectionToggle
                   value={sortDirection}
@@ -625,6 +819,63 @@ function SortDirectionToggle({ value, onChange, labels }: SortDirectionTogglePro
         <ArrowUpNarrowWide className="h-3 w-3" />
         <span className="hidden sm:inline">{labels.newestFirst}</span>
       </button>
+    </div>
+  );
+}
+
+// ─── Run detail row (ⓘ popover) ─────────────────────────────────────────────
+// One labeled fact in the diagnostic popover. When `onCopy` is given the whole
+// row is a copy button (used for the workdir path).
+function formatRunTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function RunDetailRow({
+  label,
+  value,
+  mono,
+  onCopy,
+  copied,
+  copyTitle,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  onCopy?: () => void;
+  copied?: boolean;
+  copyTitle?: string;
+}) {
+  const valueClass = cn("min-w-0 select-text break-all text-foreground", mono && "font-mono");
+  if (onCopy) {
+    return (
+      <button
+        type="button"
+        onClick={onCopy}
+        title={copyTitle}
+        className="group -mx-1 grid w-[calc(100%+0.5rem)] grid-cols-[4.5rem_minmax(0,1fr)] items-start gap-3 rounded px-1 py-0.5 text-left transition-colors hover:bg-accent/60"
+      >
+        <span className="text-muted-foreground">{label}</span>
+        <span className="flex min-w-0 items-start gap-1.5">
+          <span className={cn(valueClass, "flex-1")}>{value}</span>
+          {copied ? (
+            <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />
+          ) : (
+            <Copy className="mt-0.5 h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+          )}
+        </span>
+      </button>
+    );
+  }
+  return (
+    <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-start gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={valueClass}>{value}</span>
     </div>
   );
 }
