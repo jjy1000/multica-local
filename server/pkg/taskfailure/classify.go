@@ -62,6 +62,7 @@ func Classify(rawError string) Reason {
 		"prompt is too long",
 		"context size has been exceeded",
 	),
+		containsAny(lower, contextWindowExceededWitnesses...),
 		// SQL had `%token%limit%` — ILIKE wildcard between tokens. We
 		// approximate with both substrings present, which catches
 		// "token limit", "tokens per minute limit", etc., without the
@@ -236,6 +237,26 @@ func Classify(rawError string) Reason {
 	}
 
 	return ReasonAgentUnknown
+}
+
+// contextWindowExceededWitnesses are the two wordings for an overflow reported
+// on the RESPONSE rather than as a 400 on the request: the provider accepts the
+// call and ends the turn with stop_reason "model_context_window_exceeded", which
+// Claude Code 2.1.x surfaces verbatim as "API Error: The model has reached its
+// context window limit." (GH #6360, upstream #6366). Both are matched so a
+// backend forwarding the raw stop reason classifies the same way as one
+// forwarding the CLI's copy.
+//
+// Neither carries "token" nor any of rule 1's other phrases, so before this the
+// failure landed in agent_error.unknown — a reason no resume blacklist covers,
+// which would leave the over-full session pinned as the resume pointer and make
+// every later run on that issue replay the same overflow.
+//
+// Matched against pre-lowercased text. Mirror these substrings into the
+// MUL-1949 offline backfill SQL if it is ever re-run.
+var contextWindowExceededWitnesses = []string{
+	"context window limit",
+	"model_context_window_exceeded",
 }
 
 // containsAny reports whether s contains any of the supplied substrings.

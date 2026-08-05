@@ -1673,7 +1673,11 @@ func resumeUnsafeFailureReason(reason string) bool {
 	switch reason {
 	// Keep in sync with GetLastTaskSession / GetLastChatTaskSession and
 	// CreateRetryTask's fresh-session CASE WHEN.
-	case "iteration_limit", "agent_fallback_message", "api_invalid_request", "codex_semantic_inactivity":
+	case "iteration_limit", "agent_fallback_message", "api_invalid_request", "codex_semantic_inactivity",
+		// An exhausted context window poisons the conversation itself:
+		// resuming the same session replays the overflow on every later run.
+		// Classified by pkg/taskfailure rule 1 (upstream #6366 / GH #6360).
+		"agent_error.context_overflow":
 		return true
 	default:
 		return false
