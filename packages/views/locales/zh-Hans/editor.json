@@ -34,7 +34,22 @@
     "copy_link": "复制链接",
     "delete": "删除",
     "link_copied": "已复制链接",
+<<<<<<< HEAD
     "copy_link_failed": "复制链接失败"
+=======
+    "copy_link_failed": "复制链接失败",
+    "canvas_label": "图片画布,拖动可平移,滚动可缩放,双击可切换实际大小。",
+    "previous": "上一张",
+    "next": "下一张",
+    "sequence_position": "第 {{index}} / {{total}} 张",
+    "unavailable": "这张图片已失效,已跳过。"
+  },
+  "canvas": {
+    "zoom_in": "放大",
+    "zoom_out": "缩小",
+    "zoom_fit": "适应窗口",
+    "zoom_actual": "实际大小"
+>>>>>>> 3e1a7e040 (feat(editor): MUL-5752 image preview prev/next navigation (#6424))
   },
   "attachment": {
     "download_failed": "下载链接获取失败，请稍后重试。",

@@ -34,7 +34,22 @@
     "copy_link": "リンクをコピー",
     "delete": "削除",
     "link_copied": "リンクをコピーしました",
+<<<<<<< HEAD
     "copy_link_failed": "リンクをコピーできませんでした"
+=======
+    "copy_link_failed": "リンクをコピーできませんでした",
+    "canvas_label": "画像キャンバス。ドラッグで移動、スクロールで拡大縮小、ダブルクリックで実際のサイズに切り替えできます。",
+    "previous": "前の画像",
+    "next": "次の画像",
+    "sequence_position": "{{index}} / {{total}}",
+    "unavailable": "この画像は表示できないためスキップしました。"
+  },
+  "canvas": {
+    "zoom_in": "拡大",
+    "zoom_out": "縮小",
+    "zoom_fit": "画面に合わせる",
+    "zoom_actual": "実際のサイズ"
+>>>>>>> 3e1a7e040 (feat(editor): MUL-5752 image preview prev/next navigation (#6424))
   },
   "attachment": {
     "download_failed": "ダウンロードリンクを取得できませんでした。しばらくしてからもう一度お試しください。",

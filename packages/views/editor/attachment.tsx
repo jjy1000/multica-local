@@ -32,14 +32,17 @@ import {
 import { toast } from "sonner";
 import { cn } from "@multica/ui/lib/utils";
 import { copyText } from "@multica/ui/lib/clipboard";
-import { useQuery } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
 import { useConfigStore } from "@multica/core/config";
 import type { Attachment as AttachmentRecord } from "@multica/core/types";
-import { attachmentIdFromDownloadURL } from "@multica/core/types/attachment-url";
 import { useT } from "../i18n";
 import { useAttachmentDownloadResolver } from "./attachment-download-context";
 import { useAttachmentPreview } from "./attachment-preview-modal";
+import { useImageSequencePreview } from "./image-sequence-context";
+import {
+  isObjectURL,
+  useResignedInlineMediaURL,
+} from "./hooks/use-inline-media-url";
 import { useDownloadAttachment } from "./use-download-attachment";
 import { AttachmentCard } from "./attachment-card";
 import { HtmlAttachmentPreview } from "./html-attachment-preview";
@@ -293,65 +296,6 @@ function hasExpiringSignatureQuery(q: URLSearchParams): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Inline media re-sign (MUL-3254)
-// ---------------------------------------------------------------------------
-
-// Keep refetches well inside the server's signed-URL TTL (30 min default,
-// server/internal/handler/file.go) so a re-render never serves an expired
-// signature from the query cache.
-const RESIGN_STALE_MS = 20 * 60 * 1000;
-
-// useResignedInlineMediaURL upgrades an auth-gated media URL to a freshly
-// signed one for clients that cannot load `/api/attachments/<id>/download`
-// natively.
-//
-// The picked inline URL can end up being the stable per-attachment API
-// endpoint (e.g. a reopened issue draft, whose persisted record deliberately
-// strips the short-lived signed `download_url`). That endpoint needs
-// credentials: web loads it because the session cookie rides on the <img>
-// request (same-site), but Desktop's file:// renderer and the mobile webview
-// are cross-site — no cookie is attached and the Bearer token cannot be put
-// on a native resource fetch, so the image 401s. Those clients are exactly
-// the ones with a non-empty `api.getBaseUrl()` (no same-origin /api proxy),
-// which is the existing platform signal `absolutizeMediaURL` keys off.
-//
-// For them, fetch fresh attachment metadata through the authenticated API —
-// the same re-sign the click-time download path already does — and swap in
-// the response's signed `download_url`. When the server has no signed URL to
-// offer (non-CloudFront deployments return the API path again), keep the
-// original URL rather than looping.
-function useResignedInlineMediaURL(
-  attachmentId: string | undefined,
-  pickedUrl: string,
-): string {
-  const idFromPickedUrl = attachmentIdFromDownloadURL(pickedUrl);
-  const resignAttachmentId = attachmentId ?? idFromPickedUrl;
-  const needsResign =
-    !!resignAttachmentId &&
-    !!pickedUrl &&
-    idFromPickedUrl !== undefined &&
-    (api.getBaseUrl?.() ?? "") !== "";
-
-  const { data: fresh } = useQuery({
-    queryKey: ["attachment-inline-resign", resignAttachmentId],
-    queryFn: () => api.getAttachment(resignAttachmentId as string),
-    enabled: needsResign,
-    staleTime: RESIGN_STALE_MS,
-    gcTime: RESIGN_STALE_MS,
-  });
-
-  if (!needsResign) return pickedUrl;
-  const dl = fresh?.download_url ?? "";
-  // Accept the fresh URL only when it is an actual upgrade — absolute and no
-  // longer the auth-gated API shape (i.e. a signed storage URL the renderer
-  // can load natively).
-  if (/^https?:\/\//i.test(dl) && attachmentIdFromDownloadURL(dl) === undefined) {
-    return dl;
-  }
-  return pickedUrl;
-}
-
-// ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
 
@@ -367,6 +311,7 @@ export function Attachment({
   const cdnSigned = useConfigStore((s) => s.cdnSigned);
   const download = useDownloadAttachment();
   const preview = useAttachmentPreview();
+  const sequence = useImageSequencePreview();
 
   const state = normalize(attachment, resolveAttachment, cdnDomain, cdnSigned);
   // The picked URL may still be the auth-gated API endpoint (reopened drafts
@@ -381,7 +326,18 @@ export function Attachment({
       ? getPreviewKind(state.contentType, state.filename)
       : null);
 
+  // Identity this image has in the surrounding surface's sequence: the
+  // attachment id once the URL resolves to a record, otherwise the URL exactly
+  // as written in the body — the same pair `collectImageSequence` keys on.
+  const sequenceKey =
+    state.attachmentId ?? (attachment.kind === "url" ? attachment.url : "");
+
   const openPreview = () => {
+    // Inside an issue / chat, an image opens the surface's shared viewer at
+    // its real position so the reader can page through the rest. Anything the
+    // sequence doesn't know — a composer's in-flight upload, a surface with no
+    // provider — falls through to the single-image preview below.
+    if (kind === "image" && sequence.openAt(sequenceKey)) return;
     if (state.record) {
       preview.tryOpen({
         kind: "full",
