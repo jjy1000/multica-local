@@ -34,9 +34,6 @@
     "copy_link": "Copy link",
     "delete": "Delete",
     "link_copied": "Link copied",
-<<<<<<< HEAD
-    "copy_link_failed": "Failed to copy link"
-=======
     "copy_link_failed": "Failed to copy link",
     "canvas_label": "Image canvas. Drag to pan, scroll to zoom, double-click to toggle actual size.",
     "previous": "Previous image",
@@ -49,7 +46,6 @@
     "zoom_out": "Zoom out",
     "zoom_fit": "Fit to view",
     "zoom_actual": "Actual size"
->>>>>>> 3e1a7e040 (feat(editor): MUL-5752 image preview prev/next navigation (#6424))
   },
   "attachment": {
     "download_failed": "Couldn't fetch a download link. Try again in a moment.",
