@@ -20,10 +20,7 @@ import { workspaceKeys } from "@multica/core/workspace/queries";
 import type { Agent, MemberWithUser } from "@multica/core/types";
 import { useT } from "../../i18n";
 import { createSuggestionPopupRender } from "./suggestion-popup";
-import {
-  isPickerAcceptKey,
-  pickerNavigationDirection,
-} from "../../common/picker-keys";
+import { isPickerAcceptKey } from "../../common/picker-keys";
 
 const MAX_ITEMS = 20;
 

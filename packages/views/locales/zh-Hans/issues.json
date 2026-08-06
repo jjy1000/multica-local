@@ -332,7 +332,8 @@
       "fold_other": "来自 {{authors}} 的 {{count}} 条评论",
       "bar_authors_more_other": "{{names}} 等 {{count}} 人",
       "resolve_failed": "标记已解决失败",
-      "unresolve_failed": "重新打开失败"
+      "unresolve_failed": "重新打开失败",
+      "thread_resolved_badge": "已解决"
     }
   },
   "reply": {

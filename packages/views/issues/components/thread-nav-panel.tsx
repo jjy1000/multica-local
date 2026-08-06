@@ -230,7 +230,7 @@ function ThreadRow({
       <ActorAvatar
         actorType={thread.entry.actor_type}
         actorId={thread.entry.actor_id}
-        size="sm"
+        size={20}
         profileLink={false}
         className="mt-0.5 shrink-0"
       />

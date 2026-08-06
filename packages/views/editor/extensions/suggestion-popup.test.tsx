@@ -4,7 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { Suggestion, type SuggestionProps } from "@tiptap/suggestion";
 import { PluginKey } from "@tiptap/pm/state";
 import { forwardRef, useImperativeHandle } from "react";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createSuggestionPopupRender } from "./suggestion-popup";
 import { isPickerAcceptKey } from "../../common/picker-keys";

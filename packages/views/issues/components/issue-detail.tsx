@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react";
-import { Virtuoso } from "react-virtuoso";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { AppLink } from "../../navigation";
 import { useNavigation } from "../../navigation";
@@ -1214,9 +1214,10 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     [items, timelineView.threadReplies, user?.id],
   );
 
-  // When the timeline renders flat (deep-link or in-page find), there is no
+  // When the timeline renders flat (deep-link), there is no
   // Virtuoso instance — minimap jumps drive the scroll container directly.
-  const isFlatTimeline = !!highlightCommentId || find.open;
+  // (Upstream also flattens for in-page find, which this fork has not ported.)
+  const isFlatTimeline = !!highlightCommentId;
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const jumpFlashTimerRef = useRef<number | null>(null);
   useEffect(

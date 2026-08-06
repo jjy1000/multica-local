@@ -327,7 +327,8 @@
       "fold_other": "{{authors}} のコメント {{count}} 件",
       "bar_authors_more_other": "{{names}} 他 {{count}} 名",
       "resolve_failed": "スレッドを解決できませんでした",
-      "unresolve_failed": "スレッドの解決を取り消せませんでした"
+      "unresolve_failed": "スレッドの解決を取り消せませんでした",
+      "thread_resolved_badge": "解決済み"
     }
   },
   "reply": {
