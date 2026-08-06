@@ -34,6 +34,18 @@ export interface WorkspaceTabGroup {
   tabs: Tab[];
   /** Must be a valid tab.id in `tabs`; the empty-tabs state is transient only. */
   activeTabId: string;
+  /**
+   * Previously visited tabs of this group, most recent first. Never contains
+   * `activeTabId`, never contains an id that is no longer in `tabs`.
+   *
+   * This is the group's MRU (most-recently-used) order, and it exists for one
+   * question: where do we land when the active tab goes away? Closing a tab
+   * returns to the tab you were last looking at (MUL-5665), not to a
+   * positional neighbour — opening a detail tab from a list, then closing it,
+   * must put you back on that list even when the tab bar appended the new tab
+   * far away from it.
+   */
+  recentTabIds: string[];
 }
 
 interface TabStore {
@@ -74,6 +86,10 @@ interface TabStore {
    * only know the tab id, not the owning workspace). If this is the last
    * tab in its workspace, reseed a default tab so the invariant
    * "every live workspace has at least one tab" holds.
+   *
+   * Closing the ACTIVE tab activates the group's most recently visited
+   * surviving tab (`recentTabIds`), falling back to the positional neighbour
+   * only when that order is empty.
    */
   closeTab: (tabId: string) => void;
   /**
@@ -90,10 +106,9 @@ interface TabStore {
   reloadActiveTab: () => void;
   /**
    * Close the active tab. The always-safe escape from a route-level crash:
-   * unlike reloadActiveTab (recreates the same crashing path) or navigating
-   * to a "safe" route (which may itself be the route that crashed), closing
-   * destroys the crashing router entirely and falls back to a sibling tab
-   * (or a reseeded default if it was the last tab).
+   * unlike reloadActiveTab (remounts the same crashing URL), closing
+   * destroys the crashing session entirely and falls back to the last tab
+   * you were on (or a reseeded default if it was the last tab).
    */
   closeActiveTab: () => void;
   /**
@@ -257,6 +272,53 @@ function findTabLocation(
   return null;
 }
 
+/**
+ * Build a group with its MRU order reconciled against the new (tabs,
+ * activeTabId) pair. Every write that changes which tab is active or which
+ * tabs exist goes through here, so `recentTabIds` cannot drift from `tabs`.
+ *
+ * `prev` is the group being replaced: when the active tab changes, the
+ * outgoing tab becomes the most recent visit. Pass null when seeding a brand
+ * new group (nothing has been visited yet).
+ */
+function reconcileGroup(
+  prev: WorkspaceTabGroup | null,
+  tabs: Tab[],
+  activeTabId: string,
+): WorkspaceTabGroup {
+  const live = new Set(tabs.map((t) => t.id));
+  const carried =
+    prev && prev.activeTabId !== activeTabId
+      ? [prev.activeTabId, ...prev.recentTabIds]
+      : (prev?.recentTabIds ?? []);
+
+  const recentTabIds: string[] = [];
+  for (const id of carried) {
+    if (id === activeTabId) continue;
+    if (!live.has(id)) continue; // closed tabs leave the MRU order
+    if (recentTabIds.includes(id)) continue;
+    recentTabIds.push(id);
+  }
+  return { tabs, activeTabId, recentTabIds };
+}
+
+/**
+ * Which tab to activate when the active tab closes: the most recently
+ * visited surviving tab. Falls back to the positional neighbour when the MRU
+ * order has nothing live left — the tab was never left and returned to, or
+ * the group was rehydrated from a build that persisted no MRU order.
+ */
+function nextActiveAfterClose(
+  group: WorkspaceTabGroup,
+  nextTabs: Tab[],
+  closedIndex: number,
+): string {
+  const survivors = new Set(nextTabs.map((t) => t.id));
+  const recent = group.recentTabIds.find((id) => survivors.has(id));
+  if (recent) return recent;
+  return nextTabs[Math.min(closedIndex, nextTabs.length - 1)].id;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -289,7 +351,7 @@ export const useTabStore = create<TabStore>()(
             activeWorkspaceSlug: slug,
             byWorkspace: {
               ...byWorkspace,
-              [slug]: { tabs: [tab], activeTabId: tab.id },
+              [slug]: reconcileGroup(null, [tab], tab.id),
             },
           });
           return;
@@ -306,7 +368,7 @@ export const useTabStore = create<TabStore>()(
                 activeWorkspaceSlug: slug,
                 byWorkspace: {
                   ...byWorkspace,
-                  [slug]: { ...existing, activeTabId: match.id },
+                  [slug]: reconcileGroup(existing, existing.tabs, match.id),
                 },
               });
               return;
@@ -316,10 +378,11 @@ export const useTabStore = create<TabStore>()(
               activeWorkspaceSlug: slug,
               byWorkspace: {
                 ...byWorkspace,
-                [slug]: {
-                  tabs: [...existing.tabs, tab],
-                  activeTabId: tab.id,
-                },
+                [slug]: reconcileGroup(
+                  existing,
+                  [...existing.tabs, tab],
+                  tab.id,
+                ),
               },
             });
             return;
@@ -342,7 +405,11 @@ export const useTabStore = create<TabStore>()(
           set({
             byWorkspace: {
               ...byWorkspace,
-              [activeWorkspaceSlug]: { ...group, activeTabId: existing.id },
+              [activeWorkspaceSlug]: reconcileGroup(
+                group,
+                group.tabs,
+                existing.id,
+              ),
             },
           });
           return existing.id;
@@ -352,10 +419,11 @@ export const useTabStore = create<TabStore>()(
         set({
           byWorkspace: {
             ...byWorkspace,
-            [activeWorkspaceSlug]: {
-              tabs: [...group.tabs, tab],
-              activeTabId: group.activeTabId,
-            },
+            [activeWorkspaceSlug]: reconcileGroup(
+              group,
+              [...group.tabs, tab],
+              tab.id,
+            ),
           },
         });
         return tab.id;
@@ -372,10 +440,11 @@ export const useTabStore = create<TabStore>()(
         set({
           byWorkspace: {
             ...byWorkspace,
-            [activeWorkspaceSlug]: {
-              tabs: [...group.tabs, tab],
-              activeTabId: group.activeTabId,
-            },
+            [activeWorkspaceSlug]: reconcileGroup(
+              group,
+              [...group.tabs, tab],
+              group.activeTabId,
+            ),
           },
         });
         return tab.id;
@@ -401,7 +470,7 @@ export const useTabStore = create<TabStore>()(
           set({
             byWorkspace: {
               ...byWorkspace,
-              [slug]: { tabs: [fresh], activeTabId: fresh.id },
+              [slug]: reconcileGroup(null, [fresh], fresh.id),
             },
           });
           disposeClosingRouter();
@@ -411,13 +480,13 @@ export const useTabStore = create<TabStore>()(
         const nextTabs = group.tabs.filter((t) => t.id !== tabId);
         const nextActiveTabId =
           group.activeTabId === tabId
-            ? nextTabs[Math.min(index, nextTabs.length - 1)].id
+            ? nextActiveAfterClose(group, nextTabs, index)
             : group.activeTabId;
 
         set({
           byWorkspace: {
             ...byWorkspace,
-            [slug]: { tabs: nextTabs, activeTabId: nextActiveTabId },
+            [slug]: reconcileGroup(group, nextTabs, nextActiveTabId),
           },
         });
         disposeClosingRouter();
@@ -433,7 +502,7 @@ export const useTabStore = create<TabStore>()(
           activeWorkspaceSlug: slug,
           byWorkspace: {
             ...byWorkspace,
-            [slug]: { ...group, activeTabId: tabId },
+            [slug]: reconcileGroup(group, group.tabs, tabId),
           },
         });
       },
@@ -608,10 +677,11 @@ export const useTabStore = create<TabStore>()(
           const fallbackSlug = validSlugs.values().next().value;
           if (fallbackSlug) {
             const fresh = defaultTabFor(fallbackSlug);
-            nextByWorkspace[fallbackSlug] = {
-              tabs: [fresh],
-              activeTabId: fresh.id,
-            };
+            nextByWorkspace[fallbackSlug] = reconcileGroup(
+              null,
+              [fresh],
+              fresh.id,
+            );
             nextActive = fallbackSlug;
             changed = true;
           }
@@ -631,7 +701,7 @@ export const useTabStore = create<TabStore>()(
     }),
     {
       name: "multica_tabs",
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => createPersistStorage(defaultStorage)),
       migrate: (persistedState, version) => {
         // v1 → v2: flat `tabs` array → per-workspace grouping.
@@ -647,7 +717,10 @@ export const useTabStore = create<TabStore>()(
         if (version < 3 && state && typeof state === "object") {
           state = migrateV2ToV3(state as V2Persisted);
         }
-        return state as V3Persisted;
+        // v3 → v4: introduce `WorkspaceTabGroup.recentTabIds` (MRU order).
+        // No data rewrite needed — a v3 payload simply has no MRU order,
+        // and `merge` revalidates the (absent) order against live tab ids.
+        return state as V4Persisted;
       },
       partialize: (state) => ({
         activeWorkspaceSlug: state.activeWorkspaceSlug,
@@ -656,6 +729,10 @@ export const useTabStore = create<TabStore>()(
             slug,
             {
               activeTabId: group.activeTabId,
+              // Persisted so the first close after a restart still lands on
+              // the tab you were last looking at rather than falling back to
+              // the positional neighbour.
+              recentTabIds: group.recentTabIds,
               tabs: group.tabs.map(
                 ({
                   router: _router,
@@ -669,7 +746,7 @@ export const useTabStore = create<TabStore>()(
         ),
       }),
       merge: (persistedState, currentState) => {
-        const persisted = persistedState as Partial<V3Persisted> | undefined;
+        const persisted = persistedState as Partial<V4Persisted> | undefined;
         if (!persisted?.byWorkspace) return currentState;
 
         const byWorkspace: Record<string, WorkspaceTabGroup> = {};
@@ -707,7 +784,22 @@ export const useTabStore = create<TabStore>()(
           const activeTabId = tabs.some((t) => t.id === pGroup.activeTabId)
             ? pGroup.activeTabId
             : tabs[0].id;
-          byWorkspace[slug] = { tabs, activeTabId };
+          // reconcileGroup filters the persisted MRU order down to live tab
+          // ids (tabs dropped just above), drops the active tab from it, and
+          // dedupes. A v3 payload has no `recentTabIds` — the empty order
+          // simply means the first close falls back to the positional
+          // neighbour.
+          byWorkspace[slug] = reconcileGroup(
+            {
+              tabs,
+              activeTabId,
+              recentTabIds: Array.isArray(pGroup.recentTabIds)
+                ? pGroup.recentTabIds.filter((id) => typeof id === "string")
+                : [],
+            },
+            tabs,
+            activeTabId,
+          );
         }
 
         const activeWorkspaceSlug =
@@ -770,6 +862,23 @@ interface V3PersistedGroup {
 interface V3Persisted {
   activeWorkspaceSlug: string | null;
   byWorkspace: Record<string, V3PersistedGroup>;
+}
+
+interface V4PersistedGroup {
+  tabs: V3PersistedTab[];
+  activeTabId: string;
+  /**
+   * MRU activation order. Optional: payloads written before MUL-5665 don't
+   * have it, and an absent order simply means the first close of that group
+   * falls back to the positional neighbour. Re-validated on rehydration, so
+   * a stale id from a hand-edited payload can never become the active tab.
+   */
+  recentTabIds?: string[];
+}
+
+interface V4Persisted {
+  activeWorkspaceSlug: string | null;
+  byWorkspace: Record<string, V4PersistedGroup>;
 }
 
 export function migrateV2ToV3(v2: V2Persisted): V3Persisted {

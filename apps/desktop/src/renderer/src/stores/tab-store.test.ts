@@ -471,3 +471,178 @@ describe("migrateV2ToV3", () => {
     expect(v3.activeWorkspaceSlug).toBeNull();
   });
 });
+
+describe("closeTab activation order (MUL-5665)", () => {
+  // Tabs are appended at the end of the strip, so the tab you opened from a
+  // list is rarely that list's neighbour. Landing on a positional neighbour
+  // dropped users on a page they hadn't looked at in a while.
+  it("activates the last visited tab, not the positional neighbour", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    store.addTab("/acme/projects", "Projects", "FolderKanban");
+    const agentsId = store.addTab("/acme/agents", "Agents", "Bot");
+
+    store.setActiveTab(issuesId);
+    store.setActiveTab(agentsId);
+    store.closeTab(agentsId);
+
+    const group = useTabStore.getState().byWorkspace.acme;
+    expect(group.activeTabId).toBe(issuesId); // positional would give Projects
+    expect(group.recentTabIds).toEqual([]);
+  });
+
+  it("walks back through the visit history as tabs keep closing", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const projectsId = store.addTab("/acme/projects", "Projects", "FolderKanban");
+    const agentsId = store.addTab("/acme/agents", "Agents", "Bot");
+    const settingsId = store.addTab("/acme/settings", "Settings", "Settings");
+
+    store.setActiveTab(projectsId);
+    store.setActiveTab(agentsId);
+    store.setActiveTab(settingsId);
+    expect(useTabStore.getState().byWorkspace.acme.recentTabIds).toEqual([
+      agentsId,
+      projectsId,
+      issuesId,
+    ]);
+
+    store.closeTab(settingsId);
+    expect(useTabStore.getState().byWorkspace.acme.activeTabId).toBe(agentsId);
+    store.closeTab(agentsId);
+    expect(useTabStore.getState().byWorkspace.acme.activeTabId).toBe(projectsId);
+    store.closeTab(projectsId);
+    expect(useTabStore.getState().byWorkspace.acme.activeTabId).toBe(issuesId);
+  });
+
+  it("counts a revisit once — the most recent visit wins", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const projectsId = store.addTab("/acme/projects", "Projects", "FolderKanban");
+    const agentsId = store.addTab("/acme/agents", "Agents", "Bot");
+
+    store.setActiveTab(projectsId); // recent: [issues]
+    store.setActiveTab(issuesId); // recent: [projects]
+    store.setActiveTab(agentsId); // recent: [issues, projects]
+
+    expect(useTabStore.getState().byWorkspace.acme.recentTabIds).toEqual([
+      issuesId,
+      projectsId,
+    ]);
+    store.closeTab(agentsId);
+    expect(useTabStore.getState().byWorkspace.acme.activeTabId).toBe(issuesId);
+  });
+
+  it("drops a closed background tab from the visit history", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const projectsId = store.addTab("/acme/projects", "Projects", "FolderKanban");
+    const agentsId = store.addTab("/acme/agents", "Agents", "Bot");
+
+    store.setActiveTab(projectsId);
+    store.setActiveTab(agentsId); // recent: [projects, issues]
+
+    store.closeTab(projectsId); // not the active tab
+    const group = useTabStore.getState().byWorkspace.acme;
+    expect(group.activeTabId).toBe(agentsId); // untouched
+    expect(group.recentTabIds).toEqual([issuesId]);
+
+    store.closeTab(agentsId);
+    expect(useTabStore.getState().byWorkspace.acme.activeTabId).toBe(issuesId);
+  });
+
+  it("falls back to the positional neighbour when no other tab was ever visited", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const projectsId = store.addTab("/acme/projects", "Projects", "FolderKanban");
+    store.addTab("/acme/agents", "Agents", "Bot");
+
+    // addTab never activates, so the active tab has no visit history behind it.
+    store.closeTab(issuesId);
+
+    expect(useTabStore.getState().byWorkspace.acme.activeTabId).toBe(projectsId);
+  });
+
+  it("opening a tab in a new tab and closing it returns to the opener", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    store.addTab("/acme/projects", "Projects", "FolderKanban");
+    const detailId = store.openTab("/acme/issues/bug-42", "Bug 42", "Bug");
+
+    store.closeTab(detailId);
+
+    expect(useTabStore.getState().byWorkspace.acme.activeTabId).toBe(issuesId);
+  });
+
+  it("keeps each workspace's visit history to itself", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const acmeIssuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const acmeProjectsId = store.addTab("/acme/projects", "Projects", "FolderKanban");
+    store.setActiveTab(acmeProjectsId);
+
+    store.switchWorkspace("butter");
+    const butterIssuesId = useTabStore.getState().byWorkspace.butter.tabs[0].id;
+    const butterAgentsId = store.addTab("/butter/agents", "Agents", "Bot");
+    store.setActiveTab(butterAgentsId);
+    store.closeTab(butterAgentsId);
+
+    const state = useTabStore.getState();
+    expect(state.byWorkspace.butter.activeTabId).toBe(butterIssuesId);
+    expect(state.byWorkspace.acme.recentTabIds).toEqual([acmeIssuesId]);
+  });
+
+  it("reseeding the last tab of a workspace starts a fresh visit history", () => {
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    const projectsId = store.addTab("/acme/projects", "Projects", "FolderKanban");
+    store.setActiveTab(projectsId);
+    store.closeTab(issuesId);
+
+    store.closeTab(projectsId); // last tab — reseeds the default
+
+    const group = useTabStore.getState().byWorkspace.acme;
+    expect(group.tabs).toHaveLength(1);
+    expect(group.recentTabIds).toEqual([]);
+    expect(group.activeTabId).toBe(group.tabs[0].id);
+  });
+
+  it("rehydration sanitizes a persisted MRU order carrying dropped or active ids", () => {
+    // Simulate the store's merge() path: seed a live group whose tabs were
+    // narrowed by rehydration, then confirm the first close lands correctly.
+    const store = useTabStore.getState();
+    store.switchWorkspace("acme");
+    const issuesId = useTabStore.getState().byWorkspace.acme.tabs[0].id;
+    store.addTab("/acme/projects", "Projects", "FolderKanban");
+    store.addTab("/acme/agents", "Agents", "Bot");
+    const agentsId = useTabStore.getState().byWorkspace.acme.tabs[2].id;
+
+    // Hand-build a group as merge() would after dropping a stale tab + a stale
+    // MRU id, with the active tab also present in the MRU order.
+    const live = useTabStore.getState().byWorkspace.acme;
+    const issueTab = live.tabs.find((t) => t.id === issuesId)!;
+    const agentTab = live.tabs.find((t) => t.id === agentsId)!;
+    useTabStore.setState({
+      activeWorkspaceSlug: "acme",
+      byWorkspace: {
+        acme: {
+          tabs: [{ ...issueTab }, { ...agentTab }],
+          activeTabId: agentsId,
+          recentTabIds: ["gone", issuesId, issuesId, agentsId, 7 as unknown as string],
+        },
+      },
+    });
+
+    useTabStore.getState().closeTab(agentsId);
+    const group = useTabStore.getState().byWorkspace.acme;
+    expect(group.activeTabId).toBe(issuesId);
+    expect(group.recentTabIds).toEqual([]);
+  });
+});
