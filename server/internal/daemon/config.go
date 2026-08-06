@@ -222,7 +222,7 @@ func LoadConfig(overrides Overrides) (Config, error) {
 	}
 	probe := func(envVar, defaultCmd, modelEnv string) (AgentEntry, bool) {
 		cmd := envOrDefault(envVar, defaultCmd)
-		if _, err := exec.LookPath(cmd); err == nil {
+		if path, err := resolveAgentExecutablePath(cmd); err == nil {
 			return AgentEntry{
 				Path:    path,
 				Command: cmd,
@@ -301,7 +301,7 @@ func LoadConfig(overrides Overrides) (Config, error) {
 		agents["antigravity"] = e
 	}
 	qoderPath := envOrDefault("MULTICA_QODER_PATH", "qodercli")
-	if _, err := exec.LookPath(qoderPath); err == nil {
+	if path, err := resolveAgentExecutablePath(qoderPath); err == nil {
 		agents["qoder"] = AgentEntry{
 			Path:    path,
 			Command: qoderPath,

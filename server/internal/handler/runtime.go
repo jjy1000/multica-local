@@ -360,6 +360,56 @@ func parseSinceParamInTZ(r *http.Request, defaultDays int, tzName string) pgtype
 	return pgtype.Timestamptz{Time: sinceFromDays(time.Now(), days, loc), Valid: true}
 }
 
+// parseExactSinceParamInTZ is parseSinceParamInTZ without the extra day of
+// headroom: `days=N` yields exactly N calendar buckets (today's partial
+// bucket + N-1 prior full days), which is the window the workspace dashboard
+// actually displays.
+//
+// The N+1 cutoff exists so date-bucketed series can reach one bucket further
+// back than they render (runtime detail's prior-window delta needs it), and
+// the dashboard trims the surplus client-side with `-(days-1)`. A response
+// with NO date dimension cannot be trimmed that way, so an aggregate served
+// off the N+1 cutoff silently covers one more day than the chart beside it
+// (MUL-5551: a single agent's two-day total can read higher than the
+// workspace's one-day total). Endpoints whose rows carry no date use this
+// variant instead.
+//
+// This helper is the cherry-pick-time addition that #6194 needs; it was
+// first introduced upstream in #5991 (4d0475ce8 — usage error/failure
+// charts) which the fork skipped, so we add it now without taking the
+// rest of that commit's surface.
+func parseExactSinceParamInTZ(r *http.Request, defaultDays int, tzName string) pgtype.Timestamptz {
+	return parseDaysCutoff(r, defaultDays, tzName, 1)
+}
+
+// parseDaysCutoff is the shared body of the two cutoff parsers. `trimDays`
+// pulls the cutoff forward, so 0 keeps the N+1 headroom and 1 closes the
+// window to exactly N calendar days.
+func parseDaysCutoff(
+	r *http.Request,
+	defaultDays int,
+	tzName string,
+	trimDays int,
+) pgtype.Timestamptz {
+	days := defaultDays
+	if d := r.URL.Query().Get("days"); d != "" {
+		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 && parsed <= 365 {
+			days = parsed
+		}
+	}
+	loc, err := time.LoadLocation(tzName)
+	if err != nil || loc == nil {
+		loc = time.UTC
+	}
+	// Guard the floor: days is already >= 1 here, and trimming a 1-day
+	// window by one would put the cutoff at start-of-today+0 — still correct
+	// ("today only"), which is exactly what days=1 means.
+	return pgtype.Timestamptz{
+		Time:  sinceFromDays(time.Now(), days-trimDays, loc),
+		Valid: true,
+	}
+}
+
 // resolveViewingTZ resolves the IANA tz to render the response in:
 // `?tz=` query param, else the authenticated user's stored
 // user.timezone, else "UTC". Invalid values fall through rather than
