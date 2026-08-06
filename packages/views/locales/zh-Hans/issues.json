@@ -233,7 +233,8 @@
     "link_copy_failed": "复制链接失败",
     "workdir_path_copied": "已复制本地 workdir 路径",
     "workdir_path_copy_failed": "复制本地 workdir 路径失败",
-    "workdir_path_unavailable": "暂无本地 workdir — 这个 issue 还没被本地 agent 运行过"
+    "workdir_path_unavailable": "暂无本地 workdir — 这个 issue 还没被本地 agent 运行过",
+    "subscription_update_failed": "无法更新订阅状态，请重试。"
   },
   "timeline": {
     "loading": "加载中…"
