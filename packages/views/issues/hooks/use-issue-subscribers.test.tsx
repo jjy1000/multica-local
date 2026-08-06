@@ -6,9 +6,9 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { setApiInstance } from "@multica/core/api";
-import { issueKeys } from "@multica/core/issues/queries";
 import { ApiError } from "@multica/core/api/client";
 import type { ApiClient } from "@multica/core/api/client";
+import type { IssueSubscriber } from "@multica/core/types";
 
 const toastError = vi.fn();
 const toastSuccess = vi.fn();
@@ -80,7 +80,7 @@ describe("useIssueSubscribers (fork port of #6380)", () => {
   });
 
   it("gates the subscribed verdict on the query resolving", async () => {
-    let resolveList: (v: never[]) => void;
+    let resolveList: (v: IssueSubscriber[]) => void;
     setApiInstance({
       listIssueSubscribers: () =>
         new Promise((resolve) => {
