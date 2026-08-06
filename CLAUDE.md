@@ -2,7 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.11 (shipped 2026-08-06).** Batch B of the upstream
+> **Current release: 0.5.12 (shipped 2026-08-06).** Batch C of the upstream
+> 0.4.0+ safety/UI cherry-picks, all pure drops + post-audit follow-ups:
+> **#6194** per-agent rollup windows fixed (Usage leaderboard was using
+> N+1 days, KPI was using N — single-agent row could exceed workspace
+> total at 1D), **#5406** non-`ErrNoRows` DB errors propagated (scope
+> authorizer was masking DB outages as 403s), **#5355** daemon pinned-agent
+> executable path self-heals after Homebrew/nvm in-place upgrade,
+> **#6095** WCAG AA muted-foreground lightness annotated (fork already
+> had the value 0.505 from a prior ship; only the explanatory comment
+> was added), **#6124** "Open in new tab" in the issue actions menu.
+> Also includes the revert of #5674 (daemon fail-fast actionable errors)
+> — that commit referenced `selfexec.Resolve` from a package the fork
+> does not have; deferred to a follow-up. **Plus #6194 added the
+> `parseExactSinceParamInTZ` helper from upstream #5991.** Zero
+> migrations.
+> 0.5.11 (shipped 2026-08-06): Batch B of the upstream
 > 0.4.19-window integration (zero migrations): **#6437** desktop tab MRU
 > restore (recentTabIds, persist v3→v4), **#6440 + #6450** per-run token
 > usage on the execution log (+ breakdown dialog), **#6426 + #6464** issue
