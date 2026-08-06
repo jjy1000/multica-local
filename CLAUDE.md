@@ -2,12 +2,29 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.9 (shipped 2026-08-05).** Zero-migration cherry-pick of upstream
-> 0.4.18-window safety/perf fixes: **#6222** WS inbound 64 KiB read limit (single-connection
-> OOM), **#6279** daemon wakeup dial honours `HTTP(S)_PROXY`, **#6175** `prev_description` /
-> `prev_title` stripped from `issue:updated` WS frames via `projectOutbound` (listeners.go)
-> + the comment/activity timeline cap now keeps the NEWEST rows (inner DESC + outer ASC).
-> Server-only Go changes, 5 new tests, zero migrations, packaging config untouched.
+> **Current release: 0.5.11 (shipped 2026-08-06).** Batch B of the upstream
+> 0.4.19-window integration (zero migrations): **#6437** desktop tab MRU
+> restore (recentTabIds, persist v3→v4), **#6440 + #6450** per-run token
+> usage on the execution log (+ breakdown dialog), **#6426 + #6464** issue
+> thread navigator (header panel + right-edge rail, Mod+Shift+O),
+> **#6424 + #6435** image-sequence preview navigation (desktop arrows +
+> mobile swipe). Ported fork deps: `core/shortcuts/{platform,store,index}`,
+> `shortcut-keycaps`, `zoom-canvas`, `attachments/image-sequence`,
+> `getAttachmentBlob`, two css files. The chat follow-up queue cluster
+> (#6418/19/30/31 + #6444) was deliberately NOT ported — fork's single-task
+> chat model makes it a rewrite, not a cherry-pick (memory
+> `chat-followup-queue-fork-absent-2026-08-06.md`).
+> 0.5.10 (commit `2d82f7e06`): Batch A — **#6366** response-side context-overflow
+> classification + fork resume-blacklist completion, **#6422** structured
+> `terminal_reason` context-exhaustion failure path, **#6410** router-owned
+> background services for scheduled autopilot dispatch, **#6380** subscription
+> toggle hardening. Server-only Go + one shared-views fix, zero migrations.
+> 0.5.9 (commit `4880c9291`): 0.4.18-window safety/perf fixes — **#6222** WS
+> inbound 64 KiB read limit (single-connection OOM), **#6279** daemon wakeup
+> dial honours `HTTP(S)_PROXY`, **#6175** `prev_description` / `prev_title`
+> stripped from `issue:updated` WS frames via `projectOutbound` (listeners.go)
+> + the comment/activity timeline cap now keeps the NEWEST rows (inner DESC +
+> outer ASC). Server-only Go changes, 5 new tests, zero migrations.
 > 0.5.8 (commit `4cc78bf`): Anthropic SDK `EmptyResponseError` / `APIConnectionError`
 > 归类 `ReasonAgentProviderServerError` 走 retry 路径 + fork 缺失的 `server/pkg/redact`
 > 包源码恢复。审计基线(2026-08-02): 6 个剩余实验 flag 主干全通、`claude_science_lab` 锁 294 科研 skill 为设计内(用户自建 40 个未锁)。
