@@ -27,6 +27,7 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
+	"github.com/multica-ai/multica/server/pkg/taskfailure"
 )
 
 // ---------------------------------------------------------------------------
@@ -2484,6 +2485,31 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+
+	// GH #6402: a daemon whose backend does not (yet) read the provider's
+	// structured terminal reason reports a context-exhausted run as a clean
+	// success, with the CLI's "your context window is full" notice as the
+	// answer. Re-route it to the failure path here so the fix does not have to
+	// wait for every installed daemon to update: an un-upgraded host would
+	// otherwise keep publishing that notice as the agent's reply AND keep the
+	// dead session pinned as the resume pointer, which is a permanently stuck
+	// (agent, issue) pair rather than a mislabelled row. A current daemon
+	// classifies this before it ever calls /complete, so this branch is dead
+	// weight for it — by design.
+	if taskfailure.ContextExhaustedCompletion(req.Output) {
+		slog.Warn("complete task: output is a provider context-exhaustion notice, recording as failed",
+			"task_id", taskID,
+			"failure_reason", taskfailure.ReasonAgentContextOverflow,
+		)
+		h.failTask(w, r, taskID, workspaceID, TaskFailRequest{
+			Error:         req.Output,
+			FailureReason: string(taskfailure.ReasonAgentContextOverflow),
+			SessionID:     req.SessionID,
+			WorkDir:       req.WorkDir,
+		})
+		return
+	}
+
 	task, err := h.TaskService.CompleteTask(r.Context(), parseUUID(taskID), result, req.SessionID, req.WorkDir)
 	if err != nil {
 		// 0.3.43: don't leak pgx/sqlc constraint strings to the
@@ -2803,6 +2829,15 @@ func (h *Handler) FailTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.failTask(w, r, taskID, workspaceID, req)
+}
+
+// failTask records a terminal failure and writes the response. Shared by the
+// /fail endpoint and by CompleteTask's context-exhaustion normalization so a
+// run re-classified at the /complete boundary lands through exactly the same
+// transaction, token revocation and runtime wake-up as one the daemon reported
+// as failed itself.
+func (h *Handler) failTask(w http.ResponseWriter, r *http.Request, taskID, workspaceID string, req TaskFailRequest) {
 	task, err := h.TaskService.FailTask(r.Context(), parseUUID(taskID), req.Error, req.SessionID, req.WorkDir, req.FailureReason)
 	if err != nil {
 		slog.Warn("fail task failed", "task_id", taskID, "error", err)

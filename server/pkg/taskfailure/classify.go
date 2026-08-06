@@ -254,9 +254,19 @@ func Classify(rawError string) Reason {
 //
 // Matched against pre-lowercased text. Mirror these substrings into the
 // MUL-1949 offline backfill SQL if it is ever re-run.
+//
+// terminal_reason=prompt_too_long joins them for GH #6402: it is the structured
+// enum value Claude Code puts on the result frame when the turn ended because
+// the context window is full, and the daemon quotes it verbatim into the error
+// it reports (see claudeTerminalReasonFailure in pkg/agent/claude.go). Being an
+// enum token rather than prose, it is at least as unambiguous as the two above
+// — no free-form provider message produces it by accident — so a run classified
+// from it lands in context_overflow even when the CLI's accompanying copy is
+// empty or reworded between releases.
 var contextWindowExceededWitnesses = []string{
 	"context window limit",
 	"model_context_window_exceeded",
+	TerminalReasonPromptTooLong,
 }
 
 // containsAny reports whether s contains any of the supplied substrings.
