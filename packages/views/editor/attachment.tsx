@@ -314,10 +314,6 @@ export function Attachment({
   const sequence = useImageSequencePreview();
 
   const state = normalize(attachment, resolveAttachment, cdnDomain, cdnSigned);
-  // The picked URL may still be the auth-gated API endpoint (reopened drafts
-  // whose persisted record has no signed download_url). Upgrade it to a
-  // freshly signed URL on clients that can't load the endpoint natively.
-  const mediaUrl = useResignedInlineMediaURL(state.attachmentId, state.url);
   const forceKind =
     attachment.kind === "url" ? attachment.forceKind : undefined;
   const kind =
@@ -325,6 +321,17 @@ export function Attachment({
     (state.filename || state.contentType
       ? getPreviewKind(state.contentType, state.filename)
       : null);
+  // The picked URL may still be the auth-gated API endpoint (reopened drafts
+  // whose persisted record has no signed download_url). Upgrade it to a
+  // freshly signed URL on clients that can't load the endpoint natively.
+  const mediaUrl = useResignedInlineMediaURL(
+    state.attachmentId,
+    state.url,
+    kind === "image",
+  );
+  // Object URLs are session-local, so anything that hands a URL to the user or
+  // to another surface keeps the durable pick instead.
+  const shareUrl = isObjectURL(mediaUrl) ? state.url : mediaUrl;
 
   // Identity this image has in the surrounding surface's sequence: the
   // attachment id once the URL resolves to a record, otherwise the URL exactly
@@ -362,7 +369,7 @@ export function Attachment({
       download(state.attachmentId);
       return;
     }
-    if (mediaUrl) openByUrl(mediaUrl);
+    if (shareUrl) openByUrl(shareUrl);
   };
 
   if (kind === "image") {

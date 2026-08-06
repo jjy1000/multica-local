@@ -301,7 +301,7 @@ describe("Attachment — image dispatch", () => {
     // through to the durable markdown_url instead.
     configStore.setState({ cdnDomain: "cdn.example.test", cdnSigned: true });
     const id = "11111111-2222-3333-4444-555555555555";
-    const markdownUrl = `https://multica-api.copilothub.ai/api/attachments/${id}/download`;
+    const markdownUrl = `/api/attachments/${id}/download`;
     const att = makeRecord({
       id,
       url: "https://cdn.example.test/uploads/ws/shot.png",

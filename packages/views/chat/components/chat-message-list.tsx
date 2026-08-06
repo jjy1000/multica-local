@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { Virtuoso } from "react-virtuoso";

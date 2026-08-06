@@ -31,7 +31,7 @@ import { Badge } from "@multica/ui/components/ui/badge";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@multica/ui/components/ui/resizable";
 import { Sheet, SheetContent } from "@multica/ui/components/ui/sheet";
 import { useIsMobile } from "@multica/ui/hooks/use-mobile";
-import { ContentEditor, type ContentEditorRef, TitleEditor, type TitleEditorRef, useFileDropZone, FileDropOverlay, ImageSequenceProvider } from "../../editor";
+import { ContentEditor, type ContentEditorRef, TitleEditor, useFileDropZone, FileDropOverlay, ImageSequenceProvider } from "../../editor";
 import { collectImageSequence, type ImageSequenceBlock } from "@multica/core/attachments/image-sequence";
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
 import {

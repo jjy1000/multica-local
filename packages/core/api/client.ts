@@ -2044,6 +2044,14 @@ export class ApiClient {
     });
   }
 
+  // Raw bytes of an attachment, for surfaces that cannot load the signed URL
+  // natively (image inline re-sign fallback). Routes through `fetchRaw` so it
+  // inherits the standard auth headers and 401 recovery.
+  async getAttachmentBlob(id: string): Promise<Blob> {
+    const res = await this.fetchRaw(`/api/attachments/${id}/download`);
+    return res.blob();
+  }
+
   async deleteAttachment(id: string): Promise<void> {
     await this.fetch(`/api/attachments/${id}`, { method: "DELETE" });
   }
