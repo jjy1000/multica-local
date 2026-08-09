@@ -390,6 +390,7 @@ func init() {
 	issueCommentListCmd.Flags().Int("tail", 0, "Only valid with --thread. Cap reply count to the N most recent replies; the thread root is always included (even with --tail 0). Use --before/--before-id to scroll to older replies.")
 	issueCommentListCmd.Flags().Int("recent", 0, "Return the N most recently active threads (root + descendants per thread). Use --before/--before-id from the previous response to scroll to older threads.")
 	issueCommentListCmd.Flags().Bool("roots-only", false, "Only return top-level comments (parent_id is null). Each root also carries reply_count + last_activity_at so you can triage which thread to open.")
+	issueCommentListCmd.Flags().Bool("compact", false, "JSON output only: drop response fields that carry no information for a reader — the issue_id echoed from the request path, source_task_id, updated_at when identical to created_at, null-valued fields, and empty arrays. Content and identity fields pass through untouched. Recommended for agent reads; composes with any mode.")
 	issueCommentListCmd.Flags().Bool("summary", false, "Clip each comment's content to a short preview (sets content_truncated) so you can scan a list without pulling full bodies. Composes with any mode.")
 	issueCommentListCmd.Flags().Bool("full", false, "Escape hatch: return every comment in resolved threads verbatim. By default the complete-thread reads (default list, --recent, --thread without --tail) are folded — a resolved thread collapses to its root + conclusion, with the dropped count reported on the root — so you do not pay tokens for settled discussion. Pass --full when you need the folded discussion. No effect on --since/--tail/--roots-only reads, which are never folded.")
 	issueCommentListCmd.Flags().String("before", "", "Cursor (RFC3339Nano timestamp). With --recent: thread cursor (last_activity_at). With --thread + --tail: reply cursor (reply created_at). Read from the X-Multica-Next-Before response header; must be paired with --before-id.")
@@ -1383,6 +1384,9 @@ func runIssueCommentList(cmd *cobra.Command, args []string) error {
 
 	output, _ := cmd.Flags().GetString("output")
 	if output == "json" {
+		if compact, _ := cmd.Flags().GetBool("compact"); compact {
+			compactComments(comments)
+		}
 		return cli.PrintJSON(os.Stdout, comments)
 	}
 
@@ -2249,4 +2253,31 @@ func truncateID(id string) string {
 		return string(runes[:8])
 	}
 	return id
+}
+
+// compactComments strips response fields that carry no information for a
+// reader: the issue_id echoed from the request path, source_task_id,
+// updated_at when identical to created_at, null-valued fields, and empty
+// arrays. Content and identity fields — id, author, created_at, content,
+// reply_count, folded_count, thread_resolved, content_truncated, ... —
+// pass through untouched. Opt-in via --compact and composed before the
+// JSON branch of runIssueCommentList, so default output is unchanged.
+func compactComments(comments []map[string]any) {
+	for _, c := range comments {
+		delete(c, "issue_id")
+		delete(c, "source_task_id")
+		if ua, ok := c["updated_at"]; ok && ua == c["created_at"] {
+			delete(c, "updated_at")
+		}
+		for k, v := range c {
+			switch vv := v.(type) {
+			case nil:
+				delete(c, k)
+			case []any:
+				if len(vv) == 0 {
+					delete(c, k)
+				}
+			}
+		}
+	}
 }

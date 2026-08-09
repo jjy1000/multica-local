@@ -155,6 +155,21 @@ func extractIssueFields(v any) (handler.IssueResponse, bool) {
 // addSubscriber adds a user as an issue subscriber and publishes a
 // subscriber:added event for real-time frontend sync.
 func addSubscriber(bus *events.Bus, queries *db.Queries, workspaceID, issueID, userType, userID, reason string) {
+	// issue_subscriber.user_type is CHECK-constrained to ('member','agent',
+	// 'squad') (migration 167). Mention parsing can yield other entity types
+	// (e.g. "issue" cross-references) and a subscriber row for anything else
+	// is meaningless — filter at this single chokepoint instead of hitting
+	// the DB constraint and logging an ERR per occurrence (2026-08-06 audit).
+	switch userType {
+	case "member", "agent", "squad":
+	default:
+		slog.Debug("skipping subscriber with non-subscribable entity type",
+			"issue_id", issueID,
+			"user_type", userType,
+			"reason", reason,
+		)
+		return
+	}
 	err := queries.AddIssueSubscriber(context.Background(), db.AddIssueSubscriberParams{
 		IssueID:  parseUUID(issueID),
 		UserType: userType,

@@ -86,10 +86,13 @@ func upsertCodeCanvasAgent(ctx context.Context, h *Handler, workspaceID pgtype.U
 		OwnerID:            pgtype.UUID{},
 		Instructions:       "你是「Code Canvas worker」lead agent。当 issue.lab_source 设为 code_canvas 时,daemon 会自动派单给你,通过 bundle-cli 分发的 run.sh stub 子进程返回 /health 即可。完整路径详情见 .omc/release-notes-0.3.51.md。",
 		CustomEnv:          []byte(`{}`),
-		CustomArgs:         []byte(`{}`),
-		McpConfig:          []byte(`{}`),
-		Model:              pgtype.Text{},
-		ThinkingLevel:      pgtype.Text{},
+		// Must be a JSON array, not an object: agent readers unmarshal
+		// custom_args into []string and log a WARN per read otherwise
+		// (2026-08-06 audit; migration 238 repairs pre-existing rows).
+		CustomArgs:    []byte(`[]`),
+		McpConfig:     []byte(`{}`),
+		Model:         pgtype.Text{},
+		ThinkingLevel: pgtype.Text{},
 	})
 	if err != nil {
 		return pgtype.UUID{}, err

@@ -257,10 +257,13 @@ func upsertMythosAgent(
 		OwnerID:            pgtype.UUID{},
 		Instructions:       ag.Instructions,
 		CustomEnv:          []byte(`{}`),
-		CustomArgs:         []byte(`{}`),
-		McpConfig:          []byte(`{}`),
-		Model:              pgtype.Text{},
-		ThinkingLevel:      pgtype.Text{},
+		// Must be a JSON array, not an object: agent readers unmarshal
+		// custom_args into []string and log a WARN per read otherwise
+		// (2026-08-06 audit; migration 238 repairs pre-existing rows).
+		CustomArgs:    []byte(`[]`),
+		McpConfig:     []byte(`{}`),
+		Model:         pgtype.Text{},
+		ThinkingLevel: pgtype.Text{},
 	})
 	if cerr != nil {
 		if re, rerr := h.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{

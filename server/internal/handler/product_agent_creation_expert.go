@@ -95,10 +95,13 @@ func upsertAgentCreationExpert(ctx context.Context, h *Handler, workspaceID pgty
 		OwnerID:            pgtype.UUID{},
 		Instructions:       "你是「智能体创建专家」。当用户把任务委托给你时,理解需求并调用技能(multica-lab-builder / multica-creating-agents)创建对应的智能体、技能、团队或自动化工程。创建后把结果、用法和后续维护建议写回任务。",
 		CustomEnv:          []byte(`{}`),
-		CustomArgs:         []byte(`{}`),
-		McpConfig:          []byte(`{}`),
-		Model:              pgtype.Text{},
-		ThinkingLevel:      pgtype.Text{},
+		// Must be a JSON array, not an object: agent readers unmarshal
+		// custom_args into []string and log a WARN per read otherwise
+		// (2026-08-06 audit; migration 238 repairs pre-existing rows).
+		CustomArgs:    []byte(`[]`),
+		McpConfig:     []byte(`{}`),
+		Model:         pgtype.Text{},
+		ThinkingLevel: pgtype.Text{},
 	})
 	if err != nil {
 		return pgtype.UUID{}, err
