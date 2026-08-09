@@ -4,6 +4,15 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 > **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. **Guarded sections** — toolchain versions, package boundaries, verification commands, and the Critical Constraints tokens (localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) — are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook. **Unguarded sections** (Quick Reference, Architecture, Sub-domain Guides, Testing Strategy, Dependency Management prose) are not machine-checked — verify them against `CLAUDE.md` before relying on them.
 
+> **Current release: 0.5.13 (shipped 2026-08-09).** Upstream integration
+> ship: daemon fail-fast re-introduced (#5674, fork-local fusion),
+> search cancelled-demotion (#6515), CLI `--compact` (#6546), audit
+> closes (custom_args writer + subscriber filter), backup slim via
+> `pg_dump -Fc` (24 MB vs ~1.5 GB). Baseline `epic/0.5.12-cherry-pick`
+> carries #6194 rollup, #5406 ErrNoRows, #6095 WCAG, #5355 self-heal,
+> #6124 open-tab. For the full release history read the root
+> `CLAUDE.md` header.
+
 ## Quick Reference
 
 ```bash
