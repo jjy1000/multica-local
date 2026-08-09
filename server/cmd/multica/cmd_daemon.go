@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -160,6 +161,57 @@ func healthPortForProfile(profile string) int {
 
 // --- daemon start ---
 
+// daemonExecutable resolves the binary to spawn as the background daemon
+// child. Tests override it: spawning the resolved executable there would fork
+// the test binary itself, which ignores the daemon args and re-runs the suite.
+var daemonExecutable = os.Executable
+
+func requireDaemonAuth(profile string) error {
+	cfg, err := cli.LoadCLIConfigForProfile(profile)
+	if err != nil {
+		return fmt.Errorf("load CLI config: %w", err)
+	}
+	if cfg.Token == "" {
+		loginHint := "multica login"
+		if profile != "" {
+			loginHint = fmt.Sprintf("multica login --profile %s", profile)
+		}
+		return fmt.Errorf("you are not logged in. Run '%s' first, then start the daemon", loginHint)
+	}
+	return nil
+}
+
+func resolveDaemonServerURL(cmd *cobra.Command, profile string) string {
+	serverURL := cli.FlagOrEnv(cmd, "server-url", "MULTICA_SERVER_URL", "")
+	if serverURL == "" {
+		if c, err := cli.LoadCLIConfigForProfile(profile); err == nil && c.ServerURL != "" {
+			serverURL = c.ServerURL
+		}
+	}
+	return serverURL
+}
+
+// daemonStartupLogs names the two sinks a failed startup attempt may have
+// written to: the child's structured slog output lands in the rotating
+// daemon.log, while raw stderr — Go panics and the final cobra "Error: ..."
+// line — lands in the crash sink (daemon.err.log). Both carry an offset
+// recorded before the spawn so the report covers only this attempt.
+
+type daemonStartupLogs struct {
+	logPath      string
+	logOffset    int64
+	errLogPath   string
+	errLogOffset int64
+}
+
+// daemonStartupFailureError turns a daemon child that exited before ever
+// reporting ready into a friendly, actionable error. The two failure modes
+// users actually hit — stored token rejected by the server, server not
+// reachable — are recognized from what this startup attempt appended to the
+// structured log and the crash sink, and rendered as one reason line plus a
+// next step. Anything else falls back to a log excerpt with DBG/INF noise
+// dropped.
+
 func runDaemonStart(cmd *cobra.Command, _ []string) error {
 	foreground, _ := cmd.Flags().GetBool("foreground")
 	if foreground {
@@ -185,8 +237,12 @@ func runDaemonBackground(cmd *cobra.Command) error {
 		return fmt.Errorf("%s is already running (pid %v). Use 'daemon restart' to restart it", label, int(pid))
 	}
 
-	// Resolve current executable.
-	exePath, err := os.Executable()
+	if err := requireDaemonAuth(profile); err != nil {
+		return err
+	}
+
+	// Resolve current executable so the foreground child reuses this binary.
+	exePath, err := daemonExecutable()
 	if err != nil {
 		return fmt.Errorf("resolve executable path: %w", err)
 	}
@@ -204,6 +260,20 @@ func runDaemonBackground(cmd *cobra.Command) error {
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return fmt.Errorf("open log file %s: %w", logPath, err)
+	}
+
+	// Remember where the log ends now so an early-death report below can show
+	// only what THIS startup attempt wrote, not stale history. The fork has a
+	// single daemon.log (no separate crash sink), so the err-log tail reads
+	// the same file from the same offset — the classifier still works because
+	// the child's final error line lands in this file too.
+	var logOffset int64
+	if info, statErr := os.Stat(logPath); statErr == nil {
+		logOffset = info.Size()
+	}
+	var errLogOffset int64
+	if info, statErr := os.Stat(logPath); statErr == nil {
+		errLogOffset = info.Size()
 	}
 
 	child := exec.Command(exePath, args...)
@@ -236,8 +306,15 @@ func runDaemonBackground(cmd *cobra.Command) error {
 	logFile.Close()
 	pid := child.Process.Pid
 
-	// Detach: we don't Wait() on the child — it runs independently.
-	child.Process.Release()
+	// Watch for early death instead of Release()ing right away: a child that
+	// fails preflight (unreachable server, token rejected with 401, ...) exits
+	// within seconds, and without this signal the readiness poll below would
+	// blindly run out its full window before printing a vague warning. The
+	// goroutine leaks Wait() for the (short) remainder of this process when
+	// the daemon starts fine — the child is never killed by it and keeps
+	// running independently, same as with Release().
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- child.Wait() }()
 
 	// Write PID file.
 	pidPath := daemonPIDPathForProfile(profile)
@@ -256,7 +333,16 @@ func runDaemonBackground(cmd *cobra.Command) error {
 	started := false
 	lastStatus := ""
 	for time.Now().Before(deadline) {
-		time.Sleep(500 * time.Millisecond)
+		select {
+		case waitErr := <-waitCh:
+			return daemonStartupFailureError(daemonStartupLogs{
+				logPath:      logPath,
+				logOffset:    logOffset,
+				errLogPath:   logPath,
+				errLogOffset: errLogOffset,
+			}, waitErr, profile, resolveDaemonServerURL(cmd, profile))
+		case <-time.After(500 * time.Millisecond):
+		}
 		hctx, hcancel := context.WithTimeout(context.Background(), 2*time.Second)
 		health = checkDaemonHealthOnPort(hctx, healthPort)
 		hcancel()
@@ -283,6 +369,120 @@ func runDaemonBackground(cmd *cobra.Command) error {
 	fmt.Fprintf(os.Stderr, "Logs: %s\n", logPath)
 	return nil
 }
+
+// resolveDaemonServerURL resolves the server URL the daemon will talk to,
+// in the same precedence order the foreground daemon uses: --server-url flag,
+// MULTICA_SERVER_URL env, then the stored CLI config for the profile.
+
+func daemonStartupFailureError(logs daemonStartupLogs, waitErr error, profile, serverURL string) error {
+	lines := readLogTailSince(logs.logPath, logs.logOffset, 40)
+	crashLines := readLogTailSince(logs.errLogPath, logs.errLogOffset, 40)
+	joined := strings.Join(append(append([]string{}, lines...), crashLines...), "\n")
+
+	loginHint := "multica login"
+	if profile != "" {
+		loginHint += " --profile " + profile
+	}
+
+	switch {
+	case strings.Contains(joined, "auth token rejected") ||
+		strings.Contains(joined, "returned 401") ||
+		strings.Contains(joined, "not authenticated"):
+		return fmt.Errorf("daemon failed to start: the server rejected your login token (it may have expired or been revoked).\nRun '%s' to sign in again, then rerun 'multica daemon start'.\nFull log: %s", loginHint, logs.logPath)
+	case strings.Contains(joined, "connection refused") ||
+		strings.Contains(joined, "no such host") ||
+		strings.Contains(joined, "i/o timeout") ||
+		strings.Contains(joined, "network is unreachable"):
+		target := "the Multica server"
+		if serverURL != "" {
+			target += " at " + serverURL
+		}
+		return fmt.Errorf("daemon failed to start: cannot reach %s.\nMake sure the server is running and reachable, then rerun 'multica daemon start'.\nFull log: %s", target, logs.logPath)
+	}
+
+	var b strings.Builder
+	if exitErr := (&exec.ExitError{}); errors.As(waitErr, &exitErr) {
+		fmt.Fprintf(&b, "daemon exited during startup (%s).", exitErr)
+	} else {
+		b.WriteString("daemon exited during startup.")
+	}
+	excerpt := filterDaemonLogNoise(lines, 5)
+	// Crash output is already raw (panics, the final cobra error line) — no
+	// noise filter, just cap it like the structured excerpt.
+	if len(crashLines) > 5 {
+		crashLines = crashLines[len(crashLines)-5:]
+	}
+	excerpt = append(excerpt, crashLines...)
+	if len(excerpt) > 0 {
+		b.WriteString("\nLog output:")
+		for _, line := range excerpt {
+			fmt.Fprintf(&b, "\n  %s", line)
+		}
+	}
+	fmt.Fprintf(&b, "\nFull log: %s", logs.logPath)
+	if len(crashLines) > 0 {
+		fmt.Fprintf(&b, "\nCrash output: %s", logs.errLogPath)
+	}
+	return errors.New(b.String())
+}
+
+// filterDaemonLogNoise drops DBG/INF log lines from an excerpt, keeping
+// WRN/ERR entries and plain (non-slog) lines such as the final error the
+// child printed before exiting, capped to the last max lines.
+
+func filterDaemonLogNoise(lines []string, max int) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.Contains(line, " DBG ") || strings.Contains(line, " INF ") {
+			continue
+		}
+		out = append(out, line)
+	}
+	if len(out) > max {
+		out = out[len(out)-max:]
+	}
+	return out
+}
+
+// readLogTailSince returns up to maxLines of the log content appended after
+// sinceOffset. Reads are capped at 64 KiB so a huge burst can't balloon the
+// error report; on any read problem it returns nil and the caller just points
+// at the log file instead.
+
+func readLogTailSince(logPath string, sinceOffset int64, maxLines int) []string {
+	f, err := os.Open(logPath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	const readCap = 64 * 1024
+	if info, err := f.Stat(); err == nil && info.Size()-sinceOffset > readCap {
+		sinceOffset = info.Size() - readCap
+	}
+	if _, err := f.Seek(sinceOffset, io.SeekStart); err != nil {
+		return nil
+	}
+	data, err := io.ReadAll(io.LimitReader(f, readCap))
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	out := make([]string, 0, maxLines)
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		out = append(out, line)
+	}
+	if len(out) > maxLines {
+		out = out[len(out)-maxLines:]
+	}
+	return out
+}
+
+// buildDaemonStartArgs constructs args for the background child process.
 
 // buildDaemonStartArgs constructs args for the background child process.
 func buildDaemonStartArgs(cmd *cobra.Command) []string {
@@ -469,15 +669,74 @@ func runDaemonForeground(cmd *cobra.Command) error {
 
 // --- daemon restart ---
 
+func requireDaemonRestartPreflight(cmd *cobra.Command, profile string) error {
+	if err := requireDaemonAuth(profile); err != nil {
+		return err
+	}
+	cfg, err := cli.LoadCLIConfigForProfile(profile)
+	if err != nil {
+		return fmt.Errorf("load CLI config: %w", err)
+	}
+
+	rawURL := resolveDaemonServerURL(cmd, profile)
+	if rawURL == "" {
+		rawURL = daemon.DefaultServerURL
+	}
+	baseURL, err := daemon.NormalizeServerBaseURL(rawURL)
+	if err != nil {
+		return fmt.Errorf("refusing to restart: invalid server URL %q: %w", rawURL, err)
+	}
+
+	loginHint := "multica login"
+	if profile != "" {
+		loginHint += " --profile " + profile
+	}
+
+	// Strip any userinfo from the URL before it can reach an error message:
+	// a malicious or misconfigured server URL with embedded credentials
+	// (`http://user:pass@host`) must never be echoed back to stderr
+	// (security audit 2026-08-09, M1).
+	displayURL := baseURL
+	if u, perr := url.Parse(baseURL); perr == nil && u.User != nil {
+		u.User = nil
+		displayURL = u.String()
+	}
+
+	ctx, cancel := cli.APIContext(context.Background())
+	defer cancel()
+	if err := cli.NewAPIClient(baseURL, "", cfg.Token).GetJSON(ctx, "/api/me", nil); err != nil {
+		var httpErr *cli.HTTPError
+		if errors.As(err, &httpErr) {
+			if httpErr.StatusCode == http.StatusUnauthorized {
+				return fmt.Errorf("refusing to restart: the server rejected your login token (it may have expired or been revoked); the running daemon was left untouched.\nRun '%s' to sign in again, then rerun 'multica daemon restart'", loginHint)
+			}
+			// Render only the status code, never the server-provided response
+			// body (it is attacker-influenceable and could carry phishy text).
+			return fmt.Errorf("refusing to restart: preflight check against %s failed with HTTP %d; the running daemon was left untouched", displayURL, httpErr.StatusCode)
+		}
+		return fmt.Errorf("refusing to restart: cannot reach the Multica server at %s (%w); the running daemon was left untouched.\nMake sure the server is running and reachable, then rerun 'multica daemon restart'", displayURL, err)
+	}
+	return nil
+}
+
 func runDaemonRestart(cmd *cobra.Command, args []string) error {
 	profile := resolveProfile(cmd)
 	healthPort := healthPortForProfile(profile)
 
-	// Stop if running.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	health := checkDaemonHealthOnPort(ctx, healthPort)
 	if daemonAlive(health) {
+		// Validate the restart can succeed BEFORE the stop phase, not just
+		// inside the start phase: a missing/revoked token or an unreachable
+		// server would otherwise kill the running daemon and then fail to
+		// start a replacement, leaving no daemon at all. When nothing is
+		// running there is nothing to lose, so the cheaper start-path checks
+		// (empty-token guard + early child-exit detection) handle it without
+		// this extra server round-trip.
+		if err := requireDaemonRestartPreflight(cmd, profile); err != nil {
+			return err
+		}
 		pid, _ := health["pid"].(float64)
 		if pid > 0 {
 			fmt.Fprintf(os.Stderr, "Stopping daemon (pid %d)...\n", int(pid))
