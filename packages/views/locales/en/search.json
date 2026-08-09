@@ -8,7 +8,8 @@
     "members": "Members",
     "projects": "Projects",
     "issues": "Issues",
-    "recent": "Recent"
+    "recent": "Recent",
+    "cancelled": "Cancelled"
   },
   "pages": {
     "inbox": "Inbox",

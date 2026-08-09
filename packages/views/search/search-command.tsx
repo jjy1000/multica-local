@@ -39,6 +39,7 @@ import {
 } from "@multica/core/issues/stores";
 import { issueDetailOptions } from "@multica/core/issues/queries";
 import { useWorkspaceId } from "@multica/core";
+import { partitionAggregatedSearchResults } from "@multica/core/search/cancelled-rank";
 import { useWorkspacePaths } from "@multica/core/paths";
 import type { WorkspacePaths } from "@multica/core/paths";
 import { useModalStore } from "@multica/core/modals";
@@ -167,6 +168,22 @@ export function SearchCommand() {
   const [isLoading, setIsLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Cross-type cancelled demotion (MUL-5824). The two searches are ranked
+  // independently server-side, so the partition has to happen here, where they
+  // are aggregated: a cancelled project from one response must not outrank a
+  // live issue from the other. Partitioned before any truncation so the
+  // cancelled tail is what gets dropped, and rendered as a single trailing
+  // section (see partitionAggregatedSearchResults).
+  const partitionedResults = useMemo(
+    () =>
+      partitionAggregatedSearchResults({
+        issues: results.issues,
+        projects: results.projects,
+        query,
+      }),
+    [results, query],
+  );
 
   const filteredPages = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -582,12 +599,12 @@ export function SearchCommand() {
                 </CommandPrimitive.Empty>
               )}
 
-            {!isLoading && results.projects.length > 0 && (
+            {!isLoading && partitionedResults.liveProjects.length > 0 && (
               <CommandPrimitive.Group
                 heading={t(($) => $.groups.projects)}
                 className="p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
               >
-                {results.projects.map((project) => (
+                {partitionedResults.liveProjects.map((project) => (
                   <CommandPrimitive.Item
                     key={`project:${project.id}`}
                     value={`project:${project.id}`}
@@ -621,12 +638,12 @@ export function SearchCommand() {
               </CommandPrimitive.Group>
             )}
 
-            {!isLoading && results.issues.length > 0 && (
+            {!isLoading && partitionedResults.liveIssues.length > 0 && (
               <CommandPrimitive.Group
                 heading={t(($) => $.groups.issues)}
                 className="p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
               >
-                {results.issues.map((issue) => (
+                {partitionedResults.liveIssues.map((issue) => (
                   <CommandPrimitive.Item
                     key={issue.id}
                     value={issue.id}
@@ -671,6 +688,53 @@ export function SearchCommand() {
                         </span>
                       </div>
                     )}
+                  </CommandPrimitive.Item>
+                ))}
+              </CommandPrimitive.Group>
+            )}
+
+            {!isLoading && partitionedResults.hasCancelled && (
+              <CommandPrimitive.Group
+                heading={t(($) => $.groups.cancelled)}
+                className="p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
+              >
+                {partitionedResults.cancelledProjects.map((project) => (
+                  <CommandPrimitive.Item
+                    key={`cancelled-project:${project.id}`}
+                    value={`project:${project.id}`}
+                    onSelect={handleSelect}
+                    className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ProjectIcon project={project} size="md" />
+                      <span className="truncate">
+                        <HighlightText text={project.title} query={query} />
+                      </span>
+                      <span className="ml-auto text-caption shrink-0 text-muted-foreground">
+                        {t(($) => $.groups.cancelled)}
+                      </span>
+                    </div>
+                  </CommandPrimitive.Item>
+                ))}
+                {partitionedResults.cancelledIssues.map((issue) => (
+                  <CommandPrimitive.Item
+                    key={`cancelled-issue:${issue.id}`}
+                    value={issue.id}
+                    onSelect={handleSelect}
+                    className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <StatusIcon
+                        status={issue.status}
+                        className="size-4 shrink-0"
+                      />
+                      <span className="text-caption text-muted-foreground shrink-0">
+                        {issue.identifier}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">
+                        <HighlightText text={issue.title} query={query} />
+                      </span>
+                    </div>
                   </CommandPrimitive.Item>
                 ))}
               </CommandPrimitive.Group>

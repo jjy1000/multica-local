@@ -8,7 +8,8 @@
     "members": "メンバー",
     "projects": "プロジェクト",
     "issues": "イシュー",
-    "recent": "最近の項目"
+    "recent": "最近の項目",
+    "cancelled": "キャンセル済み"
   },
   "pages": {
     "inbox": "インボックス",

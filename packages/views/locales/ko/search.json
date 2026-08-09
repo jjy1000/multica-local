@@ -8,7 +8,8 @@
     "members": "멤버",
     "projects": "프로젝트",
     "issues": "이슈",
-    "recent": "최근 항목"
+    "recent": "최근 항목",
+    "cancelled": "취소됨"
   },
   "pages": {
     "inbox": "인박스",
