@@ -2,7 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.12 (shipped 2026-08-06).** Batch C of the upstream
+> **Current release: 0.5.13 (shipped 2026-08-09).** Upstream integration
+> ship on the 0.5.12 baseline: **#5674** daemon fail-fast re-introduced
+> (fork-local fusion — `daemonExecutable` seam uses `os.Executable`, the
+> two-sink err-log structure is localized to the single daemon.log; `daemon
+> start` now fails fast with actionable auth/reachability errors instead of
+> a 45 s blind poll, `daemon restart` preflights `/api/me` before stopping),
+> **#6515** cancelled issues/projects demoted below live work in search +
+> command palette + mention picker (direct hits exempt, `done` untouched),
+> **#6546** CLI `--compact` for comment-list JSON reads (opt-in). Audit
+> closes: `agent_creation_expert` `custom_args` writer switched to `[]`
+> (was re-seeding WARN noise migration 238 repairs), `addSubscriber`
+> entity-type filter. Backups: snapshot switched to `pg_dump -Fc` (24 MB
+> vs ~1.5 GB per-table CSV). Zero migrations.
+> 0.5.12 (shipped 2026-08-06): Batch C of the upstream
 > 0.4.0+ safety/UI cherry-picks, all pure drops + post-audit follow-ups:
 > **#6194** per-agent rollup windows fixed (Usage leaderboard was using
 > N+1 days, KPI was using N — single-agent row could exceed workspace
