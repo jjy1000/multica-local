@@ -80,3 +80,11 @@ data/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Security / vuln scan scratch dirs — these are pipeline-internal working state
+# (json chunks, partial python extractors, staging files). Final deliverables
+# (THREAT_MODEL.md, VULN-FINDINGS.md) belong in .omc/audit/ when ready, never
+# left at the repo root as untracked files.
+.threat-model-state/
+.triage-state/
+.vuln-scan-state/
