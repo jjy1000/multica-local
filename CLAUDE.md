@@ -514,11 +514,18 @@ pnpm typecheck
 pnpm test
 make check-fast       # affected TS typecheck + unit + lint; no DB/Go/E2E
 make test
+cd server && go test -count=1 -timeout 600s ./internal/... ./pkg/agent/...   # mandatory after any cherry-pick or Go source edit
 pnpm exec playwright test
 make check
 ```
 
 Do not claim verification passed unless you ran it. If you skip checks because the change is docs-only or the user asked not to run them, say so.
+
+**Ship gate (mandatory)** — before any release commit, BOTH of these must be green:
+- `pnpm typecheck` (full turbo pipeline) — catches TS breakage
+- `cd server && go test -count=1 ./internal/... ./pkg/agent/...` — catches Go breakage
+
+0.5.15 ship log: only `pnpm typecheck` was run before declaring ready-to-ship; the broken `#6199` cherry-pick broke `TestBuildMetaSkillContentIssueBodyFormatting` 4/4 subtests in the legacy verbose brief path (default in production) and the gap was caught only by the post-ship code-reviewer agent, not the ship gate. Future batches must run both checks before declaring ready-to-ship. DB-backed integration tests (`internal/handler/handler_test.go`, `cmd/server/integration_test.go`) need a running PostgreSQL; they are not part of the mandatory ship gate but should be run before risky PRs (`make test` from repo root).
 
 ## Commits and Releases
 
@@ -538,6 +545,16 @@ Do not claim verification passed unless you ran it. If you skip checks because t
 > the asar-repack fallback; do not hand-run them when the script will do.
 
 Mandatory steps in order. Skipping any step risks data loss or a broken `.app`:
+
+**Pre-ship checks** — both must be green before running step 1:
+
+```bash
+pnpm typecheck                                                  # full turbo pipeline, catches TS breakage
+cd server && go test -count=1 -timeout 600s ./internal/... ./pkg/agent/...   # mandatory after any cherry-pick or Go source edit
+cd ..
+```
+
+0.5.15 lesson: ship gate must include `go test` — `pnpm typecheck` does not run Go tests. `#6199` cherry-pick broke `TestBuildMetaSkillContentIssueBodyFormatting` 4/4 subtests and the gap was caught only by post-ship code-reviewer, not by the gate.
 
 ```bash
 # 1. Snapshot — refuses to proceed if data-safety invariants fail
@@ -1048,6 +1065,7 @@ Real failure modes that took non-trivial debugging. NOT obvious from reading the
 - **launchd daemon-watchdog silently exits (2026-07-14).** `~/.multica/scripts/multica-daemon-watchdog.sh` 在 `set -u` 下引用未声明的 `$START_TIME` (line 258/259 附近),每次 kickstart 立即 exit 0,launchd 看到 exit 0 停 job → `launchctl print gui/$UID/com.multica.daemon-watchdog` 持续 `state = not running`。修复:line 68 加 `START_TIME="${START_TIME:-$(date +%s)}"`(默认值兜底,0.3.22.1 已修)。诊断技巧:`cat /tmp/multica-daemon-watchdog.launchd.err.log | grep unbound` 是快速定位手段。**Before editing watchdog 脚本,grep `set -u` 后列出所有引用变量,确保每个都有默认值兜底。**
 - **Experimental runtime GC never swept (fixed 2026-07-28 audit).** `server/internal/experimental/runtime_gc.go::Run()` called `g.stopOne.Do(func() { close(g.stopped) })` EAGERLY at loop entry instead of `defer`-ring it — the first `select` hit `<-g.stopped` immediately and the GC exited without ever sweeping. Additionally `tarGz` was a placeholder stub, so "archived" runtime dirs were never actually archived. Fixed: the close is deferred, and `tarGz` is a real streaming tar.gz writer (tmp + rename, symlinks skipped). When touching GC-style loops, verify the sweep branch is actually reachable with a test, not by reading the code.
 - **Panic flag attribution must survive LIFO defer unwind (fixed 2026-07-28 audit).** `experimental/panic_context.go::WithPanicFlagContext` originally cleared its flag slot in its own `defer` — which runs BEFORE the outer sentinel's `recover` during panic unwind (defers are LIFO), so the blacklist attribution was always empty. Contract: the slot is retained on panic and popped by the sentinel after attribution. Do not "clean up" the slot-clearing back into a defer.
+- **Cherry-pick completeness check MUST verify both code paths AND test imports (0.5.15 ship blocker, `da1cc2003`).** Upstream `#6199` (avoid H1 headings in issue bodies) was cherry-picked cleanly but only wired `writeIssueBodyFormatting` into the slim brief path (`buildMetaSkillContentSlim`). Fork's legacy verbose `buildMetaSkillContent` path (default in production, gated by `useSlimBrief()`) was missing the call site, breaking `TestBuildMetaSkillContentIssueBodyFormatting` 4/4 subtests. Three classes of cherry-pick completeness miss to check before declaring ready-to-ship: (1) **parallel code paths** — does upstream still have both `legacy` and `slim`/`v2` versions that the fork also has? Wire into both. (2) **referenced helpers / imports** — does the cherry-pick reference a function the fork has not ported? (`#5980` mention-spaces referenced `itemArgs` from upstream `#4790` tiptap inline-code upgrade which the fork never back-ported.) `pnpm typecheck` catches missing TS imports but **NOT** missing Go test helpers; always run `go test -count=1` after cherry-picking into `server/`. (3) **test-path reachability** — the test may call `buildMetaSkillContent` directly (skipping the slim-brief gate); the assertion applies to the verbose path even though production code uses slim. Pattern for fixes: when upstream only touched one path but the fork has both, **mirror upstream's call site into the fork's other path**, not the other way around. Document each fixup as a separate `fix(execenv)` commit on the same branch — never amend a previous cherry-pick into a release commit (loses attribution).
 
 ## Memory Index (cross-session)
 
@@ -1056,6 +1074,7 @@ Before editing any subsystem with a known-regression or regression-suspect surfa
 > **These files live OUTSIDE this repo** (in the Claude project-memory dir above), so a bare name like `multica-0.3.0-standalone-2026-07-02.md` referenced anywhere in this doc is NOT a repo path — `git`/filesystem lookups at the repo root will not find it. Read it via the absolute path above. They are intentionally not committed (per-user, cross-session context).
 
 **For a new session, start here:**
+- `0.5.15-cherry-pick-batch-2026-08-10.md` — 0.5.15 (current release; supersedes 0.5.2). Surgical upstream cherry-pick batch — 13 `fix(*)` PRs ported from `v0.4.13..upstream/main` as plain `git cherry-pick` drops, plus 1 fixup (`da1cc2003` wired `writeIssueBodyFormatting` into fork's legacy verbose brief path that `#6199` upstream PR missed) and 1 revert (`#5980` referenced `itemArgs` helper from `#4790` not in fork). Filter pipeline + 95.7% conflict rate methodology documented. **Critical process lesson**: ship gate must include `go test` — `pnpm typecheck` does not run Go tests, and the `#6199` cherry-pick silently broke `TestBuildMetaSkillContentIssueBodyFormatting` 4/4 subtests because upstream only wired the new prompt section into the slim brief path while the fork still has the legacy verbose path as production default. Read before any future cherry-pick batch.
 - `0.5.2-self-opt-ship-2026-08-01.md` — 0.5.2 (2026-08-01; no longer the current release — the file header carries the live version). Agent self-optimization loop: trust-score ledger (mig 228), two-stage edit application (migs 229-231, add-only auto-apply + 待确认建议 tier), post-hoc commit gate (`RevalidateAppliedEdits`), and 7 adversarial-review fixes. P0 gotcha: `applied_by NOT NULL CHECK` broke the entire suggested tier (fixed nullable + `sqlc.narg`). `pgtype.Numeric` must string-scan. Read before any self-opt touch; note 0.5.5-0.5.6 later removed the flag gate entirely (see Agent Self-Optimization & Trust section). Supersedes the 0.5.1 entry below.
 - `0.5.1-ui-port-ship-2026-08-01.md` — 0.5.1 (2026-08-01, superseded by 0.5.2). Upstream UI/animation port batch: 5 commits (`c065ae1` `404676a` `bb29b46` `1b0cdb5` `a803f94`) — WCAG contrast + faint/find-match/chat-launcher tokens, Button brand variants, CJK `font-synthesis`, surface system bound, type-scale tokens, NumberFlow + 6 surfaces, 14 animation deltas, Inter italic + Geist Mono variable, 212-file type-scale migration. Desktop ship via manual asar-repack fallback. Worktrees for the 4 fork-hygiene cloud-deletion PRs were **deleted** (branches kept). Main dir renamed `multica-main` → `multica-exploration-dev`.
 - `0.5.0-fork-ship-2026-07-31.md` — 0.5.0 release (schema-first wave-1: `client_usage_daily` + `task_usage` cost). Superseded by 0.5.1; kept for the wave-1 schema/rollup history.
