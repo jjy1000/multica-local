@@ -9,7 +9,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > check) → 270 truly not-integrated → 150 attempted → 14 succeeded, 144
 > conflicts auto-aborted, 1 follow-up revert (`#5980` referenced the
 > `itemArgs` helper from `#4790` tiptap inline-code upgrade which the fork
-> has not back-ported). `pnpm typecheck` (full turbo): 6/6 tasks, 0 errors.
+> has not back-ported), 1 follow-up fixup (`da1cc2003` wired
+> `writeIssueBodyFormatting` into the fork's legacy verbose brief path —
+> cherry-pick of `#6199` only touched the slim path, breaking
+> `TestBuildMetaSkillContentIssueBodyFormatting`). `pnpm typecheck`
+> (full turbo): 6/6 tasks, 0 errors. `go test -count=1 ./internal/...`
+> `./pkg/...`: all green after `da1cc2003`. Process gap closed: ship gate
+> must include `go test` in addition to `pnpm typecheck`.
 > Zero migrations. Zero product-level behaviour change.
 > 0.5.14 (shipped 2026-08-10): Fork-local cleanup batch —
 > no upstream cherry-picks this cycle. Repo hygiene only: `.threat-model-state/`,

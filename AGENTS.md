@@ -9,7 +9,12 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 > drops. Filter pipeline: 1,594 → 829 → 632 → 394 → 270 → 150 attempts
 > → 14 succeeded, 144 conflicts auto-aborted, 1 follow-up revert
 > (`#5980` referenced `itemArgs` helper from `#4790` which the fork has
-> not back-ported). `pnpm typecheck` (full turbo): 6/6 tasks, 0 errors.
+> not back-ported), 1 follow-up fixup (`da1cc2003` wired
+> `writeIssueBodyFormatting` into the fork's legacy verbose brief path —
+> cherry-pick of `#6199` only touched the slim path). `pnpm typecheck`
+> (full turbo): 6/6 tasks, 0 errors. `go test -count=1 ./internal/...`
+> `./pkg/...`: all green after `da1cc2003`. Process gap closed: ship gate
+> must include `go test` in addition to `pnpm typecheck`.
 > Zero migrations. Zero product-level behaviour change.
 > 0.5.14 (shipped 2026-08-10): Fork-local cleanup batch —
 > no upstream cherry-picks this cycle. Repo hygiene only: `.threat-model-state/`,

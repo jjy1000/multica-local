@@ -11,6 +11,13 @@
 ### Repo-level summary
 
 - **13 upstream surgical fixes** ported as plain `git cherry-pick --no-edit` drops.
+- **1 follow-up fixup commit** (`da1cc2003`) — `#6199` cherry-pick only wired
+  `writeIssueBodyFormatting` into the slim path; the fork's legacy verbose
+  `buildMetaSkillContent` path (gated by `useSlimBrief()`, default in
+  production) was missing the call, breaking
+  `TestBuildMetaSkillContentIssueBodyFormatting`. Mirrored the slim call site
+  immediately before ## Comment Formatting in `runtime_config.go`. Verified
+  by `go test -count=1 ./internal/daemon/execenv/` and `go test -count=1 ./internal/daemon/... ./pkg/agent/... ./internal/handler/`.
 - **1 follow-up revert**: `#5980` (mention search spaces) shipped but failed
   post-merge typecheck because it referenced the `itemArgs` test helper that
   was introduced upstream in `#4790` (tiptap inline-code upgrade) and never
@@ -29,6 +36,20 @@
   across `@multica/core`, `@multica/views`, `@multica/ui`, `@multica/web`,
   `@multica/desktop`, `@multica/docs`. Confirms the cherry-picks are net
   additive and don't break type inference elsewhere.
+- `go test -count=1 ./...` (server/, excluding DB-backed integration tests):
+  **passes** after the `da1cc2003` fixup; `internal/daemon/execenv`,
+  `internal/daemon/...`, `pkg/agent/...`, `internal/handler/` all green.
+
+### Process gap closed in this release
+
+The original ship-gate ran `pnpm typecheck` but **not** `go test`, which
+silently passed the broken `#6199` cherry-pick through to release. The
+fixup commit `da1cc2003` closes the regression, but the gap is systemic
+and must be wired into the future ship chain: any future batch should run
+both `pnpm typecheck` **and** `go test -count=1 ./internal/... ./pkg/...`
+before declaring ready-to-ship. (DB-backed integration tests under
+`internal/handler/handler_test.go` and `cmd/server/integration_test.go`
+need a running PostgreSQL; document that as optional with `make test`.)
 
 ### Shipped fixes (chronological by upstream merge date)
 
@@ -47,7 +68,8 @@
 | 11 | **#4843** | wake parent squad leader on same-squad/shared-leader child-done | `packages/core/issues/queries.ts` + service wiring — squad leaders see sub-issue completion without polling. |
 | 12 | **#4834** | align text preview whitelist | `packages/core/types/attachment-url.ts` — consistent extension whitelist for text preview rendering across image / video / audio / text attachments. |
 | 13 | **#4637** | hide deleted agents from usage leaderboard | `packages/views/dashboard/usage-leaderboard.tsx` — deleted agents no longer leave a $0 ghost row in the Usage tab. |
-| 14 | **#5351** | select an offered ACP permission option so Hermes writes aren't denied | `server/pkg/agent/hermes.go` — when Hermes emits an ACP permission request the daemon now picks the offered allow option instead of denying; Hermes agents can actually write files in headless runs. |
+| 14 | **#5351** | select an offered ACP permission option so Hermes writes aren't denied | `server/pkg/agent/hermes.go` — when Hermes emits an ACP permission option request the daemon now picks the offered allow option instead of denying; Hermes agents can actually write files in headless runs. |
+| 15 | `da1cc2003` *(fixup)* | wire `writeIssueBodyFormatting` into legacy verbose brief | One-line fix: cherry-pick of #6199 only wired the new prompt section into the slim path; the fork's legacy verbose `buildMetaSkillContent` (default in production) was missing the call, breaking `TestBuildMetaSkillContentIssueBodyFormatting`. Mirrors the slim call site immediately before `## Comment Formatting`. Verified by `go test -count=1 ./internal/daemon/execenv/`. |
 
 ### Scope rationale — what was filtered out
 
