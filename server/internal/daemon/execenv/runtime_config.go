@@ -554,6 +554,12 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	// line, the body never reaches the shell, no heredoc boundary exists for
 	// flags to leak across. This is identical to the long-standing Windows
 	// path, so the cross-platform guidance is now one shape.
+	// Issue Body Formatting sits above Comment Formatting because the body
+	// hierarchy rule (no H1 in issue body — the title is the H1) is a Markdown
+	// shape question that the comment-formatter doesn't repeat; comment
+	// formatting is then scoped to the comment-posting mechanics. Matches the
+	// slim path ordering (see buildMetaSkillContentSlim).
+	writeIssueBodyFormatting(&b)
 	b.WriteString("## Comment Formatting\n\n")
 	if runtimeGOOS == "windows" {
 		b.WriteString("On Windows, **always write the comment body to a UTF-8 file with your file-write tool first, then post it with `--content-file <path>`** — do NOT pipe via `--content-stdin`. PowerShell 5.1's `$OutputEncoding` defaults to ASCIIEncoding when piping to a native command, silently dropping non-ASCII characters as `?` before they reach `multica.exe`. Never use inline `--content` for agent-authored comments. ")
