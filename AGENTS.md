@@ -4,7 +4,16 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 > **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. **Guarded sections** — toolchain versions, package boundaries, verification commands, and the Critical Constraints tokens (localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) — are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook. **Unguarded sections** (Quick Reference, Architecture, Sub-domain Guides, Testing Strategy, Dependency Management prose) are not machine-checked — verify them against `CLAUDE.md` before relying on them.
 
-> **Current release: 0.5.13 (shipped 2026-08-09).** Upstream integration
+> **Current release: 0.5.14 (shipped 2026-08-10).** Fork-local cleanup batch —
+> no upstream cherry-picks this cycle. Repo hygiene only: `.threat-model-state/`,
+> `.triage-state/`, `.vuln-scan-state/` added to `.gitignore`; three pre-existing
+> `.omc/` planning docs committed as historical reference for 0.5.15+. A systematic
+> survey of `v0.4.13..upstream/main` (258 distinct PRs) confirmed zero small,
+> zero-conflict Class A candidates remain — every surgical fix is already
+> integrated through 0.5.8 → 0.5.13; the remaining missing PRs are full-feature
+> blocks (saved views, channel framework, runtime catalog expansion, font
+> overhaul, ACP backends) that exceed fork-local cleanup scope. Zero migrations.
+> 0.5.13 (shipped 2026-08-09): Upstream integration
 > ship: daemon fail-fast re-introduced (#5674, fork-local fusion),
 > search cancelled-demotion (#6515), CLI `--compact` (#6546), audit
 > closes (custom_args writer + subscriber filter), backup slim via

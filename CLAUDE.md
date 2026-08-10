@@ -2,7 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.13 (shipped 2026-08-09).** Upstream integration
+> **Current release: 0.5.14 (shipped 2026-08-10).** Fork-local cleanup batch —
+> no upstream cherry-picks this cycle. Repo hygiene only: `.threat-model-state/`,
+> `.triage-state/`, `.vuln-scan-state/` added to `.gitignore` so the threat-model +
+> vuln-scan skill scratch state stops polluting `git status`; three pre-existing
+> `.omc/` planning docs (upstream 0.4.0..main port candidates, server/pkg/agent
+> runtime catalog census, Phase-B type-scale migration residual) committed as
+> historical reference for 0.5.15+ feature work. A systematic survey of
+> `v0.4.13..upstream/main` (258 distinct PRs) confirmed zero small, zero-conflict
+> Class A candidates remain — every surgical fix is already integrated through
+> the 0.5.8 → 0.5.13 batches; the remaining missing PRs are full-feature blocks
+> (saved views, channel framework, runtime catalog expansion, font overhaul,
+> ACP backends) that exceed fork-local cleanup scope. Zero migrations.
+> 0.5.13 (shipped 2026-08-09): Upstream integration
 > ship on the 0.5.12 baseline: **#5674** daemon fail-fast re-introduced
 > (fork-local fusion — `daemonExecutable` seam uses `os.Executable`, the
 > two-sink err-log structure is localized to the single daemon.log; `daemon
