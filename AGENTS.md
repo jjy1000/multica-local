@@ -4,7 +4,14 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 > **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. **Guarded sections** — toolchain versions, package boundaries, verification commands, and the Critical Constraints tokens (localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) — are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook. **Unguarded sections** (Quick Reference, Architecture, Sub-domain Guides, Testing Strategy, Dependency Management prose) are not machine-checked — verify them against `CLAUDE.md` before relying on them.
 
-> **Current release: 0.5.14 (shipped 2026-08-10).** Fork-local cleanup batch —
+> **Current release: 0.5.15 (shipped 2026-08-10).** Surgical upstream
+> cherry-pick batch — 13 `fix(*)` PRs ported as plain `git cherry-pick`
+> drops. Filter pipeline: 1,594 → 829 → 632 → 394 → 270 → 150 attempts
+> → 14 succeeded, 144 conflicts auto-aborted, 1 follow-up revert
+> (`#5980` referenced `itemArgs` helper from `#4790` which the fork has
+> not back-ported). `pnpm typecheck` (full turbo): 6/6 tasks, 0 errors.
+> Zero migrations. Zero product-level behaviour change.
+> 0.5.14 (shipped 2026-08-10): Fork-local cleanup batch —
 > no upstream cherry-picks this cycle. Repo hygiene only: `.threat-model-state/`,
 > `.triage-state/`, `.vuln-scan-state/` added to `.gitignore`; three pre-existing
 > `.omc/` planning docs committed as historical reference for 0.5.15+. A systematic

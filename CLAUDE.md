@@ -2,7 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.14 (shipped 2026-08-10).** Fork-local cleanup batch —
+> **Current release: 0.5.15 (shipped 2026-08-10).** Surgical upstream cherry-pick
+> batch — 13 `fix(*)` PRs from `v0.4.13..upstream/main` ported as plain
+> `git cherry-pick` drops. Filter pipeline: 1,594 fix commits ahead → 829
+> surgical (≤4 files) → 632 source-only → 394 candidate PRs (file-existence
+> check) → 270 truly not-integrated → 150 attempted → 14 succeeded, 144
+> conflicts auto-aborted, 1 follow-up revert (`#5980` referenced the
+> `itemArgs` helper from `#4790` tiptap inline-code upgrade which the fork
+> has not back-ported). `pnpm typecheck` (full turbo): 6/6 tasks, 0 errors.
+> Zero migrations. Zero product-level behaviour change.
+> 0.5.14 (shipped 2026-08-10): Fork-local cleanup batch —
 > no upstream cherry-picks this cycle. Repo hygiene only: `.threat-model-state/`,
 > `.triage-state/`, `.vuln-scan-state/` added to `.gitignore` so the threat-model +
 > vuln-scan skill scratch state stops polluting `git status`; three pre-existing
