@@ -944,10 +944,35 @@ func (s *TaskService) CancelTasksForIssue(ctx context.Context, issueID pgtype.UU
 	}
 	for _, t := range cancelled {
 		s.captureTaskCancelled(ctx, t)
-		s.ReconcileAgentStatus(ctx, t.AgentID)
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
 	}
+	// Reconcile once per distinct agent instead of once per cancelled row:
+	// cancelling an issue often stops several tasks owned by the same agent,
+	// and each reconcile is a DB write plus a status broadcast. Matches
+	// CancelTasksForAgent's single-reconcile shape (D#3319).
+	for _, agentID := range distinctAgentIDs(cancelled) {
+		s.ReconcileAgentStatus(ctx, agentID)
+	}
+	s.notifyTasksFinished(cancelled)
 	return nil
+}
+
+// distinctAgentIDs returns each agent id appearing in the cancelled rows once,
+// preserving first-seen order. Bulk cancellations frequently stop several tasks
+// owned by the same agent; reconciling per distinct agent (rather than per row)
+// collapses the redundant RefreshAgentStatusFromTasks writes and status
+// broadcasts down to one per agent without changing the final agent status.
+func distinctAgentIDs(cancelled []db.AgentTaskQueue) []pgtype.UUID {
+	seen := make(map[pgtype.UUID]struct{}, len(cancelled))
+	ids := make([]pgtype.UUID, 0, len(cancelled))
+	for _, t := range cancelled {
+		if _, dup := seen[t.AgentID]; dup {
+			continue
+		}
+		seen[t.AgentID] = struct{}{}
+		ids = append(ids, t.AgentID)
+	}
+	return ids
 }
 
 // CancelTasksForAgent cancels every active task belonging to an agent
@@ -991,9 +1016,15 @@ func (s *TaskService) CancelTasksByTriggerComment(ctx context.Context, commentID
 	}
 	for _, t := range cancelled {
 		s.captureTaskCancelled(ctx, t)
-		s.ReconcileAgentStatus(ctx, t.AgentID)
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
 	}
+	// Reconcile once per distinct agent instead of once per cancelled row: an
+	// edited/deleted trigger comment can cancel several tasks owned by the same
+	// agent, and each reconcile is a DB write plus a status broadcast (D#3319).
+	for _, agentID := range distinctAgentIDs(cancelled) {
+		s.ReconcileAgentStatus(ctx, agentID)
+	}
+	s.notifyTasksFinished(cancelled)
 	return cancelled, nil
 }
 
@@ -2496,6 +2527,30 @@ func (s *TaskService) broadcastTaskDispatch(ctx context.Context, task db.AgentTa
 		ActorID:     "",
 		Payload:     payload,
 	})
+}
+
+// notifyTasksFinished is the batch form used by bulk terminal transitions.
+// Coalesce by runtime so cancelling many tasks on one machine produces one
+// cache bump and one websocket hint rather than a burst of identical work.
+// Local port: upstream's notifyRuntimeMayHaveWork helper has not been ported,
+// so we inline the bump + wakeup using the same primitives notifyTaskAvailable
+// uses (EmptyClaim.Bump + Wakeup.NotifyTaskAvailable with empty task id).
+func (s *TaskService) notifyTasksFinished(tasks []db.AgentTaskQueue) {
+	seen := make(map[string]struct{}, len(tasks))
+	for _, task := range tasks {
+		if !task.RuntimeID.Valid {
+			continue
+		}
+		runtimeKey := util.UUIDToString(task.RuntimeID)
+		if _, ok := seen[runtimeKey]; ok {
+			continue
+		}
+		seen[runtimeKey] = struct{}{}
+		s.EmptyClaim.Bump(context.Background(), runtimeKey)
+		if s.Wakeup != nil {
+			s.Wakeup.NotifyTaskAvailable(runtimeKey, "")
+		}
+	}
 }
 
 func (s *TaskService) broadcastTaskEvent(ctx context.Context, eventType string, task db.AgentTaskQueue) {
