@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { FlaskConical, Loader2 } from "lucide-react";
 import { useExperimentalFlag } from "@multica/core/experimental";
-import { api } from "@multica/core/api";
+import {
+  api,
+  parseWithFallback,
+  LLMWikiStatusResponseSchema,
+  EMPTY_LLM_WIKI_STATUS_RESPONSE,
+  type LLMWikiStatusResponse,
+} from "@multica/core/api";
 
 // LLMWikiBridgeView (0.3.19+)
 //
@@ -9,13 +15,7 @@ import { api } from "@multica/core/api";
 // desktop LLM Wiki.app is reachable, a quick-start guide, and the
 // available /api/experimental/llm-wiki/* verbs.
 
-interface StatusResponse {
-  desktop_api: string;
-  reachable: boolean;
-  vault_dir: string;
-  vault_dirs_found: string[];
-  search_total_docs: number;
-}
+type StatusResponse = LLMWikiStatusResponse;
 
 export function LLMWikiBridgeView() {
   // The LLM Wiki bridge is a workspace-level status surface (the
@@ -50,7 +50,13 @@ export function LLMWikiBridgeView() {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
-        const data = (await response.json()) as StatusResponse;
+        const raw = (await response.json()) as unknown;
+        const data = parseWithFallback<StatusResponse>(
+          raw,
+          LLMWikiStatusResponseSchema,
+          EMPTY_LLM_WIKI_STATUS_RESPONSE,
+          { endpoint: "/api/experimental/llm-wiki/status" },
+        );
         if (!cancelled) setStatus(data);
       } catch {
         if (!cancelled) setStatus(null);
@@ -146,29 +152,61 @@ function StatusCard({ status, loading }: {
       </section>
     );
   }
+  // Health is a free-form object from the LLM Wiki.app /api/v1/health
+  // endpoint. We peek at the two fields the bridge guarantees (`ok`) plus
+  // a couple of common additive fields (`version`, `uptime`) — anything
+  // else the desktop app may surface is intentionally ignored to keep
+  // the schema `.loose()` on the server side.
+  const healthVersion =
+    typeof status.health?.version === "string" ? status.health.version : null;
+  const healthUptime =
+    typeof status.health?.uptime === "number" ? status.health.uptime : null;
+  const healthSummary =
+    healthVersion ?? (healthUptime != null ? `uptime ${healthUptime}s` : "—");
+  const apiLabel = status.desktop_api ?? "—";
+
   return (
-    <section className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-5 dark:border-emerald-800 dark:bg-emerald-950/20">
+    <section
+      className={
+        status.ok
+          ? "rounded-xl border border-emerald-200 bg-emerald-50/30 p-5 dark:border-emerald-800 dark:bg-emerald-950/20"
+          : "rounded-xl border border-amber-200 bg-amber-50/40 p-5 dark:border-amber-800 dark:bg-amber-950/30"
+      }
+    >
       <p className="text-sm font-medium text-foreground">
-        LLM Wiki 已连接
+        {status.ok ? "LLM Wiki 已连接" : "LLM Wiki 未连接"}
       </p>
+      {status.reason ? (
+        <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+          {status.reason}
+        </p>
+      ) : null}
       <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
         <div>
           <dt className="text-muted-foreground">API 端口</dt>
-          <dd className="font-mono text-foreground">{status.desktop_api}</dd>
+          <dd className="font-mono text-foreground">{apiLabel}</dd>
         </div>
         <div>
           <dt className="text-muted-foreground">可连接</dt>
-          <dd className="font-mono text-emerald-700 dark:text-emerald-300">
+          <dd
+            className={
+              status.reachable
+                ? "font-mono text-emerald-700 dark:text-emerald-300"
+                : "font-mono text-amber-700 dark:text-amber-300"
+            }
+          >
             {status.reachable ? "✓ 是" : "✗ 否"}
           </dd>
         </div>
         <div>
           <dt className="text-muted-foreground">仓库目录</dt>
-          <dd className="font-mono text-foreground">{status.vault_dir}</dd>
+          <dd className="font-mono text-foreground break-all">
+            {status.vault_root || "—"}
+          </dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">已索引文档</dt>
-          <dd className="font-mono text-foreground">{status.search_total_docs}</dd>
+          <dt className="text-muted-foreground">健康状态</dt>
+          <dd className="font-mono text-foreground">{healthSummary}</dd>
         </div>
       </dl>
     </section>

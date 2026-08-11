@@ -120,6 +120,7 @@ func (h *Handler) GetLLMWikiStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":           false,
 			"reason":       "llm_wiki_bridge client not initialised; open /Applications/LLM Wiki.app and retry",
+			"reachable":    false,
 			"desktop_api":  nil,
 			"vault_root":   vaultRoot(),
 			"flag_enabled": experimental.DefaultFor("llm_wiki_bridge"),
@@ -129,16 +130,20 @@ func (h *Handler) GetLLMWikiStatus(w http.ResponseWriter, r *http.Request) {
 	health, err := h.LLMWikiClient.Health(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":         false,
-			"reason":     err.Error(),
-			"vault_root": vaultRoot(),
+			"ok":          false,
+			"reason":      err.Error(),
+			"reachable":   false,
+			"desktop_api": h.LLMWikiClient.BaseURL(),
+			"vault_root":  vaultRoot(),
 		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":         true,
-		"health":     health,
-		"vault_root": vaultRoot(),
+		"ok":          true,
+		"reachable":   true,
+		"desktop_api": h.LLMWikiClient.BaseURL(),
+		"health":      health,
+		"vault_root":  vaultRoot(),
 	})
 }
 

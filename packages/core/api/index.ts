@@ -9,6 +9,11 @@ export { parseWithFallback, setSchemaLogger } from "./schema";
 export type { ParseOptions } from "./schema";
 export { DuplicateIssueErrorBodySchema } from "./schemas";
 export type { DuplicateIssueErrorBody } from "./schemas";
+export {
+  LLMWikiStatusResponseSchema,
+  EMPTY_LLM_WIKI_STATUS_RESPONSE,
+} from "./schemas";
+export type { LLMWikiStatusResponse } from "./schemas";
 export { WSClient } from "./ws-client";
 
 import type { ApiClient as ApiClientType } from "./client";

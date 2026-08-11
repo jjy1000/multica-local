@@ -1417,3 +1417,61 @@ export const EMPTY_LAB_CONTEXT: LabContext = {
   lab_seq: 0,
   server_time: "",
 };
+
+// ---------------------------------------------------------------------------
+// LLM Wiki Bridge status schema (GET /api/experimental/llm-wiki/status)
+//
+// Wired surface: the LLM Wiki Bridge view (apps/desktop) renders a "已连接 /
+// 未连接" card from this response. The wire format the Go handler emits is
+// (see server/internal/handler/llm_wiki_bridge.go::GetLLMWikiStatus):
+//
+//   ok:           bool  — true iff /api/v1/health returned 200 + {"ok":true}
+//   reachable:    bool  — true iff the LLM Wiki desktop API port is bound
+//   desktop_api:  str?  — loopback base URL ("http://127.0.0.1:19828") or null
+//   health:       obj?  — raw LLM Wiki.app /api/v1/health envelope; we only
+//                          peek at a couple of known fields (ok/version/uptime)
+//   vault_root:   str?  — absolute path the writer drops files into
+//   reason:       str?  — present iff ok=false (auth / port not bound / etc.)
+//
+// Kept LENIENT (string-typed `health`, no enum on `ok`/`reachable` reason) so a
+// future server-side field addition doesn't break the renderer's `safeParse`.
+// The strict TS shape flows out via the `LLMWikiStatusResponse` type, which
+// marks the optional fields the view actually consumes.
+
+// `Health` is a record of arbitrary string-keyed fields. The view only peeks
+// at `version` / `uptime` / `ok` when present; we type it as a strict object
+// with one known field and `.loose()` to let everything else through.
+export const LLMWikiHealthSchema = z
+  .object({
+    ok: z.boolean().optional(),
+  })
+  .loose();
+
+export const LLMWikiStatusResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    reachable: z.boolean().optional().default(false),
+    desktop_api: z.string().nullable().optional().default(null),
+    health: LLMWikiHealthSchema.nullable().optional().default(null),
+    vault_root: z.string().optional().default(""),
+    reason: z.string().optional().default(""),
+  })
+  .loose();
+
+export interface LLMWikiStatusResponse {
+  ok: boolean;
+  reachable: boolean;
+  desktop_api: string | null;
+  health: { ok?: boolean; [key: string]: unknown } | null;
+  vault_root: string;
+  reason: string;
+}
+
+export const EMPTY_LLM_WIKI_STATUS_RESPONSE: LLMWikiStatusResponse = {
+  ok: false,
+  reachable: false,
+  desktop_api: null,
+  health: null,
+  vault_root: "",
+  reason: "",
+};

@@ -151,6 +151,20 @@ func (c *Client) WithFlag(ctx context.Context) error {
 	return nil
 }
 
+// BaseURL returns the loopback base URL the client is bound to
+// (e.g. "http://127.0.0.1:19828"). The HTTP handler uses it to
+// surface the desktop API endpoint in the /status response so the
+// renderer can show "API 端口" without a second probe call.
+// Empty string means the client never resolved a port.
+func (c *Client) BaseURL() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.baseURL
+}
+
 // Health calls /api/v1/health on the desktop API.
 func (c *Client) Health(ctx context.Context) (map[string]any, error) {
 	if err := c.WithFlag(ctx); err != nil {
