@@ -15,9 +15,7 @@
     "capabilities": {
       "skills": [
         "multica-claude-science",
-        "multica-claude-science-runtime",
-        "multica-claude-literature",
-        "multica-claude-reviewer"
+        "multica-claude-science-runtime"
       ],
       "agents": [],
       "squads": [],
