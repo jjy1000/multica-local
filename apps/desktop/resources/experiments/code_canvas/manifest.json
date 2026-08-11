@@ -18,7 +18,7 @@
       "description": "Internal P9 pilot workspace. Stub subprocess only."
     },
     "capabilities": {
-      "skills": [],
+      "skills": ["multica-code-canvas"],
       "agents": [],
       "squads": [],
       "mcp_servers": [],
