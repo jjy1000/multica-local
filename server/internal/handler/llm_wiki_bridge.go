@@ -159,9 +159,12 @@ func buildLLMWikiClient() (*llmwiki.Client, error) {
 }
 
 // wired flag gate on the writer at server boot so the writer's
-// checkFlag agrees with the catalog default.
+// checkFlag agrees with the catalog default. ctx-aware so the
+// per-user experimental_pref the handler stamps via
+// withLLMWikiUserID drives the gate; a ctx without a stamped
+// user-id falls through to the catalog compile-time default.
 func init() {
-	llmwiki.SetFlagGate(func() bool { return experimental.DefaultFor("llm_wiki_bridge") })
+	llmwiki.SetFlagGate(func(_ context.Context) bool { return experimental.DefaultFor("llm_wiki_bridge") })
 }
 
 // GetLLMWikiStatus reports whether the desktop API is reachable
@@ -334,7 +337,7 @@ func (h *Handler) WriteLLMWikiFile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path must not contain .."})
 		return
 	}
-	written, err := h.LLMWikiWriter.Write(req.Path, []byte(req.Content))
+	written, err := h.LLMWikiWriter.Write(withLLMWikiUserID(r.Context(), requestUserID(r)), req.Path, []byte(req.Content))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

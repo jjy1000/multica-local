@@ -98,7 +98,7 @@ func TestWriter_RejectsParentTraversal(t *testing.T) {
 
 	bad := []string{"../escape.md", "../etc/passwd", "good/../../../etc/hosts"}
 	for _, p := range bad {
-		if _, err := w.Write(p, []byte("x")); err != ErrPathOutsideVault {
+		if _, err := w.Write(t.Context(), p, []byte("x")); err != ErrPathOutsideVault {
 			t.Fatalf("Write(%q) = %v, want ErrPathOutsideVault", p, err)
 		}
 	}
@@ -114,7 +114,7 @@ func TestWriter_WritesAndReadsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
 	}
-	got, err := w.Write("sub/notes/today.md", []byte("hello"))
+	got, err := w.Write(t.Context(), "sub/notes/today.md", []byte("hello"))
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}

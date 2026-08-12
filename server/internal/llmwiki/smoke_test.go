@@ -52,7 +52,7 @@ func TestSmoke_LLMWikiBridge_LiveDesktop(t *testing.T) {
 		t.Skipf("cannot create vault: %v", err)
 	}
 
-	SetFlagGate(func() bool { return true })
+	SetFlagGate(func(_ context.Context) bool { return true })
 	w, err := NewWriter(vault)
 	if err != nil {
 		t.Fatalf("NewWriter: %v", err)
@@ -60,18 +60,18 @@ func TestSmoke_LLMWikiBridge_LiveDesktop(t *testing.T) {
 
 	writePath := "sources/multica-smoke-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".md"
 	body2 := []byte("# Multica smoke test\n\nwritten by 0.3.19-dev runtime_gc_test.go\n")
-	got, err := w.Write(writePath, body2)
+	got, err := w.Write(t.Context(), writePath, body2)
 	if err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	t.Logf("wrote %s (%d bytes)", got, len(body2))
 
-	if _, err := w.Write("../escape.md", body2); err != ErrPathOutsideVault {
+	if _, err := w.Write(t.Context(), "../escape.md", body2); err != ErrPathOutsideVault {
 		t.Fatalf("parent-traversal should have been rejected; got %v", err)
 	}
 
-	SetFlagGate(func() bool { return false })
-	if _, err := w.Write("flag-off.md", body2); err != ErrFlagDisabled {
+	SetFlagGate(func(_ context.Context) bool { return false })
+	if _, err := w.Write(t.Context(), "flag-off.md", body2); err != ErrFlagDisabled {
 		t.Fatalf("flag-off write should have been rejected; got %v", err)
 	}
 

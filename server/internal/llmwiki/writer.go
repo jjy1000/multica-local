@@ -32,6 +32,7 @@
 package llmwiki
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -77,8 +78,13 @@ func NewWriter(root string) (*Writer, error) {
 // Existing files are overwritten. The caller is expected to
 // surface the file's previous content (if any) to the user via the
 // issue comment thread so the change is auditable.
-func (w *Writer) Write(relPath string, body []byte) (string, error) {
-	if err := w.checkFlag(); err != nil {
+//
+// The ctx argument carries the caller's identity (stashed by the
+// HTTP middleware via llmWikiCallerContext). The flag gate reads
+// it to resolve per-user experimental_pref; a caller without an
+// identity falls through to the catalog default.
+func (w *Writer) Write(ctx context.Context, relPath string, body []byte) (string, error) {
+	if err := w.checkFlag(ctx); err != nil {
 		return "", err
 	}
 	if relPath == "" {
@@ -112,8 +118,8 @@ func (w *Writer) Write(relPath string, body []byte) (string, error) {
 
 // ListVaults returns the conventional location's sub-trees so the
 // HTTP layer can show a navigation hint.
-func (w *Writer) ListVaults() ([]string, error) {
-	if err := w.checkFlag(); err != nil {
+func (w *Writer) ListVaults(ctx context.Context) ([]string, error) {
+	if err := w.checkFlag(ctx); err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(w.root)
@@ -138,39 +144,53 @@ func (w *Writer) Root() string { return w.root }
 // writer is reachable from CLI / Skill adapters as well.
 //
 // In production this delegates to a package-level callback set by
-// SetFlagGate; tests substitute their own. The gate is guarded by
-// flagMu so concurrent flag-flip updates during multi-workspace
-// server boot don't race. Reading via the package-level wrapper
-// flagGate() also takes the read lock.
+// SetFlagGate; tests substitute their own. The gate takes a
+// context.Context because the flag is resolved per calling user
+// (experimental_pref), not from a process-wide constant — see
+// handler/llm_wiki_bridge.go. A caller whose context carries no user
+// identity (CLI / Skill adapter) resolves to the catalog default.
+//
+// The gate is guarded by flagMu so concurrent flag-flip updates during
+// multi-workspace server boot don't race. gateOn copies the closure
+// under the read lock and calls it unlocked, because the production
+// gate does a database read.
 
 var (
-	flagMu  sync.RWMutex
-	flagG   = func() bool { return true }
-	flagOn  = true // permissive default; boot overrides via SetFlagGate
+	flagMu sync.RWMutex
+	flagG  = func(context.Context) bool { return true }
 )
 
-func gateOn() bool {
+func gateOn(ctx context.Context) bool {
 	flagMu.RLock()
-	defer flagMu.RUnlock()
-	return flagG()
+	g := flagG
+	flagMu.RUnlock()
+	return g(ctx)
 }
 
 // SetFlagGate wires the llm_wiki_bridge flag check into the writer.
 // Call once at server boot. Subsequent updates from any goroutine
 // are serialised through the writer's internal mutex so a reader
 // (gateOn / checkFlag) never observes a half-written closure.
-func SetFlagGate(g func() bool) {
+//
+// A nil callback restores the permissive default; the previous
+// implementation (which used a separate `flagOn` boolean that was
+// consulted only at the time SetFlagGate was called) had a race
+// window where a concurrent reader could observe `flagOn=true`
+// after the catalog default had flipped off. The current shape —
+// one closure copied under the lock, called unlocked — closes that
+// window.
+func SetFlagGate(g func(ctx context.Context) bool) {
 	flagMu.Lock()
 	defer flagMu.Unlock()
 	if g == nil {
-		flagG = func() bool { return true }
+		flagG = func(context.Context) bool { return true }
 		return
 	}
 	flagG = g
 }
 
-func (w *Writer) checkFlag() error {
-	if !gateOn() {
+func (w *Writer) checkFlag(ctx context.Context) error {
+	if !gateOn(ctx) {
 		return ErrFlagDisabled
 	}
 	return nil
