@@ -2,7 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.15 (shipped 2026-08-10, physically deployed 2026-08-11).**
+> **Current release: 0.5.16 (shipped 2026-08-12).**
+> Phase 1 lab P0 fixes ship — 7 P0 blockers closed across 5 lab surfaces (`llm_wiki_bridge` flag-gate + DTO drift, `chat_pin_ui` SQL list-sort, `claude_science_lab` dead-skill + forecast PRNG→LLM, `code_canvas` skill binding, daemon auto-start docs). 11 atomic fix commits + 1 version bump (`ab3a71cd2`) + 1 ship log (`905fd6df9`) = 13 commits landed on top of 0.5.15 baseline. `pnpm typecheck` (full turbo): 6/6 tasks, 0 errors. `go test -count=1 ./internal/... ./pkg/agent/...`: 32 packages ok, 0 fail. Cold-start verified: 2 s launch, server PID up, `multica --help` exit 0 (signed nested binaries), row parity skipped (`psql` client not in PATH, non-blocker). Zero migrations. **Lessons**: (1) executor stall risk on complex SSE changes → minimize scope + helper-first + wire-up in follow-up commit (forecast SSE helper was staged as `139159638` then wired as `c82a12e05`); (2) working-tree dirty carryover between sessions requires `git status --short` triage before each ship; (3) version bump is manual (`apps/desktop/package.json`) and not part of ship-mac.sh — follow-up is ship-mac.sh pre-flight check. Phase 2 (P1 UX closure: pythia GUI install / llm_wiki stdio verbs / claude_science Chat tab / user_plugin i18n / web `/experimental/*` route) + Phase 3 (stub replacement: `code_canvas` Monaco + `claude_science_lab` Knowledge tab 真文献搜索) scheduled for 0.5.17 / 0.5.18. Full ship log at `.omc/0.5.16-ship-2026-08-12.md`.
+
+> **0.5.15 (shipped 2026-08-10, physically deployed 2026-08-11).**
 > Surgical upstream cherry-pick batch — 13 `fix(*)` PRs from
 > `v0.4.13..upstream/main` ported as plain `git cherry-pick` drops. Filter
 > pipeline: 1,594 fix commits ahead → 829 surgical (≤4 files) → 632

@@ -4,7 +4,10 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 > **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. **Guarded sections** — toolchain versions, package boundaries, verification commands, and the Critical Constraints tokens (localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) — are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook. **Unguarded sections** (Quick Reference, Architecture, Sub-domain Guides, Testing Strategy, Dependency Management prose) are not machine-checked — verify them against `CLAUDE.md` before relying on them.
 
-> **Current release: 0.5.15 (shipped 2026-08-10, physically deployed 2026-08-11).**
+> **Current release: 0.5.16 (shipped 2026-08-12).**
+> Phase 1 lab P0 fixes ship — 7 P0 blockers closed across 5 lab surfaces (`llm_wiki_bridge` flag-gate + DTO drift, `chat_pin_ui` SQL list-sort, `claude_science_lab` dead-skill + forecast PRNG→LLM, `code_canvas` skill binding, daemon auto-start docs). 11 atomic fix commits + 1 version bump (`ab3a71cd2`) + 1 ship log (`905fd6df9`) = 13 commits landed on top of 0.5.15 baseline. `pnpm typecheck` (full turbo): 6/6 tasks, 0 errors. `go test -count=1 ./internal/... ./pkg/agent/...`: 32 packages ok, 0 fail. Cold-start verified: 2 s launch, server PID up, `multica --help` exit 0 (signed nested binaries), row parity skipped (`psql` client not in PATH, non-blocker). Zero migrations. Phase 2 (P1 UX closure) + Phase 3 (stub replacement: `code_canvas` Monaco + `claude_science_lab` Knowledge tab) scheduled for 0.5.17 / 0.5.18. Full ship log at `.omc/0.5.16-ship-2026-08-12.md`.
+
+> **0.5.15 (shipped 2026-08-10, physically deployed 2026-08-11).**
 > Surgical upstream cherry-pick batch — 13 `fix(*)` PRs ported as plain
 > `git cherry-pick` drops. Filter pipeline: 1,594 → 829 → 632 → 394 → 270
 > → 150 attempts → 14 succeeded, 144 conflicts auto-aborted, 1 follow-up
