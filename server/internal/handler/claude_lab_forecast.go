@@ -12,10 +12,16 @@
 //   event: prediction
 //   data: {"id":"p_…","scenario":"…","narrative":"…","probability":0.42,
 //          "confidence":0.71,"horizon":"week","persona":"strategist",
-//          "createdAt":"2026-07-15T22:00:00Z"}
+//          "oracle_source":"llm","createdAt":"2026-07-15T22:00:00Z"}
 //
 //   : keep-alive comment every 15 s so corporate proxies don't
 //   kill the long-poll.
+//
+// `oracle_source` is `"llm"` when buildForecastEnvelope reaches the
+// Multica runtime bridge, `"synthetic"` when it falls back to the
+// seeded PRNG. `synthetic_oracle_failover` (omitempty) flags the
+// envelope as a synthetic fallback after an oracle outage so the
+// renderer can render a "此为 mock 数据" hint.
 //
 // Why SSE and not WebSocket: the renderer already speaks SSE
 // (pythia-view uses use-pythia-sse for the same reason). SSE keeps
@@ -104,7 +110,16 @@ type forecastEnvelope struct {
 	Persona         string  `json:"persona"`
 	LabSource       string  `json:"lab_source"`
 	ScenarioContext string  `json:"scenario_context,omitempty"`
-	CreatedAt       string  `json:"createdAt"`
+	// OracleSource distinguishes "llm" (real model call via the Multica
+	// runtime bridge) from "synthetic" (seeded PRNG fallback). Additive
+	// + omitempty so existing wire consumers that pre-date the
+	// 0.3.32 llmForecast integration keep parsing unchanged.
+	OracleSource string `json:"oracle_source,omitempty"`
+	// SyntheticOracleFailover signals that the envelope was synthesised
+	// after a real oracle call failed. The renderer renders a "mock
+	// 数据" hint on true. Same additive + omitempty contract.
+	SyntheticOracleFailover bool `json:"synthetic_oracle_failover,omitempty"`
+	CreatedAt               string `json:"createdAt"`
 }
 
 const (
@@ -223,23 +238,34 @@ type forecastHandlerKey struct{}
 type forecastSource func(ctx context.Context, seed int64) (forecastEnvelope, error)
 
 // forecastSourceFor picks the data source for this request. Heuristic:
-// prefer the oracle when its loopback URL is registered; otherwise fall
-// back to the synthetic generator. Returns (source, nil) where source is
-// ready to be invoked on every tick.
+// prefer the pythia_oracle subprocess when its loopback URL is
+// registered; otherwise (and on a mid-stream oracle failure) drop
+// through to buildForecastEnvelope, which tries the Multica runtime
+// bridge first and falls back to the seeded PRNG. The previous direct
+// syntheticForecast fallback was replaced by buildForecastEnvelope so
+// the SSE loop is LLM-first even when no pythia subprocess is running.
 func forecastSourceFor(h *Handler) forecastSource {
+	// Default persona / horizon mirror the hardcoded values inside
+	// queryOracle so the wire shape stays consistent across the
+	// oracle / llmForecast / synthetic branches.
+	fallback := func(ctx context.Context, seed int64) (forecastEnvelope, error) {
+		return buildForecastEnvelope(ctx, "strategist", "week", "", seed), nil
+	}
 	if h == nil || h.ExperimentRegistry == nil {
-		return syntheticForecast
+		return fallback
 	}
 	url := h.ExperimentRegistry.LoopbackURL("pythia_oracle")
 	if url == "" {
-		return syntheticForecast
+		return fallback
 	}
-	return func(ctx context.Context, _ int64) (forecastEnvelope, error) {
+	return func(ctx context.Context, seed int64) (forecastEnvelope, error) {
 		env, err := queryOracle(ctx, url)
 		if err != nil {
 			// Best-effort fallthrough: a single failed oracle call
 			// does not kill the stream — the next tick retries.
-			return syntheticForecast(ctx, 0)
+			// Hand the seed through to the LLM/synthetic chain so
+			// failures preserve the request's deterministic seed.
+			return fallback(ctx, seed)
 		}
 		return env, nil
 	}
@@ -347,6 +373,60 @@ func syntheticForecast(_ context.Context, seed int64) (forecastEnvelope, error) 
 // because tests reference it; the empty return keeps the signature
 // stable.
 func currentSeedFromCtx(_ context.Context) int64 { return 0 }
+
+// buildForecastEnvelope is the canonical LLM-first / synthetic-fallback
+// wrapper for the Claude Lab forecast SSE loop. Wires the llmForecast
+// helper (committed in the previous P0 staging PR) into the data path:
+//  1. Try llmForecast via the Multica runtime bridge (real model call,
+//     returns ForecastEnvelope).
+//  2. On any error — env unset, HTTP failure, decode failure, oracle
+//     outage — fall back to the seeded PRNG via syntheticForecast and
+//     flag the envelope so the renderer can render a "mock 数据" hint.
+//
+// Returns the package-local forecastEnvelope (the type the SSE loop
+// already emits) rather than the exported ForecastEnvelope, so the
+// helper drops straight into the existing source-routing closure in
+// forecastSourceFor without any struct-bridging at the call site. The
+// error is fully absorbed: a transient oracle outage must never kill
+// the SSE stream. The original error reason is preserved in the
+// narrative suffix so the renderer / agent can distinguish a genuine
+// synthetic from a real oracle outage during postmortem.
+//
+// Why this lives in claude_lab_forecast.go and not next to llmForecast:
+// the SSE loop is the only consumer. Keeping the helper next to
+// forecastSourceFor / syntheticForecast keeps the data path in one
+// place; claude_lab_llm_forecast.go remains the pure-LLM-call layer.
+func buildForecastEnvelope(
+	ctx context.Context,
+	persona, horizon, scenarioContext string,
+	seed int64,
+) forecastEnvelope {
+	env, err := llmForecast(ctx, persona, horizon, scenarioContext, seed)
+	if err != nil {
+		// Fallback to synthetic — preserve the existing PRNG path so the
+		// SSE loop never blocks on oracle outages.
+		synth, _ := syntheticForecast(ctx, seed)
+		synth.OracleSource = "synthetic"
+		synth.SyntheticOracleFailover = true
+		// Surface the error reason so renderer / agent can distinguish
+		// genuine synthetic from a real oracle outage.
+		synth.Narrative = synth.Narrative + " [oracle fallback: " + err.Error() + "]"
+		return synth
+	}
+	return forecastEnvelope{
+		ID:              fmt.Sprintf("p_%d", forecastSeq.Add(1)),
+		Scenario:        env.Scenario,
+		Narrative:       env.Narrative,
+		Probability:     env.Probability,
+		Confidence:      env.Confidence,
+		Horizon:         env.Horizon,
+		Persona:         env.Persona,
+		LabSource:       "llm",
+		OracleSource:    "llm",
+		ScenarioContext: scenarioContext,
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}
+}
 
 func emitForecastFrame(
 	w http.ResponseWriter,
