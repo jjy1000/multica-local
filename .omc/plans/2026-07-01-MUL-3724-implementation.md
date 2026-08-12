@@ -1,8 +1,8 @@
 ---
 name: 2026-07-01-MUL-3724-implementation
 created: 2026-07-01T23:50:00Z
-updated: 2026-07-01T23:50:00Z
-status: in-progress
+updated: 2026-08-12T13:31:32Z
+status: complete
 target_version: 0.2.97
 baseline: 0.2.96
 upstream_fix: MUL-3724

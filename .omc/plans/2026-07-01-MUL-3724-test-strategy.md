@@ -1,8 +1,8 @@
 ---
 name: MUL-3724 squad leader briefing — test strategy
 created: 2026-07-01T00:00:00Z
-updated: 2026-07-01T00:00:00Z
-status: in-progress
+updated: 2026-08-12T13:31:32Z
+status: complete
 target: server/internal/handler/{daemon.go, squad_briefing_claim_test.go} + server/migrations/12X_task_squad_id.up.sql
 ---
 
