@@ -1050,6 +1050,8 @@ Reference: memory `0.3.56-lab-managed-marker-2026-07-20.md`.
 
 ## Known Stability Surfaces
 
+> **0.5.17 security contracts pending.** 2026-08-05 vuln scan (62 findings, 13 HIGH, 8 fork-applicable) triaged at `.omc/audit/2026-08-05-vuln-scan/triage.md`. The 8 P0 contracts (F-002 / F-005 / F-006 / F-007 / F-008 / F-013 / F-027 / F-028) get written into this section as their fixes land in 0.5.17 Phase 1-4. Do NOT re-touch those code paths without first reading the triage + the landed contract bullet.
+
 Real failure modes that took non-trivial debugging. NOT obvious from reading the code, so do not skip them when touching the relevant subsystems:
 
 - **Server vs daemon write to DIFFERENT profile dirs — the server log you want may be in another profile.** The desktop main process runs two "profiles" for one app: the daemon-manager derives `desktop-<host>` (`desktop-localhost-8090`), while server-manager sanitises the API URL to `<host>` (`localhost-8090`); both live under `~/.multica/profiles/` and write to different sub-files by design (`index.ts:670-695` + `daemon-manager.ts:230-240`). This means `~/.multica/profiles/desktop-localhost-8090/server.log` can be a STALE pre-0.3.0 file, while the LIVE server log is at `~/.multica/profiles/localhost-8090/server.log` (and the daemon log at `desktop-localhost-8090/daemon.log`). When diagnosing ship-post behavior, check the mtime of every `profiles/*/server.log` and read the newest — don't assume the `desktop-` prefixed one is current.
