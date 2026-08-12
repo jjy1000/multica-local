@@ -1,261 +1,151 @@
 #!/usr/bin/env bash
 # ============================================================================
-# backup.sh — Incremental backup writer for Multica local project
+# backup.sh — .omc/backups/ 增量历史备份 (per local-project-backup-protocol)
 #
-# WHY THIS EXISTS (2026-08-11):
-# User marked this project as "important local project" on 2026-08-11 and
-# asked for incremental backups of significant changes. Schema, manifest,
-# retention, and gitignore policy live in `.omc/backups/README.md`; this
-# script is the executable surface that produces compliant backups.
-#
-# Trigger policy (also in `.omc/backups/README.md`):
-#   * release           — every shipped version (e.g. 0.5.16-ship)
-#   * major-refactor    — single branch > 20 files OR behavior-visible
-#   * schema-migration  — any change under server/migrations/
-#   * data-shape        — destructive data path change (P0 invariant)
-#   * manual            — user explicitly asked
-#
-# NOT a trigger: 1-2 file bugfix / typo / comment.
+# Creates .omc/backups/<TS>/<reason>/ with manifest + diff + status + log.
+# Never touches the working tree; never reverts. Pure capture.
 #
 # Usage:
-#   bash scripts/backup.sh --reason 0.5.16-ship --trigger release
-#   bash scripts/backup.sh --reason schema-mig-239 --trigger schema-migration --base HEAD
-#   bash scripts/backup.sh --reason epic-rewrite --trigger manual --notes-file /tmp/notes.md
-#   bash scripts/backup.sh --reason foo --trigger release --dry-run    # show plan, no write
+#   bash scripts/backup.sh --reason 0.5.18-ship --trigger release
+#   bash scripts/backup.sh --reason schema-mig-239 --trigger schema-migration --base HEAD~3
+#   bash scripts/backup.sh --reason epic-rewrite --trigger manual --notes "refactor agent list page"
+#
+# Conventions (.omc/backups/README.md):
+#   <TS>      = YYYY-MM-DD-HHMM (UTC)
+#   <reason>  = kebab-case slug
+#   Active    = .omc/backups/                       (latest 30)
+#   Archive   = .omc/backups/_archive/<TS>/<reason> (overflow)
 # ============================================================================
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKUPS_ROOT="$REPO_ROOT/.omc/backups"
-MAX_ACTIVE=30
+BACKUP_ROOT="$REPO_ROOT/.omc/backups"
+ACTIVE_LIMIT=30
+ARCHIVE_AFTER_DAYS=90
 
 REASON=""
-TRIGGER=""
+TRIGGER="manual"
 BASE=""
-NOTES_FILE=""
-DRY_RUN=false
+NOTES=""
 
 usage() {
-  sed -n '3,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-  exit 1
+  cat <<EOF
+Usage: bash scripts/backup.sh --reason <slug> [--trigger release|major-refactor|schema-migration|data-shape|manual] [--base <ref>] [--notes "<text>"]
+EOF
+  exit 64
 }
 
-while [[ $# -gt 0 ]]; do
+while [ $# -gt 0 ]; do
   case "$1" in
-    --reason)     REASON="$2"; shift 2 ;;
-    --trigger)    TRIGGER="$2"; shift 2 ;;
-    --base)       BASE="$2"; shift 2 ;;
-    --notes-file) NOTES_FILE="$2"; shift 2 ;;
-    --dry-run)    DRY_RUN=true; shift ;;
-    -h|--help)    usage ;;
-    *)            echo "ERROR: unknown arg: $1" >&2; usage ;;
+    --reason)  REASON="$2"; shift 2 ;;
+    --trigger) TRIGGER="$2"; shift 2 ;;
+    --base)    BASE="$2"; shift 2 ;;
+    --notes)   NOTES="$2"; shift 2 ;;
+    -h|--help) usage ;;
+    *)         echo "unknown flag: $1" >&2; usage ;;
   esac
 done
 
-# Validate reason: kebab-case + version dots allowed, 2-64 chars
-if ! [[ "$REASON" =~ ^[a-z0-9][a-z0-9.\-]{1,63}$ ]]; then
-  echo "ERROR: --reason must be kebab-case (2-64 chars, [a-z0-9.-]): got '$REASON'" >&2
-  exit 2
-fi
+[ -n "$REASON" ] || { echo "--reason is required" >&2; usage; }
+[[ "$REASON" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo "--reason must be kebab-case" >&2; exit 65; }
 
-case "$TRIGGER" in
-  release|major-refactor|schema-migration|data-shape|manual) ;;
-  *) echo "ERROR: --trigger must be one of release|major-refactor|schema-migration|data-shape|manual; got '$TRIGGER'" >&2; exit 2 ;;
-esac
-
+# --- 1. confirm git repo + branch -------------------------------------------
 cd "$REPO_ROOT"
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
-  echo "ERROR: not a git repository: $REPO_ROOT" >&2
-  exit 3
-fi
-
-# Refuse to back up if we're inside the backups dir itself (avoid recursion)
-case "$PWD" in
-  "$BACKUPS_ROOT"/*) echo "ERROR: refusing to run inside $BACKUPS_ROOT" >&2; exit 3 ;;
-esac
-
-TS="$(date -u +"%Y-%m-%d-%H%M")"
-TS_ISO="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-TARGET="$BACKUPS_ROOT/$TS/$REASON"
-
-if [[ -e "$TARGET" ]]; then
-  echo "ERROR: target already exists: $TARGET" >&2
-  exit 4
-fi
-
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "not a git repo: $REPO_ROOT" >&2; exit 66; }
+BRANCH="$(git branch --show-current)"
 HEAD_SHA="$(git rev-parse HEAD)"
-BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-if git diff --quiet && git diff --cached --quiet; then
-  DIRTY=false
-else
-  DIRTY=true
-fi
 
-# Resolve base ref (default: HEAD for working tree diff)
-if [[ -n "$BASE" ]]; then
-  BASE_SHA="$(git rev-parse --verify "$BASE" 2>/dev/null)" || { echo "ERROR: bad --base ref: $BASE" >&2; exit 5; }
-  DIFF_RANGE="$BASE_SHA..HEAD"
-else
-  BASE_SHA=""
-  DIFF_RANGE="working-tree-vs-HEAD"
-fi
+# --- 2. <TS> + active/archive directory --------------------------------------
+TS="$(date -u +"%Y-%m-%d-%H%M")"
+DEST="$BACKUP_ROOT/$TS/$REASON"
+mkdir -p "$DEST"
 
-# Build file list (union of: named files in range + cached + unstaged + untracked)
-FILES_LIST=$(mktemp)
-if [[ -n "$BASE_SHA" ]]; then
-  git diff --name-only "$BASE_SHA"..HEAD >> "$FILES_LIST" 2>/dev/null || true
-fi
-git diff --cached --name-only >> "$FILES_LIST" 2>/dev/null || true
-git diff --name-only >> "$FILES_LIST" 2>/dev/null || true
-git ls-files --others --exclude-standard >> "$FILES_LIST" 2>/dev/null || true
-sort -u "$FILES_LIST" -o "$FILES_LIST"
-FILES_TOTAL=$(wc -l < "$FILES_LIST" | tr -d ' ')
+# --- 3. write manifest.json --------------------------------------------------
+SCHEMA_VERSION=1
+CREATED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+STATUS_SNAPSHOT="$(git status --short | head -200 || true)"
+DIFF_STAT="$(git diff --stat ${BASE:+${BASE}..}HEAD | tail -1 || true)"
+INSERTIONS="$(echo "$DIFF_STAT" | awk '{print $4+0}' 2>/dev/null || echo 0)"
+DELETIONS="$(echo "$DIFF_STAT" | awk '{print $6+0}' 2>/dev/null || echo 0)"
+FILES_CHANGED_JSON="$(git diff --name-only ${BASE:+${BASE}..}HEAD | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' 2>/dev/null || echo '[]')"
+DIRTY="$(git status --short | grep -q . && echo true || echo false)"
+TOUCHES_SCHEMA="$(git diff --name-only ${BASE:+${BASE}..}HEAD | grep -qE '^server/migrations/.*\.sql$' && echo true || echo false)"
+TOUCHES_DATA="$(git diff --name-only ${BASE:+${BASE}..}HEAD | grep -qE '(experimental|destructive|drop|truncate)' && echo true || echo false)"
 
-# Scope detection
-TOUCHES_SCHEMA=false
-grep -qE '^server/migrations/' "$FILES_LIST" 2>/dev/null && TOUCHES_SCHEMA=true
-
-TOUCHES_DATA=false
-# Only set true if migration file name itself signals destruction
-if ls server/migrations/ 2>/dev/null | grep -qiE '_drop_|_destroy_|truncate'; then
-  if grep -qE '^server/migrations/' "$FILES_LIST" 2>/dev/null; then
-    TOUCHES_DATA=true
-  fi
-fi
-
-SHIPS_TO_DESKTOP=false
-grep -qE '^(apps/desktop|scripts/(ship-mac|desktop-sign))/' "$FILES_LIST" 2>/dev/null && SHIPS_TO_DESKTOP=true
-
-# Insertions / deletions (use --shortstat)
-if [[ -n "$BASE_SHA" ]]; then
-  STAT_RAW="$(git diff --shortstat "$BASE_SHA"..HEAD 2>/dev/null || true)"
-else
-  STAT_RAW="$(git diff --shortstat HEAD 2>/dev/null || true)"
-fi
-INS=$(echo "$STAT_RAW" | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' | head -1 || echo 0)
-DEL=$(echo "$STAT_RAW" | grep -oE '[0-9]+ deletion' | grep -oE '[0-9]+' | head -1 || echo 0)
-INS=${INS:-0}
-DEL=${DEL:-0}
-
-# JSON-quote file list (safe-ish: only ASCII path chars; reject anything else)
-FILES_JSON="[]"
-if [[ "$FILES_TOTAL" -gt 0 ]]; then
-  FILES_JSON=$(awk '{
-    gsub(/\\/, "\\\\"); gsub(/"/, "\\\"");
-    printf "\"%s\",", $0
-  }' "$FILES_LIST" | sed 's/,$//' | awk 'BEGIN{printf "["} {printf "%s", $0} END{printf "]"}')
-fi
-
-echo "=== Plan ==="
-echo "  target:    $TARGET"
-echo "  reason:    $REASON"
-echo "  trigger:   $TRIGGER"
-echo "  branch:    $BRANCH"
-echo "  head:      $HEAD_SHA"
-echo "  base:      ${BASE_SHA:-(working tree)}"
-echo "  dirty:     $DIRTY"
-echo "  range:     $DIFF_RANGE"
-echo "  files:     $FILES_TOTAL"
-echo "  insertions:$INS deletions:$DEL"
-echo "  schema:    $TOUCHES_SCHEMA"
-echo "  data:      $TOUCHES_DATA"
-echo "  desktop:   $SHIPS_TO_DESKTOP"
-
-if $DRY_RUN; then
-  echo "DRY-RUN — no files written"
-  rm -f "$FILES_LIST"
-  exit 0
-fi
-
-mkdir -p "$TARGET"
-
-# status.txt
-git status --short > "$TARGET/status.txt"
-
-# log.txt — last 30 commits
-git log --oneline -30 > "$TARGET/log.txt"
-
-# diff.patch (using git diff with --binary, capped to sensible scope)
+cat > "$DEST/manifest.json" <<EOF
 {
-  if [[ -n "$BASE_SHA" ]]; then
-    git diff --binary "$BASE_SHA"..HEAD 2>/dev/null || true
-    git diff --binary --cached 2>/dev/null || true
-  else
-    git diff --binary HEAD 2>/dev/null || true
-  fi
-  echo ""
-  echo "# ===== BEGIN untracked files (small, ascii-only) at $TS_ISO ====="
-  while IFS= read -r f; do
-    [[ -f "$f" ]] || continue
-    SIZE=$(stat -f %z "$f" 2>/dev/null || stat -c %s "$f" 2>/dev/null || echo 0)
-    if [[ "$SIZE" -gt 1048576 ]]; then
-      echo "# SKIP untracked (size > 1MB): $f"
-      continue
-    fi
-    echo "# ===== BEGIN untracked: $f ====="
-    cat "$f"
-    echo "# ===== END untracked: $f ====="
-  done < "$FILES_LIST"
-} > "$TARGET/diff.patch"
-
-# notes.md (optional)
-if [[ -n "$NOTES_FILE" ]]; then
-  if [[ -f "$NOTES_FILE" ]]; then
-    cp "$NOTES_FILE" "$TARGET/notes.md"
-  else
-    echo "WARN: --notes-file not found: $NOTES_FILE" >&2
-  fi
-fi
-
-# manifest.json
-cat > "$TARGET/manifest.json" <<EOF
-{
-  "schema_version": 1,
-  "created_at": "$TS_ISO",
+  "schema_version": $SCHEMA_VERSION,
+  "created_at": "$CREATED_AT",
   "reason": "$REASON",
   "trigger": "$TRIGGER",
   "git": {
     "branch": "$BRANCH",
     "head_commit": "$HEAD_SHA",
-    "base_commit": "${BASE_SHA:-}",
+    "base_commit": "${BASE:-}",
     "dirty": $DIRTY,
-    "diff_range": "$DIFF_RANGE"
+    "status_snapshot": $(printf '%s' "$STATUS_SNAPSHOT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
   },
   "diff": {
     "patch_file": "diff.patch",
-    "files_changed": $FILES_JSON,
-    "files_total": $FILES_TOTAL,
-    "insertions": $INS,
-    "deletions": $DEL
+    "files_changed": $FILES_CHANGED_JSON,
+    "insertions": $INSERTIONS,
+    "deletions": $DELETIONS,
+    "stat": $(printf '%s' "$DIFF_STAT" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().strip()))')
   },
   "scope": {
+    "files_total": $(echo "$FILES_CHANGED_JSON" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0),
     "touches_schema": $TOUCHES_SCHEMA,
     "touches_data": $TOUCHES_DATA,
-    "ships_to_desktop": $SHIPS_TO_DESKTOP
+    "ships_to_desktop": $([ "$TRIGGER" = "release" ] && echo true || echo false)
+  },
+  "notes_md": $([ -n "$NOTES" ] && echo "\"notes.md\"" || echo "null"),
+  "verification": {
+    "typecheck_passed": null,
+    "go_test_passed": null,
+    "manual_smoke_passed": null,
+    "evidence": null
   },
   "retention": {
-    "expires_at": "$(date -u -v+90d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d '+90 days' +"%Y-%m-%dT%H:%M:%SZ")",
-    "archive_after_days": 90
+    "expires_at": "$(date -u -v+${ARCHIVE_AFTER_DAYS}d +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+${ARCHIVE_AFTER_DAYS} days" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")",
+    "archive_after_days": $ARCHIVE_AFTER_DAYS
   }
 }
 EOF
 
-# Retention: if > 30 active backups (excluding _template and _archive), archive oldest
-ACTIVE_COUNT=$(find "$BACKUPS_ROOT" -mindepth 2 -maxdepth 2 -type d ! -path '*/_template*' ! -path '*/_archive*' | wc -l | tr -d ' ')
-if [[ "$ACTIVE_COUNT" -gt "$MAX_ACTIVE" ]]; then
-  OLDEST=$(find "$BACKUPS_ROOT" -mindepth 2 -maxdepth 2 -type d ! -path '*/_template*' ! -path '*/_archive*' -printf '%T@ %p\n' | sort -n | head -1 | awk '{print $2}')
-  if [[ -n "$OLDEST" ]]; then
-    REL="${OLDEST#$BACKUPS_ROOT/}"
-    TS_PART="${REL%%/*}"
-    ARCHIVE_DEST="$BACKUPS_ROOT/_archive/$TS_PART"
-    mkdir -p "$ARCHIVE_DEST"
-    mv "$OLDEST" "$ARCHIVE_DEST/"
-    echo "Retention: moved $OLDEST -> $ARCHIVE_DEST/  (active=$ACTIVE_COUNT > $MAX_ACTIVE)"
-  fi
+# --- 4. write diff.patch ------------------------------------------------------
+git diff --binary ${BASE:+${BASE}..}HEAD > "$DEST/diff.patch" || true
+
+# --- 5. write status.txt + log.txt -------------------------------------------
+git status --short > "$DEST/status.txt"
+git log --oneline -20 > "$DEST/log.txt"
+
+# --- 6. write notes.md (if provided) -----------------------------------------
+if [ -n "$NOTES" ]; then
+  cat > "$DEST/notes.md" <<EOF
+# Backup notes — $REASON ($TS)
+
+- **Created**: $CREATED_AT
+- **Branch**: $BRANCH
+- **HEAD**: $HEAD_SHA
+- **Trigger**: $TRIGGER
+- **Base**: ${BASE:-HEAD}
+
+$NOTES
+EOF
 fi
 
-rm -f "$FILES_LIST"
+# --- 7. rotate: if active > 30, move oldest to _archive/ ---------------------
+ACTIVE_COUNT=$(find "$BACKUP_ROOT" -maxdepth 2 -mindepth 2 -type d ! -name '_archive' ! -name '_template' | wc -l | tr -d ' ')
+if [ "$ACTIVE_COUNT" -gt "$ACTIVE_LIMIT" ]; then
+  OLDEST=$(find "$BACKUP_ROOT" -maxdepth 2 -mindepth 2 -type d ! -name '_archive' ! -name '_template' -printf '%T@ %p\n' | sort -n | head -1 | awk '{print $2}')
+  REL="${OLDEST#$BACKUP_ROOT/}"
+  mkdir -p "$BACKUP_ROOT/_archive"
+  git mv "$OLDEST" "$BACKUP_ROOT/_archive/$REL" 2>/dev/null || mv "$OLDEST" "$BACKUP_ROOT/_archive/$REL"
+  echo "  rotated: $REL -> _archive/"
+fi
 
-echo ""
-echo "WROTE: $TARGET"
-ls -la "$TARGET"
+# --- 8. output ----------------------------------------------------------------
+echo "backup written: .omc/backups/$TS/$REASON/"
+echo "  files: $(find "$DEST" -type f | wc -l | tr -d ' ')"
+echo "  diff:  $(wc -l < "$DEST/diff.patch" 2>/dev/null || echo 0) lines"
+echo "  insertions=$INSERTIONS  deletions=$DELETIONS"
