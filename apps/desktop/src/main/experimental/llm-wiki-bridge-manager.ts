@@ -19,15 +19,19 @@
 //     present) into the Labs platform's generic experimental:<flag>:*
 //     channel namespace.
 //
-// Scope (PR-5 / C2-mini):
+// Scope (PR-5 / C2-mini, real verbs 0.5.17):
 //
 //   - IPC通路打通. Spawn the subprocess, perform the MCP handshake,
 //     mark ready, expose status / URL / stop to the generic IPC
 //     dispatcher.
-//   - Real tool implementations (vault_read, vector_search, graph_query)
-//     are deliberately NOT in scope — those land in 0.3.29 C2-full.
-//     The stub continues to return deterministic "[stub] would read: …"
-//     payloads; this manager just plumbs the calls through.
+//   - vault_read / vault_write forward to the multica backend over
+//     HTTP (/api/experimental/llm-wiki/*) — the same surface the Go
+//     Skill adapter uses — so the stdio verbs are real, not the
+//     0.3.27 deterministic "[stub] would read: …" payloads. The
+//     `llm_wiki_bridge` flag gate stays server-side (403/404 when
+//     off); the manager injects MULTICA_API_URL / MULTICA_API_TOKEN
+//     (desktop profile PAT) into the child env at spawn so the stub
+//     can call the backend.
 //
 // Failure policy:
 //
@@ -47,7 +51,9 @@
 // because the flag's static descriptor was kind: "inline".
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { app } from "electron";
 import { resolveResourcePath } from "./manager-template";
 import type {
@@ -150,8 +156,24 @@ class LLMWikiBridgeManager implements ExperimentalManager {
     // captured so a Python traceback (e.g. syntax error after a
     // stub edit) shows up in the main-process log rather than being
     // swallowed.
+    //
+    // Spawn with an explicit cwd — MCP servers resolve relative
+    // paths against cwd, and the bridge works on the user's LLM Wiki
+    // vault under ~/Documents/. A packaged app launched from Finder
+    // inherits cwd="/", which is never the right directory. Fall
+    // back to ~/Documents when the vault subdir does not yet exist
+    // so first-launch spawns still succeed.
+    //
+    // The child env carries MULTICA_API_URL + MULTICA_API_TOKEN so
+    // the stub can call /api/experimental/llm-wiki/* on the backend;
+    // the flag gate stays server-side. bridgeEnv() resolves the
+    // credential pair from the same source daemon-manager uses
+    // (~/.multica/profiles/desktop-<host>/config.json).
+    const documents = app.getPath("documents");
+    const vaultCwd = join(documents, "llm wiki");
     const child = spawn(bin, [], {
-      env: process.env,
+      cwd: existsSync(vaultCwd) ? vaultCwd : documents,
+      env: this.bridgeEnv(),
       stdio: ["pipe", "pipe", "pipe"],
       detached: false,
     });
@@ -262,11 +284,8 @@ class LLMWikiBridgeManager implements ExperimentalManager {
   }
 
   // callTool exposes a minimal tool-call surface so the renderer can
-  // drive the bridge through the experimental IPC layer. C2-mini
-  // keeps the implementation thin — it just round-trips a JSON-RPC
-  // `tools/call` to the subprocess and returns its reply. C2-full
-  // (0.3.29) will swap the stub's deterministic responses for real
-  // vault / vector / graph handlers.
+  // drive the bridge through the experimental IPC layer. It round-trips
+  // a JSON-RPC `tools/call` to the subprocess and returns its reply.
   //
   // Not wired into a public IPC channel in C2-mini — the renderer
   // reaches the bridge via /api/experimental/llm-wiki/* HTTP routes
@@ -295,6 +314,74 @@ class LLMWikiBridgeManager implements ExperimentalManager {
       return LLM_WIKI_APP_MCP_SERVER;
     }
     return resolveResourcePath(LLMWIKI_RESOURCE_SUBDIR, LLMWIKI_STUB_BIN);
+  }
+
+  // bridgeEnv builds the child env for the stdio server. vault_read /
+  // vault_write forward to the multica backend (/api/experimental/
+  // llm-wiki/*), so the child needs the same credential pair the CLI
+  // uses: MULTICA_API_URL (+ MULTICA_API_TOKEN). The main process does
+  // not carry the token in its own env — read it from the desktop
+  // profile config.json, the same file daemon-manager writes the PAT
+  // into (daemon-manager.ts::syncToken).
+  //
+  // Honours a MULTICA_API_URL already present in process.env so an ops
+  // override (e.g. launchctl setenv) wins over the desktop.json
+  // default, mirroring cmd_experimental.go::experimentalAPIURL.
+  private bridgeEnv(): NodeJS.ProcessEnv {
+    const env = { ...process.env };
+    if (!env.MULTICA_API_URL) {
+      env.MULTICA_API_URL = this.resolveApiUrl();
+    }
+    if (!env.MULTICA_API_TOKEN) {
+      const token = this.resolveProfileToken(env.MULTICA_API_URL);
+      if (token !== "") env.MULTICA_API_TOKEN = token;
+    }
+    return env;
+  }
+
+  // resolveApiUrl mirrors server-manager's readDesktopConfig: the
+  // bundled backend base comes from ~/.multica/desktop.json, with the
+  // CLI default as fallback. ENOENT (first launch) → default; no
+  // panic so a half-configured desktop still spawns the bridge.
+  private resolveApiUrl(): string {
+    try {
+      const raw = readFileSync(
+        join(homedir(), ".multica", "desktop.json"),
+        "utf-8",
+      );
+      const cfg = JSON.parse(raw) as { apiUrl?: unknown };
+      if (typeof cfg.apiUrl === "string" && cfg.apiUrl !== "") {
+        return cfg.apiUrl;
+      }
+    } catch {
+      // fall through to default
+    }
+    return "http://127.0.0.1:8090";
+  }
+
+  // resolveProfileToken reads the token from the desktop profile
+  // config.json. Profile naming mirrors daemon-manager.ts: the
+  // `desktop-<host>` profile whose host is derived from the API URL
+  // (the same <host> derivation deriveProfileName uses). A missing or
+  // unparseable file is non-fatal — the stub will get an unsigned
+  // request and the server will surface 401 via the tool result.
+  private resolveProfileToken(apiUrl: string): string {
+    try {
+      const host = new URL(apiUrl).host.replace(/:/g, "-").toLowerCase();
+      const cfgPath = join(
+        homedir(),
+        ".multica",
+        "profiles",
+        `desktop-${host}`,
+        "config.json",
+      );
+      const cfg = JSON.parse(readFileSync(cfgPath, "utf-8")) as {
+        token?: unknown;
+      };
+      return typeof cfg.token === "string" ? cfg.token : "";
+    } catch {
+      return "";
+    }
   }
 
   // writeRpc writes one newline-delimited JSON-RPC message to the
