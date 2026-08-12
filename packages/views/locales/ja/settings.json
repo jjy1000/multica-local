@@ -275,6 +275,8 @@
     "default_off_hint": "デフォルトでオフ",
     "toast_failed": "設定を更新できませんでした",
     "toast_install_warning": "ラボは有効化されましたが、リソースのインストールに失敗しました。オフにしてから再度オンにしてください",
+    "install_button": "インストール",
+    "installing_button": "インストール中…",
     "restore_button": "復元",
     "restored_toast": "復元しました。実験フラグを反映するため Multica を再起動してください。",
     "side_panel_workspace_label": "ラボ workspace",

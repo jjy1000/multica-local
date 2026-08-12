@@ -275,6 +275,8 @@
     "default_off_hint": "默认关闭",
     "toast_failed": "更新设置失败",
     "toast_install_warning": "实验已开启,但资源装载失败,可关闭后重新开启重试",
+    "install_button": "安装",
+    "installing_button": "安装中…",
     "restore_button": "重新启用",
     "restored_toast": "已恢复。请重启 Multica 让该实验性功能重新生效。",
     "side_panel_workspace_label": "实验室 workspace",

@@ -275,6 +275,8 @@
     "default_off_hint": "Off by default",
     "toast_failed": "Failed to update setting",
     "toast_install_warning": "Lab enabled, but resource install failed — toggle off and on to retry",
+    "install_button": "Install",
+    "installing_button": "Installing…",
     "restore_button": "Restore",
     "restored_toast": "Restored. Please relaunch Multica for this experimental flag to take effect.",
     "side_panel_workspace_label": "Lab workspace",

@@ -275,6 +275,8 @@
     "default_off_hint": "기본 꺼짐",
     "toast_failed": "설정을 업데이트하지 못했습니다",
     "toast_install_warning": "랩이 켜졌지만 리소스 설치에 실패했습니다. 껐다가 다시 켜서 재시도하세요",
+    "install_button": "설치",
+    "installing_button": "설치 중…",
     "restore_button": "복원",
     "restored_toast": "복원됨. 실험 플래그가 적용되도록 Multica를 재시작해 주세요.",
     "side_panel_workspace_label": "Lab workspace",

@@ -98,6 +98,11 @@ export function LabsTab() {
   // so the user doesn't have to toggle each flag off-then-on.
   const [installAllPending, setInstallAllPending] = useState(false);
   const [installAllSummary, setInstallAllSummary] = useState<string | null>(null);
+  // B1a (0.5.17): per-flag install in-flight key. Tracks which flag row
+  // is currently running POST /api/experimental-resources/{key}/install
+  // so its button shows the spinning state; other rows' buttons disable
+  // while any install is in flight (one lab install at a time).
+  const [installingKey, setInstallingKey] = useState<string | null>(null);
 
   // 0.5.6: `agent_creation_studio` and `agent_self_optimization`
   // were promoted to product-level resources (0.5.5) and the
@@ -137,6 +142,33 @@ export function LabsTab() {
       setInstallAllSummary(`失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setInstallAllPending(false);
+    }
+  }
+
+  // B1a (0.5.17): per-flag install button. The install-all banner above
+  // re-runs every opted-in flag, but a single lab can be enabled with 0
+  // lock rows while the rest are fine (pre-23c5998 toggles, a failed
+  // install that left no marker). POST /api/experimental-resources/
+  // {key}/install is the same idempotent path the toggle-on runs; the
+  // refetch flips the side panel to "已装载" without a second round-trip.
+  async function runInstallFlag(flagKey: string) {
+    setInstallingKey(flagKey);
+    try {
+      const res = await api.rawRequest(`/api/experimental-resources/${flagKey}/install`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        toast.error(`${t(($) => $.labs.toast_failed)}: HTTP ${res.status}`, {
+          description: detail || undefined,
+        });
+        return;
+      }
+      await refetch();
+    } catch {
+      toast.error(t(($) => $.labs.toast_failed));
+    } finally {
+      setInstallingKey(null);
     }
   }
 
@@ -299,6 +331,29 @@ export function LabsTab() {
                     ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">{description}</p>
+                  {/* B1a (0.5.17): per-flag install button. Shows when
+                      the flag is enabled but its lock rows are missing
+                      (installation.installed = counts > 0), so a lab
+                      that fell into the broken state can be re-installed
+                      from the GUI instead of the CLI. Generic across all
+                      installable flags, not pythia-specific. */}
+                  {flag.enabled && !brokenEntry && flag.installation && !flag.installation.installed ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => runInstallFlag(flag.key)}
+                      disabled={installingKey !== null}
+                    >
+                      <Package
+                        className={`h-3 w-3 ${installingKey === flag.key ? "animate-spin" : ""}`}
+                        aria-hidden
+                      />
+                      {installingKey === flag.key
+                        ? t(($) => $.labs.installing_button)
+                        : t(($) => $.labs.install_button)}
+                    </Button>
+                  ) : null}
                   {brokenEntry ? (
                     <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
                       <p className="text-xs text-destructive">
