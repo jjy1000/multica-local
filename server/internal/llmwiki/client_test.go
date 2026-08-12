@@ -12,11 +12,15 @@ import (
 	"time"
 )
 
-// TestClient_FlagOff returns ErrFlagDisabled on the first call so
-// a flag-flip user can see the polite refusal without touching the
-// desktop API at all. The wire shape is the only contract the HTTP
-// handler relies on.
-func TestClient_FlagOff(t *testing.T) {
+// TestClient_FlagOff_RespectsCtx pins the client's flag-off contract:
+// whatever the FlagOn closure decides, that is what the client
+// surfaces. The decision is owned by the closure built at
+// handler/llm_wiki_bridge.go::llmWikiFlagOnFor — this test pins
+// that the client itself does not consult experimental.DefaultFor
+// or any other ambient catalog signal. Production wires the
+// closure to per-user experimental_pref; tests can wire any
+// truthy/falsy func to drive their scenarios.
+func TestClient_FlagOff_RespectsCtx(t *testing.T) {
 	t.Parallel()
 
 	called := false

@@ -30,6 +30,55 @@ import (
 	"github.com/multica-ai/multica/server/internal/llmwiki"
 )
 
+// Per-request user-id carrier. The llm_wiki client's FlagOn closure
+// reads this so it can resolve the same per-user experimental_pref
+// the chi middleware at cmd/server/router.go:885
+// (h.RequireExperimentalFlag("llm_wiki_bridge")) honours. Without
+// this plumbing the closure falls through to the catalog default —
+// which is off for every current flag — and every bridge call
+// returns ErrFlagDisabled even after the user enabled the lab in
+// the GUI.
+type llmWikiCtxKey int
+
+const llmWikiCtxKeyUserID llmWikiCtxKey = iota
+
+// withLLMWikiUserID stamps the calling user-id onto ctx so the
+// downstream client FlagOn closure can resolve per-user pref. Empty
+// userID is a no-op (the closure falls through to the catalog
+// default), which keeps register-time / smoke paths well-defined.
+func withLLMWikiUserID(ctx context.Context, userID string) context.Context {
+	if userID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, llmWikiCtxKeyUserID, userID)
+}
+
+// userIDFromLLMWikiCtx is the inverse — used by the FlagOn closure
+// to pull the same user-id the handler stamped on the request.
+func userIDFromLLMWikiCtx(ctx context.Context) string {
+	v, _ := ctx.Value(llmWikiCtxKeyUserID).(string)
+	return v
+}
+
+// llmWikiFlagOnFor builds the per-request FlagOn delegate the
+// llm_wiki client takes. It mirrors experimentalFlagEnabled (the
+// chi middleware's resolver) so any caller — HTTP, CLI, Skill
+// adapter — sees the same per-user preference the GUI toggled.
+//
+// Resolves to the catalog default when:
+//   - the catalog key is blacklisted (experimental.IsBroken),
+//   - no user-id was stamped onto ctx (register-time / smoke paths),
+//   - no row exists in experimental_pref for this user + key.
+//
+// The user-id must come from the handler (set via withLLMWikiUserID
+// on r.Context()) — the closure runs inside Client.WithFlag, where
+// r is out of scope.
+func llmWikiFlagOnFor(q experimental.Querier) func(context.Context) bool {
+	return func(ctx context.Context) bool {
+		return experimentalFlagEnabled(ctx, q, userIDFromLLMWikiCtx(ctx), "llm_wiki_bridge")
+	}
+}
+
 // llmWikiReady is a soft check the handler uses before serving
 // /status. It is NOT a security check; we do not refuse the
 // caller — we report "desktop api not running, suggest opening
@@ -56,16 +105,19 @@ func llmWikiReady(httpClient *http.Client, base string) bool {
 }
 
 // RegisterLLMWikiBridgeRoutes wires the routes on the chi router.
-// Caller MUST gate on experimental.DefaultFor("llm_wiki_bridge").
+//
+// The caller MUST mount this inside a route group guarded by
+// h.RequireExperimentalFlag("llm_wiki_bridge") so the per-user
+// experimental_pref is honoured (the catalog compile-time default
+// is off for every current flag, so routing without the middleware
+// would 404 every caller even after a GUI opt-in).
 func RegisterLLMWikiBridgeRoutes(r chi.Router, h *Handler) {
-	// Build the client + writer at register time. The client is
-	// reusable across requests; the writer is light enough to
-	// rebuild per-call but we keep one for symmetry with the
-	// client (logger hooks land here later).
+	// Build the client at register time. The FlagOn closure reads
+	// the per-user experimental_pref via llmWikiFlagOnFor, which
+	// mirrors the chi middleware's per-request gate so the client
+	// and the middleware agree on what "flag on" means.
 	client, err := llmwiki.New(context.Background(), llmwiki.Config{
-		FlagOn: func(_ context.Context) bool {
-			return experimental.DefaultFor("llm_wiki_bridge")
-		},
+		FlagOn: llmWikiFlagOnFor(h.Queries),
 	})
 	if err != nil {
 		// Failing to discover the desktop API is non-fatal — we
@@ -127,7 +179,7 @@ func (h *Handler) GetLLMWikiStatus(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	health, err := h.LLMWikiClient.Health(r.Context())
+	health, err := h.LLMWikiClient.Health(withLLMWikiUserID(r.Context(), requestUserID(r)))
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":          false,
@@ -153,7 +205,7 @@ func (h *Handler) ListLLMWikiProjects(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "LLM Wiki desktop app not running"})
 		return
 	}
-	projects, current, err := h.LLMWikiClient.Projects(r.Context())
+	projects, current, err := h.LLMWikiClient.Projects(withLLMWikiUserID(r.Context(), requestUserID(r)))
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -174,7 +226,7 @@ func (h *Handler) ListLLMWikiFiles(w http.ResponseWriter, r *http.Request) {
 	root := r.URL.Query().Get("root")
 	recursive := r.URL.Query().Get("recursive") != "false"
 	maxFiles := atoiOrZero(r.URL.Query().Get("max_files"))
-	files, err := h.LLMWikiClient.Files(r.Context(), root, recursive, maxFiles)
+	files, err := h.LLMWikiClient.Files(withLLMWikiUserID(r.Context(), requestUserID(r)), root, recursive, maxFiles)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -197,7 +249,7 @@ func (h *Handler) ReadLLMWikiFile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "path is required"})
 		return
 	}
-	body, err := h.LLMWikiClient.ReadFile(r.Context(), path)
+	body, err := h.LLMWikiClient.ReadFile(withLLMWikiUserID(r.Context(), requestUserID(r)), path)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -227,7 +279,7 @@ func (h *Handler) SearchLLMWiki(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "query is required"})
 		return
 	}
-	hits, err := h.LLMWikiClient.Search(r.Context(), req.Query, req.TopK, req.IncludeContent)
+	hits, err := h.LLMWikiClient.Search(withLLMWikiUserID(r.Context(), requestUserID(r)), req.Query, req.TopK, req.IncludeContent)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
@@ -247,7 +299,7 @@ func (h *Handler) QueryLLMWikiGraph(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	nodeType := r.URL.Query().Get("node_type")
 	limit := atoiOrZero(r.URL.Query().Get("limit"))
-	nodes, err := h.LLMWikiClient.Graph(r.Context(), q, nodeType, limit)
+	nodes, err := h.LLMWikiClient.Graph(withLLMWikiUserID(r.Context(), requestUserID(r)), q, nodeType, limit)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
