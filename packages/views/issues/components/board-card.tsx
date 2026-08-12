@@ -5,8 +5,12 @@ import { AppLink } from "../../navigation";
 import { useSortable, defaultAnimateLayoutChanges } from "@dnd-kit/sortable";
 import type { AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { toast } from "sonner";
-import type { Issue, UpdateIssueRequest } from "@multica/core/types";
+import type { Issue, IssueProperty, Project, UpdateIssueRequest } from "@multica/core/types";
+import { useQuery } from "@tanstack/react-query";
+import { useWorkspaceId } from "@multica/core/hooks";
+import { propertyListOptions } from "@multica/core/properties";
+import { CustomPropertyValueDisplay } from "./pickers/custom-property-picker";
+import { descriptionPreview } from "./description-preview";
 import { formatDateOnly, isPastDateOnly } from "@multica/core/issues/date";
 import { CalendarClock, CalendarDays } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -33,16 +37,6 @@ function formatDate(date: string): string {
   return formatDateOnly(date, { month: "short", day: "numeric" }, "en-US");
 }
 
-function descriptionPreview(markdown: string): string {
-  return markdown
-    .replace(/!file\[[^\]]*\]\([^)]*\)/g, "")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[*_`~]+/g, "")
-    .replace(/^[\s>#]+/gm, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 /** Stops event from bubbling to Link/drag handlers */
 function PickerWrapper({ children, className }: { children: React.ReactNode; className?: string }) {
