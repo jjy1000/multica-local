@@ -57,5 +57,19 @@
     "connecting": "正在连接…",
     "waiting": "等待第一条预测…",
     "confidence": "置信度 {{value}}%"
+  },
+  "web_stubs": {
+    "intro_title": "实验性功能",
+    "intro_desc": "Multica 把实验性功能作为可选 Labs 发布。桌面端是它们当前的运行环境；本页列出可用 Labs，方便你在安装 Multica Desktop 后知道要开启哪些。",
+    "download_cta": "下载 Multica Desktop",
+    "web_only_title": "仅在 Multica Desktop 中可用",
+    "web_only_desc": "此实验性界面由桌面端的运行时（Electron + 本地 Postgres + 实验室沙箱）承载。Web 端无法访问，因为运行时、IPC 桥接和按工作区分发的子进程均为桌面独占。请安装 Multica Desktop 以使用此实验室。",
+    "back_to_list": "返回实验室列表",
+    "desc_claude_lab": "多智能体科研工作台。计划、对话、运行代码、检索文献、预测 — 全部在一个标签页内。",
+    "desc_pythia": "多视角预测引擎。针对议题和关注列表符号，持续推送结构化预测（情景、概率、置信度）。",
+    "desc_mythos": "智能体蜂群，两种模式：`sole`（蜂群端到端负责议题）/ `enhancer`（蜂群预演 + 监督你指派的执行人）。",
+    "desc_llm_wiki_bridge": "LLM Wiki 的本地 stdio 桥接。通过 MCP 风格动词，把 wiki 文件 / 搜索 / 状态流式送到编辑器或智能体运行时。",
+    "desc_code_canvas": "用于原型、草图代码、并排浏览智能体生成片段的交互画布。",
+    "desc_plugin": "用户安装的实验室插件。基于清单驱动的标签页（聊天 / 产物 / 表格 / iframe / 代码 / 设置），运行于按插件隔离的内联运行时。"
   }
 }
