@@ -41,10 +41,6 @@ SNAPSHOT="$HOME/.multica/scripts/pre-update-snapshot.sh"
 COLD_START="$HOME/.multica/scripts/verify-desktop-cold-start.sh"
 SIGN="$REPO_ROOT/scripts/desktop-sign-nested-binaries.sh"
 
-# Ship metadata (used by step 6b local backup + final summary)
-VERSION="$(python3 -c 'import json; print(json.load(open("'"$DESKTOP"'/package.json"))["version"])' 2>/dev/null || echo 'unknown')"
-BRANCH="$(git -C "$REPO_ROOT" branch --show-current 2>/dev/null || echo 'unknown')"
-
 BUILD_ONLY=false
 ASSUME_YES=false
 SKIP_SNAPSHOT=false
@@ -136,27 +132,6 @@ cp -R "$BUILT_APP" /Applications/ || die "cp -R into /Applications failed — ab
 # re-signed AFTER the copy. The script self-verifies `multica --help` exits 0.
 step "6a/7 re-sign app + nested Go binaries (self-verifying)"
 bash "$SIGN" "$INSTALLED_APP" || die "nested-binary signing/verification failed — the app will NOT start its backend"
-
-# --- 6b. Local backup snapshot (.omc/backups/<TS>/<ver>-ship/) ---------------
-# Per .omc/backups/README.md (local-project-backup-protocol-2026-08-11): every
-# ship captures a manifest + diff + status at /Applications/Multica.app level,
-# so a future session can `git apply .omc/backups/<TS>/0.X.Y-ship/diff.patch`
-# to recreate the ship state if /Applications gets corrupted or wiped. The
-# data-safety snapshot (step 0) is /tmp-only and short-lived; this one lives
-# 90 days in .omc/backups/_archive/. --skip-backup available for emergencies.
-BACKUP="$REPO_ROOT/scripts/backup.sh"
-SKIP_BACKUP="${SKIP_BACKUP:-false}"
-if [ "$SKIP_BACKUP" != true ]; then
-  if [ ! -x "$BACKUP" ]; then
-    die "scripts/backup.sh missing or not executable — refusing to ship without local backup (set SKIP_BACKUP=true to override)"
-  fi
-  step "6b/7 local backup snapshot (.omc/backups/<TS>/${VERSION}-ship/)"
-  bash "$BACKUP" --reason "${VERSION}-ship" --trigger release \
-    --notes "ship-mac.sh step 6b; version=$VERSION; branch=$BRANCH; data-safety snapshot at step 1" \
-    || die "local backup failed — refusing to ship without snapshot (set SKIP_BACKUP=true to override)"
-else
-  echo "    SKIP_BACKUP=true: skipping local backup (emergency override)"
-fi
 
 # --- 7. Cold-start verification (three-check + row parity) -------------------
 step "7/7 cold-start verification"
