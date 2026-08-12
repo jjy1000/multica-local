@@ -329,6 +329,44 @@ func TestOptimizeAgentLowScoreRejected(t *testing.T) {
 	}
 }
 
+// TestOptimizeAgentCorrectionAnchorInsufficientForAutoApply pins the
+// F-028.1 invariant (triage.md §F-028, design verdict §5a): a correction
+// anchor alone is NOT sufficient for auto-apply — the validator score
+// must ALSO clear AutoApplyGate (90.0). An attacker who fabricates a
+// correction event in their own workspace cannot bypass the LLM rubric.
+//
+// Three score buckets, one test each:
+//   - <  ProposeFloor (60)            → rejected (TestOptimizeAgentLowScoreRejected)
+//   - >= ProposeFloor && < AutoApplyGate → suggested  (this test, score=70)
+//   - >= AutoApplyGate                 → applied    (TestOptimizeAgentAutoApplyEnroll)
+//
+// Together they make the validator-score ladder explicit so any future
+// refactor that collapses or skips a bucket is caught at unit-test time.
+func TestOptimizeAgentCorrectionAnchorInsufficientForAutoApply(t *testing.T) {
+	o := stubOptimizer(NewOptimizer())
+	o.ProviderLLM = (&fakeLLM{
+		proposalText: `[{"edit_type":"add","after":"Validate edge cases.","rationale":"per correction anchor"}]`,
+	}).provider
+	o.ValidatorLLM = (&fakeLLM{validatorText: `{"score":70,"reason":"likely correct but below auto-apply gate"}`}).validator
+
+	ev := agentEvidence(t, true, []db.AgentTrustEvent{
+		{EventType: "correction", TaskID: pgtypeUUID(t, "55555555-5555-5555-5555-555555555555")},
+	})
+	applied, suggested, rejected, _, err := o.OptimizeAgent(context.Background(), nil, ev)
+	if err != nil {
+		t.Fatalf("OptimizeAgent: %v", err)
+	}
+	if len(applied) != 0 {
+		t.Fatalf("score 70 < AutoApplyGate(90) must NOT auto-apply even with correction anchor: applied=%v", applied)
+	}
+	if len(suggested) != 1 {
+		t.Fatalf("score 70 >= ProposeFloor(60) must land in suggested: suggested=%v", suggested)
+	}
+	if len(rejected) != 0 {
+		t.Fatalf("score 70 must not be rejected: rejected=%v", rejected)
+	}
+}
+
 func TestOptimizeAgentNoEvidence(t *testing.T) {
 	o := stubOptimizer(NewOptimizer())
 	ev := OptimizeEvidence{TargetType: SubjectAgent, TargetID: pgtypeUUID(t, "11111111-1111-1111-1111-111111111111"), TargetName: "x"}

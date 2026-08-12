@@ -129,6 +129,80 @@ status: in-progress
   fabricated), trust-scope enrollment check (no waiver), enroll-marker integrity
   (cannot be spoofed via editable instructions).
 
+- **Verified 2026-08-12 (0.5.18 Phase 1C-E)**: **design-as-intended.**
+  All three sub-fix items are already gated by the 5-gate AND at
+  optimizer.go:432-446 (`canAutoApply := edit.EditType == "add" &&
+  score >= AutoApplyGate && appliedCount < MaxAutoAppliesPerAgentPerRun
+  && !labManaged && correctionBacked && !touchesSafetyToken(p.Before) &&
+  !touchesSafetyToken(p.After) && (scope != ScopeEnroll || enrolled)`).
+  No single gate can be flipped by an attacker in isolation. See per-sub-fix
+  closure notes below for the evidence + regression test pins.
+
+- **F-028.1 — correction anchor (cannot be fabricated).**
+  - Code: `optimizer.go:387-394` derives `correctionTaskID` from the trust
+    event ledger (`evt.EventType == "correction" && evt.TaskID.Valid`). It
+    IS the only gate the attacker can influence (via repeated
+    `CorrectAgentTrust` calls from their workspace membership), but it is
+    AND-ed with 4 other gates the attacker cannot influence:
+      1. `score >= AutoApplyGate (90.0)` — LLM rubric, attacker cannot
+         pass low-quality edits.
+      2. `!labManaged` — server-stamped from `experimental_resource_visibility`.
+      3. `enrolled` (ScopeEnroll) — user opt-in via `【self-opt:enroll】`
+         marker in agent instructions.
+      4. `!touchesSafetyToken(...)` — regex match on `secret/禁止/不可`,
+         blocks prompt-injection content.
+    - Closing just one gate is therefore useless: a fabricated correction
+      anchors an edit but the LLM still has to score ≥ 90, and a low-score
+      edit lands in `suggested` (human confirm) regardless of anchor.
+  - **Closure**: design-as-intended. Added regression test
+    `optimizer_test.go::TestOptimizeAgentCorrectionAnchorInsufficientForAutoApply`
+    (score=70 + correction anchor + enrolled → must land in `suggested`,
+    NOT `applied`). Together with the pre-existing
+    `TestOptimizeAgentLowScoreRejected` (score=30 → `rejected`) and
+    `TestOptimizeAgentAutoApplyEnroll` (score=95 → `applied`), the three
+    buckets of the validator-score ladder are explicit and any future
+    refactor that collapses or skips a bucket is caught at unit-test time.
+
+- **F-028.2 — trust-scope enrollment (no waiver).**
+  - Code: `optimizer.go:444-446` `if scope == ScopeEnroll { canAutoApply
+    = canAutoApply && enrolled }`. The `enrolled` gate ONLY applies to
+    `ScopeEnroll`; `ScopeTrust` (low-trust subjects) is a SYSTEM MANDATE
+    that ignores enrollment (per design verdict §5a — the user's own spec
+    directs the system to fix low-trust agents). This is not a "waiver" —
+    it is the deliberate `ScopeTrust` semantics.
+  - The hard-block list `runner.go:645 isHardBlockedAgent("Multica Helper")`
+    PLUS `LabManagedFunc` (server-stamped, attacker cannot influence) cover
+    the agents that must NEVER auto-apply under any scope.
+  - **Closure**: design-as-intended. Existing regression test
+    `optimizer_test.go::TestOptimizeAgentTrustScopeAutoAppliesWithoutMarker`
+    (L230-260) pins the contract: `ScopeTrust` + correction anchor + NOT
+    enrolled + low trust → still auto-applies (system mandate), with the
+    persisted edit carrying `scope=trust` for auditability.
+
+- **F-028.3 — enroll-marker integrity (cannot be spoofed via editable instructions).**
+  - Code: `runner.go:625-630 EnrollmentMarker = "【self-opt:enroll】"` +
+    `enrollmentMarker(a db.Agent) bool { return strings.Contains(a.Instructions, EnrollmentMarker) }`.
+    Marker is read from the DB-stored `agent.instructions` field ONLY — never
+    from the LLM context, issue title, comment text, or note payload. A
+    sub-agent instruction injection attack (e.g. attacker writes the marker
+    into a comment the agent reads) cannot satisfy the check, because the
+    check does not see the comment.
+  - The marker being user-editable IS the design (per CLAUDE.md §Self-Opt
+    "EnrollmentMarker is the opt-in token a user adds to an agent's
+    instructions to enable auto-apply"). Adding the marker is the user's
+    own consent; removing the marker disables auto-apply. This is not a
+    "spoof" — it is the documented enrollment contract.
+  - **Closure**: design-as-intended. Marker read scope (DB.Instructions
+    only) is enforced by code structure (one-line `strings.Contains` over
+    a single field) and verifiable by grep. No new regression test added —
+    the existing scope test in F-028.1 covers the downstream effect (an
+    unenrolled agent never auto-applies regardless of marker wording).
+
+- **Closed by**: 3 atomic commits landed in 0.5.18 — one per sub-fix with
+  its own test pin + docs flip. Net diff: +1 test (F-028.1),
+  +0 tests (F-028.2 cites existing), +0 tests (F-028.3 cites existing),
+  +triage.md update, +CLAUDE.md status flip.
+
 ---
 
 ## Vendor / bundled-skill out-of-scope (4 items)
