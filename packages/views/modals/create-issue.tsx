@@ -866,14 +866,19 @@ export function ManualCreatePanel({
               />
             </div>
 
-            {/* Description — bounded so the toolbar below it (including
-                the LabPicker pill) stays visible regardless of dialog
-                height. Without this cap ContentEditor's flex-1 would
-                expand to fill the dialog, pushing the inline toolbar
+            {/* Description — flex-1 when expanded so the editor fills
+                the dialog's full height (otherwise the maximized
+                dialog would show a blank band below the editor).
+                Collapsed state keeps max-h-48 so the inline toolbar
+                stays visible regardless of dialog height — without
+                the cap ContentEditor's flex-1 would push the toolbar
                 past the overflow-hidden gutter. */}
             <div
               {...descDropZoneProps}
-              className="relative flex min-h-24 max-h-48 overflow-y-auto px-5"
+              className={cn(
+                "relative flex min-h-24 overflow-y-auto px-5",
+                isExpanded ? "flex-1" : "max-h-48",
+              )}
             >
               <ContentEditor
                 ref={descEditorRef}
