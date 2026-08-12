@@ -66,11 +66,39 @@ status: in-progress
 ### F-007 (HIGH 0.9, FA-3) — Self-opt auto-apply replaces ENTIRE instructions
 
 - File: `server/internal/service/agent_self_optimization/runner.go:594`
-- **Note**: CLAUDE.md + 0.5.2 ship log claim "auto-apply only ever adds".
+- **Note (original)**: CLAUDE.md + 0.5.2 ship log claim "auto-apply only ever adds".
   Audit may have caught a real regression or a documentation drift.
-- **Plan**: 0.5.17 Phase 1 — Read `runner.go:594` first to verify; if audit
+- **Plan (original)**: 0.5.17 Phase 1 — Read `runner.go:594` first to verify; if audit
   is correct, fix to load current instructions + append edit. If audit is
   wrong, document the discrepancy in this file.
+
+- **Verified 2026-08-12 (0.5.18 Phase 1A)**: **doc-drift (audit false positive).**
+  - `runner.go:594` is `go runSubject(...)` goroutine spawn (L592-595 for-loop),
+    not the apply write site. Audit cite line is off by ~250 lines.
+  - Actual write site is `edits.go::ApplyEdit` (L137-205), called by both
+    user-confirm path (POST /self-opt/edits/{id}/apply) and the auto-apply
+    branch inside Optimizer. The switch on `edit.EditType` (L166-184):
+    - `add`     (L167-171): `cur += edit.AfterText + "\n"` — true append
+    - `delete`  (L172-176): `strings.Replace(cur, BeforeText, "", 1)` — 1-occurrence
+    - `replace` (L177-181): `strings.Replace(cur, BeforeText, AfterText, 1)` — 1-occurrence
+    - No `cur = edit.AfterText` / `cur = AfterText` (whole-clobber) assignment exists.
+  - Pre-edit snapshot `preEdit := cur` (L163) is captured BEFORE the switch mutates
+    `cur`, persisted via `UpdateAgentOptEditApplication(...InstructionsSnapshot: preEdit)`
+    (L192-200). RevertEdit (edits.go:255) writes the snapshot back — rollback works.
+  - Auto-apply gate (optimizer.go `Optimize()`) explicitly excludes `delete` /
+    `replace` per design verdict §5a (optimizer.go:429: "delete / replace NEVER
+    auto-apply — they always go to 'suggested'"). Only `add` may auto-apply, and
+    even then requires: `validation_score ≥ 90` + agent enrolled
+    (`【self-opt:enroll】` marker) + trust ≥ 8 (`MinAutoApplyTrustScore`) +
+    `correction_task_id` anchored + not lab-managed/hard-blocked +
+    `MaxAutoAppliesPerAgentPerRun=1` rate cap + snapshot committed.
+  - **Conclusion**: code matches CLAUDE.md + 0.5.2 ship log verbatim. No fix
+    needed. Audit was a shallow textual pattern match.
+- **Closed by**: commit landed in 0.5.18 — adds `edits_test.go` static-invariant
+  pin (`TestApplyEditNeverReplacesEntireInstructions` +
+  `TestApplyEditSnapshotBeforeMutation`) so a future refactor cannot silently
+  re-introduce the destructive path or invert the snapshot order without
+  breaking the test.
 
 ### F-008 (HIGH 0.9, FA-4) — Plugin-skill global injection (no per-agent enrollment)
 
