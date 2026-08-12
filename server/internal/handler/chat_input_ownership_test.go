@@ -298,6 +298,89 @@ func TestPinChatSession_TogglesPinnedAt(t *testing.T) {
 	}
 }
 
+// 6b. ListChatSessionsByCreator puts pinned rows at the top of the result
+// (pinned_at DESC), then unpinned rows by updated_at DESC. Backs the
+// chat_pin_ui list-sort contract (migration 139 pinned_at + 140 partial
+// index). All 3 list queries (chat.sql: ListChatSessionsByCreator +
+// ListAllChatSessionsByCreator, chat_input_ownership.sql:
+// ListChatSessionsByCreatorWithUnreadCount) share the same ORDER BY, so a
+// single test against the canonical Web/Desktop live query is enough to
+// pin the contract.
+func TestListChatSessionsByCreator_PinnedFirst(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires DB")
+	}
+	ctx := context.Background()
+
+	// Three independent agents + sessions so the FK chain (session → agent
+	// → workspace) is the same shape as the other chat tests, and so each
+	// session can carry its own deterministic updated_at / pinned_at
+	// without cross-test interference from the shared test workspace's
+	// other rows.
+	_, pinnedSessionID := newTestChatSessionForOwnership(t, ctx)
+	defer cleanupTestChatSession(t, pinnedSessionID)
+	_, olderSessionID := newTestChatSessionForOwnership(t, ctx)
+	defer cleanupTestChatSession(t, olderSessionID)
+	_, newerSessionID := newTestChatSessionForOwnership(t, ctx)
+	defer cleanupTestChatSession(t, newerSessionID)
+
+	// Pinned row: pinned_at = 2020 (very early), updated_at = 2020 (very
+	// early). The pinned group sorts by pinned_at DESC, so this lands at
+	// the very top.
+	if _, err := testPool.Exec(ctx, `
+		UPDATE chat_session
+		SET pinned_at = '2020-06-15 12:00:00+00',
+		    updated_at = '2020-06-15 12:00:00+00'
+		WHERE id = $1
+	`, pinnedSessionID); err != nil {
+		t.Fatalf("set pinned row: %v", err)
+	}
+	// Unpinned rows: distinct updated_at values so the unpinned group's
+	// tie-breaker is deterministic. newer (2025-06) must sort above
+	// older (2025-01).
+	if _, err := testPool.Exec(ctx, `
+		UPDATE chat_session SET updated_at = '2025-01-01 00:00:00+00' WHERE id = $1
+	`, olderSessionID); err != nil {
+		t.Fatalf("set older updated_at: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		UPDATE chat_session SET updated_at = '2025-06-01 00:00:00+00' WHERE id = $1
+	`, newerSessionID); err != nil {
+		t.Fatalf("set newer updated_at: %v", err)
+	}
+
+	rows, err := testHandler.Queries.ListChatSessionsByCreator(ctx, db.ListChatSessionsByCreatorParams{
+		WorkspaceID: util.MustParseUUID(testWorkspaceID),
+		CreatorID:   util.MustParseUUID(testUserID),
+	})
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+
+	// Record the index of each of the 3 seeded sessions in the result.
+	// Other test rows may live in this list too (the test workspace is
+	// shared across handler_test.go), so we only assert relative order
+	// among the 3 known ids.
+	positions := map[string]int{}
+	for i, r := range rows {
+		id := uuidToString(r.ID)
+		if id == pinnedSessionID || id == olderSessionID || id == newerSessionID {
+			positions[id] = i
+		}
+	}
+	if len(positions) != 3 {
+		t.Fatalf("expected 3 seeded sessions in list, found %d", len(positions))
+	}
+	if positions[pinnedSessionID] >= positions[newerSessionID] {
+		t.Fatalf("pinned session must sort above unpinned group: pinned=%d, newer=%d",
+			positions[pinnedSessionID], positions[newerSessionID])
+	}
+	if positions[newerSessionID] >= positions[olderSessionID] {
+		t.Fatalf("within unpinned group, newer (2025-06) must sort above older (2025-01): newer=%d, older=%d",
+			positions[newerSessionID], positions[olderSessionID])
+	}
+}
+
 // 7. SetChatSessionAgentIntro flags an intro session. Migration 138 wiring.
 func TestSetChatSessionAgentIntro_FlagsIntroSession(t *testing.T) {
 	if testing.Short() {

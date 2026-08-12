@@ -15,18 +15,29 @@ WHERE id = $1 AND workspace_id = $2;
 -- Returns active sessions with a boolean unread flag. Unread is strictly
 -- per-session: either the user has uncleared assistant replies in this
 -- session or they don't. Counting messages would be misleading.
+--
+-- Sort contract (chat_pin_ui, migration 139+140): pinned rows first
+-- (`pinned_at IS NOT NULL`), then by pinned_at DESC (most-recently pinned
+-- first), then by updated_at DESC. The partial index idx_chat_session_pinned
+-- (creator_id, workspace_id, pinned_at DESC WHERE pinned_at IS NOT NULL)
+-- covers the pinned group; the unpinned tail falls back to a standard scan
+-- ordered by updated_at.
 SELECT cs.*,
        (cs.unread_since IS NOT NULL)::bool AS has_unread
 FROM chat_session cs
 WHERE cs.workspace_id = $1 AND cs.creator_id = $2 AND cs.status = 'active'
-ORDER BY cs.updated_at DESC;
+ORDER BY (cs.pinned_at IS NULL) ASC, cs.pinned_at DESC, cs.updated_at DESC;
 
 -- name: ListAllChatSessionsByCreator :many
+-- Same sort contract as ListChatSessionsByCreator but across all statuses
+-- (active + archived). Used by the status="all" branch of the chat list
+-- handler so the pinned-at-top UX is preserved when the caller wants to
+-- render archived sessions inline.
 SELECT cs.*,
        (cs.unread_since IS NOT NULL)::bool AS has_unread
 FROM chat_session cs
 WHERE cs.workspace_id = $1 AND cs.creator_id = $2
-ORDER BY cs.updated_at DESC;
+ORDER BY (cs.pinned_at IS NULL) ASC, cs.pinned_at DESC, cs.updated_at DESC;
 
 -- name: UpdateChatSessionTitle :one
 UPDATE chat_session SET title = $2, updated_at = now()

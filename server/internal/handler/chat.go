@@ -137,6 +137,16 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 			if _, ok := allowed[uuidToString(s.AgentID)]; !ok {
 				continue
 			}
+			// Map pinned_at the same way the WithUnreadCount branch does
+			// (see the pinnedAt/lastReadAt locals below) so the status="all"
+			// list path also surfaces the pin state to the renderer. Without
+			// this, status="all" callers see a UI that omits the pin badge
+			// and ignores the sort order pinned rows expect at the top of
+			// the list.
+			pinnedAt := ""
+			if s.PinnedAt.Valid {
+				pinnedAt = timestampToString(s.PinnedAt)
+			}
 			resp = append(resp, ChatSessionResponse{
 				ID:          uuidToString(s.ID),
 				WorkspaceID: uuidToString(s.WorkspaceID),
@@ -145,6 +155,7 @@ func (h *Handler) ListChatSessions(w http.ResponseWriter, r *http.Request) {
 				Title:       s.Title,
 				Status:      s.Status,
 				HasUnread:   s.HasUnread,
+				PinnedAt:    pinnedAt,
 				CreatedAt:   timestampToString(s.CreatedAt),
 				UpdatedAt:   timestampToString(s.UpdatedAt),
 			})

@@ -160,7 +160,7 @@ SELECT cs.id, cs.workspace_id, cs.agent_id, cs.creator_id, cs.title, cs.session_
        )::int AS unread_count
 FROM chat_session cs
 WHERE cs.workspace_id = $1 AND cs.creator_id = $2 AND cs.status = 'active'
-ORDER BY cs.updated_at DESC
+ORDER BY (cs.pinned_at IS NULL) ASC, cs.pinned_at DESC, cs.updated_at DESC
 `
 
 type ListChatSessionsByCreatorWithUnreadCountParams struct {
@@ -193,6 +193,11 @@ type ListChatSessionsByCreatorWithUnreadCountRow struct {
 // strictly after last_read_at. The frontend can render a number instead of
 // a dot. If last_read_at IS NULL (cold start before any read), fall back to
 // the legacy unread_since boundary.
+//
+// Sort contract (chat_pin_ui, migration 139+140): pinned rows first
+// (`pinned_at IS NOT NULL`), then by pinned_at DESC, then by updated_at
+// DESC. Mirrors ListChatSessionsByCreator in chat.sql so the mobile IM-style
+// count variant and the web/desktop live path agree on the sort.
 func (q *Queries) ListChatSessionsByCreatorWithUnreadCount(ctx context.Context, arg ListChatSessionsByCreatorWithUnreadCountParams) ([]ListChatSessionsByCreatorWithUnreadCountRow, error) {
 	rows, err := q.db.Query(ctx, listChatSessionsByCreatorWithUnreadCount, arg.WorkspaceID, arg.CreatorID)
 	if err != nil {

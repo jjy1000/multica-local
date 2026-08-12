@@ -6,8 +6,8 @@
     "flag": "chat_pin_ui",
     "title": { "en": "Chat pin button", "zh": "聊天置顶按钮" },
     "description": {
-      "en": "Show the pin button in the chat session list. Pinned sessions stay at the top. Off by default — enable to try.",
-      "zh": "在聊天会话列表显示置顶按钮。置顶的会话会排在最上方。默认关闭,开启后即可试用。"
+      "en": "Show the pin button in the chat session list. Pinned sessions stay at the top of the list query; ties broken by pinned_at DESC, then updated_at DESC. Off by default — enable to try.",
+      "zh": "在聊天会话列表显示置顶按钮。置顶的会话会按 pinned_at 降序排在最上方,随后按 updated_at 降序排列;同主键排序保持稳定。默认关闭,开启后即可试用。"
     },
     "default_enabled": false
   },
