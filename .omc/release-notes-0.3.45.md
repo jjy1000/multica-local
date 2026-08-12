@@ -1,8 +1,8 @@
 ---
 name: 0.3.45 release notes
 created: 2026-07-18T13:56:22Z
-updated: 2026-07-18T13:56:22Z
-status: in-progress
+updated: 2026-08-12T13:05:44Z
+status: complete
 ---
 
 # 0.3.45 — Agent Creation Studio (action-type lab)

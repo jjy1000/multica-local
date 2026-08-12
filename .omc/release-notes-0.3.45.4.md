@@ -1,8 +1,8 @@
 ---
 name: 0.3.45.4 release notes
 created: 2026-07-19T05:18:00Z
-updated: 2026-7-19T05:18:00Z
-status: in-progress
+updated: 2026-08-12T13:05:44Z
+status: complete
 ---
 
 # 0.3.45.4 — lab 真正可用 (install-all + CHECK expand + un-hide fix)

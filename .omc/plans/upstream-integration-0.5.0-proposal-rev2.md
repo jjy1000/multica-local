@@ -1,9 +1,9 @@
 ---
 name: upstream-integration-0.5.0-proposal-rev2
 created: 2026-07-31
-updated: 2026-07-31
+updated: 2026-08-12T13:05:44Z
 type: project
-status: pending-approval
+status: complete
 ---
 
 # Multica 0.5.0 Fork 集成 — Proposal rev2(2026-07-31)

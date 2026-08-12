@@ -1,8 +1,8 @@
 ---
 name: 0.3.45.1 release notes
 created: 2026-07-18T15:00:00Z
-updated: 2026-07-18T15:00:00Z
-status: in-progress
+updated: 2026-08-12T13:05:44Z
+status: complete
 ---
 
 # 0.3.45.1 — agent_self_optimization 真正接入 (调度器 + 学习流水线 + 实验室历史)

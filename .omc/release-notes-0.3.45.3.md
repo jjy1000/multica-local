@@ -1,8 +1,8 @@
 ---
 name: 0.3.45.3 release notes
 created: 2026-07-19T05:08:19Z
-updated: 2026-07-19T05:08:19Z
-status: in-progress
+updated: 2026-08-12T13:05:44Z
+status: complete
 ---
 
 # 0.3.45.3 — 12 lab bugs closed (issue status / install / daemons)
