@@ -69,6 +69,7 @@ type AgentOptEdit struct {
 	TargetType           string             `json:"target_type"`
 	TargetID             pgtype.UUID        `json:"target_id"`
 	SubjectScope         string             `json:"subject_scope"`
+	UpdatedAt            pgtype.Timestamptz `json:"updated_at"`
 }
 
 type AgentRuntime struct {

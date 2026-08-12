@@ -24,7 +24,7 @@ INSERT INTO agent_opt_edit (
     $7, $8, $9, $10, $11, $12, $13, $14,
     $15, $17, $18
 )
-RETURNING id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope
+RETURNING id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope, updated_at
 `
 
 type CreateAgentOptEditParams struct {
@@ -101,6 +101,7 @@ func (q *Queries) CreateAgentOptEdit(ctx context.Context, arg CreateAgentOptEdit
 		&i.TargetType,
 		&i.TargetID,
 		&i.SubjectScope,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -177,7 +178,7 @@ func (q *Queries) DeleteAgentTrustProfile(ctx context.Context, arg DeleteAgentTr
 }
 
 const getAgentOptEdit = `-- name: GetAgentOptEdit :one
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope, updated_at FROM agent_opt_edit
 WHERE id = $1 AND workspace_id = $2
 `
 
@@ -212,12 +213,13 @@ func (q *Queries) GetAgentOptEdit(ctx context.Context, arg GetAgentOptEditParams
 		&i.TargetType,
 		&i.TargetID,
 		&i.SubjectScope,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listAgentOptEditsByAgent = `-- name: ListAgentOptEditsByAgent :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope, updated_at FROM agent_opt_edit
 WHERE target_type = $1 AND target_id = $2 AND workspace_id = $3
 ORDER BY created_at DESC
 LIMIT $4
@@ -268,6 +270,7 @@ func (q *Queries) ListAgentOptEditsByAgent(ctx context.Context, arg ListAgentOpt
 			&i.TargetType,
 			&i.TargetID,
 			&i.SubjectScope,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -280,7 +283,7 @@ func (q *Queries) ListAgentOptEditsByAgent(ctx context.Context, arg ListAgentOpt
 }
 
 const listAgentOptEditsByRun = `-- name: ListAgentOptEditsByRun :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope, updated_at FROM agent_opt_edit
 WHERE run_id = $1
 ORDER BY iteration ASC, created_at ASC
 `
@@ -317,6 +320,7 @@ func (q *Queries) ListAgentOptEditsByRun(ctx context.Context, runID pgtype.UUID)
 			&i.TargetType,
 			&i.TargetID,
 			&i.SubjectScope,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -329,7 +333,7 @@ func (q *Queries) ListAgentOptEditsByRun(ctx context.Context, runID pgtype.UUID)
 }
 
 const listAgentOptEditsByWorkspaceAndApplication = `-- name: ListAgentOptEditsByWorkspaceAndApplication :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope, updated_at FROM agent_opt_edit
 WHERE workspace_id = $1 AND application = $2
 ORDER BY
     (CASE WHEN corrected_task_id IS NOT NULL THEN validation_score + $5 ELSE validation_score END) DESC NULLS LAST,
@@ -387,6 +391,7 @@ func (q *Queries) ListAgentOptEditsByWorkspaceAndApplication(ctx context.Context
 			&i.TargetType,
 			&i.TargetID,
 			&i.SubjectScope,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -399,7 +404,7 @@ func (q *Queries) ListAgentOptEditsByWorkspaceAndApplication(ctx context.Context
 }
 
 const listAppliedAgentOptEdits = `-- name: ListAppliedAgentOptEdits :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope, updated_at FROM agent_opt_edit
 WHERE target_type = $1 AND target_id = $2 AND workspace_id = $3
   AND application = 'applied'
 ORDER BY created_at DESC
@@ -453,6 +458,7 @@ func (q *Queries) ListAppliedAgentOptEdits(ctx context.Context, arg ListAppliedA
 			&i.TargetType,
 			&i.TargetID,
 			&i.SubjectScope,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -514,7 +520,7 @@ func (q *Queries) ListExpiredSuggestedAgentOptEdits(ctx context.Context, arg Lis
 }
 
 const listNegativeExperienceEdits = `-- name: ListNegativeExperienceEdits :many
-SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope FROM agent_opt_edit
+SELECT id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope, updated_at FROM agent_opt_edit
 WHERE target_type = $1 AND target_id = $2 AND workspace_id = $3
   AND application IN ('rejected', 'reverted')
 ORDER BY created_at DESC
@@ -571,6 +577,7 @@ func (q *Queries) ListNegativeExperienceEdits(ctx context.Context, arg ListNegat
 			&i.TargetType,
 			&i.TargetID,
 			&i.SubjectScope,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -590,7 +597,7 @@ SET application = $2,
     applied_by = COALESCE($5, applied_by),
     updated_at = now()
 WHERE id = $1 AND workspace_id = $3
-RETURNING id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope
+RETURNING id, agent_id, run_id, workspace_id, edit_type, before_text, after_text, rationale, accepted, iteration, created_at, application, validation_score, validation_reason, instructions_snapshot, applied_by, corrected_task_id, target_type, target_id, subject_scope, updated_at
 `
 
 type UpdateAgentOptEditApplicationParams struct {
@@ -636,6 +643,7 @@ func (q *Queries) UpdateAgentOptEditApplication(ctx context.Context, arg UpdateA
 		&i.TargetType,
 		&i.TargetID,
 		&i.SubjectScope,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
