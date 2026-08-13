@@ -43,6 +43,15 @@ status: in-progress
 
 ## P0 fork-applicable (8 items) — 0.5.17 scope
 
+> **0.5.18 closure (2026-08-13): all 8 items closed.** F-007 + F-028 were
+> verified non-issues (doc-drift / design-intended, see their inline notes). The
+> other 6 shipped in 0.5.18 sec-first batch (7 atomic commits): F-005
+> `isBlockedEnvKey` expansion, F-006 artifact-upload sanitize, F-013
+> visibility workspace scoping, F-002 claude auto-approval gated on trust
+> (**softer gate — user chose**: no-profile keeps auto-approval, reviewed
+> <8.0 loses it), F-008 skill-injection ack dialog (zero-migration), F-027
+> daemon target-api-url allowlist. Ship log `.omc/0.5.18-ship-2026-08-13.md`.
+
 ### F-002 (HIGH 0.95, FA-4) — `--yolo/--allow-all` hardcoded in agent spawn
 
 - File: `server/pkg/agent/claude.go:574`
