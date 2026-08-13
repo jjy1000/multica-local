@@ -25,6 +25,7 @@ import { HiddenColumnsPanel, HiddenColumnRow } from "./hidden-columns-panel";
 import { InfiniteScrollSentinel } from "./infinite-scroll-sentinel";
 import type { ChildProgress } from "./list-row";
 import { useDragSettle } from "./use-drag-settle";
+import { useBoardDragPan } from "./use-board-drag-pan";
 import { useT } from "../../i18n";
 import {
   type DragMoveUpdates,
@@ -257,6 +258,10 @@ export function BoardView({
     })
   );
 
+  // #6700: drag empty board background with the left button to pan horizontally
+  // (Trello/Linear). Card drags start on `[data-board-card]` and are ignored.
+  const pan = useBoardDragPan<HTMLDivElement>();
+
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       isDraggingRef.current = true;
@@ -415,7 +420,15 @@ export function BoardView({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
-      <div className="flex flex-1 min-h-0 gap-4 overflow-x-auto p-2">
+      <div
+        ref={pan.ref}
+        onPointerDown={pan.onPointerDown}
+        onPointerMove={pan.onPointerMove}
+        onPointerUp={pan.onPointerUp}
+        onPointerCancel={pan.onPointerCancel}
+        onLostPointerCapture={pan.onLostPointerCapture}
+        className="flex flex-1 min-h-0 gap-4 overflow-x-auto p-2"
+      >
         {groups.length === 0 ? (
           <div className="flex min-w-full flex-1 items-center justify-center text-sm text-muted-foreground">
             {t(($) => $.board.empty_grouping)}
