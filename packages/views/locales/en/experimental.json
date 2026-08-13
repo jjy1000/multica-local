@@ -48,7 +48,11 @@
     "artifact_chart_invalid": "Invalid chart data format.",
     "artifact_table_invalid": "Invalid table data format.",
     "artifact_download": "Download",
-    "artifact_unsupported": "Unsupported artifact type"
+    "artifact_unsupported": "Unsupported artifact type",
+    "skills_ack_title": "Global skill injection",
+    "skills_ack_description": "This plugin declares that enabling it will inject the following skills into EVERY agent in the workspace: {{skills}}. Continue?",
+    "skills_ack_confirm": "Enable & acknowledge",
+    "skills_ack_cancel": "Cancel"
   },
   "forecast_stream": {
     "title": "Live forecast",

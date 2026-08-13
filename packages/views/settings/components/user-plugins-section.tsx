@@ -48,6 +48,41 @@ const STATUS_LABELS: Record<string, string> = {
   deleted: "已删除",
 };
 
+// ── F-008: global skill-injection ack ───────────────────────────────────────
+// Enabling a plugin whose manifest declares capabilities.skills injects those
+// skills into EVERY agent in the workspace (0.3.63 tool-lab contract). The
+// user must explicitly acknowledge this once per plugin; the marker is a
+// durable client-side preference (zero-migration, no new table).
+
+// pluginInjectedSkillNames parses a plugin manifest's capabilities.skills
+// list. Non-empty means enabling the plugin globally injects those skills.
+export function pluginInjectedSkillNames(
+  manifest: Record<string, unknown> | undefined,
+): string[] {
+  if (!manifest || typeof manifest !== "object") return [];
+  const caps = manifest.capabilities as { skills?: unknown } | undefined;
+  if (!caps || !Array.isArray(caps.skills)) return [];
+  return caps.skills.filter((s): s is string => typeof s === "string" && s.length > 0);
+}
+
+const SKILLS_ACK_PREFIX = "multica.plugin_skills_ack.";
+
+function isSkillsAcked(slug: string): boolean {
+  try {
+    return window.localStorage.getItem(SKILLS_ACK_PREFIX + slug) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markSkillsAcked(slug: string): void {
+  try {
+    window.localStorage.setItem(SKILLS_ACK_PREFIX + slug, "1");
+  } catch {
+    // Best-effort: a blocked storage must not block enabling the plugin.
+  }
+}
+
 export function UserPluginsSection() {
   const { t } = useT("experimental");
   const qc = useQueryClient();
@@ -68,6 +103,9 @@ export function UserPluginsSection() {
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<UserPluginResponse | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // F-008: plugin awaiting the global skill-injection ack (null = none).
+  const [skillsAckTarget, setSkillsAckTarget] = useState<UserPluginResponse | null>(null);
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: userPluginKeys.all });
@@ -102,6 +140,19 @@ export function UserPluginsSection() {
   }
 
   function handleToggle(plugin: UserPluginResponse, next: boolean) {
+    // F-008: enabling a plugin that globally injects skills into every agent
+    // requires a one-time explicit ack (persisted client-side).
+    if (next && !isSkillsAcked(plugin.slug)) {
+      const skills = pluginInjectedSkillNames(plugin.manifest);
+      if (skills.length > 0) {
+        setSkillsAckTarget(plugin);
+        return;
+      }
+    }
+    doToggle(plugin, next);
+  }
+
+  function doToggle(plugin: UserPluginResponse, next: boolean) {
     updateFlag.mutate(
       { key: plugin.flag_key, enabled: next },
       {
@@ -109,6 +160,13 @@ export function UserPluginsSection() {
         onError: () => toast.error("切换失败"),
       },
     );
+  }
+
+  function confirmSkillsAck() {
+    if (!skillsAckTarget) return;
+    markSkillsAcked(skillsAckTarget.slug);
+    doToggle(skillsAckTarget, true);
+    setSkillsAckTarget(null);
   }
 
   const activePlugins = (plugins ?? []).filter((p) => p.status !== "deleted");
@@ -222,6 +280,33 @@ export function UserPluginsSection() {
             </Button>
             <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting}>
               {deleting ? "删除中…" : "删除"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* F-008: global skill-injection ack dialog */}
+      <Dialog
+        open={skillsAckTarget !== null}
+        onOpenChange={(open) => !open && setSkillsAckTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t(($) => $.user_plugins.skills_ack_title)}</DialogTitle>
+            <DialogDescription>
+              {t(($) => $.user_plugins.skills_ack_description, {
+                skills: skillsAckTarget
+                  ? pluginInjectedSkillNames(skillsAckTarget.manifest).join(", ")
+                  : "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setSkillsAckTarget(null)}>
+              {t(($) => $.user_plugins.skills_ack_cancel)}
+            </Button>
+            <Button type="button" onClick={confirmSkillsAck}>
+              {t(($) => $.user_plugins.skills_ack_confirm)}
             </Button>
           </DialogFooter>
         </DialogContent>

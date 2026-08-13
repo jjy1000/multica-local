@@ -48,7 +48,11 @@
     "artifact_chart_invalid": "グラフデータの形式が無効です。",
     "artifact_table_invalid": "テーブルデータの形式が無効です。",
     "artifact_download": "ダウンロード",
-    "artifact_unsupported": "サポートされていない成果物タイプ"
+    "artifact_unsupported": "サポートされていない成果物タイプ",
+    "skills_ack_title": "グローバルスキル注入の確認",
+    "skills_ack_description": "このプラグインを有効にすると、ワークスペース内のすべてのエージェントに次のスキルが注入されます: {{skills}}。続行しますか?",
+    "skills_ack_confirm": "有効化して確認",
+    "skills_ack_cancel": "キャンセル"
   },
   "forecast_stream": {
     "title": "ライブ予測",

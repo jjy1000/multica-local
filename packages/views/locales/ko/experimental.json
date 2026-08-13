@@ -48,7 +48,11 @@
     "artifact_chart_invalid": "차트 데이터 형식이 유효하지 않습니다.",
     "artifact_table_invalid": "테이블 데이터 형식이 유효하지 않습니다.",
     "artifact_download": "다운로드",
-    "artifact_unsupported": "지원하지 않는 산출물 유형"
+    "artifact_unsupported": "지원하지 않는 산출물 유형",
+    "skills_ack_title": "전역 스킬 주입 확인",
+    "skills_ack_description": "이 플러그인을 활성화하면 워크스페이스의 모든 에이전트에 다음 스킬이 주입됩니다: {{skills}}. 계속할까요?",
+    "skills_ack_confirm": "활성화 및 확인",
+    "skills_ack_cancel": "취소"
   },
   "forecast_stream": {
     "title": "실시간 예측",

@@ -48,7 +48,11 @@
     "artifact_chart_invalid": "图表数据格式无效。",
     "artifact_table_invalid": "表格数据格式无效。",
     "artifact_download": "下载",
-    "artifact_unsupported": "不支持的产物类型"
+    "artifact_unsupported": "不支持的产物类型",
+    "skills_ack_title": "全局技能注入确认",
+    "skills_ack_description": "此插件开启后会将以下技能注入工作区中的每个智能体：{{skills}}。确认开启？",
+    "skills_ack_confirm": "确认开启",
+    "skills_ack_cancel": "取消"
   },
   "forecast_stream": {
     "title": "实时预测",
