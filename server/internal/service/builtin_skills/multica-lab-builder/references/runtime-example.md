@@ -93,13 +93,19 @@ curl -s -X POST http://localhost:8090/api/user-plugins/hello-runtime/run \
 
 ## Dispatch reference
 
-| `runtime_kind` | `POST /run` result                         |
-| -------------- | ------------------------------------------ |
-| `inline`       | runs `python3 -I entry.py`, ingests output |
-| `none`         | `400` — plugin declares no runtime         |
-| `subprocess`   | `501` — reserved upgrade slot              |
+| `runtime_kind` | `POST /run` result                          |
+| -------------- | ------------------------------------------- |
+| `inline`       | runs `python3 -I entry.py`, ingests output  |
+| `none`         | `400` — plugin declares no runtime          |
+| `subprocess`   | runs `runtime.command` + `args` (argv, no shell) in the sandbox env, ingests output |
 
 A non-`active` plugin returns `409`; a missing slug returns `404`.
+
+For `runtime_kind: "subprocess"` plugins the same `POST /run` executes
+`manifest.runtime.command` + `runtime.args` (argv, no shell) instead of
+`entry.py`, in the same sandbox env; files the process writes into the env dir
+are ingested as artifacts. See `multica-lab-builder/SKILL.md` Step 7b for a
+copy-pasteable subprocess run.
 
 ## Stateful lab — the built-in SQLite database
 

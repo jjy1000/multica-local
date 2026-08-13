@@ -35,7 +35,7 @@ full plugin lifecycle over the local API. Concretely, you can:
 - **Run** — execute an inline plugin's code and collect artifacts
   (`POST /api/user-plugins/{slug}/run`).
 
-**Boundary:** the 8 **built-in** catalog labs are developer-maintained — you can
+**Boundary:** the 6 **built-in** catalog labs are developer-maintained — you can
 enable/disable them but you cannot create, edit, or delete their definitions.
 **User plugins** are the objects you fully own (create / edit / delete).
 Everything runs on `http://localhost:8090`; never reach outside the machine, and
@@ -117,8 +117,13 @@ multica issue create \
 - `"inline"` — pure Multica resources: agents, skills, autopilots, squads, and
   optional Python code executed in the plugin's persistent env (see Step 7).
   Most labs are `inline`.
-- `"subprocess"` — an external service the desktop app spawns (Python / Node
-  script, local HTTP server) with a health check.
+- `"subprocess"` — run an external command in the plugin's sandbox env. The
+  manifest's `runtime.command` + `runtime.args` are executed directly (argv, no
+  shell) with the same minimal env / pinned HOME / timeout as `inline`, and
+  files the process emits into the env dir are ingested as artifacts. Use it
+  when the work is a binary or script that `python3 -I entry.py` cannot express
+  (a Node script, a compiled tool, a shell one-liner via an explicit
+  interpreter).
 - `"none"` — UI-only toggle. No backend runtime; the manifest just describes a
   surface.
 
@@ -136,6 +141,11 @@ curl -s -X POST http://localhost:8090/api/user-plugins \
     "runtime_kind": "inline",
     "manifest": {
       "capabilities": {"skills": [], "agents": [], "autopilots": [], "squads": [], "leader": ""},
+      "runtime": {
+        "kind": "inline",
+        "entry_code": "open('index.html','w').write('<h1>hello lab</h1>')\nprint('done')",
+        "timeout_ms": 30000
+      },
       "ui": {
         "shell": "standard",
         "tabs": [
@@ -148,6 +158,25 @@ curl -s -X POST http://localhost:8090/api/user-plugins \
 
 The server returns the created plugin. `flag_key` is auto-generated as
 `"user_" + slug` — you do not set it.
+
+For a `runtime_kind: "subprocess"` plugin, declare the command in the manifest
+instead of `entry_code` — `POST /run` executes `runtime.command` +
+`runtime.args` directly (argv, no shell) in the same sandbox env:
+
+```json
+{
+  "runtime_kind": "subprocess",
+  "manifest": {
+    "runtime": {
+      "kind": "subprocess",
+      "command": "node",
+      "args": ["report.js"],
+      "timeout_ms": 30000
+    },
+    "ui": {"tabs": [{"key": "artifacts", "kind": "artifacts", "label": {"en": "Artifacts", "zh": "产物"}}]}
+  }
+}
+```
 
 ## Step 5 — provision resources (optional)
 
@@ -291,10 +320,47 @@ curl -s -X POST http://localhost:8090/api/user-plugins/my-lab-name/run \
 
 The response is `{status, exit_code, stdout, stderr, duration_ms, artifacts}`
 where `status` ∈ `completed | failed | timeout`. A run history summary is kept
-in `~/.multica/plugins/<slug>/runs.json`. `runtime_kind: "none"` → 400,
-`"subprocess"` → 501 (reserved upgrade slot). See
+in `~/.multica/plugins/<slug>/runs.json`. `runtime_kind: "none"` → 400;
+`"subprocess"` runs `manifest.runtime.command` + `args` (argv, no shell) in the
+same sandbox env and ingests the files it emits. See
 [references/runtime-example.md](references/runtime-example.md) for a full
 create → set code → run → verify walkthrough.
+
+### Step 7b — run a subprocess plugin
+
+For `runtime_kind: "subprocess"`, `POST /run` executes the manifest's
+`runtime.command` + `runtime.args` directly in the plugin env dir (cwd) under
+the same sandbox env — no `entry.py`, no shell. The process must terminate on
+its own; the `timeout_ms` applies. Files it writes into the env dir are
+ingested as artifacts exactly like inline runs:
+
+```sh
+curl -s -X PUT http://localhost:8090/api/user-plugins/my-lab-name \
+  -H "Authorization: Bearer $MULTICA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "runtime_kind": "subprocess",
+    "manifest": {
+      "runtime": {
+        "kind": "subprocess",
+        "command": "python3",
+        "args": ["-c", "open('report.txt','w').write('subprocess-ok')"],
+        "timeout_ms": 30000
+      },
+      "ui": {"tabs": [{"key": "artifacts", "kind": "artifacts", "label": {"en": "Artifacts", "zh": "产物"}}]}
+    }
+  }'
+
+curl -s -X POST http://localhost:8090/api/user-plugins/my-lab-name/run \
+  -H "Authorization: Bearer $MULTICA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+The command is resolved on `PATH` (or as an absolute path); `runtime.args` is
+passed verbatim as argv — the server never invokes a shell, so shell
+metacharacters are rejected at the declaration layer. A `subprocess` plugin
+without `runtime.command` → 400.
 
 ## Delegating a sub-task to a lab agent (`multica lab delegate`)
 
@@ -403,6 +469,29 @@ For an installable lab, enabling also provisions/restores its agents/skills/
 squads and disabling hides them. Either way the definition and artifacts are
 preserved — disable is a pause, not a delete. The same endpoint accepts a
 built-in `flag_key` (e.g. `mythos_swarm`) to toggle a built-in lab.
+
+## Self-test checklist
+
+Before reporting a lab as done, walk the full lifecycle against a live server
+(`$MULTICA_API_TOKEN` must be set; the desktop app must be running on
+`http://localhost:8090`). `scripts/lab-plugin-smoke.sh` automates steps 1–4 and
+6 — run it first, then do the delegate leg manually if you have a leader-bound
+agent:
+
+1. **Create** — `POST /api/user-plugins` with a unique slug; assert
+   `flag_key = user_<slug>` comes back.
+2. **Set entry** — `PUT` the plugin with `runtime_kind: "inline"` +
+   `manifest.runtime.entry_code` that writes at least one file.
+3. **Run inline** — `POST /api/user-plugins/<slug>/run` (empty body); assert
+   `status == "completed"`.
+4. **Run subprocess** — `PUT` to `runtime_kind: "subprocess"` +
+   `runtime.command`/`args`, then `POST /run` again; assert `status ==
+   "completed"` and the emitted file shows up in `artifacts[]`.
+5. **Delegate** — if the plugin declares `capabilities.leader` (an agent-lab),
+   call `multica lab delegate <slug> "<task>"` and assert it returns the
+   leader's final reply.
+6. **Assert artifacts** — `GET /api/user-plugins/<slug>/artifacts`; the files
+   from both runs must be present and raw-fetchable.
 
 ## Rules
 

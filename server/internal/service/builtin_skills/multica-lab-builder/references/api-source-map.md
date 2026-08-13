@@ -30,7 +30,7 @@ grep -rn "user_" server/internal/handler/user_plugin.go
 | `title` | `{en, zh}` | Bilingual display name. |
 | `description` | `{en, zh}` | Bilingual description. |
 | `trigger_mode` | `"auto" \| "issue_select"` | `auto` = background/self-driven, hidden from issue LabPicker; `issue_select` = user picks on an issue. |
-| `runtime_kind` | `"none" \| "inline" \| "subprocess"` | `inline` = Multica resources only; `subprocess` = external process w/ health check; `none` = UI-only. |
+| `runtime_kind` | `"none" \| "inline" \| "subprocess"` | `inline` = Multica resources only; `subprocess` = executes `manifest.runtime.command`+`args` (argv, no shell) in the plugin sandbox on `POST /run`; `none` = UI-only. |
 | `manifest` | object | Free-form. See below. |
 
 Derived field (server-set, never sent by the client):
@@ -56,7 +56,7 @@ Derived field (server-set, never sent by the client):
 - `capabilities.*` — IDs/names of provisioned Multica resources (created via the
   `multica` CLI), relevant for `runtime_kind: "inline"`.
 - `ui.tabs[].kind` — one of `chat`, `artifacts`, `table`, `iframe`, `code`.
-- `runtime_kind: "subprocess"` manifests describe the binary / health path instead.
+- `runtime_kind: "subprocess"` manifests carry `runtime.command` + `runtime.args` (executed server-side on `POST /run`, same sandbox as inline). Built-in subprocess labs (pythia / code_canvas) additionally describe a desktop-spawned binary + health path for their long-lived service.
 
 ## Related contracts
 
