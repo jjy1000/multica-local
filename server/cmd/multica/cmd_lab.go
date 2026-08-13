@@ -75,6 +75,23 @@ func init() {
 	labCmd.GroupID = groupExperimental
 }
 
+// labDelegateNoTaskGrace is how long waitForDelegatedResult waits for a run to
+// be dispatched before failing fast with "no run was dispatched". Package-level
+// so tests can shorten it; the 30s default keeps the common case (a missing
+// leader / offline runtime) from hanging for the full --timeout.
+var labDelegateNoTaskGrace = 30 * time.Second
+
+// resolveLabFlagKey normalizes the <lab> argument into the user plugin flag
+// key: a bare slug ("my-lab") gets the "user_" prefix, an already-prefixed key
+// passes through. Whitespace is trimmed first.
+func resolveLabFlagKey(labArg string) string {
+	flagKey := strings.TrimSpace(labArg)
+	if !experimental.IsUserPluginKey(flagKey) {
+		flagKey = experimental.UserPluginPrefix + flagKey
+	}
+	return flagKey
+}
+
 // runLabDelegate creates a lab-bound issue, waits for the lab agent's task to
 // finish, and returns the delivered result. It blocks up to --timeout.
 func runLabDelegate(cmd *cobra.Command, args []string) error {
@@ -87,10 +104,7 @@ func runLabDelegate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("task is required (the instruction for the lab agent)")
 	}
 
-	flagKey := labArg
-	if !experimental.IsUserPluginKey(flagKey) {
-		flagKey = experimental.UserPluginPrefix + flagKey
-	}
+	flagKey := resolveLabFlagKey(labArg)
 
 	statusFlag, _ := cmd.Flags().GetString("status")
 	if statusFlag == "" {
@@ -183,7 +197,7 @@ func waitForDelegatedResult(client *cli.APIClient, issueID, flagKey string, time
 	// dispatchable leader (missing capabilities.leader, agent not installed,
 	// or no bound runtime). Surface that as a distinct, actionable error
 	// instead of making the caller wait out the full timeout.
-	noTaskDeadline := time.Now().Add(30 * time.Second)
+	noTaskDeadline := time.Now().Add(labDelegateNoTaskGrace)
 
 	for {
 		reqCtx, cancel := context.WithTimeout(context.Background(), cli.APITimeout())
