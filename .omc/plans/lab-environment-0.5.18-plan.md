@@ -2,7 +2,7 @@
 name: lab-environment-0.5.18-plan
 created: 2026-08-12
 type: plan
-status: proposed
+status: in-progress (阶段 0-3 complete & committed; 阶段 4 spec + 阶段 5 security in progress)
 ---
 
 # 实验室环境完善 — 任务计划（0.5.18+）
