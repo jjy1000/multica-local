@@ -330,8 +330,10 @@ const PYTHIA_PROXY_ALLOWLIST: ReadonlySet<string> = new Set([
   "/brief/run",
   "/brief/config",
   "/webhooks",
+  "/scorecard/resolve",
   // read paths (renderer → oracle)
   "/agent/view",
+  "/agent/events",
   "/predictions",
   "/world",
   "/runs",
