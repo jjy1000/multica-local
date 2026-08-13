@@ -156,10 +156,24 @@ S3 앞에 CloudFront를 두는 경우 세 가지 변수가 적용됩니다: `CLO
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `REDIS_URL` | 비어 있음 | Redis 연결 URL (예: `redis://localhost:6379/0`). 설정하지 않으면 auth 엔드포인트의 속도 제한이 비활성화됩니다. 동일한 Redis는 실시간 허브 fan-out, PAT 캐시, 데몬 토큰 캐시에서도 사용됩니다 — 설정하지 않으면 모두 인메모리 / 직접 DB 모드로 폴백합니다 |
-| `RATE_LIMIT_AUTH` | `5` | `/auth/send-code` 및 `/auth/google`에 대한 IP당 분당 최대 요청 수 |
-| `RATE_LIMIT_AUTH_VERIFY` | `20` | `/auth/verify-code`에 대한 IP당 분당 최대 요청 수 |
-| `RATE_LIMIT_TRUSTED_PROXIES` | 비어 있음 | 리미터가 그 `X-Forwarded-For` 헤더를 신뢰하도록 허용하는, 쉼표로 구분된 CIDR. 비어 있음(기본값)은 **XFF를 절대 신뢰하지 않음**을 의미합니다 — 리미터는 직접 연결의 `RemoteAddr`만 사용합니다 |
+| `MULTICA_SERVER_URL` | `ws://localhost:8080/ws` | Multica API / WebSocket 주소. `http(s)`도 허용 |
+| `MULTICA_DAEMON_DEVICE_NAME` | host 이름 | 런타임 목록의 기기 이름 |
+| `MULTICA_AGENT_RUNTIME_NAME` | `Local Agent` | 런타임 표시 이름 |
+| `MULTICA_DAEMON_POLL_INTERVAL` | `30s` | wakeup 이벤트가 없을 때 실행 태스크 polling 간격 |
+| `MULTICA_DAEMON_HEARTBEAT_INTERVAL` | `15s` | heartbeat 간격 |
+| `MULTICA_DAEMON_MAX_CONCURRENT_TASKS` | `20` | 데몬 하나의 동시 실행 태스크 상한 |
+| `MULTICA_AGENT_TIMEOUT` | `0` | 단일 실행의 절대 시간 제한. `0`은 제한 없음 |
+| `MULTICA_AGENT_IDLE_WATCHDOG` | `30m` | 출력과 도구 실행이 모두 없을 때의 무응답 상한 |
+| `MULTICA_AGENT_TOOL_WATCHDOG` | `2h` | 단일 도구 호출이 계속 무응답인 시간 상한 |
+| `MULTICA_OPENCODE_IDLE_WATCHDOG` | `10m` | OpenCode 전용 무응답 기준값 |
+| `MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT` | `10m` | Codex 의미 활동 없음 기준값 |
+| `MULTICA_CODEX_HANDSHAKE_TIMEOUT` | `30s` | Codex app-server 시작 handshake 상한 |
+| `MULTICA_DAEMON_AUTO_UPDATE` | Cloud `true`, 자체 호스팅 `false` | CLI 자동 확인 및 업데이트 여부 |
+| `MULTICA_DAEMON_AUTO_UPDATE_INTERVAL` | `6h` | 업데이트 확인 간격 |
+| `MULTICA_DAEMON_AUTO_RELOAD` | `true` | 외부에서 교체된 `multica` 바이너리(`brew upgrade`, 재다운로드, 로컬 빌드)로 재시작할지 여부. `MULTICA_DAEMON_AUTO_UPDATE`와 독립적 |
+| `MULTICA_WORKSPACES_ROOT` | `~/multica_workspaces` | 실행 태스크 작업 디렉터리의 루트 |
+| `MULTICA_AGENT_TEMP_BASE` | `/tmp`(Linux/macOS) | Linux/macOS 전용. 작업별 비공개 임시 디렉터리의 상위 디렉터리입니다. 기존의 쓰기 가능한 절대 경로여야 하며, 값이 잘못되면 `/tmp`로 대체하지 않고 작업 시작에 실패합니다. 짧은 경로를 선택하세요. 하위 도구가 그 아래에 AF_UNIX 소켓을 만들 수 있으며 `sun_path` 제한은 Linux에서 108바이트, macOS에서 104바이트입니다 |
+| `MULTICA_KEEP_ENV_AFTER_TASK` | `false` | 디버깅을 위해 실행 태스크 디렉터리 유지 |
 
 요청이 제한을 초과하면 서버는 `429 Too Many Requests`, `Retry-After: 60`, 그리고 본문 `{"error":"too many requests"}`로 응답합니다.
 
