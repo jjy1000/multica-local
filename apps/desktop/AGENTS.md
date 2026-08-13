@@ -35,6 +35,15 @@ in `src/main/pythia-manager.ts`), never a bare `fetch()` to the loopback URL.
 
 See root `CLAUDE.md` → "Experimental tab network calls (0.3.30)".
 
+## Daemon target API URL allowlist (F-027, 0.5.18)
+
+`daemon:set-target-api-url` (`src/main/daemon-manager.ts`) validates the URL
+before accepting it (`isAllowedTargetApiUrl`): only loopback (localhost /
+127.0.0.1 / ::1) and private LAN subnets (10/8, 172.16/12, 192.168/16) over
+http(s) are accepted; `file://`, `0.0.0.0`, public IPs, and non-http schemes
+are rejected with `{ok:false}`. The daemon mints auth tokens against this URL,
+so it must never be pointed at a public host.
+
 ## Packaging & ship chain
 
 Canonical order lives in root `CLAUDE.md` → "Ship chain (canonical order)".

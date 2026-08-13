@@ -133,6 +133,31 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
   NOT a long-lived loopback service (that stays desktop-manager-owned for built-in
   subprocess labs like pythia/code_canvas). Do not re-add the old 501 "reserved
   upgrade slot".
+- **Trust-gated agent auto-approval (0.5.18 F-002).** The claude backend's
+  `--permission-mode bypassPermissions` is no longer hardcoded: it is appended
+  only when `agent.ExecOptions.BypassPermissions` is true. The server computes
+  the gate at task-claim time (`handler/daemon.go::ClaimTaskByRuntime` via
+  `agent_trust.ShouldGrantBypassPermissions`, threshold
+  `BypassPermissionsThreshold` = 8.0) and carries `bypass_permissions` on the
+  claim wire → daemon `Task.BypassPermissions` → exec opts. **Softer-gate
+  contract (user-chosen)**: an agent WITHOUT a trust profile keeps the
+  historical auto-approval; only a REVIEWED agent scored below 8.0 loses it
+  (scores only move via review pass / correction). The daemon has no DB — do
+  not move the gate there.
+- **`isBlockedEnvKey` (0.5.18 F-005).** `daemon.go` blocks custom_env overrides
+  for `MULTICA_*`, `PYTHON*`, `HOME/PATH/USER/SHELL/TERM/CODEX_HOME/...`, and
+  (0.5.18) `BASH_ENV/ENV/LD_PRELOAD/DYLD_INSERT_LIBRARIES/NODE_OPTIONS/NODE_EXTRA_CA_CERTS`.
+- **User-plugin artifact upload hardening (0.5.18 F-006).**
+  `user_plugin_artifacts.go` sanitizes multipart filenames (basename + control-char
+  strip + ext whitelist `\.[A-Za-z0-9]{1,12}`), whitelists mime types (everything
+  else degrades to `application/octet-stream`), and serves every stored artifact
+  with `Content-Disposition: attachment` — uploaded HTML/JS can never render
+  inline in the renderer origin.
+- **Plugin visibility seeding is installer-workspace-scoped (0.5.18 F-013).**
+  `user_plugins.go::seedPluginVisibility` takes the installer's workspace
+  (resolved via `resolveLabWorkspace`) and scopes the agent/squad/autopilot
+  lookups with `workspace_id` — a plugin can never hide resources in another
+  workspace.
 
 ### Agent self-optimization + trust (0.5.2)
 
