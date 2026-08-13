@@ -19,12 +19,10 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// userPluginKeyPrefix is the flag_key namespace for user-created plugins.
-// Every user_plugin row maps to a dynamic experimental flag whose key is
-// "user_<slug>" (see migration 166). The prefix is duplicated as the
-// experimental.UserPluginPrefix constant; it is inlined here so the handler
-// does not depend on that symbol's value staying in lock-step.
-const userPluginKeyPrefix = "user_"
+// userPluginKeyPrefix aliases experimental.UserPluginPrefix so the handler
+// and the registry can never drift (0.5.18 BE-P1-2). Every user_plugin row
+// maps to a dynamic experimental flag whose key is "user_<slug>" (mig 166).
+const userPluginKeyPrefix = experimental.UserPluginPrefix
 
 // userPluginSlugPattern enforces the slug contract: lowercase alphanumeric
 // segments separated by single hyphens, no leading/trailing hyphen. Mirrors
