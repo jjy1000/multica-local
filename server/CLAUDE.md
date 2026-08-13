@@ -101,7 +101,7 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
 - **Lab leader rewrite.** Code paths that flip `issue.lab_source` must go through
   `handler/issue.go::shouldRewriteAssigneeForLabLeader` + `assignDefaultLabAgentOnUpdate`
   (4-case contract; tests in `issue_lab_dispatch_test.go`), not a re-derived gate.
-- **`lab_managed` DTO stamp.** `agent.go::ListAgents` / `squad.go::ListSquads`
+- **`lab_managed` DTO stamp.** `agent.go::ListAgents` / `squad.go::ListSquads` AND the single-fetch `GetAgent` / `GetSquad` (0.5.18 SEC-P1-7 closed the single-fetch gap)
   derive `lab_managed?: boolean` from `experimental_resource_visibility` (not a
   column). Row-level `filterLabsHiddenByDefault` is one layer; selection surfaces
   also gate on `lab_managed`. Do NOT remove the stamp even when `useActorName`
