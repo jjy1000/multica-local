@@ -750,7 +750,7 @@ if (!gotTheLock) {
     // their channels here without an edit to index.ts. Called
     // once with the merged descriptor list (static + catalog)
     // so all 9 flags get their 4-channel handler set.
-    setupExperimentalIPC(() => mainWindow);
+    await setupExperimentalIPC(() => mainWindow);
 
     // PR 1 (Stage C): wire serverAPI IPC + install-brew dialog. Renderer
     // subscribes to status changes; when the status carries

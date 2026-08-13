@@ -27,6 +27,7 @@
 
 import { ipcMain, type BrowserWindow } from "electron";
 import { resolveManager, descriptorsForKind, loadFlagDescriptors } from "./manager-factory";
+import { loadBrokenFlagKeys } from "../experimental-safety";
 
 // Re-export so index.ts can call the boot-time catalog loader
 // without importing manager-factory directly.
@@ -62,7 +63,8 @@ function channelFor(flagKey: string, verb: string): string {
 //   experimental:<flagKey>:get-url      → loopback URL or null
 //   experimental:<flagKey>:ensure-up    → bring the manager up
 //   experimental:<flagKey>:stop         → graceful stop
-export function setupExperimentalIPC(_windowGetter: () => BrowserWindow | null): void {
+export async function setupExperimentalIPC(_windowGetter: () => BrowserWindow | null): Promise<void> {
+  const broken = await loadBrokenFlagKeys();
   const allFlags: RuntimeKind[] = ["subprocess", "inline", "headless"];
   const flagKeys = allFlags.flatMap((k) => descriptorsForKind(k).map((d) => d.flagKey));
   for (const key of flagKeys) {
@@ -81,7 +83,20 @@ export function setupExperimentalIPC(_windowGetter: () => BrowserWindow | null):
     }
     ipcMain.handle(channelFor(key, "get-status"), () => m.getStatus());
     ipcMain.handle(channelFor(key, "get-url"), () => m.getUrl());
-    ipcMain.handle(channelFor(key, "ensure-up"), async () => m.ensureUp());
+    if (broken.has(key)) {
+      // 0.5.18 DT-P1-1: a flag blacklisted by the safety net (panic /
+      // 5xx burst / init timeout) must not be brought back up through
+      // IPC — the server refuses to serve it and re-tripping the
+      // watchdog would only re-blacklist it. get-status / get-url /
+      // stop stay wired so the Labs UI can still render the badge.
+      ipcMain.handle(channelFor(key, "ensure-up"), async () => {
+        throw new Error(
+          `experimental flag "${key}" is blacklisted by the safety net; restart Multica after clearing it to retry`,
+        );
+      });
+    } else {
+      ipcMain.handle(channelFor(key, "ensure-up"), async () => m.ensureUp());
+    }
     ipcMain.handle(channelFor(key, "stop"), async () => {
       await m.stop();
     });
