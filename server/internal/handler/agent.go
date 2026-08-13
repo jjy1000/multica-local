@@ -750,6 +750,12 @@ func (h *Handler) GetAgent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := agentToResponse(agent)
+	// 0.5.18 SEC-P1-7: stamp lab_managed on the single-fetch path the
+	// same way ListAgents does, so a lab infrastructure agent fetched by id
+	// (e.g. pasted into the URL) still renders grey+disabled in selection
+	// pickers instead of appearing standalone-selectable.
+	managed := labManagedSet(r.Context(), h.Queries, experimental.HideAgent)
+	_, resp.LabManaged = managed[agent.ID.Bytes]
 	// Use the summary query (no `content` column) — the embedded
 	// AgentSkillSummary only needs id/name/description, and reading large
 	// SKILL.md bodies just to discard them is the exact regression we fixed

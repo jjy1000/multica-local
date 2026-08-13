@@ -354,6 +354,11 @@ func (h *Handler) GetSquad(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load squad member preview")
 		return
 	}
+	// 0.5.18 SEC-P1-7: stamp lab_managed on the single-fetch path so a lab
+	// squad fetched by id renders grey+disabled in pickers, matching the
+	// ListSquads contract.
+	managed := labManagedSet(r.Context(), h.Queries, experimental.HideSquad)
+	_, resp.LabManaged = managed[squad.ID.Bytes]
 	writeJSON(w, http.StatusOK, resp)
 }
 
