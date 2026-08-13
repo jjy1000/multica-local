@@ -4,10 +4,10 @@
   "metadata": {
     "name": "code_canvas",
     "flag": "code_canvas",
-    "title": { "en": "Code Canvas (internal lab)", "zh": "代码画布（内部实验）" },
+    "title": { "en": "Code Canvas", "zh": "代码画布" },
     "description": {
-      "en": "Internal P9 pilot: a stub subprocess wired through every Labs platform layer. Off by default. Used to verify the manifest → catalog → registry → IPC pipeline end-to-end before real labs are added.",
-      "zh": "内部 P9 试点：通过 Labs 平台所有层的 stub 子进程。默认关闭。在真实实验加入前用于端到端验证 manifest → catalog → registry → IPC 链路。"
+      "en": "Local code-rendering lab: a stdlib-only subprocess that turns code snippets into self-contained, syntax-highlighted HTML canvas views via POST /render. Off by default.",
+      "zh": "本地代码渲染实验室：stdlib-only 子进程通过 POST /render 把代码片段渲染成自包含、带语法高亮的 HTML 画布视图。默认关闭。"
     },
     "default_enabled": false
   },
@@ -15,7 +15,7 @@
     "workspace": {
       "reserved_slug": "code-canvas",
       "name": "Code Canvas 实验室",
-      "description": "Internal P9 pilot workspace. Stub subprocess only."
+      "description": "Code Canvas lab workspace — local stdlib-only code rendering service."
     },
     "capabilities": {
       "skills": ["multica-code-canvas"],

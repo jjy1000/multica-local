@@ -1,67 +1,71 @@
 ---
 name: multica-code-canvas
-description: "Use when an issue is bound to the code_canvas lab. code_canvas is an internal P9 pilot — a stub subprocess wired through every Labs platform layer (manifest → catalog → registry → IPC → proxy). Off by default. The subprocess `apps/desktop/resources/code-canvas/run.sh` only responds on `/health`; every other path returns 404. Use this skill to confirm the lab is reachable, escalate real work to a real lab, and never invent behaviour the stub does not provide."
+description: "Use when an issue is bound to the code_canvas lab. code_canvas renders user code into a self-contained, syntax-highlighted HTML canvas view via a local stdlib-only service (GET /health + POST/GET /render). The code_canvas_worker leader agent POSTs the snippet to the lab, receives a self-contained HTML page, and posts the deliverable back on the issue. Off by default."
 user-invocable: true
-allowed-tools: Bash(multica *), Bash(curl *), Bash(sh *)
+allowed-tools: Bash(multica *), Bash(curl *)
 ---
 
-# Code Canvas (internal P9 pilot)
+# Code Canvas (code rendering lab)
 
-Code Canvas is a smoke-test lab. The whole point is to exercise the
-manifest → catalog → registry → IPC dispatcher → proxy mount chain
-end-to-end before a real lab lands. The on-disk binary
-(`apps/desktop/resources/code-canvas/run.sh`) is a 30-line Python
-`http.server` that only returns `200` on `/health` — it has no other
-endpoint, no data plane, no model.
+Code Canvas is a local code-rendering lab. It runs a tiny stdlib-only HTTP
+service (`apps/desktop/resources/code-canvas/run.sh`, spawned by the desktop
+subprocess-manager and proxied through the Multica origin) that turns a code
+snippet into a self-contained, syntax-highlighted HTML canvas view. The code
+never leaves the machine and the service needs no pip dependencies.
 
 ## When this skill applies
 
-The skill is bound to the `code_canvas_worker` leader agent. The
-auto-dispatch path in `assignDefaultLabAgentOnUpdate` rewrites the
-issue's assignee to this agent when `issue.lab_source` is set to
-`code_canvas`. If you are reading this skill from an issue, that is
-why.
+The skill is bound to the `code_canvas_worker` leader agent. The auto-dispatch
+path in `assignDefaultLabAgentOnUpdate` rewrites the issue's assignee to this
+agent when `issue.lab_source` is set to `code_canvas`. If you are reading this
+skill from an issue, that is why — the user picked Code Canvas in the LabPicker
+and the run has been dispatched to you.
 
-## What you can actually do
+## The service contract
 
-1. **Confirm the lab is up.** The subprocess exposes
-   `/health`; when the manager is running you can reach it via the
-   desktop proxy:
+The lab is reachable through the same-origin proxy at `http://localhost:8090`:
+
+| Endpoint | Method | Body | Returns |
+|---|---|---|---|
+| `/experimental/code-canvas/health` | GET | — | `{"status":"ok","service":"code_canvas"}` |
+| `/experimental/code-canvas/render` | POST | `{"code": "...", "language": "python"}` | `text/html` self-contained page |
+| `/experimental/code-canvas/render` | GET | `?code=...&language=...` | `text/html` self-contained page |
+
+- `language` is a highlighting hint only (python / javascript / typescript /
+  go / rust / java / cpp / c / ruby / bash / sql / html / css / json / …;
+  anything else falls back to `text`).
+- The service caps code at 200 KB and returns `400` for invalid or oversized
+  input; every other path is `404`.
+
+## Doing the work (agent flow)
+
+1. **Render the code** from the user's request. POST the snippet to `/render`:
    ```sh
-   curl -s http://localhost:8090/experimental/code-canvas/health
-   # → {"status":"ok","stub":"code_canvas"}
+   curl -s -X POST http://localhost:8090/experimental/code-canvas/render \
+     -H 'Content-Type: application/json' \
+     -d '{"code": "def f(x):\n    return x * 2", "language": "python"}'
    ```
-2. **Check the flag is enabled** for the current user:
-   ```sh
-   multica experimental flags list 2>/dev/null
-   ```
-3. **Report lab status** back on the issue. The user is probably
-   probing whether the platform chain works — give them a short,
-   factual status (flag on/off, subprocess `/health` reachable, any
-   5xx bursts since boot).
+   The response is a self-contained HTML page (no external assets, no scripts
+   required) that renders as a syntax-highlighted canvas view.
+2. **Post the deliverable back on the issue.** Save the HTML response to a
+   file and attach it to the issue (e.g. via `multica issue comment` or an
+   attachment), or inline the essential takeaway in a comment. Keep the final
+   reply short: what you rendered, which language was assumed, and where the
+   canvas view lives.
+3. **Confirm the lab is up** if the render fails: `curl -s
+   http://localhost:8090/experimental/code-canvas/health` — a 502 / non-200
+   means the bundled subprocess is not running; report that on the issue
+   rather than retrying blindly.
 
-## What you cannot do
+## Rules
 
-- The stub has no `/predict`, `/forecast`, `/chat`, `/model`, etc.
-  Do **not** fabricate responses for any path other than `/health`.
-- Code Canvas is not a research / coding / analysis lab. If the
-  user's underlying request needs a real answer, **escalate** —
-  recommend the right built-in lab (e.g. `pythia_oracle` for
-  predictions, `mythos_swarm` for multi-perspective research,
-  `llm_wiki_bridge` for KB authoring) rather than making something
-  up.
-
-## When to escalate
-
-| User intent | Escalate to |
-|---|---|
-| Predictions / forecasts | `pythia_oracle` |
-| Multi-perspective research / coding / analysis | `mythos_swarm` |
-| Knowledge base authoring | `llm_wiki_bridge` |
-| Interactive Claude session | `claude_science_lab` |
-| Plain issue triage / comments | regular Multica flow (no lab) |
-
-To escalate, comment on the issue telling the user which lab to
-pick from the LabPicker — do NOT auto-flip `lab_source` yourself
-(see server `assignDefaultLabAgentOnUpdate` for the leader-rewrite
-contract).
+- Do **not** fabricate service responses: `/render` is the only data-plane
+  endpoint and `/health` the only other path. Anything else is 404.
+- The service is deterministic and stdlib-only — it renders code, it does
+  **not** execute it, does not hold state, and has no model. Do not promise
+  features it does not have.
+- If the user actually needs code **execution**, prediction, or research,
+  escalate: `pythia_oracle` (forecasting), `mythos_swarm` (multi-perspective
+  research), `claude_science_lab` (interactive research session). Comment the
+  recommendation — do NOT auto-flip `lab_source` (see
+  `assignDefaultLabAgentOnUpdate` for the leader-rewrite contract).
