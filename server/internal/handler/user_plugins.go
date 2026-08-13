@@ -250,7 +250,14 @@ func (h *Handler) CreateUserPlugin(w http.ResponseWriter, r *http.Request) {
 
 	// Seed visibility rows for any agents/squads declared in the manifest's
 	// capabilities block so they are hidden from regular pickers by default.
-	h.seedPluginVisibility(r.Context(), flagKey, manifest)
+	// F-013: scoped to the installer's workspace — a plugin must never seed
+	// visibility rows for resources living in another workspace.
+	if wsID, err := resolveLabWorkspace(r.Context(), h, h.resolveWorkspaceID(r), userID); err == nil {
+		h.seedPluginVisibility(r.Context(), flagKey, manifest, wsID)
+	} else {
+		slog.Debug("user plugin create: skipping visibility seeding (no installer workspace)",
+			"slug", body.Slug, "error", err)
+	}
 
 	writeJSON(w, http.StatusCreated, userPluginToResponse(plugin))
 }
@@ -383,7 +390,13 @@ func (h *Handler) UpdateUserPlugin(w http.ResponseWriter, r *http.Request) {
 	// is additive and idempotent (INSERT ... ON CONFLICT DO NOTHING); it
 	// does not un-hide resources dropped from the manifest.
 	if len(body.Manifest) > 0 {
-		h.seedPluginVisibility(r.Context(), flagKey, manifest)
+		// F-013: same installer-workspace scoping as create.
+		if wsID, err := resolveLabWorkspace(r.Context(), h, h.resolveWorkspaceID(r), requestUserID(r)); err == nil {
+			h.seedPluginVisibility(r.Context(), flagKey, manifest, wsID)
+		} else {
+			slog.Debug("user plugin update: skipping visibility seeding (no installer workspace)",
+				"slug", slug, "error", err)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, userPluginToResponse(updated))
@@ -466,15 +479,21 @@ type pluginManifestCapabilities struct {
 // only through the lab's own panel, not in the regular pickers, so a
 // lab's private automation/agent roster never pollutes Multica's own.
 //
-// Name resolution uses a cross-workspace lookup (LIMIT 1) because user
-// plugins are server-global, not workspace-scoped. Agents/squads that do
-// not exist yet at creation time are silently skipped; the plugin's
-// install handler (if any) is the authoritative seeding point.
+// F-013 (0.5.18): lookups are scoped to the installer's workspace
+// (workspaceID), so a plugin can never seed visibility rows for resources
+// living in another workspace. Agents/squads/autopilots that do not exist
+// in that workspace yet are silently skipped; the plugin's install handler
+// (if any) is the authoritative seeding point.
 //
 // Best-effort: every error is logged and swallowed so a visibility
 // failure never blocks plugin creation.
-func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, manifest json.RawMessage) {
+func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, manifest json.RawMessage, workspaceID pgtype.UUID) {
 	if h.Queries == nil || h.DB == nil {
+		return
+	}
+	if !workspaceID.Valid {
+		// No installer workspace → nothing to seed. Seeding must never run
+		// against resources in another workspace (F-013).
 		return
 	}
 
@@ -493,8 +512,8 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 	for _, name := range caps.Capabilities.Agents {
 		var id pgtype.UUID
 		err := h.DB.QueryRow(ctx,
-			`SELECT id FROM agent WHERE name = $1 AND archived_at IS NULL ORDER BY created_at LIMIT 1`,
-			name,
+			`SELECT id FROM agent WHERE workspace_id = $1 AND name = $2 AND archived_at IS NULL ORDER BY created_at LIMIT 1`,
+			workspaceID, name,
 		).Scan(&id)
 		if err != nil {
 			// Agent not provisioned yet — skip silently at debug level.
@@ -516,8 +535,8 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 	for _, name := range caps.Capabilities.Squads {
 		var id pgtype.UUID
 		err := h.DB.QueryRow(ctx,
-			`SELECT id FROM squad WHERE name = $1 ORDER BY created_at LIMIT 1`,
-			name,
+			`SELECT id FROM squad WHERE workspace_id = $1 AND name = $2 ORDER BY created_at LIMIT 1`,
+			workspaceID, name,
 		).Scan(&id)
 		if err != nil {
 			slog.Debug("plugin visibility: squad not found, skipping",
@@ -540,8 +559,8 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 	for _, title := range caps.Capabilities.Autopilots {
 		var id pgtype.UUID
 		err := h.DB.QueryRow(ctx,
-			`SELECT id FROM autopilot WHERE title = $1 ORDER BY created_at LIMIT 1`,
-			title,
+			`SELECT id FROM autopilot WHERE workspace_id = $1 AND title = $2 ORDER BY created_at LIMIT 1`,
+			workspaceID, title,
 		).Scan(&id)
 		if err != nil {
 			slog.Debug("plugin visibility: autopilot not found, skipping",
