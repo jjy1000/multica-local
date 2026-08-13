@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldAcceptCachedPat } from "./daemon-manager";
+import { isAllowedTargetApiUrl, shouldAcceptCachedPat } from "./daemon-manager";
 
 // 2026-07-03 self-heal regression test
 //
@@ -68,5 +68,38 @@ describe("shouldAcceptCachedPat — 2026-07-03 self-heal", () => {
         probe: "ok",
       }),
     ).toBe(false);
+  });
+});
+
+// F-027: daemon:set-target-api-url allowlist. The target API URL drives
+// daemon auth + token minting, so only loopback / private LAN http(s) URLs
+// may be set; everything else is rejected.
+describe("isAllowedTargetApiUrl — F-027 allowlist", () => {
+  it("allows loopback + private LAN http(s) URLs", () => {
+    expect(isAllowedTargetApiUrl("http://127.0.0.1:8090")).toBe(true);
+    expect(isAllowedTargetApiUrl("http://localhost:8090")).toBe(true);
+    expect(isAllowedTargetApiUrl("http://[::1]:8090")).toBe(true);
+    expect(isAllowedTargetApiUrl("http://10.0.0.5:8090")).toBe(true);
+    expect(isAllowedTargetApiUrl("http://172.16.3.4:8090")).toBe(true);
+    expect(isAllowedTargetApiUrl("http://192.168.1.20:8090")).toBe(true);
+    expect(isAllowedTargetApiUrl("https://127.0.0.1:8443")).toBe(true);
+    expect(isAllowedTargetApiUrl("http://[::ffff:127.0.0.1]:8090")).toBe(true);
+  });
+
+  it("allows null / empty to clear the override", () => {
+    expect(isAllowedTargetApiUrl(null)).toBe(true);
+    expect(isAllowedTargetApiUrl("")).toBe(true);
+    expect(isAllowedTargetApiUrl(undefined)).toBe(true);
+  });
+
+  it("rejects public hosts, wildcard binds, and non-http schemes", () => {
+    expect(isAllowedTargetApiUrl("http://example.com")).toBe(false);
+    expect(isAllowedTargetApiUrl("http://8.8.8.8")).toBe(false);
+    expect(isAllowedTargetApiUrl("http://0.0.0.0:8090")).toBe(false);
+    expect(isAllowedTargetApiUrl("http://169.254.169.254")).toBe(false);
+    expect(isAllowedTargetApiUrl("file:///etc/passwd")).toBe(false);
+    expect(isAllowedTargetApiUrl("ftp://127.0.0.1")).toBe(false);
+    expect(isAllowedTargetApiUrl("not a url")).toBe(false);
+    expect(isAllowedTargetApiUrl("http://")).toBe(false);
   });
 });

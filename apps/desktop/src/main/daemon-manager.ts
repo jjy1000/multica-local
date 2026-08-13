@@ -1264,12 +1264,72 @@ function stopLogTail(): void {
   }
 }
 
+// isAllowedTargetApiUrl validates a target API base URL for
+// daemon:set-target-api-url (F-027). Only loopback (localhost / 127.0.0.1 /
+// ::1) and private LAN subnets (10/8, 172.16/12, 192.168/16) over http(s)
+// are allowed — the daemon mints auth tokens against this URL, so it must
+// never be pointed at a public host, the wildcard bind 0.0.0.0, or a
+// non-http scheme (file:// etc). null/empty (clear) is allowed.
+export function isAllowedTargetApiUrl(raw: string | null | undefined): boolean {
+  if (!raw) return true;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  let host = parsed.hostname.toLowerCase();
+  if (!host) return false;
+  // Strip IPv6 brackets, then normalize IPv4-mapped IPv6 (::ffff:127.0.0.1).
+  // Node's URL parser rewrites the mapped v4 into hex pairs ("7f00:1"), so
+  // both the dotted-decimal and the hex-pair forms are expanded.
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  if (host.startsWith("::ffff:")) {
+    const rest = host.slice("::ffff:".length);
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(rest)) {
+      host = rest;
+    } else {
+      const groups = rest.split(":");
+      if (groups.length === 2) {
+        const v = (parseInt(groups[0], 16) << 16) | parseInt(groups[1], 16);
+        host = `${(v >>> 24) & 255}.${(v >>> 16) & 255}.${(v >>> 8) & 255}.${v & 255}`;
+      }
+    }
+  }
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+  if (host === "0.0.0.0") return false; // wildcard bind, not a real backend
+  return isPrivateIPv4(host);
+}
+
+// isPrivateIPv4 reports whether host is a private LAN IPv4 address:
+// 10/8, 172.16/12, 192.168/16.
+function isPrivateIPv4(host: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!m) return false;
+  const octets = m.slice(1).map(Number);
+  if (octets.some((o) => o > 255)) return false;
+  const [a, b] = octets;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}
+
 export function setupDaemonManager(
   windowGetter: () => BrowserWindow | null,
 ): void {
   getMainWindow = windowGetter;
 
   ipcMain.handle("daemon:set-target-api-url", async (_e, url: string) => {
+    // F-027: the target API URL drives daemon auth + token minting, so it
+    // must point at a local/private backend only. Reject everything else.
+    if (!isAllowedTargetApiUrl(url)) {
+      return {
+        ok: false,
+        error: `target API URL rejected: only loopback / private http(s) URLs are allowed (got "${url}")`,
+      };
+    }
     const normalized = url || null;
     if (targetApiBaseUrl !== normalized) {
       console.log(`[daemon] target API URL set to ${normalized ?? "(none)"}`);
@@ -1277,6 +1337,7 @@ export function setupDaemonManager(
       invalidateActiveProfile();
       await pollOnce();
     }
+    return { ok: true };
   });
   ipcMain.handle("daemon:start", () => withGuard(() => startDaemon()));
   ipcMain.handle("daemon:stop", () => withGuard(() => stopDaemon()));
