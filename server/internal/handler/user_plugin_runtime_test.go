@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -303,4 +304,76 @@ func runEntryInDir(slug, envDir string) (string, error) {
 	cmd.Stderr = &buf
 	err := cmd.Run()
 	return buf.String(), err
+}
+
+// runCommandInDir mirrors the subprocess exec path: run the given command +
+// args with cwd = the plugin env dir and the same sandbox env the handler
+// injects. Returns combined output for failure diagnostics.
+func runCommandInDir(slug, envDir, command string, args ...string) (string, error) {
+	cmd := exec.Command(command, args...)
+	cmd.Dir = envDir
+	cmd.Env = pluginRuntimeEnv(slug, envDir)
+	var buf strings.Builder
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	return buf.String(), err
+}
+
+// TestPluginRuntimeManifest_SubprocessCommandFields pins the manifest parse
+// contract for runtime_kind=subprocess: manifest.runtime.command + args are
+// the argv the 0.5.18 runtime executes (replacing the old 501 slot).
+func TestPluginRuntimeManifest_SubprocessCommandFields(t *testing.T) {
+	var rm pluginRuntimeManifest
+	if err := json.Unmarshal([]byte(`{"runtime":{"kind":"subprocess","command":"/usr/bin/env","args":["FOO=bar"]}}`), &rm); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if rm.Runtime.Command != "/usr/bin/env" {
+		t.Fatalf("command = %q, want /usr/bin/env", rm.Runtime.Command)
+	}
+	if len(rm.Runtime.Args) != 1 || rm.Runtime.Args[0] != "FOO=bar" {
+		t.Fatalf("args = %v, want [FOO=bar]", rm.Runtime.Args)
+	}
+}
+
+// TestUserPluginRuntime_SubprocessCommandEmitsArtifacts exercises the
+// subprocess runtime core (snapshot → exec command+args → ingest) without the
+// DB-backed HTTP layer, matching the existing inline test. A manifest-declared
+// command that emits a file into the env dir must surface as an artifact.
+func TestUserPluginRuntime_SubprocessCommandEmitsArtifacts(t *testing.T) {
+	if err := probePython3(); err != nil {
+		t.Skipf("python3 not available: %v", err)
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	const slug = "subprocess-demo"
+	envDir, err := pluginEnvDir(slug)
+	if err != nil {
+		t.Fatalf("pluginEnvDir: %v", err)
+	}
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatalf("mkdir env: %v", err)
+	}
+
+	// A subprocess runtime runs manifest.runtime.command + args (not
+	// python3 -I entry.py). Use python3 -c to emit a file into cwd.
+	before := snapshotEnvDir(envDir)
+	if out, err := runCommandInDir(slug, envDir, "python3", "-c",
+		"open('report.txt','w').write('subprocess-ok')"); err != nil {
+		t.Fatalf("subprocess run failed: %v\n%s", err, out)
+	}
+
+	h := &Handler{}
+	arts, err := h.ingestRunArtifacts(slug, envDir, before)
+	if err != nil {
+		t.Fatalf("ingestRunArtifacts: %v", err)
+	}
+	if len(arts) != 1 {
+		t.Fatalf("expected 1 artifact, got %d: %+v", len(arts), arts)
+	}
+	if arts[0].Title != "report.txt" || arts[0].Type != "file" {
+		t.Fatalf("unexpected artifact: %+v", arts[0])
+	}
 }

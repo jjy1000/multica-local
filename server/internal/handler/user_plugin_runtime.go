@@ -15,8 +15,8 @@
 //   - inline    → run `python3 -I entry.py` with cwd = the plugin's
 //     persistent env dir (~/.multica/plugins/<slug>/env/). New/changed
 //     files are diffed out and copied into the plugin's artifacts/ dir.
-//   - subprocess → 501 (reserved upgrade slot; the env dir is the future
-//     container mount point).
+//   - subprocess → run the manifest.runtime.command (argv, no shell) in the
+//     same sandbox env; 0.5.18 closed the prior "reserved upgrade slot".
 //   - none       → 400 (the plugin declared no runtime).
 //
 // Storage is zero-migration: run history lives in a flat runs.json
@@ -72,9 +72,11 @@ const (
 // manifest carries only the low-code entry source and an optional timeout.
 type pluginRuntimeManifest struct {
 	Runtime struct {
-		Kind      string `json:"kind"`
-		EntryCode string `json:"entry_code"`
-		TimeoutMs int    `json:"timeout_ms"`
+		Kind      string   `json:"kind"`
+		EntryCode string   `json:"entry_code"`
+		Command   string   `json:"command"`
+		Args      []string `json:"args"`
+		TimeoutMs int      `json:"timeout_ms"`
 	} `json:"runtime"`
 }
 
@@ -224,15 +226,15 @@ func (h *Handler) RunUserPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Dispatch on the authoritative runtime_kind column.
+	// Dispatch on the authoritative runtime_kind column. Both "inline" and
+	// "subprocess" fall through to the shared exec path below; they differ
+	// only in how the command + argv are resolved (python entry.py vs a
+	// manifest-declared command).
 	switch plugin.RuntimeKind {
 	case "none":
 		writeError(w, http.StatusBadRequest, "plugin declares no runtime")
 		return
-	case "subprocess":
-		writeError(w, http.StatusNotImplemented, "subprocess runtime is a reserved upgrade slot")
-		return
-	case "inline":
+	case "inline", "subprocess":
 		// fall through
 	default:
 		writeError(w, http.StatusBadRequest, "unsupported runtime_kind")
@@ -266,43 +268,70 @@ func (h *Handler) RunUserPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the code source in priority order:
-	//   request body code → manifest.runtime.entry_code → existing entry.py.
-	code := req.Code
-	if code == "" {
-		code = rm.Runtime.EntryCode
-	}
-	entryPath := filepath.Join(envDir, entryFileName)
-	if code != "" {
-		if len(code) > maxRuntimeCodeBytes {
-			writeJSON(w, http.StatusRequestEntityTooLarge,
-				map[string]string{"error": fmt.Sprintf("code exceeds %d bytes", maxRuntimeCodeBytes)})
-			return
-		}
-		if err := os.WriteFile(entryPath, []byte(code), 0o644); err != nil {
-			slog.Error("user plugin run: write entry failed", "slug", slug, "error", err)
-			writeError(w, http.StatusInternalServerError, "failed to write entry code")
-			return
-		}
-	} else {
-		// No inline code anywhere — fall back to a previously written entry.py.
-		info, statErr := os.Stat(entryPath)
-		if statErr != nil || info.Size() == 0 {
+	// Resolve the command + argv to execute. Both runtime kinds share the
+	// sandbox (minimal env + timeout + artifact ingestion) and differ only in
+	// how the child is described:
+	//
+	//   inline     → write entry.py from body code / manifest entry_code /
+	//                a previously persisted entry.py, then run python3 -I.
+	//   subprocess → run the manifest.runtime.command directly (argv, no
+	//                shell) with manifest.runtime.args.
+	var command string
+	var commandArgs []string
+	if plugin.RuntimeKind == "subprocess" {
+		command = strings.TrimSpace(rm.Runtime.Command)
+		if command == "" {
 			writeError(w, http.StatusBadRequest,
-				"no code provided and no entry.py present in the plugin env")
+				"subprocess plugin declares no manifest.runtime.command")
 			return
 		}
-	}
-
-	// Pre-flight the interpreter. Mirrors the claude-science runtime's
-	// ENOENT-prevention contract. There is no bound issue on this endpoint,
-	// so (unlike the claude runtime) we surface the failure via the HTTP
-	// response only.
-	if err := probePython3(); err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
-			"error": "python3 not available on PATH; install Python 3.11+ and retry",
-		})
-		return
+		// Defense-in-depth: exec.CommandContext never invokes a shell, so these
+		// metacharacters would only make path lookup fail — but rejecting them
+		// keeps the intent unambiguous and matches the minimal-env boundary the
+		// inline path already enforces.
+		if strings.ContainsAny(command, ";&|`$<>()\n\r\t") {
+			writeError(w, http.StatusBadRequest,
+				"subprocess command contains shell metacharacters")
+			return
+		}
+		commandArgs = rm.Runtime.Args
+	} else {
+		// inline: resolve code source in priority order (request body code →
+		// manifest.runtime.entry_code → existing entry.py), then pre-flight the
+		// interpreter the same way the claude-science runtime does.
+		code := req.Code
+		if code == "" {
+			code = rm.Runtime.EntryCode
+		}
+		entryPath := filepath.Join(envDir, entryFileName)
+		if code != "" {
+			if len(code) > maxRuntimeCodeBytes {
+				writeJSON(w, http.StatusRequestEntityTooLarge,
+					map[string]string{"error": fmt.Sprintf("code exceeds %d bytes", maxRuntimeCodeBytes)})
+				return
+			}
+			if err := os.WriteFile(entryPath, []byte(code), 0o644); err != nil {
+				slog.Error("user plugin run: write entry failed", "slug", slug, "error", err)
+				writeError(w, http.StatusInternalServerError, "failed to write entry code")
+				return
+			}
+		} else {
+			// No inline code anywhere — fall back to a previously written entry.py.
+			info, statErr := os.Stat(entryPath)
+			if statErr != nil || info.Size() == 0 {
+				writeError(w, http.StatusBadRequest,
+					"no code provided and no entry.py present in the plugin env")
+				return
+			}
+		}
+		if err := probePython3(); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+				"error": "python3 not available on PATH; install Python 3.11+ and retry",
+			})
+			return
+		}
+		command = "python3"
+		commandArgs = []string{"-I", entryFileName}
 	}
 
 	// Resolve the timeout: request body → manifest → default, capped.
@@ -331,7 +360,7 @@ func (h *Handler) RunUserPlugin(w http.ResponseWriter, r *http.Request) {
 	resultCh := make(chan execResult, 1)
 	start := time.Now()
 	go func() {
-		cmd := exec.CommandContext(execCtx, "python3", "-I", entryFileName)
+		cmd := exec.CommandContext(execCtx, command, commandArgs...)
 		cmd.Dir = envDir
 		cmd.Env = pluginRuntimeEnv(slug, envDir)
 		// Final backstop: if a grandchild inherits the stdout/stderr
