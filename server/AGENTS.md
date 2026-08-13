@@ -126,6 +126,13 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
   `multica lab delegate <lab> "<task>"` CLI (`cmd/multica/cmd_lab.go`) is
   pure-CLI (create lab issue → poll `task-runs` → read `result.output`) — add NO
   new server endpoint for it.
+- **User-plugin subprocess runtime (0.5.18).** `user_plugin_runtime.go::RunUserPlugin`
+  dispatches `runtime_kind=subprocess` to execute `manifest.runtime.command`+`args`
+  (argv, no shell; shell metacharacters rejected) in the same sandbox env as inline
+  (`pluginRuntimeEnv` — minimal env, HOME pinned, timeout). One-shot on-demand child,
+  NOT a long-lived loopback service (that stays desktop-manager-owned for built-in
+  subprocess labs like pythia/code_canvas). Do not re-add the old 501 "reserved
+  upgrade slot".
 
 ### Agent self-optimization + trust (0.5.2)
 
