@@ -310,6 +310,9 @@ func TestTrySendDropsWhenFull(t *testing.T) {
 func TestBuildClaudeArgsIncludesStrictMCPConfig(t *testing.T) {
 	t.Parallel()
 
+	// F-002: ExecOptions{} (BypassPermissions unset) must NOT carry
+	// --permission-mode bypassPermissions — auto-approval is now gated on
+	// the agent's trust score.
 	args := buildClaudeArgs(ExecOptions{}, slog.Default())
 	expected := []string{
 		"-p",
@@ -317,7 +320,6 @@ func TestBuildClaudeArgsIncludesStrictMCPConfig(t *testing.T) {
 		"--input-format", "stream-json",
 		"--verbose",
 		"--strict-mcp-config",
-		"--permission-mode", "bypassPermissions",
 		"--disallowedTools", "AskUserQuestion",
 	}
 
@@ -329,6 +331,31 @@ func TestBuildClaudeArgsIncludesStrictMCPConfig(t *testing.T) {
 			t.Fatalf("expected args[%d] = %q, got %q", i, want, args[i])
 		}
 	}
+}
+
+// TestBuildClaudeArgsGatesBypassPermissionsOnTrust pins the F-002 gate: the
+// daemon grants --permission-mode bypassPermissions only via an explicit
+// BypassPermissions option (set server-side from the agent's trust score);
+// the default stays without auto-approval.
+func TestBuildClaudeArgsGatesBypassPermissionsOnTrust(t *testing.T) {
+	t.Parallel()
+
+	if has := containsArgPair(buildClaudeArgs(ExecOptions{}, slog.Default()), "--permission-mode", "bypassPermissions"); has {
+		t.Fatal("default ExecOptions must not include bypassPermissions")
+	}
+	if !containsArgPair(buildClaudeArgs(ExecOptions{BypassPermissions: true}, slog.Default()), "--permission-mode", "bypassPermissions") {
+		t.Fatal("BypassPermissions=true must include --permission-mode bypassPermissions")
+	}
+}
+
+// containsArgPair reports whether args contains the literal (flag, value) pair.
+func containsArgPair(args []string, flag, value string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == flag && args[i+1] == value {
+			return true
+		}
+	}
+	return false
 }
 
 func TestFilterCustomArgsBlocksProtocolFlags(t *testing.T) {

@@ -58,9 +58,12 @@ type Task struct {
 	// prompt set in Settings → General). Server populates this on every claim
 	// regardless of task kind so the daemon can inject `## Workspace Context`
 	// into the brief. Empty when the owner hasn't set one.
-	WorkspaceContext         string                `json:"workspace_context,omitempty"`
-	ThreadName               string                `json:"thread_name,omitempty"` // semantic title for provider-native session/thread history
-	Agent                    *AgentData            `json:"agent,omitempty"`
+	WorkspaceContext string     `json:"workspace_context,omitempty"`
+	ThreadName       string     `json:"thread_name,omitempty"` // semantic title for provider-native session/thread history
+	Agent            *AgentData `json:"agent,omitempty"`
+	// BypassPermissions (0.5.18 F-002) — server-computed trust gate for the
+	// claude spawn's auto-approval mode. Carried from claim to exec.
+	BypassPermissions        bool                  `json:"bypass_permissions,omitempty"`
 	Repos                    []RepoData            `json:"repos,omitempty"`
 	ProjectID                string                `json:"project_id,omitempty"`                  // issue's project, when present
 	ProjectTitle             string                `json:"project_title,omitempty"`               // human-readable project title for context injection

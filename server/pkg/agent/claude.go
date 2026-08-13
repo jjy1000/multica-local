@@ -619,7 +619,6 @@ func buildClaudeArgs(opts ExecOptions, logger *slog.Logger) []string {
 		"--input-format", "stream-json",
 		"--verbose",
 		"--strict-mcp-config",
-		"--permission-mode", "bypassPermissions",
 		// AskUserQuestion is Claude Code's built-in interactive question tool.
 		// The daemon runs Claude in non-interactive stream-json mode and has
 		// no UI for the prompt to render in, so a call returns an empty
@@ -637,6 +636,14 @@ func buildClaudeArgs(opts ExecOptions, logger *slog.Logger) []string {
 		// itself accepts the flag in any order but this ordering makes
 		// the launch line readable in `agent command` logs.
 		args = append(args, "--effort", opts.ThinkingLevel)
+	}
+	// 0.5.18 F-002: auto-approval is gated on the agent's trust score. The
+	// daemon grants BypassPermissions only for agents at/above the trust
+	// threshold (computed server-side at claim); everyone else runs without
+	// --permission-mode bypassPermissions so dangerous operations surface
+	// instead of being auto-approved.
+	if opts.BypassPermissions {
+		args = append(args, "--permission-mode", "bypassPermissions")
 	}
 	if opts.MaxTurns > 0 {
 		args = append(args, "--max-turns", fmt.Sprintf("%d", opts.MaxTurns))

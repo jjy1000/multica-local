@@ -23,6 +23,7 @@ import (
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/service/agent_trust"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -1288,6 +1289,11 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	// Build response with fresh agent data (name + skills + custom_env + custom_args).
 	resp := taskToResponse(*task, runtimeWorkspaceID)
 	if agent, err := h.Queries.GetAgent(r.Context(), task.AgentID); err == nil {
+		// 0.5.18 F-002: auto-approval is gated on the agent's trust score,
+		// computed server-side at claim time (the daemon has no DB). The wire
+		// carries the boolean down to the spawn path.
+		prof, profOK := agent_trust.LoadProfile(r.Context(), h.Queries, agent.WorkspaceID, agent.ID)
+		resp.BypassPermissions = agent_trust.ShouldGrantBypassPermissions(agent_trust.Score(prof, profOK), profOK)
 		useSkillRefs := requestHasDaemonCapability(r, protocol.DaemonCapabilitySkillBundlesV1)
 		var customEnv map[string]string
 		if agent.CustomEnv != nil {
@@ -2255,8 +2261,8 @@ var (
 // contract (typical envelope: 4 attachments, 3 predictions, 2 code
 // blocks) — anything bigger is rejected with 400 + logged.
 const (
-	maxJSONDepth     = 32   // 32 nested object/array levels
-	maxJSONKeyCount  = 4096 // total distinct keys across the parsed tree
+	maxJSONDepth    = 32   // 32 nested object/array levels
+	maxJSONKeyCount = 4096 // total distinct keys across the parsed tree
 )
 
 // jsonBytesExceedsLimits reports whether raw parses cleanly AND
@@ -2625,9 +2631,9 @@ func (h *Handler) reconcileCommentsOnCompletion(ctx context.Context, task *db.Ag
 		planned = append(planned, task.TriggerCommentID)
 	}
 	comments, err := h.Queries.ListReconcilableCommentsForIssueSince(ctx, db.ListReconcilableCommentsForIssueSinceParams{
-		IssueID:            task.IssueID,
-		Since:              anchor,
-		PlannedCommentIds:  planned,
+		IssueID:           task.IssueID,
+		Since:             anchor,
+		PlannedCommentIds: planned,
 	})
 	if err != nil {
 		slog.Warn("reconcile comments on completion: list failed",

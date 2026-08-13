@@ -57,6 +57,13 @@ type ExecOptions struct {
 	// ignore this field, mirroring ThinkingLevel's renderer-side fall-through
 	// pattern. See issue #3260.
 	OpenclawMode string
+	// BypassPermissions (0.5.18 F-002) grants the backend's auto-approval mode
+	// (Claude's --permission-mode bypassPermissions, Codex/Cursor yolo, ...).
+	// The daemon sets it only for agents whose trust score is at/above
+	// agent_trust.BypassPermissionsThreshold, computed server-side at claim
+	// time. Default false — a backend that receives no explicit grant runs
+	// without auto-approval.
+	BypassPermissions bool
 }
 
 // runContext derives the execution context for an agent subprocess from the

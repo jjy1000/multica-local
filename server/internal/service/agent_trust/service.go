@@ -45,6 +45,13 @@ const (
 	ReviewPassBonus        = 0.2
 	ReviewFailPenalty      = 0.5
 	DefaultReviewThreshold = 7.0
+	// BypassPermissionsThreshold is the trust score at or above which a REVIEWED
+	// agent's spawn may include auto-approval (--permission-mode
+	// bypassPermissions, F-002 0.5.18). Softer-gate contract (user-chosen): an
+	// agent WITHOUT a profile keeps auto-approval; a reviewed agent below this
+	// threshold loses it. Above DefaultReviewThreshold so only agents that have
+	// passed reviews earn it.
+	BypassPermissionsThreshold = 8.0
 )
 
 // EventType mirrors the CHECK constraint in migration 228.
@@ -136,6 +143,18 @@ func Score(prof db.AgentTrustProfile, ok bool) float64 {
 		return v
 	}
 	return InitialScore
+}
+
+// ShouldGrantBypassPermissions is the pure trust gate for agent auto-approval
+// (F-002 0.5.18). Computed server-side at task-claim time (the daemon has no
+// DB) and carried on the wire to the spawn path. Softer-gate contract
+// (user-chosen 0.5.18): an agent WITHOUT a trust profile keeps the historical
+// auto-approval; a reviewed agent grants only at/above the threshold.
+func ShouldGrantBypassPermissions(score float64, hasProfile bool) bool {
+	if !hasProfile {
+		return true
+	}
+	return score >= BypassPermissionsThreshold
 }
 
 // ReviewThreshold returns the gate threshold (default DefaultReviewThreshold).

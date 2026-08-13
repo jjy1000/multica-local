@@ -3829,7 +3829,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		// default (127.0.0.1:8090 via experimentalAPIURL) already
 		// matches the co-located desktop server, so no URL override
 		// is needed here.
-		"MULTICA_API_TOKEN":    agentToken,
+		"MULTICA_API_TOKEN": agentToken,
 	}
 	if task.AutopilotRunID != "" {
 		agentEnv["MULTICA_AUTOPILOT_RUN_ID"] = task.AutopilotRunID
@@ -3992,6 +3992,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		McpConfig:                 mcpConfig,
 		ThinkingLevel:             thinkingLevel,
 		OpenclawMode:              openclawMode,
+		BypassPermissions:         task.BypassPermissions,
 	}
 	// Some providers do not reliably load the per-task runtime config files we
 	// write into the task workdir:
@@ -4776,6 +4777,14 @@ func isBlockedEnvKey(key string) bool {
 	}
 	switch upper {
 	case "HOME", "PATH", "USER", "SHELL", "TERM", "CODEX_HOME", "CURSOR_DATA_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_INCLUDE_ROOTS":
+		return true
+	// F-005 (0.5.18): shell/env bootstrap + library preload vectors. BASH_ENV /
+	// ENV are sourced by non-interactive bash/sh on startup; LD_PRELOAD /
+	// DYLD_INSERT_LIBRARIES inject shared libraries into any spawned binary;
+	// NODE_OPTIONS reconfigures every Node child. A user-configured
+	// custom_env must never be able to arm any of these for daemon-spawned
+	// processes.
+	case "BASH_ENV", "ENV", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS":
 		return true
 	}
 	return false

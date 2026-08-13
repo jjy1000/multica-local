@@ -100,8 +100,17 @@ func TestIsBlockedEnvKey(t *testing.T) {
 		{key: "PYTHONPATH", want: true},
 		{key: "PYTHONSTARTUP", want: true},
 		{key: "pythonpath", want: true},
+		// F-005: shell/env bootstrap + library preload vectors.
+		{key: "BASH_ENV", want: true},
+		{key: "ENV", want: true},
+		{key: "LD_PRELOAD", want: true},
+		{key: "DYLD_INSERT_LIBRARIES", want: true},
+		{key: "NODE_OPTIONS", want: true},
+		{key: "NODE_EXTRA_CA_CERTS", want: true},
 		{key: "ANTHROPIC_API_KEY", want: false},
 		{key: "CURSOR_AGENT", want: false},
+		{key: "ENVIRONMENT", want: false},
+		{key: "NODE_PATH", want: false},
 	}
 
 	for _, tt := range tests {

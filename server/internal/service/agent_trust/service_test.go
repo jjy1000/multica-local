@@ -454,3 +454,27 @@ func TestClampScore(t *testing.T) {
 		}
 	}
 }
+
+// TestShouldGrantBypassPermissions pins the F-002 auto-approval gate (softer
+// contract): an agent without a trust profile keeps auto-approval; a reviewed
+// agent grants only at/above BypassPermissionsThreshold.
+func TestShouldGrantBypassPermissions(t *testing.T) {
+	cases := []struct {
+		name       string
+		score      float64
+		hasProfile bool
+		want       bool
+	}{
+		{"no profile keeps historical auto-approval", InitialScore, false, true},
+		{"reviewed below threshold rejects", BypassPermissionsThreshold - 0.1, true, false},
+		{"reviewed at threshold grants", BypassPermissionsThreshold, true, true},
+		{"reviewed max score grants", MaxScore, true, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := ShouldGrantBypassPermissions(c.score, c.hasProfile); got != c.want {
+				t.Fatalf("ShouldGrantBypassPermissions(%v, %v) = %v, want %v", c.score, c.hasProfile, got, c.want)
+			}
+		})
+	}
+}
