@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -65,6 +66,67 @@ func pluginArtifactDir(slug string) (string, error) {
 		return "", fmt.Errorf("resolve home dir: %w", err)
 	}
 	return filepath.Join(home, ".multica", "plugins", slug, "artifacts"), nil
+}
+
+// sanitizeArtifactTitle cleans a user-supplied artifact title / multipart
+// filename so it can never carry path separators, traversal components, or
+// control characters into the index or the Content-Disposition header
+// (F-006). Returns "" when the input contains nothing usable.
+func sanitizeArtifactTitle(raw string) string {
+	s := strings.ReplaceAll(raw, "\\", "/")
+	s = filepath.Base(s)
+	s = strings.TrimSpace(s)
+	if s == "." || s == ".." || s == "/" {
+		return ""
+	}
+	// Strip control characters (keeps display/metadata safe for headers).
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	const maxTitleLen = 200
+	if len(s) > maxTitleLen {
+		s = s[:maxTitleLen]
+	}
+	return s
+}
+
+// artifactExtPattern constrains the on-disk extension derived from an upload
+// filename: a single dot followed by letters/digits only, at most 12 chars.
+var artifactExtPattern = regexp.MustCompile(`^\.[A-Za-z0-9]{1,12}$`)
+
+// sanitizeArtifactExt returns the extension only when it matches the safe
+// pattern; anything else (path separators, traversal, control chars, weird
+// encodings) degrades to "" so the on-disk name stays id + safe ext.
+func sanitizeArtifactExt(ext string) string {
+	if artifactExtPattern.MatchString(ext) {
+		return strings.ToLower(ext)
+	}
+	return ""
+}
+
+// allowedArtifactMimePrefixes whitelists the mime base types accepted for
+// uploaded artifact files. Anything else degrades to application/octet-stream
+// — still stored, but served with attachment disposition so it can never be
+// rendered inline in the renderer origin.
+var allowedArtifactMimePrefixes = []string{
+	"image/", "text/", "application/json", "application/xml",
+	"application/svg+xml", "application/pdf", "application/octet-stream",
+	"application/zip", "font/", "audio/", "video/",
+}
+
+// sanitizeArtifactMime returns mimeType unchanged when its base type is
+// whitelisted, else the inert application/octet-stream fallback.
+func sanitizeArtifactMime(mimeType string) string {
+	base := strings.ToLower(strings.TrimSpace(strings.SplitN(mimeType, ";", 2)[0]))
+	for _, p := range allowedArtifactMimePrefixes {
+		if strings.HasPrefix(base, p) {
+			return mimeType
+		}
+	}
+	return "application/octet-stream"
 }
 
 // loadArtifactIndex reads and parses the index.json for a plugin. A missing
@@ -208,19 +270,25 @@ func (h *Handler) uploadArtifactMultipart(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	title := r.FormValue("title")
+	// F-006: sanitize the multipart filename before it can influence the
+	// index title, the on-disk name, or the serve Content-Disposition.
+	title := sanitizeArtifactTitle(r.FormValue("title"))
 	if title == "" {
-		title = header.Filename
+		title = sanitizeArtifactTitle(header.Filename)
+	}
+	if title == "" {
+		title = "artifact"
 	}
 
-	// Detect mime type from the original filename extension.
-	mimeType := mime.TypeByExtension(filepath.Ext(header.Filename))
+	// Detect mime type from the sanitized extension, whitelisted.
+	ext := sanitizeArtifactExt(filepath.Ext(header.Filename))
+	mimeType := mime.TypeByExtension(ext)
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
+	mimeType = sanitizeArtifactMime(mimeType)
 
 	id := generateArtifactID()
-	ext := filepath.Ext(header.Filename)
 	fileName := id + ext
 
 	// Lazily create the artifact directory.
@@ -400,7 +468,13 @@ func (h *Handler) ServePluginArtifactRaw(w http.ResponseWriter, r *http.Request)
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
-	http.ServeContent(w, r, target.FileName, info.ModTime(), f)
+	// F-006: always serve as a download — a stored artifact (e.g. an uploaded
+	// HTML/JS file whose mime whitelisted as text/html) must never render
+	// inline with the app's origin. The filename param is the already-safe
+	// on-disk name (id + whitelisted ext).
+	serveName := filepath.Base(target.FileName)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", serveName))
+	http.ServeContent(w, r, serveName, info.ModTime(), f)
 }
 
 // DeletePluginArtifact removes an artifact from the index and deletes its
