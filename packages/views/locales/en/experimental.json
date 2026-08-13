@@ -71,5 +71,20 @@
     "desc_llm_wiki_bridge": "Local stdio bridge for LLM Wiki. Streams wiki files / search / status to your editor or agent runtime over MCP-style verbs.",
     "desc_code_canvas": "Interactive canvas for prototyping, sketching code, and exploring agent-generated snippets in a side-by-side editor.",
     "desc_plugin": "User-installed lab plugin. Manifest-driven tabs (chat / artifacts / table / iframe / code / settings) on top of a per-plugin inline runtime."
+  },
+  "code_canvas": {
+    "crumb_labs": "Experimental",
+    "title": "Code Canvas",
+    "intro": "Render a code snippet into a self-contained, syntax-highlighted canvas view. The lab runs a local stdlib-only service — your code never leaves the machine.",
+    "input_label": "Code",
+    "input_placeholder": "Paste a code snippet to render…",
+    "language_label": "Language",
+    "render_button": "Render",
+    "rendering": "Rendering…",
+    "result_title": "Rendered canvas",
+    "empty_hint": "Enter code above and click Render — the HTML canvas view appears here.",
+    "error_render": "Render failed: {{error}}",
+    "not_enabled_title": "Code Canvas is disabled",
+    "not_enabled_desc": "Open Settings → Labs and enable the code_canvas flag to render code into canvas views here."
   }
 }

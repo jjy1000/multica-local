@@ -71,5 +71,20 @@
     "desc_llm_wiki_bridge": "LLM Wiki 的本地 stdio 桥接。通过 MCP 风格动词，把 wiki 文件 / 搜索 / 状态流式送到编辑器或智能体运行时。",
     "desc_code_canvas": "用于原型、草图代码、并排浏览智能体生成片段的交互画布。",
     "desc_plugin": "用户安装的实验室插件。基于清单驱动的标签页（聊天 / 产物 / 表格 / iframe / 代码 / 设置），运行于按插件隔离的内联运行时。"
+  },
+  "code_canvas": {
+    "crumb_labs": "试验性功能",
+    "title": "代码画布",
+    "intro": "把代码片段渲染成自包含、带语法高亮的画布视图。本实验室运行本地 stdlib-only 服务——代码不会离开你的机器。",
+    "input_label": "代码",
+    "input_placeholder": "粘贴要渲染的代码…",
+    "language_label": "语言",
+    "render_button": "渲染",
+    "rendering": "渲染中…",
+    "result_title": "渲染结果",
+    "empty_hint": "在上方输入代码并点击「渲染」——HTML 画布视图会出现在这里。",
+    "error_render": "渲染失败: {{error}}",
+    "not_enabled_title": "Code Canvas 未启用",
+    "not_enabled_desc": "打开 设置 → Labs 并启用 code_canvas 开关，即可在此把代码渲染成画布视图。"
   }
 }

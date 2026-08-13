@@ -71,5 +71,20 @@
     "desc_llm_wiki_bridge": "LLM Wiki のローカル stdio ブリッジ。MCP 風動詞で、wiki ファイル / 検索 / 状態をエディタやエージェントランタイムにストリーム配信。",
     "desc_code_canvas": "プロトタイピング、コードのスケッチ、エージェント生成スニペットの並列閲覧のためのインタラクティブキャンバス。",
     "desc_plugin": "ユーザーインストール型のラボプラグイン。マニフェスト駆動のタブ（チャット / 成果物 / テーブル / iframe / コード / 設定）を、プラグイン毎に分離されたインラインランタイム上で実行。"
+  },
+  "code_canvas": {
+    "crumb_labs": "実験機能",
+    "title": "コードキャンバス",
+    "intro": "コードスニペットを自己完結型のシンタックスハイライト付きキャンバスビューに描画します。このラボはローカルの stdlib のみのサービスを実行します — コードがマシンの外に出ることはありません。",
+    "input_label": "コード",
+    "input_placeholder": "描画するコードを貼り付け…",
+    "language_label": "言語",
+    "render_button": "描画",
+    "rendering": "描画中…",
+    "result_title": "描画結果",
+    "empty_hint": "上にコードを入力して「描画」をクリック — HTML キャンバスビューがここに表示されます。",
+    "error_render": "描画に失敗: {{error}}",
+    "not_enabled_title": "Code Canvas は無効です",
+    "not_enabled_desc": "設定 → Labs で code_canvas フラグを有効にすると、ここでコードをキャンバスビューに描画できます。"
   }
 }

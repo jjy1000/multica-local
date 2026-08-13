@@ -71,5 +71,20 @@
     "desc_llm_wiki_bridge": "LLM Wiki의 로컬 stdio 브리지. MCP 스타일 동사를 통해 wiki 파일 / 검색 / 상태를 에디터나 에이전트 런타임으로 스트리밍.",
     "desc_code_canvas": "프로토타이핑, 코드 스케치, 에이전트가 생성한 스니펫의 나란히 탐색을 위한 인터랙티브 캔버스.",
     "desc_plugin": "사용자 설치형 실험실 플러그인. 매니페스트 기반 탭(채팅 / 산출물 / 테이블 / iframe / 코드 / 설정)을 플러그인별 격리된 인라인 런타임에서 실행."
+  },
+  "code_canvas": {
+    "crumb_labs": "실험 기능",
+    "title": "코드 캔버스",
+    "intro": "코드 스니펫을 자체 포함된 구문 강조 캔버스 뷰로 렌더링합니다. 이 실험실은 로컬 stdlib 전용 서비스를 실행합니다 — 코드가 내 컴퓨터 밖으로 나가지 않습니다.",
+    "input_label": "코드",
+    "input_placeholder": "렌더링할 코드를 붙여넣기…",
+    "language_label": "언어",
+    "render_button": "렌더링",
+    "rendering": "렌더링 중…",
+    "result_title": "렌더링 결과",
+    "empty_hint": "위에 코드를 입력하고 렌더링을 클릭하세요 — HTML 캔버스 뷰가 여기에 표시됩니다.",
+    "error_render": "렌더링 실패: {{error}}",
+    "not_enabled_title": "Code Canvas가 비활성화됨",
+    "not_enabled_desc": "설정 → Labs에서 code_canvas 플래그를 활성화하면 여기에서 코드를 캔버스 뷰로 렌더링할 수 있습니다."
   }
 }
