@@ -318,3 +318,284 @@ func TestHandleTask_KeepsEnvRootActiveAcrossCompletion(t *testing.T) {
 		t.Fatal("env root remained active after handleTask returned — outer guard's deferred unmark did not fire")
 	}
 }
+
+// TestRunTask_InjectsPrivateTaskTempDir is the regression guard for the
+// per-task temp-dir fix (MUL-5799). A high-load sub-agent delegation run
+// would spawn a Hermes subprocess whose $TMPDIR inherited the daemon's
+// long /var/folders/.../T/ path; once a deep workdir-derived filename was
+// appended under it, the resulting AF_UNIX path exceeded the 104-byte
+// (macOS) / 108-byte (Linux) sun_path cap and the agent CLI failed with
+// "AF_UNIX path too long". The fix routes every spawned agent's TMPDIR
+// (and the Windows-flavored TMP/TEMP aliases) onto a private, short
+// /tmp/multica-<uid>/task-<hash> directory that ensureTaskTempDir
+// creates. The test verifies:
+//   - TMPDIR / TMP / TEMP all point at the private dir (not at any
+//     custom_env override the agent might have tried to inject — the
+//     isBlockedEnvKey blocklist must catch that)
+//   - the private dir exists on disk at the moment the agent CLI runs
+//   - the dir does NOT live under the long envRoot (defeating the
+//     original bug)
+//   - on Unix the full path stays short enough for AF_UNIX socket bind
+//     even after a typical Hermes-style suffix is appended
+func TestRunTask_InjectsPrivateTaskTempDir(t *testing.T) {
+	t.Parallel()
+
+	workspacesRoot := t.TempDir()
+	workspaceID := "ws-private-temp"
+	taskID := "task-private-temp"
+	envRoot := execenv.PredictRootDir(workspacesRoot, workspaceID, taskID)
+	expectedTempDir := taskTempDirPath(envRoot, taskID)
+
+	captureFile := filepath.Join(t.TempDir(), "agent-env.txt")
+	fakeBin := filepath.Join(t.TempDir(), "claude")
+	script := `#!/bin/sh
+if [ -d "$TMPDIR" ]; then tmpdir_exists=1; else tmpdir_exists=0; fi
+printf 'TMPDIR=%s\nTMP=%s\nTEMP=%s\nTMPDIR_EXISTS=%s\n' "$TMPDIR" "$TMP" "$TEMP" "$tmpdir_exists" > "$CAPTURE_FILE"
+IFS= read -r _
+printf '%s\n' '{"type":"system","session_id":"sess-private-temp"}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-private-temp","result":"done"}'
+`
+	if err := os.WriteFile(fakeBin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	d := &Daemon{
+		client:             NewClient(srv.URL),
+		logger:             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		workspaces:         make(map[string]*workspaceState),
+		runtimeIndex:       map[string]Runtime{"rt-1": {ID: "rt-1", Provider: "claude"}},
+		activeEnvRoots:     make(map[string]int),
+		cancelPollInterval: time.Hour,
+		cfg: Config{
+			WorkspacesRoot: workspacesRoot,
+			AgentTimeout:   5 * time.Second,
+			ServerBaseURL:  srv.URL,
+			Agents: map[string]AgentEntry{
+				"claude": {Path: fakeBin, Model: ""},
+			},
+		},
+	}
+
+	// CustomEnv tries to override TMPDIR / TMP / TEMP — isBlockedEnvKey
+	// must reject them and the daemon-injected value must win. CAPTURE_FILE
+	// is a legitimate (non-blocked) key the fake script needs to know
+	// where to write its captured env.
+	task := Task{
+		ID:          taskID,
+		WorkspaceID: workspaceID,
+		RuntimeID:   "rt-1",
+		IssueID:     "issue-private-temp",
+		AuthToken:   "mat_private_temp",
+		Agent: &AgentData{
+			ID:   "agent-private-temp",
+			Name: "test-agent",
+			CustomEnv: map[string]string{
+				"CAPTURE_FILE": captureFile,
+				"TMPDIR":       "/shared/tmp",
+				"TMP":          "/shared/tmp",
+				"TEMP":         "/shared/tmp",
+			},
+		},
+	}
+
+	taskLog := slog.New(slog.NewTextHandler(io.Discard, nil))
+	result, err := d.runTask(context.Background(), task, "claude", 0, taskLog)
+	if err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("runTask status = %q, want completed (comment=%q)", result.Status, result.Comment)
+	}
+
+	raw, err := os.ReadFile(captureFile)
+	if err != nil {
+		t.Fatalf("read captured agent env: %v", err)
+	}
+	got := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		got[line[:eq]] = line[eq+1:]
+	}
+	for _, key := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if got[key] != expectedTempDir {
+			t.Fatalf("%s = %q, want private task temp dir %q", key, got[key], expectedTempDir)
+		}
+	}
+	if got["TMPDIR_EXISTS"] != "1" {
+		t.Fatalf("agent did not see task temp dir on disk: captured env %v", got)
+	}
+	if strings.Contains(expectedTempDir, envRoot) {
+		t.Fatalf("task temp dir must not live under long env root %q: got %q", envRoot, expectedTempDir)
+	}
+	if os.PathSeparator == '/' && len(expectedTempDir) >= 64 {
+		t.Fatalf("task temp dir must stay short for Unix-domain sockets: len(%q) = %d", expectedTempDir, len(expectedTempDir))
+	}
+}
+
+// TestRunTask_TaskTempBaseOverride verifies the MULTICA_AGENT_TEMP_BASE
+// env var successfully relocates the per-task temp dir. Self-hosters on
+// a read-only /tmp (e.g. a hardened macOS sandbox) can point at a
+// writable alternate. The override must be honored even when the
+// default /tmp/multica-<uid> does not exist yet (ensureTaskTempDir
+// MkdirAll's the root, so a fresh override just works).
+func TestRunTask_TaskTempBaseOverride(t *testing.T) {
+	// t.Setenv is incompatible with t.Parallel — drop the parallel marker
+	// (this test exercises a per-test env override; parallelism would
+	// race the override with sibling tests' inherited env).
+
+	overrideBase := t.TempDir()
+	t.Setenv("MULTICA_AGENT_TEMP_BASE", overrideBase)
+
+	workspacesRoot := t.TempDir()
+	workspaceID := "ws-override-base"
+	taskID := "task-override-base"
+	envRoot := execenv.PredictRootDir(workspacesRoot, workspaceID, taskID)
+
+	// expectedTempDir uses the helper rather than re-deriving, so this
+	// test stays correct if ensureTaskTempDir's path layout ever changes
+	// (e.g. a per-workspace subdir is added).
+	expectedTempDir := taskTempDirPath(envRoot, taskID)
+	if !strings.HasPrefix(expectedTempDir, overrideBase) {
+		t.Fatalf("taskTempDirPath(%q, %q) = %q; want it under override base %q", envRoot, taskID, expectedTempDir, overrideBase)
+	}
+
+	captureFile := filepath.Join(t.TempDir(), "agent-env.txt")
+	fakeBin := filepath.Join(t.TempDir(), "claude")
+	script := `#!/bin/sh
+printf 'TMPDIR=%s\n' "$TMPDIR" > "$CAPTURE_FILE"
+IFS= read -r _
+printf '%s\n' '{"type":"system","session_id":"sess-override-base"}'
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id":"sess-override-base","result":"done"}'
+`
+	if err := os.WriteFile(fakeBin, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	d := &Daemon{
+		client:             NewClient(srv.URL),
+		logger:             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		workspaces:         make(map[string]*workspaceState),
+		runtimeIndex:       map[string]Runtime{"rt-1": {ID: "rt-1", Provider: "claude"}},
+		activeEnvRoots:     make(map[string]int),
+		cancelPollInterval: time.Hour,
+		cfg: Config{
+			WorkspacesRoot: workspacesRoot,
+			AgentTimeout:   5 * time.Second,
+			ServerBaseURL:  srv.URL,
+			Agents: map[string]AgentEntry{
+				"claude": {Path: fakeBin, Model: ""},
+			},
+		},
+	}
+
+	task := Task{
+		ID:          taskID,
+		WorkspaceID: workspaceID,
+		RuntimeID:   "rt-1",
+		IssueID:     "issue-override-base",
+		AuthToken:   "mat_override",
+		Agent: &AgentData{
+			ID:   "agent-override-base",
+			Name: "test-agent",
+			CustomEnv: map[string]string{
+				"CAPTURE_FILE": captureFile,
+			},
+		},
+	}
+
+	taskLog := slog.New(slog.NewTextHandler(io.Discard, nil))
+	result, err := d.runTask(context.Background(), task, "claude", 0, taskLog)
+	if err != nil {
+		t.Fatalf("runTask failed: %v", err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("runTask status = %q, want completed (comment=%q)", result.Status, result.Comment)
+	}
+
+	raw, err := os.ReadFile(captureFile)
+	if err != nil {
+		t.Fatalf("read captured agent env: %v", err)
+	}
+	got := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		got[line[:eq]] = line[eq+1:]
+	}
+	if got["TMPDIR"] != expectedTempDir {
+		t.Fatalf("TMPDIR = %q, want override-base path %q", got["TMPDIR"], expectedTempDir)
+	}
+}
+
+// TestRunTask_TaskTempBaseInvalidFailsStartup pins the MULTICA_AGENT_TEMP_BASE
+// validation contract: a misconfigured override fails task startup with
+// a clear error rather than silently falling back to /tmp (which on a
+// hardened host may itself be the failure mode the user is trying to
+// escape). Three cases — missing dir, not-a-dir, non-writable — each
+// must reject without spawning the agent CLI.
+func TestRunTask_TaskTempBaseInvalidFailsStartup(t *testing.T) {
+	// t.Setenv in subtests is incompatible with t.Parallel at this level
+	// either — subtest env overrides would not be properly isolated if
+	// the parent ran in parallel with siblings. Run sequentially.
+
+	validBase := t.TempDir()
+	missing := filepath.Join(validBase, "missing")
+	notDir := filepath.Join(validBase, "not-a-dir")
+	if err := os.WriteFile(notDir, []byte("file"), 0o600); err != nil {
+		t.Fatalf("write not-dir fixture: %v", err)
+	}
+	// Read-only base: chmod 0o500 (r-x, no write). The writeprobe inside
+	// ensureTaskTempDir must fail. Cleanup needs write, so loosen again
+	// before t.TempDir's recursive remove runs.
+	readOnlyBase := t.TempDir()
+	if err := os.Chmod(readOnlyBase, 0o500); err != nil {
+		t.Fatalf("chmod read-only base: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(readOnlyBase, 0o700) })
+
+	for _, tc := range []struct {
+		name string
+		base string
+	}{
+		{name: "missing dir rejected", base: missing},
+		{name: "non-directory rejected", base: notDir},
+		{name: "non-writable dir rejected", base: readOnlyBase},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MULTICA_AGENT_TEMP_BASE", tc.base)
+
+			// Pure helper-level validation: ensureTaskTempDir's contract
+			// is the same regardless of caller. Pinning it here keeps
+			// the regression surface tight — the agent CLI never even
+			// gets spawned when the validation rejects.
+			_, err := ensureTaskTempDir("env-root", "task-id")
+			if err == nil {
+				// Some processes (root in particular) can write
+				// through a 0o500 dir; skip rather than fail in that
+				// case so the test stays portable.
+				if tc.base == readOnlyBase {
+					t.Skip("process can write to the read-only fixture")
+				}
+				t.Fatalf("ensureTaskTempDir accepted invalid MULTICA_AGENT_TEMP_BASE %q", tc.base)
+			}
+			if !strings.Contains(err.Error(), "MULTICA_AGENT_TEMP_BASE") {
+				t.Fatalf("error must name MULTICA_AGENT_TEMP_BASE so the misconfig is debuggable; got %v", err)
+			}
+		})
+	}
+}

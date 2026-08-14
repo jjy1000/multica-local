@@ -3735,6 +3735,26 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		defer d.unmarkActiveEnvRoot(env.RootDir)
 	}
 
+	// Provision a private, per-task temp dir (e.g. /tmp/multica-<uid>/task-<hash>)
+	// and inject TMPDIR/TMP/TEMP into the spawned agent's environment.
+	// Without this every spawned subprocess inherits the daemon's $TMPDIR
+	// (on macOS the long /var/folders/.../T/ path) and any agent CLI that
+	// binds an IPC socket under $TMPDIR — Hermes' provider-error sniffer
+	// in particular — fails with "AF_UNIX path too long" once a deep
+	// workdir-derived filename is appended (sun_path caps: 108B Linux,
+	// 104B macOS). The /tmp/multica-<uid> base stays short enough that
+	// even the longest per-task suffix fits under the cap. The deferred
+	// RemoveAll keeps the dir from accumulating across runs.
+	taskTempDir, err := ensureTaskTempDir(env.RootDir, task.ID)
+	if err != nil {
+		return TaskResult{}, fmt.Errorf("prepare task temp dir: %w", err)
+	}
+	defer func() {
+		if cerr := os.RemoveAll(taskTempDir); cerr != nil {
+			taskLog.Warn("task temp dir cleanup failed", "path", taskTempDir, "error", cerr)
+		}
+	}()
+
 	// Issue #3999 race A: now that env.WorkDir is on disk, transition the
 	// server-side state machine dispatched (or waiting_local_directory) →
 	// running. Calling StartTask before Prepare/Reuse let any consumer
@@ -3901,6 +3921,14 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			agentEnv[k] = v
 		}
 	}
+	// Point the spawned agent at the private per-task temp dir created
+	// above. TMPDIR is the canonical Unix variable; TMP/TEMP are the
+	// Windows-flavored names some CLIs (notably Hermes-derived agents)
+	// also honor. Injecting all three means the override is honored
+	// regardless of which env var name the subprocess reads first.
+	agentEnv["TMPDIR"] = taskTempDir
+	agentEnv["TMP"] = taskTempDir
+	agentEnv["TEMP"] = taskTempDir
 	backend, err := agent.New(provider, agent.Config{
 		ExecutablePath: entry.Path,
 		Env:            agentEnv,
@@ -4776,7 +4804,14 @@ func isBlockedEnvKey(key string) bool {
 		return true
 	}
 	switch upper {
-	case "HOME", "PATH", "USER", "SHELL", "TERM", "CODEX_HOME", "CURSOR_DATA_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_INCLUDE_ROOTS":
+	// TMPDIR / TMP / TEMP route every spawned subprocess's temp-file
+	// location. Forcing all of them onto a single short, per-task path
+	// guarantees (a) sibling tasks cannot share a socket filename under
+	// the inherited $TMPDIR (which on macOS is already the long
+	// /var/folders/.../T/ path — well past the 104-byte AF_UNIX sun_path
+	// cap) and (b) cleanup can `os.RemoveAll` exactly one directory at
+	// the end of runTask without sweeping the user's global /tmp.
+	case "HOME", "PATH", "USER", "SHELL", "TERM", "TMPDIR", "TMP", "TEMP", "CODEX_HOME", "CURSOR_DATA_DIR", "OPENCLAW_CONFIG_PATH", "OPENCLAW_INCLUDE_ROOTS":
 		return true
 	// F-005 (0.5.18): shell/env bootstrap + library preload vectors. BASH_ENV /
 	// ENV are sourced by non-interactive bash/sh on startup; LD_PRELOAD /
@@ -4788,6 +4823,103 @@ func isBlockedEnvKey(key string) bool {
 		return true
 	}
 	return false
+}
+
+// shortTaskTempRoot is the parent directory under which per-task temp
+// dirs are created. The default is /tmp/multica-<uid> on Unix (short
+// enough to keep AF_UNIX sun_path under the 104-byte macOS / 108-byte
+// Linux cap even after the task-suffix is appended) and the per-OS
+// temp dir + "multica" elsewhere. Self-hosters can override with
+// MULTICA_AGENT_TEMP_BASE; ensureTaskTempDir validates that path before
+// using it.
+func shortTaskTempRoot() string {
+	if os.PathSeparator == '/' {
+		return filepath.Join("/tmp", "multica-"+strconv.Itoa(os.Getuid()))
+	}
+	return filepath.Join(os.TempDir(), "multica")
+}
+
+// taskTempDirName derives a deterministic, collision-resistant,
+// path-length-safe name for a (envRoot, taskID) pair. Two tasks on the
+// same workspace produce different names (taskID differs); two tasks
+// sharing a taskID across workspaces (shouldn't happen, but defensive)
+// still collide on the (envRoot, taskID) hash key. FNV-64a is chosen
+// over SHA because we want short output (16 hex chars = 8 bytes) and
+// the input space is already collision-safe — this is a path-name
+// hash, not a security primitive.
+func taskTempDirName(envRoot string, taskID string) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(strings.TrimSpace(envRoot)))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(strings.TrimSpace(taskID)))
+	return fmt.Sprintf("task-%016x", h.Sum64())
+}
+
+// taskTempDirPath is the absolute path where a task's private temp dir
+// will be created by ensureTaskTempDir. Living under shortTaskTempRoot
+// (default /tmp/multica-<uid>) keeps the full path well under the
+// AF_UNIX sun_path limit — important because some agent CLIs (Hermes)
+// bind IPC sockets under $TMPDIR and would otherwise fail with
+// "AF_UNIX path too long" once the envRoot-derived workdir name is
+// appended. When MULTICA_AGENT_TEMP_BASE is set the path lands under
+// that override instead, so callers that want to predict the exact
+// location (tests, diagnostics) see the same root ensureTaskTempDir
+// will use.
+func taskTempDirPath(envRoot string, taskID string) string {
+	root := shortTaskTempRoot()
+	if base := strings.TrimSpace(os.Getenv("MULTICA_AGENT_TEMP_BASE")); base != "" {
+		root = base
+	}
+	return filepath.Join(root, taskTempDirName(envRoot, taskID))
+}
+
+// ensureTaskTempDir creates (and chmods 0o700) the per-task temp dir
+// for this run. It honors MULTICA_AGENT_TEMP_BASE when set: the
+// override must be absolute, must already exist, must be a directory,
+// and must be writable — any failure returns an error so the task
+// refuses to start with a misconfigured base rather than silently
+// falling back to /tmp. The task-level directory lives directly under
+// the resolved root so its full path stays short.
+func ensureTaskTempDir(envRoot string, taskID string) (string, error) {
+	if envRoot == "" {
+		return "", errors.New("env root is empty")
+	}
+	root := shortTaskTempRoot()
+	if base := strings.TrimSpace(os.Getenv("MULTICA_AGENT_TEMP_BASE")); base != "" {
+		if !filepath.IsAbs(base) {
+			return "", fmt.Errorf("MULTICA_AGENT_TEMP_BASE %q is not an absolute path", base)
+		}
+		info, err := os.Stat(base)
+		if err != nil {
+			return "", fmt.Errorf("MULTICA_AGENT_TEMP_BASE %q is not accessible: %w", base, err)
+		}
+		if !info.IsDir() {
+			return "", fmt.Errorf("MULTICA_AGENT_TEMP_BASE %q is not a directory", base)
+		}
+		// Probe writability with a unique-named file in the override
+		// base. A read-only mount or 0o555 directory surfaces here as
+		// a clean error instead of later as a half-initialized dir.
+		probe := filepath.Join(base, ".multica-writeprobe")
+		if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
+			return "", fmt.Errorf("MULTICA_AGENT_TEMP_BASE %q is not writable: %w", base, err)
+		}
+		_ = os.Remove(probe)
+		root = base
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
+		return "", err
+	}
+	dir := taskTempDirPath(envRoot, taskID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 func defaultArgsForProvider(cfg Config, provider string) []string {

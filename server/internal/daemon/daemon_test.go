@@ -92,6 +92,14 @@ func TestIsBlockedEnvKey(t *testing.T) {
 		{key: "multica_runtime_id", want: true},
 		{key: "HOME", want: true},
 		{key: "PATH", want: true},
+		// TMPDIR / TMP / TEMP route every spawned subprocess's temp
+		// location. isBlockedEnvKey must reject them so a user-supplied
+		// custom_env cannot override the per-task temp dir the daemon
+		// injects at runTask time (the override exists to keep the
+		// AF_UNIX sun_path short under high-load sub-agent delegation).
+		{key: "TMPDIR", want: true},
+		{key: "tmp", want: true},
+		{key: "TEMP", want: true},
 		{key: "CODEX_HOME", want: true},
 		{key: "CURSOR_DATA_DIR", want: true},
 		{key: "cursor_data_dir", want: true},
