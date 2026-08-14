@@ -6,6 +6,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useModalStore } from "@multica/core/modals";
+import {
+  getShortcut,
+  isEditableShortcutTarget,
+  isPortalLayerShortcutTarget,
+  shortcutMatchesEvent,
+} from "@multica/core/shortcuts";
+import { isImeComposing } from "@multica/core/utils";
 import { useIssueDraftStore } from "@multica/core/issues/stores/draft-store";
 import {
   inboxListOptions,
@@ -150,6 +157,7 @@ export function InboxPage() {
     setSelectedKey(item.issue_id ?? item.id);
   };
 
+  // Toasts live in these shared handlers so every archive surface confirms alike.
   const handleArchive = (id: string) => {
     const idx = items.findIndex((i) => i.id === id);
     const archived = idx >= 0 ? items[idx] : null;
@@ -163,6 +171,7 @@ export function InboxPage() {
       setSelectedKey(next ? (next.issue_id ?? next.id) : "");
     }
     archiveMutation.mutate(id, {
+      onSuccess: () => toast.success(t(($) => $.toasts.archived)),
       onError: (err) =>
         toast.error(
           err instanceof Error && err.message
@@ -171,6 +180,43 @@ export function InboxPage() {
         ),
     });
   };
+
+  const handleUnarchive = (id: string) => {
+    advanceSelectionPast(id, archivedItems);
+    unarchiveMutation.mutate(id, {
+      onSuccess: () => toast.success(t(($) => $.toasts.unarchived)),
+      onError: (err) =>
+        toast.error(
+          err instanceof Error && err.message
+            ? err.message
+            : t(($) => $.errors.unarchive_failed),
+        ),
+    });
+  };
+
+  // Keep the listener stable while using the latest selected-item action.
+  const actionOnSelectedRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    actionOnSelectedRef.current = selected
+      ? () => (isArchivedView ? handleUnarchive(selected.id) : handleArchive(selected.id))
+      : null;
+  });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || isImeComposing(event)) return;
+      if (isEditableShortcutTarget(event.target)) return;
+      if (isPortalLayerShortcutTarget(event.target)) return;
+      if (useModalStore.getState().modal) return;
+      if (!shortcutMatchesEvent(getShortcut("archiveInboxItem"), event)) return;
+      const run = actionOnSelectedRef.current;
+      if (!run) return;
+      event.preventDefault();
+      run();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Batch operations
   const handleMarkAllRead = () => {
