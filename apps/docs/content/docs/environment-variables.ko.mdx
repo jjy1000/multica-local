@@ -182,6 +182,7 @@ S3 앞에 CloudFront를 두는 경우 세 가지 변수가 적용됩니다: `CLO
 | `MULTICA_<PROVIDER>_PATH` | CLI 이름과 일치 | 각 AI 코딩 도구 실행 파일의 경로 (예: `MULTICA_CLAUDE_PATH`) |
 | `MULTICA_<PROVIDER>_MODEL` | 비어 있음 | 각 AI 코딩 도구의 기본 모델 |
 | `MULTICA_<PROVIDER>_ARGS` | 비어 있음 | 백엔드별 데몬 전역 기본 CLI 인자. 각 작업에 대해 각 에이전트 자체의 `custom_args`보다 먼저 적용됩니다. `MULTICA_CLAUDE_ARGS`, `MULTICA_CODEX_ARGS`, `MULTICA_CODEBUDDY_ARGS`를 지원 |
+| `MULTICA_AGENT_TEMP_BASE` | `/tmp` (Linux/macOS) | Linux/macOS 전용. 데몬이 스폰된 에이전트마다 생성하는 비공개 작업별 임시 디렉터리의 상위 디렉터리([issue #3999 / MUL-5799](https://github.com/multica-ai/multica/pull/5116) 참조). 기존이고 쓰기 가능한 절대 경로여야 하며, 잘못된 값은 `/tmp`로 자동 폴백하지 않고 작업 시작을 실패시킵니다. 짧은 경로를 선택하세요. 일부 에이전트 CLI(특히 Hermes)는 `$TMPDIR` 아래에 AF_UNIX 소켓을 바인드하며, `sun_path` 제한은 Linux에서 108바이트, macOS에서 104바이트입니다 |
 
 각 파라미터가 데몬 동작에 어떻게 영향을 미치는지에 대한 전체 설명은 [데몬과 런타임](/daemon-runtimes)을 참고하세요.
 
