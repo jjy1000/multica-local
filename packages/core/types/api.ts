@@ -379,3 +379,70 @@ export interface LabCommentBrief {
   content: string;
   created_at: string;
 }
+
+// Mythos Swarm durable run + supervise envelopes (0.5.18 M2 LabOutputPanel).
+// The durable `GET /api/issues/{id}/mythos-runs` row carries `problem` (the
+// run's problem statement) + `coda_conclusions` (structured takeaways) — the
+// free-text `coda_summary` is NOT persisted to `mythos_run`; it only exists
+// in the ephemeral POST /run response. The supervise envelope mirrors
+// `MythosSuperviseStateResponse` in server/internal/handler/mythos_supervise.go.
+export interface MythosCodaConclusion {
+  key: string;
+  value: string;
+  confidence?: number | null;
+  actionable?: boolean | null;
+}
+
+export interface MythosRunSummary {
+  run_id: string;
+  status: string;
+  mode: string;
+  started_at: string;
+  problem: string;
+  iterations: number;
+  completed_at?: string | null;
+  final_issue_id?: string | null;
+  coda_conclusions: MythosCodaConclusion[];
+}
+
+export interface MythosSuperviseState {
+  run_id: string;
+  phase: string;
+  started_at?: string;
+  last_check_at?: string;
+  last_tick_duration_ms: number;
+  total_ticks: number;
+  sub_tasks_total: number;
+  sub_tasks_done: number;
+  latest_reflection?: string;
+  latest_reflection_iter?: number;
+  abort_reason?: string;
+}
+
+export interface PythiaForecastEnvelope {
+  id: string;
+  scenario: string;
+  narrative: string;
+  probability: number;
+  confidence: number;
+  horizon: string;
+  persona: string;
+  lab_source: string;
+  synthetic_oracle_failover?: boolean;
+}
+
+export interface PythiaForecastRun {
+  id: string;
+  rounds: number;
+  source: string;
+  created_at: string;
+  envelopes: PythiaForecastEnvelope[];
+}
+
+export interface CodeCanvasArtifact {
+  id: string;
+  code: string;
+  language: string;
+  html: string;
+  created_at: string;
+}

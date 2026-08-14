@@ -617,9 +617,9 @@ export class ApiClient {
     // an older build) returns the typed EMPTY_ISSUE sentinel instead
     // of an `any`-shaped partial object that crashes downstream
     // readers — see `claude-lab-view.tsx::LabAgentFromIssue`,
-    // `issue-labs-section.tsx` (MythosEnhancerSupervisePanel gating),
-    // and `issue-detail.tsx`. Sister methods (`listIssues`,
-    // `listComments`, `listTimeline`) already use this shape.
+    // `issue-labs-section.tsx`, and `issue-detail.tsx`. Sister methods
+    // (`listIssues`, `listComments`, `listTimeline`) already use this
+    // shape.
     const raw = await this.fetch<unknown>(`/api/issues/${id}`);
     return parseWithFallback(raw, IssueSchema, EMPTY_ISSUE, {
       endpoint: "GET /api/issues/:id",

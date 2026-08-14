@@ -429,7 +429,7 @@ describe("ApiClient", () => {
   // backend drift (missing `lab_source` / `lab_mode` / `assignee_type`
   // on an older build) returns EMPTY_ISSUE instead of an `any`-shaped
   // partial that crashes downstream readers (LabAgentFromIssue,
-  // IssueLabsSection MythosEnhancerSupervisePanel gating).
+  // IssueLabsSection).
   describe("getIssue", () => {
     it("returns the parsed issue for a well-formed response", async () => {
       vi.stubGlobal(

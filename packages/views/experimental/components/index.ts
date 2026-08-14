@@ -6,3 +6,4 @@ export {
 export { ArtifactRenderer, type Artifact } from "./artifact-renderer";
 export { ArtifactGallery } from "./artifact-gallery";
 export { PluginShellView } from "./plugin-shell-view";
+export { LabOutputPanel } from "./lab-output-panel";

@@ -20,6 +20,7 @@ import type {
   LabContext,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
+  MythosSuperviseState,
   SearchIssuesResponse,
   SearchProjectsResponse,
   Squad,
@@ -324,8 +325,7 @@ export const EMPTY_ISSUE: Issue = {
   stage: null,
   // 0.3.48: lab_source + lab_mode live on the Issue interface but
   // older schemas strip them off. Default to null so fallback
-  // consumers (LabPicker, IssueLabsSection, MythosEnhancerSupervisePanel
-  // gating) keep working when drift hits.
+  // consumers (LabPicker, IssueLabsSection) keep working when drift hits.
   lab_source: null,
   lab_mode: null,
   start_date: null,
@@ -1419,6 +1419,117 @@ export const EMPTY_LAB_CONTEXT: LabContext = {
 };
 
 // ---------------------------------------------------------------------------
+// Mythos Swarm run + supervise schemas (0.5.18 M2 LabOutputPanel)
+//
+// GET /api/issues/{issueID}/mythos-runs returns MythosRunSummary[] (the
+// durable run envelope). The free-text coda_summary is NOT persisted to
+// mythos_run — the durable row carries `problem` + `coda_conclusions` only.
+// GET/POST /api/experimental/mythos-swarm/supervise/{runID} returns the
+// supervision_state JSONB envelope (MythosSuperviseStateResponse). Kept
+// lenient (loose + string-typed status/mode/phase) so a future server field
+// addition degrades to the EMPTY fallback instead of crashing the panel.
+
+export const MythosCodaConclusionSchema = z.object({
+  key: z.string(),
+  value: z.string(),
+  confidence: z.number().nullable().optional(),
+  actionable: z.boolean().nullable().optional(),
+}).loose();
+
+export const MythosRunSummarySchema = z.object({
+  run_id: z.string(),
+  status: z.string(),
+  mode: z.string(),
+  started_at: z.string(),
+  problem: z.string().default(""),
+  iterations: z.number().default(0),
+  completed_at: z.string().nullable().optional(),
+  final_issue_id: z.string().nullable().optional(),
+  coda_conclusions: z.array(MythosCodaConclusionSchema).default([]),
+}).loose();
+
+export const MythosRunListSchema = z.array(MythosRunSummarySchema);
+
+export const MythosSuperviseStateSchema = z.object({
+  run_id: z.string(),
+  phase: z.string(),
+  started_at: z.string().optional(),
+  last_check_at: z.string().optional(),
+  last_tick_duration_ms: z.number().default(0),
+  total_ticks: z.number().default(0),
+  sub_tasks_total: z.number().default(0),
+  sub_tasks_done: z.number().default(0),
+  latest_reflection: z.string().optional(),
+  latest_reflection_iter: z.number().optional(),
+  abort_reason: z.string().optional(),
+}).loose();
+
+export const EMPTY_MYTHOS_SUPERVISE_STATE: MythosSuperviseState = {
+  run_id: "",
+  phase: "preparing",
+  last_tick_duration_ms: 0,
+  total_ticks: 0,
+  sub_tasks_total: 0,
+  sub_tasks_done: 0,
+};
+
+// ---------------------------------------------------------------------------
+// Pythia per-issue forecast run schemas (0.5.18 M3 LabOutputPanel)
+//
+// GET /api/experimental/pythia-oracle/forecast/issue/runs?issue_id=<id>&limit=N
+// returns PythiaForecastRun[] (newest first). Each run's `envelopes` JSONB
+// array holds the full 10-round deliberation; each element is a
+// forecastEnvelope (server/internal/handler/claude_lab_forecast.go) with NO
+// `round` field — the display round is the array index + 1. Kept lenient
+// (loose + defaults) so a future server field addition degrades to the
+// fallback instead of crashing the panel. Note the casing split: the run
+// summary uses snake `created_at`, the envelope element uses camel
+// `createdAt` (historical legacy — do not unify).
+
+export const PythiaForecastEnvelopeSchema = z.object({
+  id: z.string().default(""),
+  scenario: z.string().default(""),
+  narrative: z.string().default(""),
+  probability: z.number().default(0),
+  confidence: z.number().default(0),
+  horizon: z.string().default(""),
+  persona: z.string().default(""),
+  lab_source: z.string().default(""),
+  synthetic_oracle_failover: z.boolean().optional(),
+}).loose();
+
+export const PythiaForecastRunSchema = z.object({
+  id: z.string(),
+  rounds: z.number().default(0),
+  source: z.string().default(""),
+  created_at: z.string().default(""),
+  envelopes: z.array(PythiaForecastEnvelopeSchema).default([]),
+}).loose();
+
+export const PythiaForecastRunListSchema = z.array(PythiaForecastRunSchema);
+
+// ---------------------------------------------------------------------------
+// Code Canvas artifact schema (GET/POST
+// /api/experimental/code-canvas/issues/:id/artifacts)
+//
+// 0.5.18 M4: issue-bound rendered canvases. The Go handler returns
+// snake_case strings (pgtype UUID / timestamptz are converted to strings);
+// the `html` field is the self-contained, already-escaped canvas produced
+// by the code_canvas subprocess. `workspace_id` / `issue_id` are also on the
+// wire but not needed by the panel, so the schema only pins the fields the
+// UI reads (the .loose() keeps the extras without typing them).
+export const CodeCanvasArtifactSchema = z.object({
+  id: z.string().default(""),
+  code: z.string().default(""),
+  language: z.string().default("text"),
+  html: z.string().default(""),
+  created_at: z.string().default(""),
+}).loose();
+
+export const CodeCanvasArtifactListSchema = z.array(CodeCanvasArtifactSchema).default([]);
+
+
+// ---------------------------------------------------------------------------
 // LLM Wiki Bridge status schema (GET /api/experimental/llm-wiki/status)
 //
 // Wired surface: the LLM Wiki Bridge view (apps/desktop) renders a "已连接 /
@@ -1474,4 +1585,28 @@ export const EMPTY_LLM_WIKI_STATUS_RESPONSE: LLMWikiStatusResponse = {
   health: null,
   vault_root: "",
   reason: "",
+};
+
+// ---------------------------------------------------------------------------
+// User-plugin artifact sign response (POST
+// /api/user-plugins/:slug/artifacts/:id/sign)
+//
+// 0.5.18 M5: the sign endpoint returns a server-relative signed raw URL plus
+// its expiry. The renderer prefixes the URL with the configured API base
+// (api.getBaseUrl()) before handing it to an <img>/<iframe>/<a download>.
+export const PluginArtifactSignResponseSchema = z
+  .object({
+    url: z.string().default(""),
+    exp: z.number().default(0),
+  })
+  .loose();
+
+export interface PluginArtifactSignResponse {
+  url: string;
+  exp: number;
+}
+
+export const EMPTY_PLUGIN_ARTIFACT_SIGN_RESPONSE: PluginArtifactSignResponse = {
+  url: "",
+  exp: 0,
 };
