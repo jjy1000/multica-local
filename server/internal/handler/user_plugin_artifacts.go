@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -405,16 +406,37 @@ func (h *Handler) uploadArtifactInline(w http.ResponseWriter, r *http.Request, s
 
 // ServePluginArtifactRaw serves the raw file content for a file-backed
 // artifact. Sets Content-Type from the stored mime_type.
+//
+// Two auth paths:
+//   - signed (?sig=...): an <img>/<iframe>/<a download> element cannot send
+//     the Bearer header, so the short-lived HMAC signature (minted by the
+//     /sign endpoint) proves access instead. Served inline (no attachment
+//     disposition) with X-Content-Type-Options: nosniff; the security
+//     boundary is the consumer's sandbox.
+//   - unsigned: Bearer auth + Content-Disposition: attachment (F-006) so an
+//     uploaded HTML/JS file can never render inline in the app's origin.
+//
 // GET /api/user-plugins/{slug}/artifacts/{artifactID}/raw
 func (h *Handler) ServePluginArtifactRaw(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUserID(w, r); !ok {
-		return
-	}
-
 	slug := chi.URLParam(r, "slug")
 	artifactID := chi.URLParam(r, "artifactID")
 	if !validateUserPluginSlug(slug) || artifactID == "" {
 		writeError(w, http.StatusBadRequest, "invalid plugin slug or artifact ID")
+		return
+	}
+
+	signed := r.URL.Query().Get("sig") != ""
+	if signed {
+		// Signed path: verify the HMAC instead of requiring Bearer auth
+		// (iframe/img elements cannot attach the Authorization header).
+		uid := r.URL.Query().Get("uid")
+		expRaw := r.URL.Query().Get("exp")
+		exp, err := strconv.ParseInt(expRaw, 10, 64)
+		if err != nil || !verifyPluginArtifactSignature(uid, slug, artifactID, r.URL.Query().Get("sig"), exp) {
+			writeError(w, http.StatusForbidden, "invalid or expired signature")
+			return
+		}
+	} else if _, ok := requireUserID(w, r); !ok {
 		return
 	}
 
@@ -468,12 +490,20 @@ func (h *Handler) ServePluginArtifactRaw(w http.ResponseWriter, r *http.Request)
 		contentType = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", contentType)
-	// F-006: always serve as a download — a stored artifact (e.g. an uploaded
-	// HTML/JS file whose mime whitelisted as text/html) must never render
-	// inline with the app's origin. The filename param is the already-safe
-	// on-disk name (id + whitelisted ext).
+
 	serveName := filepath.Base(target.FileName)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", serveName))
+	if signed {
+		// Inline render (img/iframe): do NOT force a download, and pin
+		// nosniff so the browser cannot re-interpret the bytes as a
+		// different MIME type. The consumer's sandbox is the boundary.
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+	} else {
+		// F-006: always serve as a download — a stored artifact (e.g. an
+		// uploaded HTML/JS file whose mime whitelisted as text/html) must
+		// never render inline with the app's origin. The filename param is
+		// the already-safe on-disk name (id + whitelisted ext).
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", serveName))
+	}
 	http.ServeContent(w, r, serveName, info.ModTime(), f)
 }
 

@@ -26,6 +26,7 @@ import { useT } from "../../i18n";
 import { ChatWindow } from "../../chat/components/chat-window";
 import { ArtifactGallery } from "./artifact-gallery";
 import { UserPluginFormDialog } from "./user-plugin-form-dialog";
+import { useSignedArtifactUrl } from "./use-signed-artifact-url";
 
 // 0.3.60 Labs sandbox — generic plugin shell view.
 //
@@ -316,30 +317,8 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
           </div>
         );
 
-      case "iframe": {
-        const src = tab.src ? `${api.getBaseUrl()}${tab.src}` : undefined;
-        if (!src) {
-          return (
-            <p className="text-sm text-muted-foreground">
-              {t(($) => $.user_plugins.iframe_no_src)}
-            </p>
-          );
-        }
-        return (
-          <iframe
-            title={tab.key}
-            src={src}
-            // Plugin-authored content is untrusted: sandbox without
-            // allow-same-origin so scripts run in an opaque origin and
-            // cannot reach the app's localStorage/cookies or call the
-            // API with the user's credentials (mirrors the html
-            // artifact sandbox rules in CLAUDE.md).
-            sandbox="allow-scripts"
-            referrerPolicy="no-referrer"
-            className="h-[480px] w-full rounded-lg border border-border bg-background"
-          />
-        );
-      }
+      case "iframe":
+        return <PluginIframeTab tab={tab} />;
 
       case "code":
         return (
@@ -367,6 +346,47 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
         );
     }
   }
+}
+
+// ---- iframe tab ----
+
+// Matches a file-backed artifact raw path so the iframe tab can mint a signed
+// URL (an <iframe> cannot send the Bearer header). Slug and artifact IDs are
+// path-safe (lowercase alphanumeric + hyphen / hex), so a bare segment regex
+// is sufficient.
+const ARTIFACT_RAW_PATH_RE = /^\/api\/user-plugins\/([^/]+)\/artifacts\/([^/]+)\/raw$/;
+
+function PluginIframeTab({ tab }: { tab: PluginTabDef }) {
+  const { t } = useT("experimental");
+  const match = tab.src ? ARTIFACT_RAW_PATH_RE.exec(tab.src) : null;
+  const signedUrl = useSignedArtifactUrl(
+    tab.src,
+    match?.[1] ?? "",
+    match?.[2] ?? "",
+  );
+
+  if (!signedUrl) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {t(($) => $.user_plugins.iframe_no_src)}
+      </p>
+    );
+  }
+
+  return (
+    <iframe
+      title={tab.key}
+      src={signedUrl}
+      // Plugin-authored content is untrusted: sandbox without
+      // allow-same-origin so scripts run in an opaque origin and cannot
+      // reach the app's localStorage/cookies or call the API with the
+      // user's credentials (mirrors the html artifact sandbox rules in
+      // CLAUDE.md).
+      sandbox="allow-scripts"
+      referrerPolicy="no-referrer"
+      className="h-[480px] w-full rounded-lg border border-border bg-background"
+    />
+  );
 }
 
 // ---- settings tab ----

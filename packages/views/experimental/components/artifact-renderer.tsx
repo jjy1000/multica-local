@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Download, FileText, ExternalLink } from "lucide-react";
-import { api } from "@multica/core/api";
 import { useT } from "../../i18n";
+import { useSignedArtifactUrl } from "./use-signed-artifact-url";
 
 // 0.3.60 Labs sandbox — generic artifact renderer for user plugins.
 //
@@ -29,12 +29,6 @@ export interface Artifact {
 export interface ArtifactRendererProps {
   artifact: Artifact;
   pluginSlug: string;
-}
-
-/** Resolve an artifact-relative URL against the configured API host. */
-function resolveUrl(url: string): string {
-  if (/^https?:\/\//i.test(url) || url.startsWith("data:")) return url;
-  return `${api.getBaseUrl()}${url}`;
 }
 
 function formatBytes(bytes: number): string {
@@ -203,9 +197,13 @@ function isTableData(data: unknown): data is TableData {
 
 // ---- component ----
 
-export function ArtifactRenderer({ artifact, pluginSlug: _pluginSlug }: ArtifactRendererProps) {
+export function ArtifactRenderer({ artifact, pluginSlug }: ArtifactRendererProps) {
   const { t } = useT("experimental");
   const [zoomed, setZoomed] = useState(false);
+  // Signed URL for file-backed artifacts (image/html/file). Empty pluginSlug
+  // (LabOutputPanel reuses this renderer for claude attachments) means "do
+  // not sign".
+  const signedUrl = useSignedArtifactUrl(artifact.url, pluginSlug, artifact.id);
 
   switch (artifact.type) {
     case "image": {
@@ -216,7 +214,7 @@ export function ArtifactRenderer({ artifact, pluginSlug: _pluginSlug }: Artifact
           </p>
         );
       }
-      const src = resolveUrl(artifact.url);
+      const src = signedUrl;
       return (
         <div className="space-y-2">
           <img
@@ -335,7 +333,7 @@ export function ArtifactRenderer({ artifact, pluginSlug: _pluginSlug }: Artifact
 
     case "html": {
       const srcDoc = typeof artifact.data === "string" ? artifact.data : undefined;
-      const src = artifact.url ? resolveUrl(artifact.url) : undefined;
+      const src = artifact.url ? signedUrl : undefined;
       return (
         <iframe
           title={artifact.title}
@@ -347,7 +345,7 @@ export function ArtifactRenderer({ artifact, pluginSlug: _pluginSlug }: Artifact
     }
 
     case "file": {
-      const href = artifact.url ? resolveUrl(artifact.url) : undefined;
+      const href = artifact.url ? signedUrl : undefined;
       return (
         <div className="flex items-center gap-3 rounded-lg border border-border bg-background p-4">
           <FileText className="h-8 w-8 shrink-0 text-muted-foreground" aria-hidden />

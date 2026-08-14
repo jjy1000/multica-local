@@ -1421,6 +1421,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Get("/api/user-plugins/{slug}/artifacts", h.ListPluginArtifacts)
 			r.Post("/api/user-plugins/{slug}/artifacts", h.UploadPluginArtifact)
 			r.Get("/api/user-plugins/{slug}/artifacts/{artifactID}/raw", h.ServePluginArtifactRaw)
+			// 0.5.18 M5: mint a short-lived HMAC-signed URL so an
+			// <img>/<iframe>/<a download> can load a file-backed artifact
+			// without a Bearer header.
+			r.Post("/api/user-plugins/{slug}/artifacts/{artifactID}/sign", h.SignPluginArtifact)
 			r.Delete("/api/user-plugins/{slug}/artifacts/{artifactID}", h.DeletePluginArtifact)
 
 			// 0.3.15: experimental-resource install / rollback endpoints.
