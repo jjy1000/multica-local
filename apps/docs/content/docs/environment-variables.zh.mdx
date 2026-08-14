@@ -185,17 +185,6 @@ API 返回的 `download_url` 在未配置 CloudFront 签名时会指向 `GET /ap
 | `MULTICA_<PROVIDER>_PATH` | 对应 CLI 名 | 各 AI 编程工具的可执行文件路径（如 `MULTICA_CLAUDE_PATH`）|
 | `MULTICA_<PROVIDER>_MODEL` | 空 | 各 AI 编程工具的默认模型 |
 | `MULTICA_<PROVIDER>_ARGS` | 空 | 守护进程级的默认 CLI 参数，作用于该后端的每个任务，并排在各智能体自身的 `custom_args` 之前。支持 `MULTICA_CLAUDE_ARGS`、`MULTICA_CODEX_ARGS`、`MULTICA_CODEBUDDY_ARGS` |
-| `MULTICA_DAEMON_DEVICE_NAME` | 主机名 | 运行时列表中的设备名 |
-| `MULTICA_AGENT_RUNTIME_NAME` | `Local Agent` | 运行时显示名 |
-| `MULTICA_OPENCODE_IDLE_WATCHDOG` | `10m` | OpenCode 专用静默阈值 |
-| `MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT` | `10m` | Codex 语义静默阈值 |
-| `MULTICA_CODEX_HANDSHAKE_TIMEOUT` | `30s` | Codex app-server 启动握手上限 |
-| `MULTICA_DAEMON_AUTO_UPDATE` | Cloud `true`；自托管 `false` | 是否自动检查并更新 CLI |
-| `MULTICA_DAEMON_AUTO_UPDATE_INTERVAL` | `6h` | 检查更新的间隔 |
-| `MULTICA_DAEMON_AUTO_RELOAD` | `true` | 是否在 `multica` 二进制被带外替换（`brew upgrade`、重新下载、本地构建）后重启到新二进制。与 `MULTICA_DAEMON_AUTO_UPDATE` 相互独立 |
-| `MULTICA_WORKSPACES_ROOT` | `~/multica_workspaces` | 执行任务工作目录的根目录 |
-| `MULTICA_AGENT_TEMP_BASE` | `/tmp`（Linux/macOS） | 仅适用于 Linux/macOS。私有 task 临时目录的父目录；必须是现有、可写的绝对路径，无效值会使 task 启动失败，不会回退到 `/tmp`。请选择较短的路径——子工具可能会在其中绑定 AF_UNIX socket；Linux 的 `sun_path` 上限为 108 字节，macOS 为 104 字节 |
-| `MULTICA_KEEP_ENV_AFTER_TASK` | `false` | 保留执行任务目录用于调试 |
 
 完整解释每个参数对守护进程行为的影响，见 [守护进程与运行时](/daemon-runtimes)。
 

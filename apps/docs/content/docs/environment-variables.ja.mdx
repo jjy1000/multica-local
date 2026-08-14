@@ -182,19 +182,6 @@ S3 の前段に CloudFront を置く場合、3 つの変数が適用されます
 | `MULTICA_<PROVIDER>_PATH` | CLI 名に一致 | 各 AI コーディングツールの実行ファイルへのパス（例: `MULTICA_CLAUDE_PATH`） |
 | `MULTICA_<PROVIDER>_MODEL` | 空 | 各 AI コーディングツールのデフォルトモデル |
 | `MULTICA_<PROVIDER>_ARGS` | 空 | バックエンドごとのデーモン全体のデフォルト CLI 引数。各タスクに対し、各エージェント自身の `custom_args` より前に適用される。`MULTICA_CLAUDE_ARGS`、`MULTICA_CODEX_ARGS`、`MULTICA_CODEBUDDY_ARGS` をサポート |
-| `MULTICA_DAEMON_MAX_CONCURRENT_TASKS` | `20` | デーモン 1 つあたりの同時実行タスク上限 |
-| `MULTICA_AGENT_TIMEOUT` | `0` | 1 回の実行の絶対時間上限。`0` は上限なし |
-| `MULTICA_AGENT_IDLE_WATCHDOG` | `30m` | 出力もツール実行もない状態の静穏上限 |
-| `MULTICA_AGENT_TOOL_WATCHDOG` | `2h` | 単一のツール呼び出しが静穏なままでいられる上限 |
-| `MULTICA_OPENCODE_IDLE_WATCHDOG` | `10m` | OpenCode 専用の静穏しきい値 |
-| `MULTICA_CODEX_SEMANTIC_INACTIVITY_TIMEOUT` | `10m` | Codex のセマンティック静穏しきい値 |
-| `MULTICA_CODEX_HANDSHAKE_TIMEOUT` | `30s` | Codex app-server 起動ハンドシェイクの上限 |
-| `MULTICA_DAEMON_AUTO_UPDATE` | Cloud は `true`、セルフホストは `false` | CLI の更新を自動でチェックして適用するか |
-| `MULTICA_DAEMON_AUTO_UPDATE_INTERVAL` | `6h` | 更新チェックの間隔 |
-| `MULTICA_DAEMON_AUTO_RELOAD` | `true` | 帯域外で置き換えられた `multica` バイナリ（`brew upgrade`、再ダウンロード、ローカルビルド）へ再起動して追従するかどうか。`MULTICA_DAEMON_AUTO_UPDATE` とは独立 |
-| `MULTICA_WORKSPACES_ROOT` | `~/multica_workspaces` | タスク作業ディレクトリのルート |
-| `MULTICA_AGENT_TEMP_BASE` | `/tmp`（Linux/macOS） | Linux/macOS 専用。作業ごとのプライベート一時ディレクトリの親ディレクトリ。既存かつ書き込み可能な絶対パスである必要があり、無効な値の場合は `/tmp` にフォールバックせず作業の開始に失敗します。短いパスを選んでください。子ツールがその配下に AF_UNIX ソケットを作成する場合があり、`sun_path` の上限は Linux で 108 バイト、macOS で 104 バイトです |
-| `MULTICA_KEEP_ENV_AFTER_TASK` | `false` | デバッグ用にタスクディレクトリを保持 |
 
 各パラメータがデーモンの動作にどう影響するかの完全な説明は、[デーモンとランタイム](/daemon-runtimes)を参照してください。
 
