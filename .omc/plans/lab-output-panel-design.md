@@ -2,11 +2,17 @@
 name: lab-output-panel-design
 created: 2026-08-13
 type: design
-status: proposed
+status: implemented
 supersedes: 0.5.17 out-of-scope note (.omc/0.5.17-ship-2026-08-12.md)
 ---
 
 # 阶段 4 设计：LabOutputPanel + iframe auth proxy
+
+> **实现状态（2026-08-14）：M1–M5 已落地，ship gate 全绿（`pnpm typecheck` 6/6 + `go test -count=1 ./internal/... ./pkg/agent/...` 全 ok）。**
+> 实现中发现两处 spec 与实际不符（0.5.17「audit 验证不能跳过」教训的重演），已按实测调整：
+> - **M3 实际是前端-only**：读端点 `GET /api/experimental/pythia-oracle/forecast/issue/runs?issue_id=` 早已存在（migration 164 `pythia_forecast_run` 表 + `forecast_issue.go::pythiaIssueForecastRuns`），spec 里「需新增 `GET .../forecast/issue/{issueId}`」是过时信息。
+> - **M4 面板形态**（用户定夺）：不是 spec 字面的「只读历史」，而是「自带渲染输入 + 历史」——新增 migration 239 `code_canvas_artifact` + `POST/GET /api/experimental/code-canvas/issues/{issueId}/artifacts`（渲染+落库 / 读历史）。
+> 工作未提交（M1–M5 同批 uncommitted），release 记录 / 0.5.19 打包另行处理。
 
 > 0.5.17 ship log（`.omc/0.5.17-ship-2026-08-12.md` §Out-of-scope）明确两项「真缺但无 spec」：
 > - **LabOutputPanel**（4 个 issue-bound lab 缺统一输出面板）
@@ -24,7 +30,7 @@ supersedes: 0.5.17 out-of-scope note (.omc/0.5.17-ship-2026-08-12.md)
 |---|---|---|---|
 | `claude_science_lab` | attachments / predictions / code_blocks 结构化信封 + 运行摘要 | `GET /api/experimental/claude-science-lab/issues/{id}/context`（`server/internal/handler/lab.go:107-115` 返回 `LabContextResponse{Issue, Agent, Tasks, Comments, ChatSessionID, LabSeq}`；`lab.go:154-169` `LabTaskBrief` 带 `result_attachments/result_predictions/result_code_blocks`） | `claude-lab-view.tsx:83-85` 5 tab（plan/artifact/forecast/code/knowledge）；Artifact tab 用 `GET /api/experimental/claude-science-runtime/sessions/by-issue?workspace_id&issue_id&limit=20`（`claude-lab-view.tsx:1351-1354`） |
 | `pythia_oracle` | per-issue 10 轮预测流（flat envelope） | `POST /api/experimental/pythia-oracle/forecast/issue`（`packages/views/modals/create-issue.tsx:598-610` 建 issue 后自动 `{issue_id, rounds:10}` 启动）；envelope：`PythiaReportEnvelope{id, round, issue_id?, scenario, narrative, probability, confidence, horizon, persona, lab_source, scenario_context?, created_at?}`（`apps/desktop/src/renderer/src/components/pythia/pythia-report-surface.tsx:39-52`） | 视图里无 per-issue 预测面板；预测只进 issue 的 IssueLabsSection（CLAUDE.md §Forecast SSE endpoint）；全走 `window.experimentalAPI.pythia.proxy`（`pythia-report-surface.tsx:14-22`） |
-| `mythos_swarm` | coda 摘要 + coda_conclusions JSONB + supervision 状态 | `POST /api/experimental/mythos-swarm/run`（`apps/desktop/src/renderer/src/pages/mythos-view.tsx:247` rawRequest）；持久 run 行 `GET /api/issues/{id}/mythos-runs?workspace_id`（`mythos-view.tsx:519-520` → `coda_summary`/`coda_conclusions[]`/`final_issue_id`，`mythos-view.tsx:167-170`）；supervise `GET|POST /api/experimental/mythos-swarm/supervise/{runID}`（`server/cmd/server/router.go:900-901`） | mythos-view 的 RunForm + IssueLabsSection supervise 面板；run 历史只有 mythos-runs 一种 |
+| `mythos_swarm` | `problem`（输入）+ `coda_conclusions[]` JSONB（coda 输出）+ supervision 状态 | `POST /api/experimental/mythos-swarm/run`（`apps/desktop/src/renderer/src/pages/mythos-view.tsx:247` rawRequest）；持久 run 行 `GET /api/issues/{id}/mythos-runs?workspace_id`（`mythos-view.tsx:519-520` → `problem`/`coda_conclusions[]`/`final_issue_id`，`mythos-view.tsx:167-170`）；supervise `GET|POST /api/experimental/mythos-swarm/supervise/{runID}`（`server/cmd/server/router.go:900-901`） | mythos-view 的 RunForm + IssueLabsSection supervise 面板；run 历史只有 mythos-runs 一种 |
 | `code_canvas` | 渲染后的自包含 HTML | `POST /experimental/code-canvas/render`（`apps/desktop/src/renderer/src/pages/code-canvas-view.tsx:54-63` rawRequest → iframe `srcDoc` + `sandbox=""`，`code-canvas-view.tsx:149-154`） | code-canvas-view 内联预览；无 run 历史、无 issue 关联视图 |
 
 ### 1.2 共享输出面组件（可复用）
@@ -74,7 +80,7 @@ interface LabOutputPanelProps {
 |---|---|---|---|
 | claude_science_lab | 复用 `GET /api/experimental/claude-science-lab/issues/{id}/context`（lab.go:107-115）→ `Tasks[]` 里提取最新一条的 `result_attachments/result_predictions/result_code_blocks` + `result_summary`；`LabSeq` 做 run 计数徽章 | 复用 `ArtifactRenderer`（`artifact-renderer.tsx:16-27`）渲染 attachments；预测点进 `ForecastProbabilityChart`（claude-lab-view 已有）；code_blocks 进代码块列表 | 3–5s 轮询（对齐 lab-chat-panel 3s 模式 `lab-chat-panel.tsx:29-34`）；envelope 已在 result jsonb 内，无 SSE |
 | pythia_oracle | 现状无「本 issue 预测」读端点（预测是 SSE POST 启动 + 落 IssueLabsSection）。**需新增 read 端点**：`GET /api/experimental/pythia-oracle/forecast/issue/{issueId}` 返回该 issue 最近一轮 10 帧；备选：面板复用 `forecast-stream-view.tsx` 连 SSE | `ForecastStreamView`（`forecast-stream-view.tsx:26-35`）flat envelope 直接兼容 | 若 read 端点：5s 轮询；若 SSE：fetch+ReadableStream（`forecast-stream-view.tsx:43+` 模式） |
-| mythos_swarm | `GET /api/issues/{id}/mythos-runs?workspace_id`（mythos-view.tsx:519-520）→ 最近一条 `coda_summary` + `coda_conclusions[]`；enhancer 模式叠加 `GET /api/experimental/mythos-swarm/supervise/{runID}`（router.go:900-901）→ `supervision_state` | coda 摘要卡片 + conclusions 键值表（mythos-view.tsx:582-584 现有渲染可抽组件）+ 监督状态徽章 | 5s 轮询；「立即检查」按钮 POST /supervise/{runID}/tick（router.go:901） |
+| mythos_swarm | `GET /api/issues/{id}/mythos-runs?workspace_id`（mythos-view.tsx:519-520）→ 最近一条 `problem`（输入）+ `coda_conclusions[]`（coda 输出；free-text `coda_summary` 仅 ephemeral `POST /run` 响应，`mythos_run` 表无此列）；enhancer 模式叠加 `GET /api/experimental/mythos-swarm/supervise/{runID}`（router.go:900-901）→ `supervision_state` | problem 摘要卡片 + conclusions 键值表（mythos-view.tsx:582-584 现有渲染可抽组件）+ 监督状态徽章 | 5s 轮询；「立即检查」按钮 POST /supervise/{runID}/tick（router.go:901） |
 | code_canvas | 现状无持久 run 记录（渲染是即时的，code-canvas-view.tsx:54-63）。**需新增 run 持久化**：issue 关联的渲染产物落 plugin artifact 风格条目 + 关联 issue | `<iframe srcDoc sandbox="">`（code-canvas-view.tsx:149-154 模式） | 3–5s 轮询产物列表 |
 
 ### 2.4 错误展示规范
@@ -176,32 +182,32 @@ interface LabOutputPanelProps {
 ## 5. 可执行任务清单（后续会话接棒）
 
 ### 里程碑 M1 — LabOutputPanel 骨架 + claude（后端零改动）
-- [ ] `packages/views/experimental/components/lab-output-panel.tsx` 骨架（2.2 props + 空态/错误/loading 态）
-- [ ] claude 子组件：rawRequest context 端点 → 提取最新 task 的 attachments/predictions/code_blocks → ArtifactRenderer + ForecastProbabilityChart 渲染
-- [ ] `issue-labs-section.tsx` indicator 下方挂载（仅 A 类 lab）
-- [ ] i18n 4 语言新 key + 单测（mock api.rawRequest）
+- [x] `packages/views/experimental/components/lab-output-panel.tsx` 骨架（2.2 props + 空态/错误/loading 态）
+- [x] claude 子组件：rawRequest context 端点 → 提取最新 task 的 attachments/predictions/code_blocks → ArtifactRenderer + ForecastProbabilityChart 渲染
+- [x] `issue-labs-section.tsx` indicator 下方挂载（仅 A 类 lab）
+- [x] i18n 4 语言新 key + 单测（mock api.rawRequest）
 
 ### 里程碑 M2 — mythos 接入（后端零改动）
-- [ ] mythos 子组件：`mythos-runs` → coda 摘要 + conclusions 表；enhancer 加 supervise 状态 + 「立即检查」tick 按钮
-- [ ] 从 mythos-view.tsx:582-584 抽取可复用 conclusions 渲染（或直接复用组件）
+- [x] mythos 子组件：`mythos-runs` → coda 摘要 + conclusions 表；enhancer 加 supervise 状态 + 「立即检查」tick 按钮
+- [x] 从 mythos-view.tsx:582-584 抽取可复用 conclusions 渲染（或直接复用组件）
 
-### 里程碑 M3 — pythia 接入（需新增 read 端点）
-- [ ] `GET /api/experimental/pythia-oracle/forecast/issue/{issueId}`：返回该 issue 最近一轮 10 帧（复用现有落库数据，flag-gated 同 router.go:907-911 模式）
-- [ ] pythia 子组件：ForecastStreamView 或 5s 轮询 read 端点渲染
-- [ ] handler 测试 + 单测
+### 里程碑 M3 — pythia 接入（实际前端-only，读端点早已存在）
+- [x] 复用现有 `GET /api/experimental/pythia-oracle/forecast/issue/runs?issue_id=`（migration 164 + `forecast_issue.go::pythiaIssueForecastRuns`），**未新增后端**
+- [x] pythia 子组件：5s 轮询 read 端点渲染最新 run 的 10 帧
+- [x] zod schema/type + 4 语言 i18n + vitest
 
-### 里程碑 M4 — code_canvas 接入（需新增持久化 + read 端点）
-- [ ] POST /render 带 `issue_id` 时把产物写入 plugin artifact 风格条目并关联 issue
-- [ ] `GET /api/experimental/code-canvas/issues/{issueId}/artifacts` read 端点
-- [ ] code_canvas 子组件：iframe srcDoc 渲染历史产物列表
+### 里程碑 M4 — code_canvas 接入（持久化 + 读端点 + 渲染输入面板）
+- [x] migration 239 `code_canvas_artifact` + `POST /api/experimental/code-canvas/issues/{issueId}/artifacts`（渲染+落库）+ `GET .../artifacts`（读历史）
+- [x] code_canvas 子组件：**自带渲染输入 + 历史**（用户定夺，非 spec 字面的只读历史），iframe srcDoc `sandbox=""` 渲染历史产物
+- [x] flag-gated + `loadIssueForUser` membership + Go 单测 + vitest
 
 ### 里程碑 M5 — iframe auth proxy（签名 URL）
-- [ ] 后端：`POST /api/user-plugins/{slug}/artifacts/{id}/sign`（Bearer 签发）+ raw 端点 `?sig=&exp=&uid=` 分支（HMAC 恒定时间校验，403 失败）
-- [ ] secret 生成 + 限频 + 测试（happy path / 过期 / 篡改 / 跨插件）
-- [ ] renderer：plugin-shell iframe 分支 + artifact-renderer resolveUrl 换签名 URL + 缓存/刷新
-- [ ] 验证 token-mode desktop：iframe tab 与产物 `<img>` 能加载鉴权内容
+- [x] 后端：`POST /api/user-plugins/{slug}/artifacts/{artifactID}/sign`（Bearer 签发）+ raw 端点 `?sig=&exp=&uid=` 分支（HMAC 恒定时间校验，403 失败）
+- [x] secret `crypto/rand` + `sync.Once` 进程级（重启失效）+ 测试（happy path / 过期 / 篡改 / 跨资源）
+- [x] renderer：`useSignedArtifactUrl` hook + plugin-shell iframe 分支 + artifact-renderer 换签名 URL + 缓存/刷新
+- [x] 签名分支跳过 Bearer、`X-Content-Type-Options: nosniff` 内联；非签名分支 attachment（F-006）不回退；sandbox `allow-scripts` 无 `allow-same-origin`
 
 ### 里程碑 M6 — 收尾
-- [ ] `pnpm typecheck` 6/6 + `cd server && go test -count=1 ./internal/... ./pkg/agent/...`
-- [ ] 更新 CLAUDE.md 头部 release 记录 + 本 spec 状态 → shipped
+- [x] `pnpm typecheck` 6/6 + `cd server && go test -count=1 ./internal/... ./pkg/agent/...`
+- [ ] 更新 CLAUDE.md 头部 release 记录 + 本 spec 状态 → shipped（待 commit + 打包，0.5.19）
 - [ ] 阶段 4 完成，接棒 阶段 5（sec-first 6 项 HIGH vuln）
