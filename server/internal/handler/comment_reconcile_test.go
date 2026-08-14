@@ -532,6 +532,16 @@ func handlerWorkspaceMember(t *testing.T, slug string) string {
 // still one task (no drop, no collision), trigger repointed to B, originator
 // re-stamped to B, and A's comment preserved as coalesced.
 func TestConsecutiveCommentsDifferentOriginatorsFullEnqueuePath(t *testing.T) {
+	// Fork skip (0.5.21): this test exercises the MUL-4525 merge-with-
+	// originator-re-stamp behavior (member B's comment re-points the queued
+	// task's trigger_comment_id + re-stamps originator_user_id to B). The
+	// fork's MUL-4195 partial port does NOT include the merge-side
+	// originator re-stamp; that lives in the MUL-4525 series (4 commits,
+	// deliberately not ported yet). The Bug A core symptom (silent drop
+	// of 2nd agent→agent mention while target has dispatched task) is
+	// covered by TestCompleteTask_ReconcilesAgentAuthoredMentionToCompletedAgent
+	// above, which passes against the minimal MUL-4304 port.
+	t.Skip("fork skip: requires MUL-4525 merge-with-originator-re-stamp (4 commits not yet ported)")
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
