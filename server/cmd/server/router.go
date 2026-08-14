@@ -847,6 +847,24 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/tasks/{taskId}/session", h.PinTaskSession)
 	})
 
+	// 0.5.18 M5: user-plugin artifact raw serve — accepts either Bearer auth
+	// OR an HMAC-signed request (iframe/img/<a download> elements cannot
+	// attach the Authorization header). The handler's signed branch verifies
+	// the HMAC against the process-local secret and serves inline with
+	// `X-Content-Type-Options: nosniff`; the unsigned branch falls back to
+	// requireUserID and serves `Content-Disposition: attachment` (F-006).
+	// Registered OUTSIDE the main Auth group with a sig-aware wrapper so
+	// unsigned requests still get X-User-ID injected (need it for the F-006
+	// attachment branch + future audit hooks) while signed requests bypass
+	// Bearer auth at the chain level. (Discovered in 0.5.19 usability smoke —
+	// initial fix moved the route out of the Auth group entirely, which
+	// regressed the unsigned branch to 401 "user not authenticated" because
+	// requireUserID reads X-User-ID set by Auth middleware.)
+	r.With(pluginArtifactAuthOrSigned(queries, patCache)).Get(
+		"/api/user-plugins/{slug}/artifacts/{artifactID}/raw",
+		h.ServePluginArtifactRaw,
+	)
+
 	// Protected API routes
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(queries, patCache))
@@ -1420,7 +1438,8 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// artifact index under ~/.multica/plugins/<slug>/artifacts/.
 			r.Get("/api/user-plugins/{slug}/artifacts", h.ListPluginArtifacts)
 			r.Post("/api/user-plugins/{slug}/artifacts", h.UploadPluginArtifact)
-			r.Get("/api/user-plugins/{slug}/artifacts/{artifactID}/raw", h.ServePluginArtifactRaw)
+			// 0.5.18 M5: signed raw endpoint is registered OUTSIDE this Auth
+			// group — see the comment above the protected-routes section.
 			// 0.5.18 M5: mint a short-lived HMAC-signed URL so an
 			// <img>/<iframe>/<a download> can load a file-backed artifact
 			// without a Bearer header.
@@ -1621,4 +1640,26 @@ func splitAndTrim(s string) []string {
 		}
 	}
 	return res
+}
+
+// pluginArtifactAuthOrSigned runs the standard Auth middleware EXCEPT when
+// the request carries an HMAC signature in the query string (?sig=&exp=&uid=).
+// Signed requests bypass Bearer auth at the chain level so <iframe>/<img>/
+// <a download> elements (which cannot attach the Authorization header) can
+// still load file-backed artifacts; the handler's signed branch verifies
+// the HMAC against the process-local secret and serves inline with
+// `X-Content-Type-Options: nosniff`. Unsigned requests go through normal
+// Auth so the handler's `requireUserID` / `Content-Disposition: attachment`
+// (F-006) path still has X-User-ID available. (0.5.18 M5.)
+func pluginArtifactAuthOrSigned(queries *db.Queries, patCache *auth.PATCache) func(http.Handler) http.Handler {
+	authMiddleware := middleware.Auth(queries, patCache)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("sig") != "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			authMiddleware(next).ServeHTTP(w, r)
+		})
+	}
 }
