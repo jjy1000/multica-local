@@ -94,9 +94,12 @@ func TestIsBlockedEnvKey(t *testing.T) {
 		{key: "PATH", want: true},
 		// TMPDIR / TMP / TEMP route every spawned subprocess's temp
 		// location. isBlockedEnvKey must reject them so a user-supplied
-		// custom_env cannot override the per-task temp dir the daemon
-		// injects at runTask time (the override exists to keep the
-		// AF_UNIX sun_path short under high-load sub-agent delegation).
+		// custom_env cannot override the daemon-injected per-task temp
+		// dir (the daemon injects TMPDIR/TMP/TEMP into agentEnv after
+		// the custom_env merge; see daemon.go agentEnv block). The
+		// override exists so AF_UNIX sun_path stays under the 104/108
+		// byte cap that Hermes-style IPC socket binds would otherwise
+		// exceed.
 		{key: "TMPDIR", want: true},
 		{key: "tmp", want: true},
 		{key: "TEMP", want: true},

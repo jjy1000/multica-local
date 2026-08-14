@@ -338,7 +338,16 @@ func TestHandleTask_KeepsEnvRootActiveAcrossCompletion(t *testing.T) {
 //   - on Unix the full path stays short enough for AF_UNIX socket bind
 //     even after a typical Hermes-style suffix is appended
 func TestRunTask_InjectsPrivateTaskTempDir(t *testing.T) {
-	t.Parallel()
+	// t.Setenv is incompatible with t.Parallel — drop the parallel
+	// marker (this test pins MULTICA_AGENT_TEMP_BASE to "" for
+	// cross-test isolation hardening; see the Setenv call below).
+
+	// Hardening: this test reads MULTICA_AGENT_TEMP_BASE indirectly
+	// via taskTempDirPath. Sibling tests (TestRunTask_TaskTempBase*
+	// etc.) set it via t.Setenv — clear it here so a future re-ordering
+	// of the test file cannot make this test see their override.
+	t.Setenv("MULTICA_AGENT_TEMP_BASE", "")
+	t.Cleanup(func() { t.Setenv("MULTICA_AGENT_TEMP_BASE", "") })
 
 	workspacesRoot := t.TempDir()
 	workspaceID := "ws-private-temp"
@@ -435,8 +444,8 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 	if strings.Contains(expectedTempDir, envRoot) {
 		t.Fatalf("task temp dir must not live under long env root %q: got %q", envRoot, expectedTempDir)
 	}
-	if os.PathSeparator == '/' && len(expectedTempDir) >= 64 {
-		t.Fatalf("task temp dir must stay short for Unix-domain sockets: len(%q) = %d", expectedTempDir, len(expectedTempDir))
+	if os.PathSeparator == '/' && len(expectedTempDir)+afUnixSunPathSuffixReserve >= afUnixSunPathCap {
+		t.Fatalf("task temp dir must stay short for Unix-domain sockets: len(%q)+%d >= cap %d", expectedTempDir, afUnixSunPathSuffixReserve, afUnixSunPathCap)
 	}
 }
 
@@ -450,9 +459,24 @@ func TestRunTask_TaskTempBaseOverride(t *testing.T) {
 	// t.Setenv is incompatible with t.Parallel — drop the parallel marker
 	// (this test exercises a per-test env override; parallelism would
 	// race the override with sibling tests' inherited env).
+	//
+	// We also explicitly clear MULTICA_AGENT_TEMP_BASE for sibling tests
+	// that run before us in serial order (TestRunTask_InjectsPrivateTaskTempDir
+	// reads the env indirectly via taskTempDirPath). t.Cleanup ensures
+	// the unset survives even if this test panics mid-run.
 
-	overrideBase := t.TempDir()
+	// The override base must be short enough that the final task
+	// dir + AF_UNIX sun_path budget fits — t.TempDir() returns the
+	// long macOS /var/folders/.../T/ path which exceeds the cap, so
+	// we use a short /tmp/multica-test-* dir instead (matches the
+	// real-world override shape: a self-hoster pointing at /tmp).
+	overrideBase, err := os.MkdirTemp("/tmp", "multica-test-override-")
+	if err != nil {
+		t.Fatalf("create short override base: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(overrideBase) })
 	t.Setenv("MULTICA_AGENT_TEMP_BASE", overrideBase)
+	t.Cleanup(func() { t.Setenv("MULTICA_AGENT_TEMP_BASE", "") })
 
 	workspacesRoot := t.TempDir()
 	workspaceID := "ws-override-base"
@@ -546,8 +570,8 @@ printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"session_id
 // validation contract: a misconfigured override fails task startup with
 // a clear error rather than silently falling back to /tmp (which on a
 // hardened host may itself be the failure mode the user is trying to
-// escape). Three cases — missing dir, not-a-dir, non-writable — each
-// must reject without spawning the agent CLI.
+// escape). Cases — missing dir, not-a-dir, non-writable, too-long
+// path — each must reject without spawning the agent CLI.
 func TestRunTask_TaskTempBaseInvalidFailsStartup(t *testing.T) {
 	// t.Setenv in subtests is incompatible with t.Parallel at this level
 	// either — subtest env overrides would not be properly isolated if
@@ -568,14 +592,25 @@ func TestRunTask_TaskTempBaseInvalidFailsStartup(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(readOnlyBase, 0o700) })
 
-	for _, tc := range []struct {
-		name string
-		base string
+	// Too-long override: build a nested dir deep enough that the final
+	// per-task path would exceed afUnixSunPathCap. The check rejects
+	// silently-long overrides that would defeat the MUL-5799 fix.
+	longBase := filepath.Join(t.TempDir(), strings.Repeat("x", 80))
+	if err := os.MkdirAll(longBase, 0o700); err != nil {
+		t.Fatalf("create long-base fixture: %v", err)
+	}
+
+	cases := []struct {
+		name              string
+		base              string
+		mustMentionSubstr string // empty = just "MULTICA_AGENT_TEMP_BASE"
 	}{
-		{name: "missing dir rejected", base: missing},
-		{name: "non-directory rejected", base: notDir},
-		{name: "non-writable dir rejected", base: readOnlyBase},
-	} {
+		{name: "missing dir rejected", base: missing, mustMentionSubstr: "MULTICA_AGENT_TEMP_BASE"},
+		{name: "non-directory rejected", base: notDir, mustMentionSubstr: "MULTICA_AGENT_TEMP_BASE"},
+		{name: "non-writable dir rejected", base: readOnlyBase, mustMentionSubstr: "MULTICA_AGENT_TEMP_BASE"},
+		{name: "too-long path rejected", base: longBase, mustMentionSubstr: "AF_UNIX"},
+	}
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("MULTICA_AGENT_TEMP_BASE", tc.base)
 
@@ -593,8 +628,8 @@ func TestRunTask_TaskTempBaseInvalidFailsStartup(t *testing.T) {
 				}
 				t.Fatalf("ensureTaskTempDir accepted invalid MULTICA_AGENT_TEMP_BASE %q", tc.base)
 			}
-			if !strings.Contains(err.Error(), "MULTICA_AGENT_TEMP_BASE") {
-				t.Fatalf("error must name MULTICA_AGENT_TEMP_BASE so the misconfig is debuggable; got %v", err)
+			if !strings.Contains(err.Error(), tc.mustMentionSubstr) {
+				t.Fatalf("error must name %q so the misconfig is debuggable; got %v", tc.mustMentionSubstr, err)
 			}
 		})
 	}

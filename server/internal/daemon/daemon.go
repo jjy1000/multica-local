@@ -4880,11 +4880,36 @@ func taskTempDirPath(envRoot string, taskID string) string {
 // refuses to start with a misconfigured base rather than silently
 // falling back to /tmp. The task-level directory lives directly under
 // the resolved root so its full path stays short.
+//
+// Path-length budget — AF_UNIX socket paths are capped at 104 bytes on
+// macOS and 108 on Linux; we use the tighter macOS cap as a unified
+// limit so the fix is portable across both platforms (Linux loses 4
+// bytes of headroom which is irrelevant — the per-task suffix is
+// afUnixSunPathSuffixLen bytes, and a typical Hermes-style IPC
+// socket name appends another ~30 bytes under $TMPDIR at agent spawn
+// time). Both constants are referenced by the regression test so the
+// cap cannot drift without the test failing.
+const (
+	afUnixSunPathCap           = 104
+	afUnixSunPathSuffixReserve = 40
+)
+
 func ensureTaskTempDir(envRoot string, taskID string) (string, error) {
 	if envRoot == "" {
 		return "", errors.New("env root is empty")
 	}
 	root := shortTaskTempRoot()
+	// rootCreated is true when the daemon owns the root dir (and may
+	// safely chmod it to 0o700). For the default /tmp/multica-<uid>
+	// path MkdirAll always creates it (or finds it already at 0o700
+	// from a prior run). For the MULTICA_AGENT_TEMP_BASE override
+	// path the dir is user-provided — we MUST NOT mutate its
+	// permissions (e.g. a self-hoster pointing at a shared 0o755 CI
+	// tmp dir would lose read access for sibling processes the moment
+	// we ran Chmod; that's a silent-mutation bug and a least-surprise
+	// violation). Track explicitly so the chmod branch below is only
+	// reached on daemon-created roots.
+	rootCreated := true
 	if base := strings.TrimSpace(os.Getenv("MULTICA_AGENT_TEMP_BASE")); base != "" {
 		if !filepath.IsAbs(base) {
 			return "", fmt.Errorf("MULTICA_AGENT_TEMP_BASE %q is not an absolute path", base)
@@ -4896,28 +4921,56 @@ func ensureTaskTempDir(envRoot string, taskID string) (string, error) {
 		if !info.IsDir() {
 			return "", fmt.Errorf("MULTICA_AGENT_TEMP_BASE %q is not a directory", base)
 		}
-		// Probe writability with a unique-named file in the override
-		// base. A read-only mount or 0o555 directory surfaces here as
-		// a clean error instead of later as a half-initialized dir.
-		probe := filepath.Join(base, ".multica-writeprobe")
-		if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
+		// Probe writability with a unique-named temp file in the
+		// override base. os.CreateTemp returns a unique name so two
+		// parallel ensureTaskTempDir calls on the same override base
+		// do not race on a fixed probe filename (the previous
+		// fixed-name probe could be removed by a sibling task mid-
+		// write, producing a transient false-negative "not writable"
+		// error). A read-only mount or 0o555 directory surfaces here
+		// as a clean error instead of later as a half-initialized
+		// task dir.
+		probe, err := os.CreateTemp(base, ".multica-writeprobe-*")
+		if err != nil {
 			return "", fmt.Errorf("MULTICA_AGENT_TEMP_BASE %q is not writable: %w", base, err)
 		}
-		_ = os.Remove(probe)
+		probeName := probe.Name()
+		_ = probe.Close()
+		_ = os.Remove(probeName)
 		root = base
+		rootCreated = false
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
-		return "", err
+		return "", fmt.Errorf("create private temp root %q: %w", root, err)
 	}
-	if err := os.Chmod(root, 0o700); err != nil {
-		return "", err
+	if rootCreated {
+		// Belt-and-suspenders: pin the perms in case the dir
+		// pre-existed from a prior partial setup at non-0o700.
+		// Skipped on override paths (see rootCreated comment).
+		if err := os.Chmod(root, 0o700); err != nil {
+			return "", fmt.Errorf("chmod 0o700 private temp root %q: %w", root, err)
+		}
 	}
 	dir := taskTempDirPath(envRoot, taskID)
+	// Reject override bases whose final per-task path would overflow
+	// the AF_UNIX sun_path cap once a Hermes-style IPC socket filename
+	// is appended under it at agent spawn time. Without this guard a
+	// self-hoster pointing MULTICA_AGENT_TEMP_BASE at a deep path
+	// silently re-introduces the original "AF_UNIX path too long"
+	// failure mode that MUL-5799 closes — taskTempDirName's 22-byte
+	// suffix is fixed, so the only variable is the user-provided
+	// root length.
+	if len(dir)+afUnixSunPathSuffixReserve >= afUnixSunPathCap {
+		return "", fmt.Errorf(
+			"private task temp dir %q (len %d + reserve %d) would overflow AF_UNIX sun_path cap %d; "+
+				"shorten MULTICA_AGENT_TEMP_BASE or use the default /tmp/multica-<uid>",
+			dir, len(dir), afUnixSunPathSuffixReserve, afUnixSunPathCap)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+		return "", fmt.Errorf("create per-task temp dir %q: %w", dir, err)
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
-		return "", err
+		return "", fmt.Errorf("chmod 0o700 per-task temp dir %q: %w", dir, err)
 	}
 	return dir, nil
 }
