@@ -413,6 +413,16 @@ type ClientUsageDaily struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type CodeCanvasArtifact struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	IssueID     pgtype.UUID        `json:"issue_id"`
+	Code        string             `json:"code"`
+	Language    string             `json:"language"`
+	Html        string             `json:"html"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type Comment struct {
 	ID             pgtype.UUID        `json:"id"`
 	IssueID        pgtype.UUID        `json:"issue_id"`

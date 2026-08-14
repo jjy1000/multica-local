@@ -909,6 +909,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			handler.AttachPythiaIssueForecastMiddleware(r, h)
 			handler.RegisterPythiaIssueForecastRoutes(r)
 		})
+		// 0.5.18 M4: code_canvas issue-bound render + history surface.
+		// Renders a pasted snippet through the code_canvas subprocess and
+		// persists the canvas per issue. Gated like pythia_oracle; off-flag
+		// the routes physically vanish. Note the proxy prefix
+		// /experimental/code-canvas (no /api/) is mounted separately in
+		// MountExperimentalProxies, so the /api/... paths here do not
+		// collide with it.
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("code_canvas"))
+			handler.RegisterCodeCanvasRoutes(r, h)
+		})
 
 		// 0.3.45.1: agent_self_optimization history view endpoints.
 		// Flag-gated inside the handlers themselves (returns 404 when
