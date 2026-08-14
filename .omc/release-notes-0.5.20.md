@@ -18,6 +18,31 @@ absolute, existing, and writable — invalid values fail task startup
 instead of silently falling back to `/tmp`. See the daemon section in
 `apps/docs/content/docs/environment-variables*.mdx`.
 
+## Audit (post-ship)
+
+After shipping, the diff was audited by `code-reviewer` (stability +
+reliability lens) and `security-reviewer` (env var + path validation
+lens). 2 MEDIUM + 2 LOW findings closed in `47b104b2f`:
+
+- **MEDIUM**: `os.Chmod(root, 0o700)` silently mutated
+  user-provided `MULTICA_AGENT_TEMP_BASE` permissions. Now skipped
+  for override paths (`rootCreated` flag).
+- **MEDIUM**: no AF_UNIX sun_path cap validation on override. Long
+  overrides silently re-introduced the AF_UNIX overflow bug.
+  Extracted shared `afUnixSunPathCap=104` + `afUnixSunPathSuffixReserve=40`
+  constants; reject `len(dir)+reserve >= cap` with clear error.
+- **LOW**: fixed probe filename raced between parallel
+  `ensureTaskTempDir` calls. Switched to `os.CreateTemp` for unique
+  per-call probe.
+- **LOW**: bare `MkdirAll`/`Chmod` errors now wrapped with target
+  path context for debuggability.
+
+Regression tests:
+- `TestRunTask_TaskTempBaseInvalidFailsStartup` adds
+  `too-long_path_rejected` subtest pinning the AF_UNIX cap check.
+- All `MULTICA_AGENT_TEMP_BASE` tests now use shared cap constants
+  so docs + test + impl can't drift apart.
+
 ## No other changes
 
 - No migrations (forward-only additive contract preserved).
