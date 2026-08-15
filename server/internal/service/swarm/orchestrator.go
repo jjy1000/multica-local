@@ -42,6 +42,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,19 @@ type OrchestratorQuerier interface {
 	CountActiveRolesByRun(ctx context.Context, swarmRunID pgtype.UUID) (int64, error)
 	CountCompletedRolesByRun(ctx context.Context, swarmRunID pgtype.UUID) (int64, error)
 	RecordSwarmInterrupt(ctx context.Context, arg db.RecordSwarmInterruptParams) (db.SwarmRun, error)
+
+	// FIX 2 (0.5.22): bootstrap writes + enqueue. The orchestrator
+	// creates one role-agent per spec.Roles entry, the matching
+	// swarm_role row, and (via CreateAgentTask) the agent_task_queue
+	// dispatch row when a role's parent is ready.
+	CreateAgent(ctx context.Context, arg db.CreateAgentParams) (db.Agent, error)
+	CreateSwarmRole(ctx context.Context, arg db.CreateSwarmRoleParams) (db.SwarmRole, error)
+	GetSwarmRole(ctx context.Context, id pgtype.UUID) (db.SwarmRole, error)
+	CreateAgentTask(ctx context.Context, arg db.CreateAgentTaskParams) (db.AgentTaskQueue, error)
+
+	// FIX 3 (0.5.22): coda summary comment on root_issue_id.
+	CreateComment(ctx context.Context, arg db.CreateCommentParams) (db.Comment, error)
+	ListSwarmRoleMessagesByRun(ctx context.Context, arg db.ListSwarmRoleMessagesByRunParams) ([]db.SwarmRoleMessage, error)
 }
 
 // Service owns the registered orchestrators + the goroutines that
@@ -250,6 +264,17 @@ func (s *Service) tick(ctx context.Context, runID pgtype.UUID) error {
 		return errTerminalStatus
 	}
 
+	// FIX 2 (0.5.22): bootstrap roles from topology_spec on every
+	// tick. Idempotent: skips roles that already exist by name. The
+	// leader fills topology_spec during the planning phase; before
+	// that the spec is empty and bootstrapFromSpec is a no-op.
+	if err := s.bootstrapFromSpec(ctx, runID); err != nil {
+		s.log.Warn("swarm bootstrap from spec failed",
+			"run_id", runID.String(), "err", err.Error())
+		// Non-fatal: next tick retries. Transient DB errors must
+		// not crash the orchestrator.
+	}
+
 	roles, err := s.q.ListSwarmRolesByRun(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("list roles: %w", err)
@@ -266,6 +291,15 @@ func (s *Service) tick(ctx context.Context, runID pgtype.UUID) error {
 		if err := s.tickRole(ctx, runID, role, now); err != nil {
 			s.log.Warn("swarm role tick failed",
 				"run_id", runID.String(), "role_id", role.ID.String(), "err", err.Error())
+		}
+		// FIX 2 (0.5.22): enqueue ready roles whose parent is done.
+		// Only ready roles are eligible (running means an in-flight
+		// dispatch exists; completed/failed are terminal).
+		if RoleStatus(role.Status) == RoleReady {
+			if err := s.enqueueReadyRole(ctx, run, role); err != nil {
+				s.log.Warn("swarm role enqueue failed",
+					"run_id", runID.String(), "role_id", role.ID.String(), "err", err.Error())
+			}
 		}
 	}
 
@@ -385,6 +419,14 @@ func (s *Service) advancePhase(ctx context.Context, runID pgtype.UUID, run db.Sw
 		}); err != nil {
 			return fmt.Errorf("set completed status: %w", err)
 		}
+		// FIX 3 (0.5.22): post the coda summary as a system comment
+		// on the root issue, mirroring mythos's runCoda write at
+		// router.go:951-957. Best-effort: a comment write failure
+		// does not roll back the terminal status flip.
+		if err := s.writeCompletionSummary(ctx, run); err != nil {
+			s.log.Warn("swarm coda summary write failed",
+				"run_id", runID.String(), "err", err.Error())
+		}
 		s.log.Info("swarm run completed",
 			"run_id", runID.String(), "phases_walked", len(PhaseOrder)-1)
 		return nil
@@ -433,6 +475,307 @@ func (s *Service) markFailed(ctx context.Context, runID pgtype.UUID, reason stri
 		s.log.Warn("swarm markFailed interrupt write failed",
 			"run_id", runID.String(), "err", err.Error())
 	}
+}
+
+// bootstrapFromSpec (FIX 2, 0.5.22) creates one role-agent + one
+// swarm_role row per spec.Roles entry that the leader authored into
+// swarm_run.topology_spec. Idempotent: it lists existing roles by
+// name and skips any that already exist, so re-running on every tick
+// (or after a partial failure) is safe.
+//
+// No-op when the spec is empty — the leader fills topology_spec
+// during the preparing → planning transition, and the bootstrap only
+// fires once the spec has at least one role. This matches the
+// install-time pattern documented in multica-creating-swarms
+// SKILL.md Phase 1 (the leader authors, the orchestrator bootstraps).
+//
+// Skill bindings for each role-agent are NOT written here. The
+// multica-creating-swarms leader authors agent_skill rows as part of
+// its own execution; the orchestrator only owns agent + swarm_role
+// creation. Adding role.Skills to RoleSpec is a future schema
+// decision (requires widening JSONB spec) — for now we defer to the
+// leader's pre-bootstrap skill writes.
+//
+// If the run is still in 'preparing' or 'planning' after bootstrap,
+// we flip it to 'running' so the orchestrator's tick can pick up the
+// newly-created ready roles.
+func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) error {
+	run, err := s.q.GetSwarmRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("get swarm run: %w", err)
+	}
+	if isTerminal(run.Status) {
+		return nil
+	}
+	spec, err := TopologySpecFromJSON(run.TopologySpec)
+	if err != nil {
+		return fmt.Errorf("decode topology spec: %w", err)
+	}
+	if len(spec.Roles) == 0 {
+		return nil
+	}
+	// Validate the spec before writing any rows — a malformed
+	// topology_spec at this point is a leader bug, not a runtime
+	// condition we should paper over.
+	if verr := ValidateTopologySpec(spec); verr != nil {
+		return fmt.Errorf("invalid topology spec: %w", verr)
+	}
+
+	existing, err := s.q.ListSwarmRolesByRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("list existing roles: %w", err)
+	}
+	existingByName := make(map[string]db.SwarmRole, len(existing))
+	for _, r := range existing {
+		existingByName[r.RoleName] = r
+	}
+
+	// Pre-build a name → id index for parent-role resolution. New
+	// roles created in this bootstrap pass also contribute (so a
+	// spec with ordering by index can resolve its parent's ID even
+	// before the parent's row commits).
+	nameToID := make(map[string]pgtype.UUID, len(existing))
+	for _, r := range existing {
+		nameToID[r.RoleName] = r.ID
+	}
+
+	for _, roleSpec := range spec.Roles {
+		if _, ok := existingByName[roleSpec.Name]; ok {
+			continue // already bootstrapped on a prior tick
+		}
+
+		// Create the role-agent. RuntimeID is intentionally zero —
+		// the daemon claims the agent via the normal task-queue
+		// path and binds a runtime then. CustomArgs MUST be a JSON
+		// array (audit 2026-08-06; migration 238 repairs historical
+		// rows that stored `{}` here).
+		agent, aerr := s.q.CreateAgent(ctx, db.CreateAgentParams{
+			WorkspaceID:        run.WorkspaceID,
+			Name:               "swarm_role_" + roleSpec.Name,
+			Description:        fmt.Sprintf("Swarm role agent: %s", roleSpec.Name),
+			AvatarUrl:          pgtype.Text{},
+			RuntimeMode:        "local",
+			RuntimeConfig:      []byte(`{}`),
+			RuntimeID:          pgtype.UUID{},
+			Visibility:         "workspace",
+			MaxConcurrentTasks: 1,
+			OwnerID:            run.CreatorUserID,
+			Instructions:       roleSpec.Instructions,
+			CustomEnv:          []byte(`{}`),
+			CustomArgs:         []byte(`[]`),
+			McpConfig:          []byte(`{}`),
+			Model:              pgtype.Text{String: roleSpec.RuntimeModelHint, Valid: roleSpec.RuntimeModelHint != ""},
+			ThinkingLevel:      pgtype.Text{},
+			SystemKey:          pgtype.Text{},
+		})
+		if aerr != nil {
+			return fmt.Errorf("create role-agent %q: %w", roleSpec.Name, aerr)
+		}
+
+		// Resolve parent_role_id by name. The leader's spec is
+		// authoritative — we honour ParentRoleName even if the
+		// declared parent is itself a leaf node in the DAG (the
+		// leader decides whether the DAG is a chain or a fan-out).
+		parentID := pgtype.UUID{}
+		if roleSpec.ParentRoleName != "" {
+			if id, ok := nameToID[roleSpec.ParentRoleName]; ok {
+				parentID = id
+			} else {
+				s.log.Warn("swarm bootstrap: parent_role_name unresolved",
+					"run_id", runID.String(),
+					"role", roleSpec.Name,
+					"parent", roleSpec.ParentRoleName)
+			}
+		}
+
+		depsJSON := []byte(`[]`)
+		if len(roleSpec.DependsOn) > 0 {
+			d, merr := json.Marshal(roleSpec.DependsOn)
+			if merr != nil {
+				return fmt.Errorf("marshal depends_on for %q: %w", roleSpec.Name, merr)
+			}
+			depsJSON = d
+		}
+
+		swarmRole, rerr := s.q.CreateSwarmRole(ctx, db.CreateSwarmRoleParams{
+			SwarmRunID:       runID,
+			AgentID:          agent.ID,
+			RoleName:         roleSpec.Name,
+			RoleInstructions: roleSpec.Instructions,
+			ParentRoleID:     parentID,
+			DependsOn:        depsJSON,
+		})
+		if rerr != nil {
+			return fmt.Errorf("create swarm_role %q: %w", roleSpec.Name, rerr)
+		}
+		nameToID[roleSpec.Name] = swarmRole.ID
+
+		// Flip created → ready so the next tick's enqueue pass can
+		// claim it (only top-of-DAG roles will actually enqueue
+		// until their parents complete, but the state flip is the
+		// same for all roles).
+		if _, serr := s.q.SetSwarmRoleStatus(ctx, db.SetSwarmRoleStatusParams{
+			ID:          swarmRole.ID,
+			Status:      string(RoleReady),
+			CurrentStep: "bootstrapped by orchestrator",
+		}); serr != nil {
+			return fmt.Errorf("set role ready %q: %w", roleSpec.Name, serr)
+		}
+		s.log.Info("swarm role bootstrapped",
+			"run_id", runID.String(),
+			"role_name", roleSpec.Name,
+			"agent_id", agent.ID.String(),
+			"role_id", swarmRole.ID.String())
+	}
+
+	// If we got here, bootstrap made progress (spec was non-empty
+	// and at least one new role was created). Flip the run from
+	// preparing/planning → running so the issue header pill flips
+	// to the live state.
+	if run.Status == string(StatusPreparing) || run.Status == string(StatusPlanning) {
+		if _, serr := s.q.SetSwarmRunStatus(ctx, db.SetSwarmRunStatusParams{
+			ID:     runID,
+			Status: string(StatusRunning),
+		}); serr != nil {
+			return fmt.Errorf("set run running: %w", serr)
+		}
+		s.log.Info("swarm run status flipped to running",
+			"run_id", runID.String(),
+			"from", run.Status)
+	}
+	return nil
+}
+
+// enqueueReadyRole (FIX 2, 0.5.22) creates an agent_task_queue row
+// for a ready role, provided its parent (if any) has reached
+// 'completed'. Marks the role 'running' so the next tick does not
+// re-enqueue. The daemon claims the new task via the normal
+// task-queue trigger; progress flows back via SetSwarmRoleStatus.
+//
+// No-op for roles whose parent is not yet complete — the DAG
+// topological walk falls out of the orchestrator's 30s tick: a role
+// re-attempts enqueue on every tick until its parent flips to
+// 'completed'.
+func (s *Service) enqueueReadyRole(ctx context.Context, run db.SwarmRun, role db.SwarmRole) error {
+	if role.ParentRoleID.Valid {
+		parent, err := s.q.GetSwarmRole(ctx, role.ParentRoleID)
+		if err != nil {
+			return fmt.Errorf("get parent role: %w", err)
+		}
+		if parent.Status != string(RoleCompleted) {
+			return nil // not ready yet; wait for the next tick
+		}
+	}
+
+	_, err := s.q.CreateAgentTask(ctx, db.CreateAgentTaskParams{
+		AgentID:        role.AgentID,
+		RuntimeID:      pgtype.UUID{}, // daemon binds on claim
+		IssueID:        run.RootIssueID,
+		Priority:       50,
+		TriggerSummary: pgtype.Text{String: fmt.Sprintf("[swarm] %s (phase %s)", role.RoleName, run.CurrentPhase), Valid: true},
+		HandoffNote:    pgtype.Text{String: role.RoleInstructions, Valid: true},
+	})
+	if err != nil {
+		return fmt.Errorf("create agent task: %w", err)
+	}
+
+	if _, err := s.q.SetSwarmRoleStatus(ctx, db.SetSwarmRoleStatusParams{
+		ID:          role.ID,
+		Status:      string(RoleRunning),
+		CurrentStep: "enqueued — awaiting claim",
+	}); err != nil {
+		return fmt.Errorf("set role running: %w", err)
+	}
+	s.log.Info("swarm role enqueued",
+		"run_id", run.ID.String(),
+		"role_id", role.ID.String(),
+		"role_name", role.RoleName,
+		"phase", run.CurrentPhase)
+	return nil
+}
+
+// writeCompletionSummary (FIX 3, 0.5.22) posts the coda summary as a
+// system comment on root_issue_id when the run reaches PhaseDone.
+// Mirrors the mythos coda write pattern referenced at router.go:951
+// ("posts the coda summary as an issue comment"). Synthesises:
+//
+//   - role counters (total / completed / failed)
+//   - the most recent role_message rows (capped at 50) as a short
+//     digest so the user has a glance-able record
+//   - the phase walk length so the reader sees "ran 4 phases"
+//
+// AuthorType is "system" (zero AuthorID — the convention from
+// issue_child_done.go:170-178 for system-authored comments on
+// issues). Failure is non-fatal; the orchestrator already wrote
+// status='completed' before calling this, so a comment write miss
+// does not roll back the terminal flip.
+func (s *Service) writeCompletionSummary(ctx context.Context, run db.SwarmRun) error {
+	roles, err := s.q.ListSwarmRolesByRun(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("list roles for summary: %w", err)
+	}
+	totalRoles := len(roles)
+	completedRoles := 0
+	failedRoles := 0
+	for _, r := range roles {
+		switch RoleStatus(r.Status) {
+		case RoleCompleted:
+			completedRoles++
+		case RoleFailed:
+			failedRoles++
+		}
+	}
+
+	messages, err := s.q.ListSwarmRoleMessagesByRun(ctx, db.ListSwarmRoleMessagesByRunParams{
+		SwarmRunID: run.ID,
+		Limit:      50,
+	})
+	if err != nil {
+		// Non-fatal: continue with an empty message list so the
+		// user still gets the role-counter summary.
+		s.log.Warn("swarm coda: list messages failed",
+			"run_id", run.ID.String(), "err", err.Error())
+		messages = nil
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "[swarm coda] Run completed across %d phases.", len(PhaseOrder)-1)
+	fmt.Fprintf(&b, "\n\nRoles: %d total — %d completed, %d failed.",
+		totalRoles, completedRoles, failedRoles)
+	if len(messages) > 0 {
+		fmt.Fprintf(&b, "\n\nLast %d message(s) captured for audit:", len(messages))
+		for _, m := range messages {
+			fmt.Fprintf(&b, "\n- [%s] %s", m.Type, truncateForSummary(m.Content, 200))
+		}
+	}
+
+	_, err = s.q.CreateComment(ctx, db.CreateCommentParams{
+		IssueID:      run.RootIssueID,
+		WorkspaceID:  run.WorkspaceID,
+		AuthorType:   "system",
+		AuthorID:     pgtype.UUID{}, // zero UUID: system-authored convention
+		Content:      b.String(),
+		Type:         "system",
+		ParentID:     pgtype.UUID{},
+		SourceTaskID: pgtype.UUID{},
+	})
+	if err != nil {
+		return fmt.Errorf("create coda comment: %w", err)
+	}
+	s.log.Info("swarm coda summary posted",
+		"run_id", run.ID.String(),
+		"issue_id", run.RootIssueID.String())
+	return nil
+}
+
+// truncateForSummary clips a message body to keep the coda comment
+// readable. The 200-char cap leaves room for ~50 messages in the
+// payload without the comment becoming a wall of text.
+func truncateForSummary(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 // unregister removes an orchestrator from the running map. Called on
