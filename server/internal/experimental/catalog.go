@@ -244,6 +244,27 @@ var Catalog = []Flag{
 		HidesDeliverableInIssueTimeline: true,
 	},
 	{
+		// 0.5.21 swarm_topology: multi-agent role-graph topology. The
+		// orchestrator runs in-process as a server-owned goroutine
+		// (Service.StartOrchestrator + runOrchestratorLoop); no
+		// subprocess, no proxy. The HTTP surface at
+		// /api/experimental/swarm-topology/* is gated by this flag —
+		// off-flag callers get a uniform 404 (indistinguishable from a
+		// nonexistent route, per experimental_guard.go).
+		Key:        "swarm_topology",
+		DefaultVal: false,
+		Title: LocalizedString{
+			En: "Swarm Topology",
+			Zh: "蜂群拓扑",
+		},
+		Description: LocalizedString{
+			En: "Multi-agent role-graph topology: a leader agent authors a role spec, role-agents execute per-node instructions in topological order, and the orchestrator cancels in-flight tasks on user interrupt. Off by default — enable to bind swarm_topology per issue via the LabPicker.",
+			Zh: "多智能体角色图拓扑:leader 智能体撰写角色规格,角色智能体按拓扑顺序执行节点指令,用户中断时编排器取消进行中的任务。默认关闭 — 通过 LabPicker 将 swarm_topology 绑定到具体 issue。",
+		},
+		ManifestPath: "experiments/swarm_topology/manifest.json",
+		RuntimeKind:  "headless",
+	},
+	{
 		// llm_wiki_bridge: connects Multica agents to the locally-installed
 		// `/Applications/LLM Wiki.app`. Reads go through the bundled
 		// llm-wiki MCP server (stdio JSON-RPC); writes go through the

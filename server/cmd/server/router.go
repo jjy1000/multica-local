@@ -963,6 +963,20 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Get("/api/experimental/mythos-swarm/supervise/{runID}", h.GetMythosSuperviseState)
 			r.Post("/api/experimental/mythos-swarm/supervise/{runID}/tick", h.PostMythosSuperviseTick)
 		})
+		// 0.5.21 swarm_topology: multi-agent role-graph topology. The
+		// orchestrator runs in-process (Service.StartOrchestrator +
+		// runOrchestratorLoop); no subprocess, no proxy. Mounted via
+		// RegisterSwarmRoutes which wires POST /runs, POST .../interrupt,
+		// GET .../state, and the issue-side reverse lookup GET
+		// /api/issues/{id}/swarm-runs (also gated — if you can't run
+		// the lab, the issue badge is hidden too).
+		//
+		// 0.5.21 fix: previously the routes were declared in
+		// swarm_routes.go but never mounted, so every call 404'd.
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("swarm_topology"))
+			handler.RegisterSwarmRoutes(r, h)
+		})
 		// 0.3.29 Pythia Oracle per-issue forecast. Previously dead code:
 		// RegisterPythiaIssueForecastRoutes / AttachPythiaIssueForecastMiddleware
 		// had zero call sites, so the flagship 0.3.29 per-issue forecast

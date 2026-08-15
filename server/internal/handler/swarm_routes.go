@@ -36,7 +36,10 @@ func RegisterSwarmRoutes(r chi.Router, h *Handler) {
 		r.Post("/runs/{id}/interrupt", h.PostSwarmInterrupt)
 		r.Get("/runs/{id}/state", h.GetSwarmRunState)
 	})
-	// Issue-side reverse lookup (no flag gate — issue-detail always
-	// shows the swarm badge regardless of catalog flag state).
+	// Issue-side reverse lookup. Gated along with the experimental
+	// surface — if the user has not enabled the flag, no swarm_run can
+	// exist (PostSwarmRun is gated too), so the lookup would always
+	// 404 anyway. Mounting inside the flag group keeps the route
+	// table uniform and avoids an unenumerable bypass path.
 	r.Get("/api/issues/{id}/swarm-runs", h.GetSwarmRunsByIssue)
 }
