@@ -19,6 +19,16 @@
 
 import { useState } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@multica/ui/components/ui/alert-dialog";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 
@@ -37,6 +47,7 @@ export function SwarmInterruptBar({
 }: SwarmInterruptBarProps) {
   const [injectOpen, setInjectOpen] = useState(false);
   const [injectText, setInjectText] = useState("");
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [busy, setBusy] = useState<"pause" | "cancel" | "inject_message" | null>(null);
 
   const isTerminal =
@@ -54,6 +65,11 @@ export function SwarmInterruptBar({
     } finally {
       setBusy(null);
     }
+  }
+
+  async function confirmCancel() {
+    setCancelDialogOpen(false);
+    await fire("cancel");
   }
 
   return (
@@ -86,7 +102,7 @@ export function SwarmInterruptBar({
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => fire("cancel")}
+            onClick={() => setCancelDialogOpen(true)}
             disabled={busy !== null || isTerminal || disabled}
             data-testid="swarm-interrupt-cancel"
           >
@@ -123,6 +139,33 @@ export function SwarmInterruptBar({
           </Button>
         </div>
       ) : null}
+      <AlertDialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
+        <AlertDialogContent data-testid="swarm-interrupt-cancel-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel this swarm run?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The orchestrator will abort all in-flight role-agents and flip
+              status to <strong>aborted</strong> immediately. This cannot be
+              undone — a fresh bootstrap on the same issue is blocked by the
+              unique <code>root_issue_id</code> index.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy === "cancel"}>Keep running</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={busy === "cancel"}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmCancel();
+              }}
+              data-testid="swarm-interrupt-cancel-confirm"
+            >
+              {busy === "cancel" ? "Cancelling…" : "Cancel run"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
