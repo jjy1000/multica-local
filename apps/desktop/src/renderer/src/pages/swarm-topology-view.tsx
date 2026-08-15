@@ -21,11 +21,12 @@
 //     new swarm_run, then re-fetches state.
 //   - "active" (existing run): show the full layout above.
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@multica/core/api";
+import type { Issue } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@multica/ui/components/ui/card";
 import { Input } from "@multica/ui/components/ui/input";
@@ -339,17 +340,18 @@ function BootstrapForm({
           className="space-y-4"
         >
           <div className="space-y-2">
-            <Label htmlFor="swarm-issue-id">Issue ID</Label>
-            <Input
-              id="swarm-issue-id"
-              type="text"
+            <Label htmlFor="swarm-issue-id">Issue</Label>
+            <IssuePicker
               value={issueId}
-              onChange={(e) => setIssueId(e.target.value)}
-              placeholder="e.g. 11fc7289-a895-4d4c-bed8-b241edbaa7ac"
-              required
+              onChange={setIssueId}
               disabled={bootstrap.isPending}
-              data-testid="swarm-bootstrap-issue"
             />
+            <p className="text-xs text-muted-foreground">
+              Issues already bootstrapped into a swarm are hidden — the
+              root_issue_id column is UNIQUE, so re-bootstrapping is
+              idempotent and a fresh swarm on the same issue is not
+              possible.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="swarm-problem">Problem statement</Label>
@@ -440,6 +442,112 @@ function Counter({
     <div className="rounded-md border bg-muted/30 p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={`mt-1 text-lg font-semibold ${mono ? "font-mono text-sm" : ""}`}>{value}</div>
+    </div>
+  );
+}
+
+// IssuePicker — debounced autocomplete over GET /api/issues/search.
+// Filters out issues already bound to a swarm_topology run (UNIQUE on
+// root_issue_id) and the currently selected issue so a user can't pick
+// it twice. Workspace scope is enforced server-side via the X-Workspace-ID
+// header that api.rawRequest injects.
+const ISSUE_PICKER_LIMIT = 10;
+const SWARM_TOPOLOGY_LAB = "swarm_topology";
+
+function IssuePicker({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  disabled?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  const search = useQuery({
+    queryKey: ["swarm-bootstrap-issue-search", query],
+    enabled: query.trim().length > 0,
+    queryFn: ({ signal }) =>
+      api.searchIssues({
+        q: query.trim(),
+        limit: ISSUE_PICKER_LIMIT,
+        include_closed: false,
+        signal,
+      }),
+    staleTime: 5_000,
+  });
+
+  const selectedIssue = useQuery({
+    queryKey: ["swarm-bootstrap-issue-selected", value],
+    enabled: Boolean(value),
+    queryFn: () => api.getIssue(value),
+    staleTime: Infinity,
+  });
+
+  const filtered = useMemo(() => {
+    const issues: Issue[] = search.data?.issues ?? [];
+    return issues.filter(
+      (i) => i.id !== value && (i.lab_source ?? "") !== SWARM_TOPOLOGY_LAB,
+    );
+  }, [search.data, value]);
+
+  const selected = selectedIssue.data;
+  const displayValue = selected
+    ? `${selected.identifier} — ${selected.title}`
+    : query;
+
+  return (
+    <div className="relative" data-testid="swarm-bootstrap-issue-picker">
+      <Input
+        type="text"
+        value={displayValue}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          onChange("");
+        }}
+        placeholder="Search issues by title or identifier…"
+        disabled={disabled}
+        data-testid="swarm-bootstrap-issue"
+        autoComplete="off"
+        onFocus={() => filtered.length > 0 && setOpen(true)}
+        onBlur={() => {
+          // Delay close so a click on a row registers first.
+          setTimeout(() => setOpen(false), 150);
+        }}
+      />
+      {open && filtered.length > 0 ? (
+        <ul
+          role="listbox"
+          className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover p-1 text-sm shadow-md"
+          data-testid="swarm-bootstrap-issue-results"
+        >
+          {filtered.map((i) => (
+            <li
+              key={i.id}
+              role="option"
+              aria-selected={false}
+              className="cursor-pointer rounded px-2 py-1.5 hover:bg-accent"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(i.id);
+                setQuery("");
+                setOpen(false);
+              }}
+              data-testid="swarm-bootstrap-issue-option"
+              data-issue-id={i.id}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium">{i.title}</span>
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                  {i.identifier}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
