@@ -980,6 +980,56 @@ type SquadMember struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type SwarmInterrupt struct {
+	ID         pgtype.UUID        `json:"id"`
+	SwarmRunID pgtype.UUID        `json:"swarm_run_id"`
+	UserID     pgtype.UUID        `json:"user_id"`
+	Kind       string             `json:"kind"`
+	Payload    []byte             `json:"payload"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type SwarmRole struct {
+	ID               pgtype.UUID        `json:"id"`
+	SwarmRunID       pgtype.UUID        `json:"swarm_run_id"`
+	AgentID          pgtype.UUID        `json:"agent_id"`
+	RoleName         string             `json:"role_name"`
+	RoleInstructions string             `json:"role_instructions"`
+	ParentRoleID     pgtype.UUID        `json:"parent_role_id"`
+	DependsOn        []byte             `json:"depends_on"`
+	Status           string             `json:"status"`
+	LastHeartbeatAt  pgtype.Timestamptz `json:"last_heartbeat_at"`
+	CurrentStep      pgtype.Text        `json:"current_step"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+type SwarmRoleMessage struct {
+	ID         pgtype.UUID        `json:"id"`
+	SwarmRunID pgtype.UUID        `json:"swarm_run_id"`
+	FromRoleID pgtype.UUID        `json:"from_role_id"`
+	ToRoleID   pgtype.UUID        `json:"to_role_id"`
+	Content    string             `json:"content"`
+	Type       string             `json:"type"`
+	ReadBy     []byte             `json:"read_by"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type SwarmRun struct {
+	ID              pgtype.UUID        `json:"id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	CreatorUserID   pgtype.UUID        `json:"creator_user_id"`
+	RootIssueID     pgtype.UUID        `json:"root_issue_id"`
+	Problem         string             `json:"problem"`
+	Status          string             `json:"status"`
+	CurrentPhase    string             `json:"current_phase"`
+	TopologySpec    []byte             `json:"topology_spec"`
+	MaxRuntimeHours int32              `json:"max_runtime_hours"`
+	InterruptedAt   pgtype.Timestamptz `json:"interrupted_at"`
+	InterruptReason pgtype.Text        `json:"interrupt_reason"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
+}
+
 type SysCronExecution struct {
 	ID           pgtype.UUID        `json:"id"`
 	JobName      string             `json:"job_name"`
