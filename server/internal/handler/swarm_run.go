@@ -228,7 +228,9 @@ func (h *Handler) GetSwarmRunState(w http.ResponseWriter, r *http.Request) {
 // cancel / redirect / inject_message). The orchestrator's tick loop
 // picks up the interrupt on its next 30s cycle. For cancel, the
 // handler also flips status to 'aborted' immediately so the user
-// sees the new state without waiting for the tick.
+// sees the new state without waiting for the tick, AND drains the
+// in-flight agent_task_queue rows owned by the run's role-agents so
+// the daemons drop those tasks on their next claim-poll.
 func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 	runUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "id")
 	if !ok {
@@ -290,6 +292,21 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 		}); err != nil {
 			writeError(w, http.StatusInternalServerError, "set aborted: "+err.Error())
 			return
+		}
+
+		// Sync drain: flip every in-flight agent_task_queue row owned
+		// by the run's role-agents to 'cancelled'. The daemons pick
+		// this up on their next claim-poll (≤ 5s) and stop dispatch.
+		// Active states only — completed/failed/cancelled rows are
+		// untouched so the audit trail stays intact.
+		//
+		// This is best-effort: if the drain fails we still return 202
+		// because the run itself is already aborted (orchestrator tick
+		// will retry on terminal-status detect). Log loudly so an
+		// operator can chase the underlying DB error.
+		if err := h.Queries.CancelAgentTasksBySwarmRun(r.Context(), runUUID); err != nil {
+			slog.Warn("swarm cancel drain failed",
+				"run_id", runUUID.String(), "err", err.Error())
 		}
 	}
 

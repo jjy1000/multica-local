@@ -23,6 +23,31 @@ func (q *Queries) ArchiveSwarmRolesByRun(ctx context.Context, swarmRunID pgtype.
 	return err
 }
 
+const cancelAgentTasksBySwarmRun = `-- name: CancelAgentTasksBySwarmRun :exec
+UPDATE agent_task_queue
+SET status = 'cancelled'
+WHERE agent_id IN (SELECT agent_id FROM swarm_role WHERE swarm_run_id = $1)
+  AND status IN ('queued', 'dispatched', 'running')
+`
+
+// Drain in-flight agent_task_queue rows when a swarm_run is aborted.
+// Called from handler.PostSwarmInterrupt (sync drain after SetSwarmRunStatus
+// flips to 'aborted') and from orchestrator.runOrchestratorLoop on terminal
+// status detect (defense-in-depth — covers the gap between user-cancel and
+// the next 30s tick).
+//
+// Filters by agent_id IN (the run's role-agents) AND status IN the three
+// active states — terminal rows (completed/failed/cancelled) are untouched
+// so audit trail + history stay intact. The schema has no cancelled_at
+// column, so we just flip status; downstream readers distinguish by status.
+//
+// Returns no rows (:exec) because the handler doesn't need to enumerate
+// them — the caller observes via GetSwarmRunStatus / GetAgentTaskList.
+func (q *Queries) CancelAgentTasksBySwarmRun(ctx context.Context, swarmRunID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, cancelAgentTasksBySwarmRun, swarmRunID)
+	return err
+}
+
 const countActiveRolesByRun = `-- name: CountActiveRolesByRun :one
 SELECT COUNT(*) FROM swarm_role
 WHERE swarm_run_id = $1

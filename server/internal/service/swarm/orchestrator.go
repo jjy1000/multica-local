@@ -80,6 +80,12 @@ type OrchestratorQuerier interface {
 	// FIX 3 (0.5.22): coda summary comment on root_issue_id.
 	CreateComment(ctx context.Context, arg db.CreateCommentParams) (db.Comment, error)
 	ListSwarmRoleMessagesByRun(ctx context.Context, arg db.ListSwarmRoleMessagesByRunParams) ([]db.SwarmRoleMessage, error)
+
+	// CancelAgentTasksBySwarmRun drains in-flight agent_task_queue rows
+	// owned by the run's role-agents when the run is aborted. Called by
+	// the handler on user-cancel (sync drain) and by the orchestrator's
+	// tick loop on terminal-status detect (defense-in-depth).
+	CancelAgentTasksBySwarmRun(ctx context.Context, swarmRunID pgtype.UUID) error
 }
 
 // Service owns the registered orchestrators + the goroutines that
