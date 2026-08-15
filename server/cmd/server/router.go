@@ -32,6 +32,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
+	swarmsvc "github.com/multica-ai/multica/server/internal/service/swarm"
 	agent_trust "github.com/multica-ai/multica/server/internal/service/agent_trust"
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	"github.com/multica-ai/multica/server/internal/storage"
@@ -707,6 +708,50 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				slog.Warn("agent-self-opt start: list workspace ids failed",
 					"err", err)
 			}
+		}
+	}
+
+	// 0.5.21: wire the swarm topology service. Mirrors the mythos
+	// supervise block above: a single Service instance hosts a
+	// per-swarm_run orchestrator goroutine (30s tick + 72h cap +
+	// 5-phase machine). Orchestrators launch lazily via
+	// StartOrchestrator on bootstrap (multica-creating-swarms SKILL.md
+	// Phase 2); ResumeOrchestration re-adopts non-terminal runs from
+	// a previous daemon process (mirrors mythos ResumeSupervision).
+	// The swarm_gc GC loop runs on the same 6h cadence as runtime_gc
+	// (terminal status + 7d → archive, 90d → trash).
+	{
+		svc := swarmsvc.NewService(h.Queries, slog.Default())
+		h.SwarmService = svc
+		bootCtx, bootCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer bootCancel()
+		if pool != nil {
+			if ids, err := h.Queries.ListAllWorkspaceIDs(bootCtx); err == nil {
+				var totalResumed int
+				for _, id := range ids {
+					if n, err := svc.ResumeOrchestration(bootCtx, id); err != nil {
+						slog.Warn("swarm orchestrator resume failed",
+							"workspace_id", util.UUIDToString(id),
+							"err", err)
+					} else {
+						totalResumed += n
+					}
+				}
+				if totalResumed > 0 {
+					slog.Info("swarm orchestrator resumed", "total", totalResumed)
+				}
+			} else {
+				slog.Warn("swarm orchestrator resume: list workspace ids failed",
+					"err", err)
+			}
+			// Launch swarm_gc (parallel to runtime_gc.Start pattern).
+			// The GC is monolithic (one sweep per tick) so a nil pool
+			// (test-only build) skips it cleanly.
+			swarmGC := experimental.NewSwarmGC(experimental.SwarmGCConfig{
+				Queries: h.Queries,
+			})
+			swarmGC.Start(bootCtx)
+			slog.Info("swarm_gc started")
 		}
 	}
 

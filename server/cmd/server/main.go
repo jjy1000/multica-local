@@ -525,6 +525,14 @@ func main() {
 		h.MythosService.Stop()
 	}
 
+	// Cancel any in-flight swarm orchestrator goroutines. Lossless:
+	// swarm_run.current_phase + each swarm_role.last_heartbeat_at is
+	// persisted every tick; ResumeOrchestration re-adopts non-terminal
+	// rows on the next boot. swarm_gc.Stop is a no-op if not started.
+	if h.SwarmService != nil {
+		h.SwarmService.Stop()
+	}
+
 	// Join the channel supervisor's per-installation goroutines so the
 	// lease renewer can issue a final release before process exit;
 	// otherwise the next replica would have to wait the full LeaseTTL
