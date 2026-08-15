@@ -378,6 +378,16 @@ var defaultLeaderAgentForLab = map[string]string{
 	// path). Mirrors handler.AgentCreationExpertName; keep the strings
 	// in sync when renaming.
 	"agent_creation_studio": "agent_creation_expert",
+	// 0.5.22 Semantica × Multica Phase 2: leader resolution for the
+	// semantica lab so P0#4 auto-rewrite + `multica lab delegate semantica`
+	// land on the right agent. Mirrors defaultLabLeaderForKey in
+	// handler/issue.go; keep the strings in sync when renaming.
+	"semantica": "semantica_decision_advisor",
+	// 0.5.22: swarm_topology leader. Boot-provisioned alongside
+	// agent_creation_expert so the leader-rewrite path has a row to
+	// resolve on the first create-issue (the legacy "wait for
+	// bootstrap to author it" path loses the leading edge case).
+	"swarm_topology": "swarm_coordinator",
 }
 
 // resolveLabLeader resolves the leader agent name for a lab_source.

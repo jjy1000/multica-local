@@ -135,6 +135,17 @@ func (h *Handler) BootProvisionProductLabs(ctx context.Context) {
 			skipped++
 			continue
 		}
+		// 0.5.22: swarm_topology leader is a sibling product-level
+		// resource. Provision failure on it does NOT mark the
+		// workspace as skipped — the studio leader already succeeded.
+		// Logged separately so the swarm_topology path is observable
+		// in production logs.
+		if _, err := upsertSwarmCoordinator(bootCtx, h, id); err != nil {
+			slog.Warn("boot provision product labs: upsert swarm coordinator failed",
+				"workspace_id", util.UUIDToString(id),
+				"agent", SwarmCoordinatorName,
+				"err", err)
+		}
 		provisioned++
 	}
 	slog.Info("boot provision product labs complete",
@@ -166,6 +177,11 @@ func (h *Handler) EnsureProductAgentForWorkspace(
 	switch agentName {
 	case AgentCreationExpertName:
 		return upsertAgentCreationExpert(ctx, h, workspaceID)
+	case SwarmCoordinatorName:
+		// 0.5.22: swarm_topology leader. Lazy fallback for the
+		// 0.3.46 P0#4 leader-rewrite path when the workspace was
+		// skipped during boot. Mirrors the studio helper shape.
+		return upsertSwarmCoordinator(ctx, h, workspaceID)
 	default:
 		return pgtype.UUID{}, fmt.Errorf("ensureProductAgentForWorkspace: unknown product agent %q", agentName)
 	}

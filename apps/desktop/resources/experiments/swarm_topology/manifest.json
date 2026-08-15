@@ -1,0 +1,12 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {"key": "swarm_topology"},
+  "spec": {
+    "entry_points": {
+      "sidebar": [{"suffix": "swarm-topology", "label": {"en": "Swarm Topology", "zh": "蜂群拓扑"}}]
+    },
+    "runtime": {"kind": "none"},
+    "capabilities": {}
+  }
+}

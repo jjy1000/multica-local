@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -684,5 +685,116 @@ func TestUpdateIssueLabSourceMythosSoleModeNoAutoAssign(t *testing.T) {
 			"got assignee_type=%v (P0#4 mythos regression — someone "+
 			"added a leader to the helper map for mythos_swarm)",
 			resp.AssigneeType)
+	}
+}
+
+// ── 0.5.22 coverage ────────────────────────────────────────────────────────────
+//
+// The 0.5.22 swarm_topology ship extends the lab ↔ assignee mutex
+// (Active Contract #5, issue.go:2222-2254) to a second lab — swarm_topology
+// also locks the assignee to the coordinator (an explicit manual assignee
+// is rejected with 400). The two tests below pin the contract on the
+// CreateIssue path:
+//
+//   - NoAssigneeAllowed: lab_source=swarm_topology without an assignee
+//     must succeed; the leader-rewrite path then auto-assigns
+//     swarm_coordinator (boot-provisioned by
+//     boot_provision_product_labs.go).
+//   - WithAssigneeRejected: lab_source=swarm_topology WITH a manual
+//     assignee must 400 — the mutex forbids it.
+//
+// companions:
+//   - P0#4 leader-rewrite contract: see TestUpdateIssueLabSource*
+//     above (same pattern, mutating the lab_source post-create).
+//   - mythos_swarm equivalent: TestUpdateIssueLabSourceMythosSoleModeNoAutoAssign.
+
+// TestCreateIssueSwarmTopologyNoAssigneeAllowed — 0.5.22 (mutex contract #5).
+//
+// A new issue with lab_source=swarm_topology and no assignee must
+// succeed (201). The leader-rewrite path then auto-assigns
+// swarm_coordinator (boot-provisioned) so the orchestrator can pick
+// it up.
+func TestCreateIssueSwarmTopologyNoAssigneeAllowed(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	owner := mustCreateTestMember(t, wsUUID)
+	coordinatorID := ensureReadyLabLeader(t, wsUUID, owner, "swarm_coordinator")
+	coordinatorIDStr := util.UUIDToString(coordinatorID)
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":      "swarm-topology-no-assignee",
+		"status":     "todo",
+		"lab_source": "swarm_topology",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue swarm_topology (no assignee): expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp IssueResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode issue response: %v\nbody: %s", err, w.Body.String())
+	}
+	if resp.LabSource == nil || *resp.LabSource != "swarm_topology" {
+		t.Fatalf("expected lab_source=swarm_topology on response, got=%v", resp.LabSource)
+	}
+	if resp.AssigneeType == nil || *resp.AssigneeType != "agent" {
+		t.Fatalf("expected swarm_coordinator auto-assigned, got assignee_type=%v", resp.AssigneeType)
+	}
+	if resp.AssigneeID == nil || *resp.AssigneeID != coordinatorIDStr {
+		t.Fatalf("expected assignee_id=%s (= swarm_coordinator), got=%v",
+			coordinatorIDStr, resp.AssigneeID)
+	}
+}
+
+// TestCreateIssueSwarmTopologyWithAssigneeRejected — 0.5.22 (mutex contract #5).
+//
+// A new issue with lab_source=swarm_topology AND a manual assignee
+// must be rejected with 400. The mutex gate (issue.go:2255) forbids
+// the combination — the swarm owns the issue end-to-end.
+func TestCreateIssueSwarmTopologyWithAssigneeRejected(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	owner := mustCreateTestMember(t, wsUUID)
+	// Pre-create a non-leader agent so the assignee is a valid
+	// agent row (the mutex gate fires BEFORE validateAssigneePair
+	// so a bogus assignee would not change the test outcome, but
+	// using a real agent keeps the test readable).
+	decoyID := mustCreateTestAgent(t, wsUUID, "swarm-decoy-"+util.UUIDToString(wsUUID)[:8], owner)
+	decoyIDStr := util.UUIDToString(decoyID)
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent WHERE id = $1`, decoyID)
+	})
+
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":         "swarm-topology-with-assignee",
+		"status":        "todo",
+		"lab_source":    "swarm_topology",
+		"assignee_type": "agent",
+		"assignee_id":   decoyIDStr,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateIssue swarm_topology (with assignee): expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	// Body must mention the mutex contract so the user-facing error
+	// is actionable.
+	body := w.Body.String()
+	if !strings.Contains(body, "swarm_topology") || !strings.Contains(body, "assignee") {
+		t.Fatalf("expected 400 body to mention swarm_topology + assignee, got: %s", body)
 	}
 }
