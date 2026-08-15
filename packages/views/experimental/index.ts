@@ -6,3 +6,10 @@ export {
 export { ArtifactRenderer, type Artifact } from "./components/artifact-renderer";
 export { ArtifactGallery } from "./components/artifact-gallery";
 export { PluginShellView } from "./components/plugin-shell-view";
+export { LabOutputPanel } from "./components/lab-output-panel";
+export {
+  SwarmTopologyGraph,
+  type SwarmRole,
+  type SwarmTopologyGraphProps,
+} from "./components/swarm-topology-graph";
+export { SwarmInterruptBar, type SwarmInterruptBarProps } from "./components/swarm-interrupt-bar";

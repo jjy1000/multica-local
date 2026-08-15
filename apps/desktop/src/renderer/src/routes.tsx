@@ -31,6 +31,7 @@ import { WorkspaceRouteLayout } from "./components/workspace-route-layout";
 import { DesktopRouteErrorPage } from "./components/route-error-page";
 import { ClaudeLabView } from "./pages/claude-lab-view";
 import { MythosView } from "./pages/mythos-view";
+import { SwarmTopologyView } from "./pages/swarm-topology-view";
 import { PythiaView } from "./pages/pythia-view";
 import { LLMWikiBridgeView } from "./pages/llm-wiki-bridge-view";
 import { CodeCanvasView } from "./pages/code-canvas-view";
@@ -151,6 +152,13 @@ export const appRoutes: RouteObject[] = [
         path: "experimental/mythos",
         element: <MythosView />,
         handle: { title: "Mythos Swarm" },
+      },
+      {
+        // 0.5.21: swarm topology — top-level task mode parallel to
+        // claude_science_lab. Self-organising multi-agent system.
+        path: "experimental/swarm-topology",
+        element: <SwarmTopologyView />,
+        handle: { title: "Swarm Topology" },
       },
       {
         path: "experimental/llm-wiki",

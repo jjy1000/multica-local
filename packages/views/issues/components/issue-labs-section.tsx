@@ -32,6 +32,10 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   mythos_swarm: "mythos",
   llm_wiki_bridge: "llm-wiki",
   code_canvas: "code-canvas",
+  // 0.5.21: swarm topology — top-level task mode parallel to
+  // claude_science_lab. Per-issue swarm view (IssueLabsSection) +
+  // dedicated /experimental/swarm-topology view (sidebar entry).
+  swarm_topology: "swarm-topology",
   // (0.3.57: constitution_agent entry removed alongside the lab
   // retirement in migration 165.)
 };
@@ -262,7 +266,8 @@ export function AgentTrustCorrectButton({
           {(labSource === "claude_science_lab" ||
             labSource === "pythia_oracle" ||
             labSource === "mythos_swarm" ||
-            labSource === "code_canvas") && (
+            labSource === "code_canvas" ||
+            labSource === "swarm_topology") && (
             <LabOutputPanel
               wsId={wsId}
               issueId={issueId}
