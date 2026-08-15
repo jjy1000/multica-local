@@ -200,7 +200,7 @@ func (g *RuntimeGC) archiveOne(ctx context.Context, row db.ExperimentalClaudeRun
 	}
 
 	sentinel := filepath.Join(target, ".archiving")
-	if err := writeAtomic(sentinel, []byte(time.Now().UTC().Format(time.RFC3339))); err != nil {
+	if err := WriteAtomic(sentinel, []byte(time.Now().UTC().Format(time.RFC3339))); err != nil {
 		return fmt.Errorf("sentinel: %w", err)
 	}
 
@@ -209,7 +209,7 @@ func (g *RuntimeGC) archiveOne(ctx context.Context, row db.ExperimentalClaudeRun
 		// Atomic mv into the archive target. Errors here are
 		// non-fatal — the row still has cleanup potential on the
 		// next sweep.
-		if err := renameCrossDevice(src, target); err != nil {
+		if err := RenameCrossDevice(src, target); err != nil {
 			g.cfg.Logger.Warn("runtime_gc mv fallback to copy", "err", err.Error())
 			if err := copyDir(src, filepath.Join(target, "runtime")); err != nil {
 				return fmt.Errorf("copy: %w", err)
@@ -220,7 +220,7 @@ func (g *RuntimeGC) archiveOne(ctx context.Context, row db.ExperimentalClaudeRun
 	// Stamping finished removes the sentinel — final state is
 	// "archive present, row deleted".
 	finished := filepath.Join(target, ".finished")
-	if err := writeAtomic(finished, []byte(time.Now().UTC().Format(time.RFC3339))); err != nil {
+	if err := WriteAtomic(finished, []byte(time.Now().UTC().Format(time.RFC3339))); err != nil {
 		return fmt.Errorf("finished: %w", err)
 	}
 	_ = os.Remove(sentinel)
@@ -285,7 +285,7 @@ func (g *RuntimeGC) trashSweep(ctx context.Context) {
 }
 
 // writeAtomic writes body to path via tmp + rename(2).
-func writeAtomic(path string, body []byte) error {
+func WriteAtomic(path string, body []byte) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, body, 0o644); err != nil {
 		return err
@@ -297,7 +297,7 @@ func writeAtomic(path string, body []byte) error {
 // (EXDEV). On macOS the archive target may live on a different
 // volume if the user pointed BaseDir elsewhere; we degrade to a
 // copy + unlink rather than fail.
-func renameCrossDevice(src, dst string) error {
+func RenameCrossDevice(src, dst string) error {
 	err := os.Rename(src, dst)
 	if err == nil {
 		return nil

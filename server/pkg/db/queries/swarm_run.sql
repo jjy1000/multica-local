@@ -195,3 +195,11 @@ WHERE swarm_run_id = $1
 SELECT COUNT(*) FROM swarm_role
 WHERE swarm_run_id = $1
   AND status = 'completed';
+
+-- name: DeleteSwarmRoleMessagesOlderThan :exec
+-- swarm_gc TTL sweep: drop messages past MessageTTL (30 days). Called
+-- alongside ArchiveSwarmRolesByRun in the cleanup cascade. Mirrors the
+-- runtime_gc deletion pattern.
+DELETE FROM swarm_role_message
+WHERE swarm_run_id = $1
+  AND created_at < now() - INTERVAL '30 days';

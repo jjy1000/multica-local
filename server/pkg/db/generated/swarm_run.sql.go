@@ -234,6 +234,20 @@ func (q *Queries) CreateSwarmRun(ctx context.Context, arg CreateSwarmRunParams) 
 	return i, err
 }
 
+const deleteSwarmRoleMessagesOlderThan = `-- name: DeleteSwarmRoleMessagesOlderThan :exec
+DELETE FROM swarm_role_message
+WHERE swarm_run_id = $1
+  AND created_at < now() - INTERVAL '30 days'
+`
+
+// swarm_gc TTL sweep: drop messages past MessageTTL (30 days). Called
+// alongside ArchiveSwarmRolesByRun in the cleanup cascade. Mirrors the
+// runtime_gc deletion pattern.
+func (q *Queries) DeleteSwarmRoleMessagesOlderThan(ctx context.Context, swarmRunID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteSwarmRoleMessagesOlderThan, swarmRunID)
+	return err
+}
+
 const deleteSwarmRun = `-- name: DeleteSwarmRun :exec
 DELETE FROM swarm_run WHERE id = $1
 `
