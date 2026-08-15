@@ -101,6 +101,14 @@ const (
 	// removed; the source string stays so historical lock rows still
 	// match by string, and migration 237 can clean them up.
 	SourceAgentCreationStudio Source = "agent_creation_studio"
+	// SourceSwarmTopology is the 0.5.21 swarm topology feature —
+	// top-level task mode (parallel to claude_science_lab), NOT a
+	// LabPicker sub-plugin. Self-organising multi-agent system:
+	// the orchestrator authors N role-agents + M skills + 1
+	// coordinating squad on bootstrap, runs a 5-phase machine, and
+	// tears everything down on terminal status. See
+	// server/internal/service/swarm/orchestrator.go.
+	SourceSwarmTopology Source = "swarm_topology"
 )
 
 // AllSources is the developer-facing read-only list of every known
@@ -118,6 +126,7 @@ var AllSources = []Source{
 	SourcePythiaOracle,
 	SourceCodeCanvas,
 	SourceAgentCreationStudio,
+	SourceSwarmTopology,
 }
 
 // Valid reports whether s is in AllSources.

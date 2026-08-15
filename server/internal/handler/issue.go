@@ -2230,27 +2230,39 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	// top is meaningless and the gate just gets in the way of the
 	// user's "tag the issue, the lab figures it out" workflow.
 	//
-	// Only `mythos_swarm` keeps the mutex — its 5-agent RDT roster
-	// is meaningful enough that the user might want to override the
-	// default assignment, *or* in enhancer mode MUST pair with a
-	// target assignee (mythos preludes + supervises while the chosen
-	// actor executes).
+	// Two sources keep the mutex:
+	//   - `mythos_swarm` — its 5-agent RDT roster is meaningful
+	//     enough that the user might want to override the default
+	//     assignment, *or* in enhancer mode MUST pair with a target
+	//     assignee (mythos preludes + supervises while the chosen
+	//     actor executes).
+	//   - `swarm_topology` (0.5.21) — self-organising multi-agent
+	//     system parallel to claude_science_lab; user explicitly
+	//     designed it so the swarm IS the assignee (no manual
+	//     override allowed). lab_mode='enhancer' is NOT supported
+	//     for swarm_topology — the swarm owns the issue end-to-end
+	//     across all phases.
 	//
 	// This gate runs BEFORE validateAssigneePair so a non-existent
 	// member/agent row never produces a confusing 400 ("does not
 	// refer to a member") when the real issue is the contract
 	// violation.
-	if req.LabSource != nil && *req.LabSource == "mythos_swarm" {
+	if req.LabSource != nil {
 		enhancerMode := req.LabMode != nil && *req.LabMode == "enhancer"
 		hasAssignee := assigneeType.Valid || assigneeID.Valid
+		labSource := *req.LabSource
 		switch {
-		case !enhancerMode && hasAssignee:
+		case !enhancerMode && hasAssignee && (labSource == "mythos_swarm" || labSource == "swarm_topology"):
 			writeError(w, http.StatusBadRequest,
-				"lab_source=mythos_swarm requires the lab to own the assignee; clear the manual assignee")
+				"lab_source="+labSource+" requires the lab to own the assignee; clear the manual assignee")
 			return
-		case enhancerMode && !hasAssignee:
+		case enhancerMode && !hasAssignee && labSource == "mythos_swarm":
 			writeError(w, http.StatusBadRequest,
 				"lab_mode=enhancer requires an assignee (the target agent or squad)")
+			return
+		case enhancerMode && labSource == "swarm_topology":
+			writeError(w, http.StatusBadRequest,
+				"lab_mode=enhancer is not supported for lab_source=swarm_topology; the swarm owns the issue end-to-end")
 			return
 		}
 	}
@@ -2727,16 +2739,17 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			if _, ok := rawFields["lab_source"]; ok && req.LabSource != nil {
 				postLabSource = *req.LabSource
 			}
-			// Mirror the same 0.3.33 narrowing as CreateIssue: only
-			// mythos_swarm still requires the lab ↔ assignee mutex.
-			// Other labs (claude_science_lab, pythia_oracle, …)
+			// Mirror the same 0.3.33 narrowing as CreateIssue. Two
+			// sources keep the mutex: mythos_swarm (with enhancer
+			// reverse-requirement) and swarm_topology (0.5.21,
+			// lock-to-coordinator only, no enhancer). Other labs
 			// are auto-dispatched by their own runtime now, so the
 			// user is free to tag a lab and keep a manual assignee
 			// if the workspace has one.
 			switch {
-			case !enhancerMode && hasAssignee && postLabSource == "mythos_swarm":
+			case !enhancerMode && hasAssignee && (postLabSource == "mythos_swarm" || postLabSource == "swarm_topology"):
 				writeError(w, http.StatusBadRequest,
-					"lab_source=mythos_swarm requires the lab to own the assignee; clear the manual assignee")
+					"lab_source="+postLabSource+" requires the lab to own the assignee; clear the manual assignee")
 				return
 			case enhancerMode && !hasAssignee:
 				writeError(w, http.StatusBadRequest,
@@ -3032,6 +3045,16 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 		// intentionally suppressed (the sole-mutex gate above keeps
 		// AssigneeType empty).
 		return "", false
+	case "swarm_topology":
+		// 0.5.21: swarm topology is a top-level task mode. The
+		// coordinator agent is created dynamically during the
+		// leader's bootstrap (Phase 1 of multica-creating-swarms
+		// SKILL.md), not at install time like mythos_swarm. Until
+		// that bootstrap completes, the issue has no assignee —
+		// the sole-mutex gate above permits this. Once the
+		// coordinator row exists, the orchestrator assigns it via
+		// the leader-rewrite path on the next PATCH.
+		return "swarm_coordinator", true
 	default:
 		return "", false
 	}
