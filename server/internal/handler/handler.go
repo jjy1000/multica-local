@@ -31,6 +31,7 @@ import (
 	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
 	agenttrust "github.com/multica-ai/multica/server/internal/service/agent_trust"
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
+	swarmsvc "github.com/multica-ai/multica/server/internal/service/swarm"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -136,6 +137,12 @@ type Handler struct {
 	// h.Queries is available. Nil is acceptable (older builds or
 	// tests) — the supervise HTTP handlers fall back to 503.
 	MythosService *mythossvc.Service
+	// SwarmService (0.5.21) owns the per-swarm_run orchestrator
+	// goroutines (5-phase machine: research → design → implement →
+	// review → done). Boot wires it from cmd/server/router.go.
+	// Nil is acceptable — the swarm HTTP handlers fall back to a
+	// 503 if StartOrchestrator hasn't been called yet.
+	SwarmService *swarmsvc.Service
 	// SelfOptService (0.3.45.1) owns the agent_self_optimization
 	// scheduler tickers + runner dispatch. Boot wires it from
 	// cmd/server/router.go. Nil is acceptable — the HTTP handlers
