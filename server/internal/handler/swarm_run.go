@@ -161,6 +161,17 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// FIX 1 (0.5.22): kick the orchestrator goroutine now that the run
+	// row exists. install_swarm.go does not exist — PostSwarmRun is the
+	// closest caller. StartOrchestrator is idempotent (running-map check
+	// + terminal-status short-circuit in orchestrator.go:106-121), so a
+	// re-bootstrap that already returned above (line 134-137) does not
+	// need this call.
+	if err := h.swarmService().StartOrchestrator(r.Context(), run.ID); err != nil {
+		slog.Warn("swarm orchestrator start failed",
+			"run_id", run.ID.String(), "err", err.Error())
+	}
+
 	writeJSON(w, http.StatusCreated, h.swarmRunToResponse(run, nil))
 }
 
