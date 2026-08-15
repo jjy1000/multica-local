@@ -7,6 +7,7 @@
 //   POST   /api/experimental/swarm-topology/runs               — bootstrap
 //   POST   /api/experimental/swarm-topology/runs/{id}/interrupt — user action
 //   GET    /api/experimental/swarm-topology/runs/{id}/state    — live status
+//   GET    /api/experimental/swarm-topology/runs?workspace_id= — past runs (panel)
 //   GET    /api/issues/{id}/swarm-runs                          — reverse lookup
 //
 // Like mythos_supervise, none of these touch the LLM dispatch
@@ -22,6 +23,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -323,6 +325,68 @@ func (h *Handler) GetSwarmRunsByIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, h.swarmRunToResponse(run, roles))
+}
+
+// GetSwarmRunsByWorkspace returns the past swarm_run rows for a
+// workspace, ordered newest-first. Powers the PastRunsPanel in the
+// desktop swarm-topology view.
+//
+// 0.5.21 fix: previously this endpoint did not exist, so the panel
+// queryFn returned [] and the user saw an empty list regardless of
+// state. Mirrors the schema-side pattern at
+// migrations/241_swarm_topology.up.sql:idx_swarm_run_by_workspace
+// (workspace_id, started_at DESC) — the index covers both the
+// filter and the order-by, so the query is O(matches-in-range) not
+// O(table-scan).
+//
+// Membership gate: the X-Workspace-ID header in the experimental
+// auth group ensures the caller has access to the workspace; we
+// validate the UUID parse only. Like the mythos-supervise sibling
+// at mythos_supervise.go:189, we do NOT also call loadIssueForUser
+// because there is no issue in this handler's input shape.
+func (h *Handler) GetSwarmRunsByWorkspace(w http.ResponseWriter, r *http.Request) {
+	wsRaw := r.URL.Query().Get("workspace_id")
+	if wsRaw == "" {
+		writeError(w, http.StatusBadRequest, "workspace_id is required")
+		return
+	}
+	wsUUID, err := util.ParseUUID(wsRaw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid workspace_id")
+		return
+	}
+
+	// Sanity-check the workspace exists (cheap, returns 404 cleanly
+	// if the X-Workspace-ID header bypassed a typo).
+	if _, err := h.Queries.GetWorkspace(r.Context(), wsUUID); err != nil {
+		writeError(w, http.StatusNotFound, "workspace not found")
+		return
+	}
+
+	// Cap at 100 (mirrors autopilot.go::ListAutopilotRuns cap).
+	limit := int32(100)
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 100 {
+			limit = int32(v)
+		}
+	}
+
+	rows, err := h.Queries.ListSwarmRunsByWorkspace(r.Context(), db.ListSwarmRunsByWorkspaceParams{
+		WorkspaceID: wsUUID,
+		Limit:       limit,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list swarm runs: "+err.Error())
+		return
+	}
+
+	// Slim envelope (no role set — that's per-run state, fetched on
+	// demand via GetSwarmRunState).
+	resp := make([]SwarmRunResponse, 0, len(rows))
+	for _, run := range rows {
+		resp = append(resp, h.swarmRunToResponse(run, nil))
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // swarmRunToResponse is the JSON converter for a swarm_run row +

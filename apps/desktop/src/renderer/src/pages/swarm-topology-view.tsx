@@ -95,6 +95,19 @@ async function postInterrupt(
   return resp.json();
 }
 
+// fetchPastSwarmRuns hits GET /api/experimental/swarm-topology/runs
+// for the PastRunsPanel. Server enforces the swarm_topology flag gate;
+// flag-off callers get a 404 from the experimental middleware (see
+// server/cmd/server/router.go::RequireExperimentalFlag), and the renderer
+// surfaces an empty list (defensive — the panel hides when the flag is
+// off in the parent LabPicker anyway).
+async function fetchPastSwarmRuns(workspaceId: string): Promise<SwarmRun[]> {
+  const resp = await api.rawRequest(`${API_BASE}/runs?workspace_id=${encodeURIComponent(workspaceId)}`);
+  if (resp.status === 404) return [];
+  if (!resp.ok) throw new Error(`fetch past runs failed: ${resp.status}`);
+  return resp.json();
+}
+
 export interface SwarmTopologyViewProps {
   initialRunId?: string;
   workspaceId?: string;
@@ -105,14 +118,14 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
   const [runId, setRunId] = useState<string | undefined>(initialRunId);
 
   // Past runs (Mode B polling per Active Contract #1: 30s idle).
+  // Server endpoint: GET /api/experimental/swarm-topology/runs?workspace_id=
+  // (handler/swarm_run.go::GetSwarmRunsByWorkspace, flag-gated by
+  // router.go::RequireExperimentalFlag). Server returns the newest 100
+  // runs (capped server-side); polling idle at 30s keeps the panel
+  // fresh without thrashing the workspace-scoped query.
   const pastRuns = useQuery({
     queryKey: ["swarm-topology", "past-runs", workspaceId],
-    queryFn: async () => {
-      // Server has no /runs list endpoint yet — uses /issues/{id}/swarm-runs
-      // per-run. For the panel we render "no past runs" until a list
-      // endpoint ships. (Future: add GET /api/experimental/swarm-topology/runs)
-      return [] as SwarmRun[];
-    },
+    queryFn: () => fetchPastSwarmRuns(workspaceId!),
     enabled: Boolean(workspaceId),
     refetchInterval: (query) => (query.state.data ? 30_000 : false),
     staleTime: 30_000,

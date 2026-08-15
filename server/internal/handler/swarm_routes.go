@@ -12,7 +12,8 @@
 //
 // Mount order (mirrors claude_science_runtime.go + mythos_supervise.go
 // patterns):
-//   POST   /api/experimental/swarm-topology/runs
+//   GET    /api/experimental/swarm-topology/runs               — past runs list
+//   POST   /api/experimental/swarm-topology/runs               — bootstrap
 //   POST   /api/experimental/swarm-topology/runs/{runID}/interrupt
 //   GET    /api/experimental/swarm-topology/runs/{runID}/state
 //   GET    /api/issues/{issueID}/swarm-runs
@@ -33,6 +34,13 @@ import (
 func RegisterSwarmRoutes(r chi.Router, h *Handler) {
 	r.Route("/api/experimental/swarm-topology", func(r chi.Router) {
 		r.Post("/runs", h.PostSwarmRun)
+		// Past runs list MUST register BEFORE the {id} route
+		// (Active Contract #3: literal slug before {param}). The
+		// GET /runs/{id}/state route would otherwise capture the
+		// literal "state" as the param id when the client hits
+		// /runs/state by accident. We mount /runs (literal) FIRST
+		// here so chi's matcher prefers it over /runs/{id}.
+		r.Get("/runs", h.GetSwarmRunsByWorkspace)
 		r.Post("/runs/{id}/interrupt", h.PostSwarmInterrupt)
 		r.Get("/runs/{id}/state", h.GetSwarmRunState)
 	})
