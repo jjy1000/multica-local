@@ -100,6 +100,7 @@ func init() {
 	rootCmd.AddCommand(pythiaCmd)
 	rootCmd.AddCommand(claudeScienceCmd)
 	rootCmd.AddCommand(labCmd)
+	rootCmd.AddCommand(swarmCmd)
 
 	initHelp(rootCmd)
 }
