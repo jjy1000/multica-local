@@ -327,6 +327,10 @@ function createWindow(): void {
     if (result === "close-tab") {
       event.preventDefault();
       window.webContents.send("tab:close-active");
+    } else if (result === "open-settings") {
+      event.preventDefault();
+      // Settings is a tab, so it can only live in the tabbed main window.
+      mainWindow?.webContents.send("settings:open");
     } else if (result) {
       event.preventDefault();
     }
