@@ -158,6 +158,13 @@ func agentToResponse(a db.Agent) AgentResponse {
 		HasCustomEnv:       envKeyCount > 0,
 		CustomEnvKeyCount:  envKeyCount,
 		Visibility:         a.Visibility,
+		// 0.5.22 MUL-3963: mirror the new permission_mode column. Without
+		// this the response would always echo permission_mode="" and the
+		// client would have to refetch the agent to learn its access
+		// mode. InvocationTargets are still populated by
+		// enrichAgentResponseWithTargets (called by CreateAgent /
+		// CreateAgentFromTemplate / UpdateAgent after this returns).
+		PermissionMode:     a.PermissionMode,
 		Status:             a.Status,
 		MaxConcurrentTasks: a.MaxConcurrentTasks,
 		Model:              a.Model.String,

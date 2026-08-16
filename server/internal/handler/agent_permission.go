@@ -113,6 +113,23 @@ type targetSpec struct {
 	targetID   pgtype.UUID // invalid for team placeholders
 }
 
+// legacyVisibility is what this permission maps to for the visibility
+// column we keep in sync for backwards compatibility. public_to with a
+// workspace target round-trips to "workspace"; everything else (private
+// or member-only public_to) is "private". Mirrors the upstream
+// resolvedPermission.legacyVisibility() (MUL-4010 #4897 keeps the
+// visibility mirror column in sync with permission_mode).
+func (p resolvedPermission) legacyVisibility() string {
+	if p.mode == permissionModePublicTo {
+		for _, t := range p.targets {
+			if t.targetType == invocationTargetWorkspace {
+				return "workspace"
+			}
+		}
+	}
+	return "private"
+}
+
 // parsePermissionInput normalises a permission_mode + invocation_targets
 // pair, falling back to a legacy visibility value when the new fields are
 // absent. See upstream agent_permission.go::parsePermissionInput for the
@@ -225,11 +242,21 @@ func parsePermissionInput(
 // wholesale: clear then re-insert. Called inside create/update after the
 // agent row exists.
 func (h *Handler) replaceInvocationTargets(ctx context.Context, agentID pgtype.UUID, createdBy pgtype.UUID, targets []targetSpec) error {
-	if err := h.Queries.DeleteAgentInvocationTargets(ctx, agentID); err != nil {
+	return replaceInvocationTargetsWithQueries(ctx, h.Queries, agentID, createdBy, targets)
+}
+
+// replaceInvocationTargetsWithQueries is the tx-friendly variant: callers
+// that hold a `qtx := h.Queries.WithTx(tx)` can pass it here so the
+// invocation target rows are written inside the same transaction as the
+// agent row (the template create path in agent_template.go depends on
+// this — a fresh agent row must not observe a state where the row
+// exists but its targets are missing; MUL-4010 #4897 closed this gap).
+func replaceInvocationTargetsWithQueries(ctx context.Context, q *db.Queries, agentID pgtype.UUID, createdBy pgtype.UUID, targets []targetSpec) error {
+	if err := q.DeleteAgentInvocationTargets(ctx, agentID); err != nil {
 		return err
 	}
 	for _, t := range targets {
-		if err := h.Queries.CreateAgentInvocationTarget(ctx, db.CreateAgentInvocationTargetParams{
+		if err := q.CreateAgentInvocationTarget(ctx, db.CreateAgentInvocationTargetParams{
 			AgentID:    agentID,
 			TargetType: t.targetType,
 			TargetID:   t.targetID,
