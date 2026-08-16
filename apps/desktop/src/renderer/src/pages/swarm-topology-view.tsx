@@ -399,11 +399,23 @@ function BootstrapForm({
           ) : null}
           <Button
             type="submit"
-            disabled={bootstrap.isPending || !issueId || !problem}
+            disabled={bootstrap.isPending || !issueId || !problem || !workspaceId}
             data-testid="swarm-bootstrap-submit"
           >
             {bootstrap.isPending ? t(($) => $.bootstrap.bootstrapping) : t(($) => $.bootstrap.submit)}
           </Button>
+          {/* 0.5.22 audit fix (P2-8): workspaceId undefined guard.
+              The BootstrapForm previously assumed workspaceId was set
+              (non-null assertion on line 131); when undefined the
+              submit would 403 server-side with a misleading error.
+              The disable above + this hint surfaces the missing-workspace
+              state directly. */}
+          {!workspaceId ? (
+            <p className="text-xs text-muted-foreground">
+              {t(($) => $.bootstrap.workspace_label)}:{" "}
+              <span className="italic">请先选择或创建一个工作区</span>
+            </p>
+          ) : null}
         </form>
       </CardContent>
     </Card>
@@ -463,7 +475,6 @@ function Counter({
 // it twice. Workspace scope is enforced server-side via the X-Workspace-ID
 // header that api.rawRequest injects.
 const ISSUE_PICKER_LIMIT = 10;
-const SWARM_TOPOLOGY_LAB = "swarm_topology";
 
 function IssuePicker({
   value,
@@ -499,8 +510,18 @@ function IssuePicker({
 
   const filtered = useMemo(() => {
     const issues: Issue[] = search.data?.issues ?? [];
+    // 0.5.22 audit fix (P2-14): broader filter. The previous
+    // implementation only excluded swarm_topology-labelled issues;
+    // any other lab (mythos_swarm, claude_science_lab, pythia_oracle,
+    // etc.) would slip through and the server's PostSwarmRun would
+    // 400 because the issue is already lab-bound. Now: exclude ANY
+    // issue that has a non-null lab_source (mirrors the
+    // i.lab_source == null || i.lab_source === '' shape used by
+    // LabPicker in mythos-view.tsx). The UNIQUE idx on
+    // swarm_run.root_issue_id is the server-side safety net for
+    // issues already bootstrapped — the filter is purely UX.
     return issues.filter(
-      (i) => i.id !== value && (i.lab_source ?? "") !== SWARM_TOPOLOGY_LAB,
+      (i) => i.id !== value && (!i.lab_source || i.lab_source === ""),
     );
   }, [search.data, value]);
 

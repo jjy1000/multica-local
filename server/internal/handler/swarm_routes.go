@@ -31,15 +31,18 @@ import (
 // Note: the flag-gate middleware at router.go (DefaultFor("swarm_topology"))
 // is applied upstream of this mount — the routes below only fire
 // when the user has enabled the flag.
+//
+// 0.5.22 audit fix (P2-9): trimmed the misleading "by-issue literal"
+// comment copied from mythos_supervise.go — this handler set has no
+// such literal, so the load-bearing contract is just "literal slugs
+// before {id}". Active Contract #3 (chi route order) still applies
+// if a future contributor adds /runs/by-issue or similar.
 func RegisterSwarmRoutes(r chi.Router, h *Handler) {
 	r.Route("/api/experimental/swarm-topology", func(r chi.Router) {
 		r.Post("/runs", h.PostSwarmRun)
-		// Past runs list MUST register BEFORE the {id} route
-		// (Active Contract #3: literal slug before {param}). The
-		// GET /runs/{id}/state route would otherwise capture the
-		// literal "state" as the param id when the client hits
-		// /runs/state by accident. We mount /runs (literal) FIRST
-		// here so chi's matcher prefers it over /runs/{id}.
+		// GET /runs (literal) registers BEFORE /runs/{id}/state so
+		// chi's matcher prefers the literal when a future
+		// contributor adds /runs/by-issue or any other literal.
 		r.Get("/runs", h.GetSwarmRunsByWorkspace)
 		r.Post("/runs/{id}/interrupt", h.PostSwarmInterrupt)
 		r.Get("/runs/{id}/state", h.GetSwarmRunState)

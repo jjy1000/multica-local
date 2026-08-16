@@ -99,7 +99,15 @@ func NewSwarmGC(cfg SwarmGCConfig) *SwarmGC {
 	if cfg.BaseDir == "" {
 		// Mirrors runtime_gc default (~/.multica/experimental/claude-science/).
 		// Per-user override env var reserved for self-hosters.
-		cfg.BaseDir = filepath.Join(osUserHomeDir(), ".multica", "swarm")
+		// 0.5.22 audit fix (P2-12): use os.UserHomeDir (stdlib) instead
+		// of the duplicated shim that lived at the bottom of this file.
+		// runtime_gc.go:89 already imports os/user directly — no
+		// import-block constraint prevented us from doing the same.
+		userHome, herr := os.UserHomeDir()
+		if herr != nil {
+			userHome = "/tmp"
+		}
+		cfg.BaseDir = filepath.Join(userHome, ".multica", "swarm")
 	}
 	return &SwarmGC{
 		cfg:     cfg,
@@ -210,21 +218,13 @@ func (g *SwarmGC) archiveOne(ctx context.Context, row db.SwarmRun) error {
 		return fmt.Errorf("sentinel: %w", err)
 	}
 
-	// Move any per-run artefact dirs (sub-task outputs, leader's
-	// scratch space) into the archive target. We don't know the
-	// exact path layout, so we walk the swarm runtime dir looking
-	// for matching ids.
-	src := filepath.Join(g.cfg.BaseDir, "runtime", row.ID.String())
-	if _, err := os.Stat(src); err == nil {
-		if err := RenameCrossDevice(src, target); err != nil {
-			g.cfg.Logger.Warn("swarm_gc mv fallback to copy",
-				"id", row.ID.String(), "err", err.Error())
-			if err := copyDir(src, filepath.Join(target, "runtime")); err != nil {
-				return fmt.Errorf("copy: %w", err)
-			}
-			_ = os.RemoveAll(src)
-		}
-	}
+	// 0.5.22 audit fix (P2-7): removed the dead BaseDir/runtime/{uuid}
+	// read block. bootstrapFromSpec never wrote per-run artefact
+	// dirs there (the orchestrator doesn't own a scratch space —
+	// the daemon manages runtime paths), so the Stat was always
+	// returning ENOENT and the copy/rename branches were unreachable.
+	// If a future orchestrator grows a per-run scratch dir, wire
+	// it through bootstrapFromSpec + a dedicated migration first.
 
 	// Cascade cleanup — DB side. Each step is best-effort; a single
 	// failure shouldn't block the others.
@@ -254,9 +254,12 @@ func (g *SwarmGC) archiveOne(ctx context.Context, row db.SwarmRun) error {
 			}
 			return nil
 		}},
-		{"sweep_old_messages", func() error {
-			return g.cfg.Queries.DeleteSwarmRoleMessagesOlderThan(ctx, row.ID)
-		}},
+		// 0.5.22 audit fix (P2-3): drop the DeleteSwarmRoleMessagesOlderThan
+		// step. The subsequent DeleteSwarmRun CASCADEs to
+		// swarm_role_message (FK on swarm_run_id) and wipes ALL
+		// remaining rows regardless of age — the 30-day TTL sweep was
+		// only meaningful for LIVE runs (which the GC doesn't touch).
+		// For terminal runs the CASCADE supersedes it.
 		{"release_lock", func() error {
 			return g.releaseSwarmLock(ctx, row)
 		}},
@@ -366,6 +369,32 @@ func (g *SwarmGC) trashSweep(ctx context.Context) {
 			}
 		}
 	}
+
+	// 0.5.22 audit fix (P2-6): second-stage unlink — the trash dir
+	// itself grows forever otherwise. After TrashTTL the tarball is
+	// already a frozen snapshot, so it's safe to delete. Matches the
+	// runtime_gc.go retention ladder (30d archive + 120d trash =
+	// 150d total lifetime).
+	trashRoot := filepath.Join(g.cfg.BaseDir, ".trash")
+	trashEntries, err := os.ReadDir(trashRoot)
+	if err != nil {
+		return // .trash may not exist yet
+	}
+	for _, tarball := range trashEntries {
+		info, err := tarball.Info()
+		if err != nil {
+			continue
+		}
+		if now.Sub(info.ModTime()) > g.cfg.TrashTTL {
+			if err := os.RemoveAll(filepath.Join(trashRoot, tarball.Name())); err != nil {
+				g.cfg.Logger.Warn("swarm_gc final unlink failed",
+					"name", tarball.Name(), "err", err.Error())
+				continue
+			}
+			g.cfg.Logger.Info("swarm_gc final unlink",
+				"name", tarball.Name(), "age", now.Sub(info.ModTime()).String())
+		}
+	}
 }
 
 // tarGzSwarm is the streaming tar.gz writer for archive finalisation.
@@ -384,6 +413,15 @@ func tarGzSwarm(src, dst string) error {
 	walkErr := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		// 0.5.22 audit fix (P2-5): skip symlinks. filepath.Walk
+		// follows them by default; the previous comment claimed to
+		// skip them but the code didn't. A symlinked archive could
+		// include files outside the intended archive scope
+		// (e.g. /etc/passwd via a stray link). Use os.Lstat to get
+		// the unsymlinked FileInfo for the mode check.
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil
 		}
 		rel, err := filepath.Rel(src, path)
 		if err != nil {
@@ -430,17 +468,6 @@ func tarGzSwarm(src, dst string) error {
 		return err
 	}
 	return os.Rename(tmp, dst)
-}
-
-// osUserHomeDir is a tiny shim so the import block doesn't pull in
-// the os/user package (which has side effects on systems without a
-// passwd database). The actual implementation lives in runtime_gc.go
-// — re-declared here as a thin alias to keep this file standalone.
-func osUserHomeDir() string {
-	if h := os.Getenv("HOME"); h != "" {
-		return h
-	}
-	return "/tmp"
 }
 
 // Ensure the swarm role/phase constants used by the GC cleanup cascade

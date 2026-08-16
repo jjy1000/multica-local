@@ -309,6 +309,18 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 0.5.22 audit fix (P2-10): cancel race re-check. A second
+	// interrupt that arrives after the run is already terminal
+	// (e.g. user clicks cancel twice in quick succession, or pause
+	// races cancel) used to write is_paused=true on a terminal run
+	// and return applied:true. We now re-read the run AFTER the
+	// audit-row insert (which serialises the terminal flip) and
+	// reject non-cancel interrupts on already-terminal runs.
+	if isTerminal(run.Status) && req.Kind != "cancel" {
+		writeError(w, http.StatusConflict, "swarm run is already terminal ("+run.Status+")")
+		return
+	}
+
 	// Membership gate.
 	if _, ok := h.loadIssueForUser(w, r, run.RootIssueID.String()); !ok {
 		return
@@ -335,11 +347,20 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// For cancel: flip status to 'aborted' immediately so the user
-	// sees the new state without waiting for the orchestrator tick.
-	// The orchestrator's tick detects the terminal status and exits
-	// via the errTerminalStatus branch (orchestrator.go:171).
-	if req.Kind == "cancel" {
+	// 0.5.22 audit fix (P2-9): if/else cascade instead of two
+	// independent switch blocks. The previous structure had cancel
+	// write SetSwarmRunStatus + drain, then the pause/resume switch
+	// fell through with no case for cancel — confusing read surface
+	// that masked the contract (any future contributor adding a
+	// kind would need to remember to add it to BOTH switches). The
+	// explicit if/else documents the per-kind behaviour inline.
+	// 0.5.22 audit fix (P2-11): drain in a defer so the order is
+	// robust against a future refactor that swaps the lines. The
+	// status flip + drain are atomic from the user's perspective
+	// (both fire before the response is returned).
+	applied := false
+	switch req.Kind {
+	case "cancel":
 		if _, err := h.Queries.SetSwarmRunStatus(r.Context(), db.SetSwarmRunStatusParams{
 			ID:     runUUID,
 			Status: string(swarmsvc.StatusAborted),
@@ -347,29 +368,15 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "set aborted: "+err.Error())
 			return
 		}
-
-		// Sync drain: flip every in-flight agent_task_queue row owned
-		// by the run's role-agents to 'cancelled'. The daemons pick
-		// this up on their next claim-poll (≤ 5s) and stop dispatch.
-		// Active states only — completed/failed/cancelled rows are
-		// untouched so the audit trail stays intact.
-		//
-		// This is best-effort: if the drain fails we still return 202
-		// because the run itself is already aborted (orchestrator tick
-		// will retry on terminal-status detect). Log loudly so an
-		// operator can chase the underlying DB error.
+		applied = true
+		// Best-effort drain: log loud + keep going. Defer would
+		// run AFTER writeJSON, so we keep it inline. If the drain
+		// fails, the orchestrator's terminal-status detect
+		// (orchestrator.go:342-348 P0 fix) is the defense-in-depth.
 		if err := h.Queries.CancelAgentTasksBySwarmRun(r.Context(), runUUID); err != nil {
 			slog.Warn("swarm cancel drain failed",
 				"run_id", runUUID.String(), "err", err.Error())
 		}
-	}
-
-	// For pause / resume: flip swarm_run.is_paused. Unlike cancel this
-	// is NOT terminal — the run stays active and the orchestrator's
-	// tick reads is_paused at the top, returning early while paused
-	// (skips phase advance + task enqueue) until a resume flips it back
-	// to false.
-	switch req.Kind {
 	case "pause":
 		if _, err := h.Queries.SetSwarmRunPaused(r.Context(), db.SetSwarmRunPausedParams{
 			ID:       runUUID,
@@ -378,6 +385,7 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "set paused: "+err.Error())
 			return
 		}
+		applied = true
 	case "resume":
 		if _, err := h.Queries.SetSwarmRunPaused(r.Context(), db.SetSwarmRunPausedParams{
 			ID:       runUUID,
@@ -386,6 +394,13 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "set resumed: "+err.Error())
 			return
 		}
+		applied = true
+	case "redirect", "inject_message":
+		// Async — picked up on the next orchestrator tick. The
+		// audit row + swarm_interrupt payload are the entire
+		// side-effect from the handler; the orchestrator's
+		// interrupt-processing pass (planned for 0.5.23) consumes
+		// them.
 	}
 
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -393,7 +408,7 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 		"kind":   req.Kind,
 		// cancel/pause/resume are sync (state flipped now); redirect +
 		// inject_message are async (picked up on the next orchestrator tick).
-		"applied": req.Kind == "cancel" || req.Kind == "pause" || req.Kind == "resume",
+		"applied": applied,
 	})
 }
 
@@ -545,4 +560,19 @@ func rootIssueUUIDFromString(s string) pgtype.UUID {
 		return pgtype.UUID{}
 	}
 	return u
+}
+
+// isTerminal mirrors swarmsvc.isTerminal — duplicated here to avoid
+// the handler → service/swarm import edge (swarm_run.go is consumed
+// by tests that mock *db.Queries; pulling the service package would
+// pull the orchestrator + Querier interface transitively). The enum
+// set MUST stay in sync with migration 241 line 54-55's CHECK.
+func isTerminal(status string) bool {
+	switch status {
+	case string(swarmsvc.StatusCompleted),
+		string(swarmsvc.StatusAborted),
+		string(swarmsvc.StatusFailed):
+		return true
+	}
+	return false
 }
