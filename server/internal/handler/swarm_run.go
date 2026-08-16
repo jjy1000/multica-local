@@ -65,6 +65,12 @@ type SwarmStateResponse struct {
 	RunID          string              `json:"run_id"`
 	Status         string              `json:"status"`
 	CurrentPhase   string              `json:"current_phase"`
+	// 0.5.22 audit fix (P0): IsPaused is the live pause state the
+	// frontend reads to switch the SwarmInterruptBar Pause/Resume
+	// label (apps/.../swarm-interrupt-bar.tsx:115). Without this
+	// field the renderer always sees undefined and the label is
+	// permanently wrong after the first pause.
+	IsPaused       bool                `json:"is_paused"`
 	Roles          []SwarmRoleResponse `json:"roles"`
 	ActiveCount    int64               `json:"active_role_count"`
 	CompletedCount int64               `json:"completed_role_count"`
@@ -84,21 +90,14 @@ type PostSwarmInterruptRequest struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// swarmSvc is the per-handler swarm service. Constructed lazily on
-// first call (mirrors mythosService() at mythos_supervise.go:262 —
-// keeps the swarm service out of Handler's constructor signature so
-// existing tests don't have to stub it).
-var swarmSvcOnce = struct {
-	svc *swarmsvc.Service
-}{}
-
-// swarmService returns the swarm orchestrator service wired into the
-// handler. Lazy-init pattern.
+// swarmService returns the swarm orchestrator service wired into
+// the handler at boot. Mirrors mythos_supervise.go:262 — no lazy
+// init, no per-handler Service instance. The router.go:736 boot
+// path assigns h.SwarmService before HTTP routes register; nil
+// here means the service was not wired (older tests / a path that
+// built Handler without router.go wiring).
 func (h *Handler) swarmService() *swarmsvc.Service {
-	if swarmSvcOnce.svc == nil {
-		swarmSvcOnce.svc = swarmsvc.NewService(h.Queries, slog.Default())
-	}
-	return swarmSvcOnce.svc
+	return h.SwarmService
 }
 
 // PostSwarmRun bootstraps a swarm for an issue. Idempotent on
@@ -141,6 +140,12 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 	// Bootstrap: insert the swarm_run row with status='preparing'.
 	// The leader agent (multica-creating-swarms skill) fills in
 	// topology_spec during the planning phase.
+	//
+	// 0.5.22 audit fix (P0): TopologySpec MUST be set explicitly.
+	// The sqlc-generated CreateSwarmRun INSERT always sends $5
+	// (topology_spec) — Go zero-value []byte(nil) maps to SQL NULL,
+	// and migration 241 line 65 declares the column NOT NULL.
+	// Without this, every bootstrap returns 23502.
 	maxRuntime := req.MaxRuntimeHours
 	if maxRuntime <= 0 {
 		maxRuntime = 72
@@ -150,6 +155,7 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 		CreatorUserID:   creatorUUID,
 		RootIssueID:     rootIssueUUIDFromString(req.RootIssueID),
 		Problem:         req.Problem,
+		TopologySpec:    []byte(`{}`),
 		MaxRuntimeHours: maxRuntime,
 	})
 	if err != nil {
@@ -158,7 +164,7 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Lock the resource claim (mirrors install_mythos pattern).
-	if err := experimental.Claim(r.Context(), h.Queries, experimental.SourceSwarmTopology, experimental.ResourceType("swarm_run"), run.ID); err != nil {
+	if err := experimental.Claim(r.Context(), h.Queries, experimental.SourceSwarmTopology, experimental.LockSwarmRun, run.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "claim lock: "+err.Error())
 		return
 	}
@@ -169,7 +175,21 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 	// + terminal-status short-circuit in orchestrator.go:106-121), so a
 	// re-bootstrap that already returned above (line 134-137) does not
 	// need this call.
-	if err := h.swarmService().StartOrchestrator(r.Context(), run.ID); err != nil {
+	//
+	// 0.5.22 audit fix (P0): h.SwarmService nil-guard. If the boot
+	// wiring in router.go hasn't run (older tests / non-default
+	// Handler paths), the orchestrator cannot be started — log loud
+	// and surface 503 so the client retries on the next boot. Without
+	// this guard a nil deref would 500 with a panic the server
+	// recovers from, but the run row would already be INSERTed —
+	// leaving the workspace in a stuck-preparing state with no
+	// orchestrator to advance it.
+	svc := h.swarmService()
+	if svc == nil {
+		writeError(w, http.StatusServiceUnavailable, "swarm orchestrator service not wired; please retry")
+		return
+	}
+	if err := svc.StartOrchestrator(r.Context(), run.ID); err != nil {
 		slog.Warn("swarm orchestrator start failed",
 			"run_id", run.ID.String(), "err", err.Error())
 	}
@@ -217,6 +237,7 @@ func (h *Handler) GetSwarmRunState(w http.ResponseWriter, r *http.Request) {
 		RunID:          run.ID.String(),
 		Status:         run.Status,
 		CurrentPhase:   run.CurrentPhase,
+		IsPaused:       run.IsPaused,
 		Roles:          h.swarmRolesToResponse(roles),
 		ActiveCount:    activeCount,
 		CompletedCount: completedCount,
