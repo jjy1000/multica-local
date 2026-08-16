@@ -84,6 +84,15 @@ type OrchestratorQuerier interface {
 	// the dispatch + writes an error message when this returns false.
 	AgentHasOnlineRuntime(ctx context.Context, agentID pgtype.UUID) (bool, error)
 
+	// 0.5.22 (P0 fix): runtime resolution so role-agents created in
+	// bootstrapFromSpec bind a real runtime_id at CreateAgent time.
+	// GetOnlineRuntimeByWorkspace returns the most-recent online
+	// runtime for the workspace (or zero UUID if none). UpsertAgentRuntime
+	// provisions a synthetic offline stub so cold-boot swarms have a
+	// valid runtime_id to satisfy the NOT NULL FK on agent.runtime_id.
+	GetOnlineRuntimeByWorkspace(ctx context.Context, workspaceID pgtype.UUID) (pgtype.UUID, error)
+	UpsertAgentRuntime(ctx context.Context, arg db.UpsertAgentRuntimeParams) (db.UpsertAgentRuntimeRow, error)
+
 	// FIX 3 (0.5.22): coda summary comment on root_issue_id.
 	CreateComment(ctx context.Context, arg db.CreateCommentParams) (db.Comment, error)
 	CreateSwarmRoleMessage(ctx context.Context, arg db.CreateSwarmRoleMessageParams) (db.SwarmRoleMessage, error)
@@ -275,6 +284,12 @@ func (s *Service) tick(ctx context.Context, runID pgtype.UUID) error {
 	// Already terminal? Caller flipped status between ticks (e.g.
 	// via user cancel). Exit cleanly.
 	if isTerminal(run.Status) {
+		// 0.5.22 P0 fix: defense-in-depth drain when the orchestrator
+		// detects terminal status mid-tick (the user cancel handler
+		// already drains, but this catches failed/completed paths the
+		// handler doesn't touch — e.g. SetSwarmRunStatus called by
+		// another process, or a manual completion).
+		s.drainTasks(ctx, runID)
 		return errTerminalStatus
 	}
 
@@ -414,6 +429,12 @@ func (s *Service) advancePhase(ctx context.Context, runID pgtype.UUID, run db.Sw
 				ID:              runID,
 				InterruptReason: "one or more roles failed",
 			})
+			// 0.5.22 P0 fix: drain in-flight agent_task_queue rows so
+			// daemons stop polling dead tasks for the role that just
+			// failed. Without this, every failed role leaves a ghost
+			// task in the queue until the daemon's natural retry /
+			// completion sweep.
+			s.drainTasks(ctx, runID)
 			s.log.Warn("swarm run failed (role escalation)",
 				"run_id", runID.String())
 			return nil
@@ -421,6 +442,19 @@ func (s *Service) advancePhase(ctx context.Context, runID pgtype.UUID, run db.Sw
 	}
 
 	totalRoles := int64(len(roles))
+	// 0.5.22 audit fix (P0): empty-roles guard. Without this, a run
+	// whose leader hasn't authored topology_spec yet (or whose spec is
+	// malformed→validated-out and falls back to {}) would compute
+	// `0 < 0 = false` here and skip the gate — NextPhase would walk
+	// straight to PhaseDone and the run would flip to status=completed
+	// within ~30s with zero role work. Same shape as the IsPaused
+	// guard at line 286-288: treat bootstrap race as paused.
+	if totalRoles == 0 {
+		s.log.Debug("swarm phase advance skipped (no roles yet)",
+			"run_id", runID.String(),
+			"current_phase", run.CurrentPhase)
+		return nil
+	}
 	completedRoles, err := s.q.CountCompletedRolesByRun(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("count completed: %w", err)
@@ -442,6 +476,13 @@ func (s *Service) advancePhase(ctx context.Context, runID pgtype.UUID, run db.Sw
 		}); err != nil {
 			return fmt.Errorf("set completed status: %w", err)
 		}
+		// 0.5.22 P0 fix: drain on PhaseDone — the last phase
+		// completes successfully but the orchestrator does not exit
+		// immediately, so a later tick could re-enqueue ready rows.
+		// Drain flips any straggler tasks to cancelled before the
+		// next tick fires (we do NOT call SetSwarmRunStatus a second
+		// time; idempotent on terminal).
+		s.drainTasks(ctx, runID)
 		// FIX 3 (0.5.22): post the coda summary as a system comment
 		// on the root issue, mirroring mythos's runCoda write at
 		// router.go:951-957. Best-effort: a comment write failure
@@ -483,6 +524,32 @@ func (s *Service) advancePhase(ctx context.Context, runID pgtype.UUID, run db.Sw
 
 // markFailed writes the failed status + records an interrupt for
 // audit. Used by the max-lifetime hard cap.
+// drainTasks cancels every in-flight agent_task_queue row owned by
+// the run's role-agents. Idempotent: re-running on a row that's
+// already terminal is a no-op (the WHERE clause filters the active
+// states only). Called on every terminal-status exit — three sites:
+// (1) advancePhase role-failure fail-fast at orchestrator.go:413-422,
+// (2) advancePhase PhaseDone at orchestrator.go:446-455, and
+// (3) markFailed max_lifetime at orchestrator.go:494-509.
+//
+// 0.5.22 audit fix (P0): the SQL comment at swarm_run.sql:220-221
+// promised an orchestrator defense-in-depth call site, but grep
+// confirmed zero callers existed — only handler/swarm_run.go:307
+// (the user-cancel path) called the drain. Without the orchestrator
+// path, daemons kept polling dead tasks for runs that hit
+// max_lifetime or were failed via role-failure fail-fast.
+//
+// Best-effort: a drain failure is logged and swallowed — the run is
+// already terminal and the GC will sweep orphan rows within 7 days
+// (mirrors runtime_gc retention).
+func (s *Service) drainTasks(ctx context.Context, runID pgtype.UUID) {
+	if err := s.q.CancelAgentTasksBySwarmRun(ctx, runID); err != nil {
+		s.log.Warn("swarm drain tasks failed",
+			"run_id", runID.String(),
+			"err", err.Error())
+	}
+}
+
 func (s *Service) markFailed(ctx context.Context, runID pgtype.UUID, reason string) {
 	if _, err := s.q.SetSwarmRunStatus(ctx, db.SetSwarmRunStatusParams{
 		ID:     runID,
@@ -498,6 +565,9 @@ func (s *Service) markFailed(ctx context.Context, runID pgtype.UUID, reason stri
 		s.log.Warn("swarm markFailed interrupt write failed",
 			"run_id", runID.String(), "err", err.Error())
 	}
+	// 0.5.22 P0 fix: drain in-flight agent_task_queue rows on
+	// max_lifetime termination so daemons stop polling dead tasks.
+	s.drainTasks(ctx, runID)
 }
 
 // bootstrapFromSpec (FIX 2, 0.5.22) creates one role-agent + one
@@ -522,6 +592,15 @@ func (s *Service) markFailed(ctx context.Context, runID pgtype.UUID, reason stri
 // If the run is still in 'preparing' or 'planning' after bootstrap,
 // we flip it to 'running' so the orchestrator's tick can pick up the
 // newly-created ready roles.
+//
+// 0.5.22 audit fix (P0): Resolve a runtime_id for the workspace ONCE
+// per tick and bind it on every role-agent CreateAgent. Without this,
+// agent.runtime_id = zero UUID → AgentHasOnlineRuntime (agent.sql:43)
+// joins on runtime_id and never matches → enqueueReadyRole returns
+// without writing agent_task_queue → the swarm dispatch loop never
+// closes. Mirrors resolveOrSynthesizeProductRuntime at
+// handler/boot_provision_product_labs.go:77 (same online-first +
+// synthetic-offline-stub fallback).
 func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) error {
 	run, err := s.q.GetSwarmRun(ctx, runID)
 	if err != nil {
@@ -530,6 +609,37 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 	if isTerminal(run.Status) {
 		return nil
 	}
+
+	// 0.5.22 P0 fix: bind a runtime_id up-front. The online-first
+	// path covers the warm daemon case (the user's local daemon is
+	// running and the leader's task queue rows can be claimed
+	// immediately). The synthetic-offline path covers cold boot
+	// (daemon not started yet — same pattern as product_swarm_
+	// coordinator.go:82; rebindLabAgentsToOnlineRuntime flips the
+	// binding later when the daemon comes online).
+	runtimeID, runtimeErr := s.q.GetOnlineRuntimeByWorkspace(ctx, run.WorkspaceID)
+	if runtimeErr != nil {
+		s.log.Warn("swarm bootstrap: GetOnlineRuntimeByWorkspace failed; falling back to synthetic",
+			"run_id", runID.String(), "err", runtimeErr.Error())
+	}
+	if !runtimeID.Valid {
+		row, upsertErr := s.q.UpsertAgentRuntime(ctx, db.UpsertAgentRuntimeParams{
+			WorkspaceID: run.WorkspaceID,
+			DaemonID:    pgtype.Text{String: "swarm-topology", Valid: true},
+			Name:        "Swarm Topology Runtime",
+			RuntimeMode: "local",
+			Provider:    "swarm_topology",
+			Status:      "offline",
+			DeviceInfo:  "synthetic product runtime — no live daemon yet",
+			Metadata:    []byte(`{"synthetic":true,"source":"product.swarm_topology"}`),
+			OwnerID:     pgtype.UUID{},
+		})
+		if upsertErr != nil {
+			return fmt.Errorf("upsert swarm runtime: %w", upsertErr)
+		}
+		runtimeID = row.ID
+	}
+
 	spec, err := TopologySpecFromJSON(run.TopologySpec)
 	if err != nil {
 		return fmt.Errorf("decode topology spec: %w", err)
@@ -567,11 +677,11 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 			continue // already bootstrapped on a prior tick
 		}
 
-		// Create the role-agent. RuntimeID is intentionally zero —
-		// the daemon claims the agent via the normal task-queue
-		// path and binds a runtime then. CustomArgs MUST be a JSON
-		// array (audit 2026-08-06; migration 238 repairs historical
-		// rows that stored `{}` here).
+		// 0.5.22 audit fix (P0): bind the workspace runtime_id we
+		// resolved at the top of bootstrapFromSpec instead of zero.
+		// daemon claim path is keyed on agent_id (agent.sql:368-406),
+		// but AgentHasOnlineRuntime pre-check joins on runtime_id
+		// (agent.sql:40-46) and never matches zero → enqueue skipped.
 		agent, aerr := s.q.CreateAgent(ctx, db.CreateAgentParams{
 			WorkspaceID:        run.WorkspaceID,
 			Name:               "swarm_role_" + roleSpec.Name,
@@ -579,7 +689,7 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 			AvatarUrl:          pgtype.Text{},
 			RuntimeMode:        "local",
 			RuntimeConfig:      []byte(`{}`),
-			RuntimeID:          pgtype.UUID{},
+			RuntimeID:          runtimeID,
 			Visibility:         "workspace",
 			MaxConcurrentTasks: 1,
 			OwnerID:            run.CreatorUserID,
@@ -803,7 +913,14 @@ func (s *Service) writeCompletionSummary(ctx context.Context, run db.SwarmRun) e
 		IssueID:      run.RootIssueID,
 		WorkspaceID:  run.WorkspaceID,
 		AuthorType:   "system",
-		AuthorID:     pgtype.UUID{}, // zero UUID: system-authored convention
+		// 0.5.22 audit fix (P0): AuthorID must be Valid:true even
+		// when all 16 bytes are zero. pgtype.UUID{Bytes: ..., Valid:
+		// false} maps to SQL NULL, and the comment schema's
+		// author_id column is NOT NULL (migration 001_init:101).
+		// The canonical "system author" pattern is the all-zero UUID
+		// with Valid:true (preserved across mig 107 — comment
+		// system-author convention).
+		AuthorID:     pgtype.UUID{Bytes: [16]byte{}, Valid: true},
 		Content:      b.String(),
 		Type:         "system",
 		ParentID:     pgtype.UUID{},

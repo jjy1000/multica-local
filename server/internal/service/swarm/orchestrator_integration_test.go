@@ -86,6 +86,23 @@ func (f *fakeQuerier) AgentHasOnlineRuntime(_ context.Context, _ pgtype.UUID) (b
 	return f.hasRuntime, nil
 }
 
+// 0.5.22 P0 fix: bootstrapFromSpec now binds runtime_id via
+// GetOnlineRuntimeByWorkspace + UpsertAgentRuntime. fakeQuerier
+// returns a stable synthetic id so tests can pin the runtime_id
+// propagation end-to-end.
+func (f *fakeQuerier) GetOnlineRuntimeByWorkspace(_ context.Context, _ pgtype.UUID) (pgtype.UUID, error) {
+	f.calls = append(f.calls, "GetOnlineRuntimeByWorkspace")
+	if f.hasRuntime {
+		return newSwarmTestUUID(), nil
+	}
+	return pgtype.UUID{}, nil
+}
+
+func (f *fakeQuerier) UpsertAgentRuntime(_ context.Context, arg db.UpsertAgentRuntimeParams) (db.UpsertAgentRuntimeRow, error) {
+	f.calls = append(f.calls, "UpsertAgentRuntime:"+arg.Provider)
+	return db.UpsertAgentRuntimeRow{ID: newSwarmTestUUID()}, nil
+}
+
 func (f *fakeQuerier) CreateSwarmRoleMessage(_ context.Context, arg db.CreateSwarmRoleMessageParams) (db.SwarmRoleMessage, error) {
 	f.calls = append(f.calls, "CreateSwarmRoleMessage:"+arg.Type)
 	return db.SwarmRoleMessage{}, nil
