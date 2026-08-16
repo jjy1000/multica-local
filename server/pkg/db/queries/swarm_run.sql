@@ -51,6 +51,16 @@ UPDATE swarm_run
 SET topology_spec = @topology_spec::jsonb
 WHERE id = @id::uuid;
 
+-- name: SetSwarmRunPaused :one
+-- Pause/resume toggle (0.5.22). The orchestrator's tick returns early
+-- when is_paused is true — pause skips phase advance + task enqueue
+-- but is NOT terminal (status stays active). The handler flips this
+-- on kind='pause' / kind='resume'.
+UPDATE swarm_run
+SET is_paused = @is_paused::boolean
+WHERE id = @id::uuid
+RETURNING *;
+
 -- name: RecordSwarmInterrupt :one
 -- Stamp the user interrupt timestamp + reason on the swarm_run row.
 -- A separate row is also written to swarm_interrupt for audit.

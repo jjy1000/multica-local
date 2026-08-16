@@ -212,7 +212,7 @@ INSERT INTO swarm_run (
     topology_spec,
     max_runtime_hours
 ) VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at
+RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused
 `
 
 type CreateSwarmRunParams struct {
@@ -255,6 +255,7 @@ func (q *Queries) CreateSwarmRun(ctx context.Context, arg CreateSwarmRunParams) 
 		&i.InterruptReason,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.IsPaused,
 	)
 	return i, err
 }
@@ -308,7 +309,7 @@ func (q *Queries) GetSwarmRole(ctx context.Context, id pgtype.UUID) (SwarmRole, 
 }
 
 const getSwarmRun = `-- name: GetSwarmRun :one
-SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at FROM swarm_run WHERE id = $1
+SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused FROM swarm_run WHERE id = $1
 `
 
 func (q *Queries) GetSwarmRun(ctx context.Context, id pgtype.UUID) (SwarmRun, error) {
@@ -328,12 +329,13 @@ func (q *Queries) GetSwarmRun(ctx context.Context, id pgtype.UUID) (SwarmRun, er
 		&i.InterruptReason,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.IsPaused,
 	)
 	return i, err
 }
 
 const getSwarmRunByRootIssue = `-- name: GetSwarmRunByRootIssue :one
-SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at FROM swarm_run WHERE root_issue_id = $1
+SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused FROM swarm_run WHERE root_issue_id = $1
 `
 
 // Reverse lookup for issue detail page (one swarm per issue by UNIQUE idx).
@@ -356,12 +358,13 @@ func (q *Queries) GetSwarmRunByRootIssue(ctx context.Context, rootIssueID pgtype
 		&i.InterruptReason,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.IsPaused,
 	)
 	return i, err
 }
 
 const listActiveSwarmRuns = `-- name: ListActiveSwarmRuns :many
-SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at FROM swarm_run
+SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused FROM swarm_run
 WHERE status IN ('preparing','planning','running','monitoring')
 ORDER BY started_at ASC
 `
@@ -391,6 +394,7 @@ func (q *Queries) ListActiveSwarmRuns(ctx context.Context) ([]SwarmRun, error) {
 			&i.InterruptReason,
 			&i.StartedAt,
 			&i.CompletedAt,
+			&i.IsPaused,
 		); err != nil {
 			return nil, err
 		}
@@ -403,7 +407,7 @@ func (q *Queries) ListActiveSwarmRuns(ctx context.Context) ([]SwarmRun, error) {
 }
 
 const listCompletedSwarmRunsForGC = `-- name: ListCompletedSwarmRunsForGC :many
-SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at FROM swarm_run
+SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused FROM swarm_run
 WHERE status IN ('completed','aborted','failed')
   AND completed_at < now() - INTERVAL '7 days'
 ORDER BY completed_at ASC
@@ -437,6 +441,7 @@ func (q *Queries) ListCompletedSwarmRunsForGC(ctx context.Context, limit int32) 
 			&i.InterruptReason,
 			&i.StartedAt,
 			&i.CompletedAt,
+			&i.IsPaused,
 		); err != nil {
 			return nil, err
 		}
@@ -606,7 +611,7 @@ func (q *Queries) ListSwarmRolesByRun(ctx context.Context, swarmRunID pgtype.UUI
 }
 
 const listSwarmRunsByWorkspace = `-- name: ListSwarmRunsByWorkspace :many
-SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at FROM swarm_run
+SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused FROM swarm_run
 WHERE workspace_id = $1
 ORDER BY started_at DESC
 LIMIT $2
@@ -641,6 +646,7 @@ func (q *Queries) ListSwarmRunsByWorkspace(ctx context.Context, arg ListSwarmRun
 			&i.InterruptReason,
 			&i.StartedAt,
 			&i.CompletedAt,
+			&i.IsPaused,
 		); err != nil {
 			return nil, err
 		}
@@ -677,7 +683,7 @@ UPDATE swarm_run
 SET interrupted_at = now(),
     interrupt_reason = $1::text
 WHERE id = $2::uuid
-RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at
+RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused
 `
 
 type RecordSwarmInterruptParams struct {
@@ -704,6 +710,7 @@ func (q *Queries) RecordSwarmInterrupt(ctx context.Context, arg RecordSwarmInter
 		&i.InterruptReason,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.IsPaused,
 	)
 	return i, err
 }
@@ -743,11 +750,49 @@ func (q *Queries) SetSwarmRoleStatus(ctx context.Context, arg SetSwarmRoleStatus
 	return i, err
 }
 
+const setSwarmRunPaused = `-- name: SetSwarmRunPaused :one
+UPDATE swarm_run
+SET is_paused = $1::boolean
+WHERE id = $2::uuid
+RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused
+`
+
+type SetSwarmRunPausedParams struct {
+	IsPaused bool        `json:"is_paused"`
+	ID       pgtype.UUID `json:"id"`
+}
+
+// Pause/resume toggle (0.5.22). The orchestrator's tick returns early
+// when is_paused is true — pause skips phase advance + task enqueue
+// but is NOT terminal (status stays active). The handler flips this
+// on kind='pause' / kind='resume'.
+func (q *Queries) SetSwarmRunPaused(ctx context.Context, arg SetSwarmRunPausedParams) (SwarmRun, error) {
+	row := q.db.QueryRow(ctx, setSwarmRunPaused, arg.IsPaused, arg.ID)
+	var i SwarmRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.CreatorUserID,
+		&i.RootIssueID,
+		&i.Problem,
+		&i.Status,
+		&i.CurrentPhase,
+		&i.TopologySpec,
+		&i.MaxRuntimeHours,
+		&i.InterruptedAt,
+		&i.InterruptReason,
+		&i.StartedAt,
+		&i.CompletedAt,
+		&i.IsPaused,
+	)
+	return i, err
+}
+
 const setSwarmRunPhase = `-- name: SetSwarmRunPhase :one
 UPDATE swarm_run
 SET current_phase = $1::text
 WHERE id = $2::uuid
-RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at
+RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused
 `
 
 type SetSwarmRunPhaseParams struct {
@@ -774,6 +819,7 @@ func (q *Queries) SetSwarmRunPhase(ctx context.Context, arg SetSwarmRunPhasePara
 		&i.InterruptReason,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.IsPaused,
 	)
 	return i, err
 }
@@ -784,7 +830,7 @@ SET status = $1::text,
     completed_at = CASE WHEN $1::text IN ('completed','aborted','failed')
                        THEN now() ELSE completed_at END
 WHERE id = $2::uuid
-RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at
+RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused
 `
 
 type SetSwarmRunStatusParams struct {
@@ -811,6 +857,7 @@ func (q *Queries) SetSwarmRunStatus(ctx context.Context, arg SetSwarmRunStatusPa
 		&i.InterruptReason,
 		&i.StartedAt,
 		&i.CompletedAt,
+		&i.IsPaused,
 	)
 	return i, err
 }

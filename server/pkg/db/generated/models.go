@@ -1028,6 +1028,7 @@ type SwarmRun struct {
 	InterruptReason pgtype.Text        `json:"interrupt_reason"`
 	StartedAt       pgtype.Timestamptz `json:"started_at"`
 	CompletedAt     pgtype.Timestamptz `json:"completed_at"`
+	IsPaused        bool               `json:"is_paused"`
 }
 
 type SysCronExecution struct {

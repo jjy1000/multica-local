@@ -80,7 +80,7 @@ type PostSwarmRunRequest struct {
 
 // PostSwarmInterruptRequest is the body for POST /runs/{id}/interrupt.
 type PostSwarmInterruptRequest struct {
-	Kind    string          `json:"kind"` // pause/cancel/redirect/inject_message
+	Kind    string          `json:"kind"` // pause/resume/cancel/redirect/inject_message
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
@@ -243,9 +243,9 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Kind {
-	case "pause", "cancel", "redirect", "inject_message":
+	case "pause", "resume", "cancel", "redirect", "inject_message":
 	default:
-		writeError(w, http.StatusBadRequest, "kind must be pause|cancel|redirect|inject_message")
+		writeError(w, http.StatusBadRequest, "kind must be pause|resume|cancel|redirect|inject_message")
 		return
 	}
 
@@ -310,10 +310,36 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// For pause / resume: flip swarm_run.is_paused. Unlike cancel this
+	// is NOT terminal — the run stays active and the orchestrator's
+	// tick reads is_paused at the top, returning early while paused
+	// (skips phase advance + task enqueue) until a resume flips it back
+	// to false.
+	switch req.Kind {
+	case "pause":
+		if _, err := h.Queries.SetSwarmRunPaused(r.Context(), db.SetSwarmRunPausedParams{
+			ID:       runUUID,
+			IsPaused: true,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "set paused: "+err.Error())
+			return
+		}
+	case "resume":
+		if _, err := h.Queries.SetSwarmRunPaused(r.Context(), db.SetSwarmRunPausedParams{
+			ID:       runUUID,
+			IsPaused: false,
+		}); err != nil {
+			writeError(w, http.StatusInternalServerError, "set resumed: "+err.Error())
+			return
+		}
+	}
+
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"run_id":  runUUID.String(),
-		"kind":    req.Kind,
-		"applied": req.Kind == "cancel", // cancel is sync; others async via tick
+		"run_id": runUUID.String(),
+		"kind":   req.Kind,
+		// cancel/pause/resume are sync (state flipped now); redirect +
+		// inject_message are async (picked up on the next orchestrator tick).
+		"applied": req.Kind == "cancel" || req.Kind == "pause" || req.Kind == "resume",
 	})
 }
 

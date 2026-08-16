@@ -151,6 +151,7 @@ type InterruptKind string
 
 const (
 	InterruptPause         InterruptKind = "pause"
+	InterruptResume        InterruptKind = "resume"
 	InterruptCancel        InterruptKind = "cancel"
 	InterruptRedirect      InterruptKind = "redirect"
 	InterruptInjectMessage InterruptKind = "inject_message"

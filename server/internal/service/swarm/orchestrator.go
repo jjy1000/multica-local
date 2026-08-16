@@ -59,6 +59,7 @@ type OrchestratorQuerier interface {
 	GetSwarmRun(ctx context.Context, id pgtype.UUID) (db.SwarmRun, error)
 	SetSwarmRunStatus(ctx context.Context, arg db.SetSwarmRunStatusParams) (db.SwarmRun, error)
 	SetSwarmRunPhase(ctx context.Context, arg db.SetSwarmRunPhaseParams) (db.SwarmRun, error)
+	SetSwarmRunPaused(ctx context.Context, arg db.SetSwarmRunPausedParams) (db.SwarmRun, error)
 	ListSwarmRolesByRun(ctx context.Context, swarmRunID pgtype.UUID) ([]db.SwarmRole, error)
 	ListReadySwarmRolesByRun(ctx context.Context, swarmRunID pgtype.UUID) ([]db.SwarmRole, error)
 	ListActiveSwarmRuns(ctx context.Context) ([]db.SwarmRun, error)
@@ -77,8 +78,15 @@ type OrchestratorQuerier interface {
 	GetSwarmRole(ctx context.Context, id pgtype.UUID) (db.SwarmRole, error)
 	CreateAgentTask(ctx context.Context, arg db.CreateAgentTaskParams) (db.AgentTaskQueue, error)
 
+	// FIX 4 (0.5.22): runtime binding pre-check before enqueue. A
+	// role-agent with no online runtime can never be claimed by a
+	// daemon (claim is keyed on runtime_id), so enqueueReadyRole skips
+	// the dispatch + writes an error message when this returns false.
+	AgentHasOnlineRuntime(ctx context.Context, agentID pgtype.UUID) (bool, error)
+
 	// FIX 3 (0.5.22): coda summary comment on root_issue_id.
 	CreateComment(ctx context.Context, arg db.CreateCommentParams) (db.Comment, error)
+	CreateSwarmRoleMessage(ctx context.Context, arg db.CreateSwarmRoleMessageParams) (db.SwarmRoleMessage, error)
 	ListSwarmRoleMessagesByRun(ctx context.Context, arg db.ListSwarmRoleMessagesByRunParams) ([]db.SwarmRoleMessage, error)
 
 	// CancelAgentTasksBySwarmRun drains in-flight agent_task_queue rows
@@ -268,6 +276,15 @@ func (s *Service) tick(ctx context.Context, runID pgtype.UUID) error {
 	// via user cancel). Exit cleanly.
 	if isTerminal(run.Status) {
 		return errTerminalStatus
+	}
+
+	// FIX 2 (0.5.22): a paused run skips phase advance + task enqueue.
+	// The user paused the run; keep the goroutine ticking (so a resume
+	// is picked up on the next 30s cycle) but do nothing else — roles
+	// stay in their current state and no new agent_task_queue rows are
+	// written while paused.
+	if run.IsPaused {
+		return nil
 	}
 
 	// FIX 2 (0.5.22): bootstrap roles from topology_spec on every
@@ -673,7 +690,34 @@ func (s *Service) enqueueReadyRole(ctx context.Context, run db.SwarmRun, role db
 		}
 	}
 
-	_, err := s.q.CreateAgentTask(ctx, db.CreateAgentTaskParams{
+	// FIX 4 (0.5.22): runtime binding pre-check. Enqueueing a task for
+	// a role-agent whose runtime_id does not resolve to an online
+	// daemon runtime guarantees a silent stall — the daemon claims
+	// tasks BY runtime_id, so a NULL/offline runtime can never claim
+	// the row. Write an error message and leave the role 'ready' so the
+	// next tick retries once a runtime is bound.
+	hasRuntime, err := s.q.AgentHasOnlineRuntime(ctx, role.AgentID)
+	if err != nil {
+		return fmt.Errorf("check role-agent runtime: %w", err)
+	}
+	if !hasRuntime {
+		if _, merr := s.q.CreateSwarmRoleMessage(ctx, db.CreateSwarmRoleMessageParams{
+			SwarmRunID: run.ID,
+			FromRoleID: pgtype.UUID{},
+			ToRoleID:   role.ID,
+			Content:    fmt.Sprintf("role-agent %s has no bound daemon runtime", role.RoleName),
+			Type:       string(MessageError),
+		}); merr != nil {
+			return fmt.Errorf("write runtime-missing message: %w", merr)
+		}
+		s.log.Warn("swarm role enqueue skipped — no bound daemon runtime",
+			"run_id", run.ID.String(),
+			"role_id", role.ID.String(),
+			"role_name", role.RoleName)
+		return nil
+	}
+
+	_, err = s.q.CreateAgentTask(ctx, db.CreateAgentTaskParams{
 		AgentID:        role.AgentID,
 		RuntimeID:      pgtype.UUID{}, // daemon binds on claim
 		IssueID:        run.RootIssueID,
