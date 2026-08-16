@@ -48,21 +48,25 @@ SELECT EXISTS (
 -- name: CreateAgent :one
 -- 0.3.51: system_key added (was $17 / nil-safe). NULL means "no explicit
 -- system-prompt binding" — matches the pre-migration behaviour.
+-- 0.5.22 MUL-3963 port: permission_mode added (was $18). Defaults to
+-- 'private' if the caller doesn't supply it; matches the column default
+-- added in migration 245.
 INSERT INTO agent (
     workspace_id, name, description, avatar_url, runtime_mode,
     runtime_config, runtime_id, visibility, max_concurrent_tasks, owner_id,
     instructions, custom_env, custom_args, mcp_config, model, thinking_level,
-    system_key
+    system_key, permission_mode
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16,
-    $17
+    $17, $18
 )
 RETURNING *;
 
 -- name: UpdateAgent :one
 -- 0.3.51: system_key added (sqlc.narg preserves the COALESCE semantics so
 -- omitting the field leaves the existing value untouched).
+-- 0.5.22 MUL-3963 port: permission_mode added.
 UPDATE agent SET
     name = COALESCE(sqlc.narg('name'), name),
     description = COALESCE(sqlc.narg('description'), description),
@@ -80,6 +84,7 @@ UPDATE agent SET
     model = COALESCE(sqlc.narg('model'), model),
     thinking_level = COALESCE(sqlc.narg('thinking_level'), thinking_level),
     system_key = COALESCE(sqlc.narg('system_key'), system_key),
+    permission_mode = COALESCE(sqlc.narg('permission_mode'), permission_mode),
     updated_at = now()
 WHERE id = $1
 RETURNING *;
