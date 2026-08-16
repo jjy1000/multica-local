@@ -762,6 +762,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				Queries: h.Queries,
 			})
 			swarmGC.Start(bootCtx)
+			// 0.5.22 audit fix (P2): store the GC on the Handler so
+			// the shutdown sequence in cmd/server/main.go can call
+			// Stop() — the GC goroutine otherwise outlives the
+			// graceful shutdown and gets SIGKILL'd mid-tick (a tick
+			// could be mid-archive, leaving the sentinel in place
+			// until the next boot re-adopts it).
+			h.SwarmGC = swarmGC
 			slog.Info("swarm_gc started")
 		}
 	}

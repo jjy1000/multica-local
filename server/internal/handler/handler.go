@@ -143,6 +143,12 @@ type Handler struct {
 	// Nil is acceptable — the swarm HTTP handlers fall back to a
 	// 503 if StartOrchestrator hasn't been called yet.
 	SwarmService *swarmsvc.Service
+	// SwarmGC (0.5.22, audit P2) owns the swarm_gc background cleanup
+	// loop (6h tick → terminal+7d archive → 90d trash). Boot wires it
+	// from cmd/server/router.go alongside SwarmService. Nil is
+	// acceptable — the GC goroutine is independent and only needs the
+	// Stop() hook at server shutdown to exit cleanly before SIGKILL.
+	SwarmGC *experimental.SwarmGC
 	// SelfOptService (0.3.45.1) owns the agent_self_optimization
 	// scheduler tickers + runner dispatch. Boot wires it from
 	// cmd/server/router.go. Nil is acceptable — the HTTP handlers

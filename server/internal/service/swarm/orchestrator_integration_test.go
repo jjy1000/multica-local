@@ -250,6 +250,16 @@ func TestTickBootstrapFromSpec(t *testing.T) {
 	if got := f.countCalls("CreateAgent:"); got != 3 {
 		t.Fatalf("expected 3 role-agents, got %d: %v", got, f.calls)
 	}
+	// 0.5.22 audit fix (P1-12): every role-agent must get an
+	// experimental_resource_visibility row so ListAgents/GetAgent
+	// stamps lab_managed=true and the role stays hidden from regular
+	// pickers (CLAUDE.md Active Contract #4). Without this assertion
+	// the visibility wiring could silently regress — the role-agent
+	// would surface in the AssigneePicker despite the swarm_topology
+	// mutex forbidding manual assignee.
+	if got := f.countCalls("InsertExperimentalResourceVisibility:agent"); got != 3 {
+		t.Fatalf("expected 3 visibility rows for role-agents, got %d: %v", got, f.calls)
+	}
 	if !f.called("SetSwarmRunStatus:running") {
 		t.Fatalf("expected planning → running flip, got calls: %v", f.calls)
 	}

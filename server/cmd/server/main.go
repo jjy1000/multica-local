@@ -318,9 +318,9 @@ func main() {
 			// at priority 2 (env > user_pref > yaml).
 			existing := cp.Providers()
 			newChain := make([]featureflag.Provider, 0, len(existing)+1)
-			newChain = append(newChain, existing[0])                              // EnvProvider
+			newChain = append(newChain, existing[0])                               // EnvProvider
 			newChain = append(newChain, experimental.NewUserPrefProvider(queries)) // user_pref
-			newChain = append(newChain, existing[1:]...)                         // YAML + others
+			newChain = append(newChain, existing[1:]...)                           // YAML + others
 			flags = featureflag.NewService(
 				featureflag.NewChainProvider(newChain...),
 				featureflag.WithLogger(slog.Default()),
@@ -418,6 +418,11 @@ func main() {
 	// #6410 / MUL-5747).
 	taskSvc, autopilotSvc := backgroundServices(h)
 	registerAutopilotListeners(bus, autopilotSvc)
+	// 0.5.22 Semantica × Multica Phase 2: terminal-issue → POST /api/decisions
+	// side-effect. Wired after NewRouterWithOptions so h is in scope;
+	// the listener calls h.SyncIssueDecisionToSemantica which in turn
+	// reads h.ExperimentRegistry + h.Queries + the loopback URL.
+	registerDecisionSyncListeners(bus, h, queries)
 
 	// Construct a LivenessStore that mirrors the one wired into the HTTP
 	// handler. Both the heartbeat write path (handler) and the sweeper read
@@ -528,9 +533,18 @@ func main() {
 	// Cancel any in-flight swarm orchestrator goroutines. Lossless:
 	// swarm_run.current_phase + each swarm_role.last_heartbeat_at is
 	// persisted every tick; ResumeOrchestration re-adopts non-terminal
-	// rows on the next boot. swarm_gc.Stop is a no-op if not started.
+	// rows on the next boot.
 	if h.SwarmService != nil {
 		h.SwarmService.Stop()
+	}
+	// 0.5.22 audit fix (P2): stop the swarm_gc goroutine before
+	// process exit. Without this the GC outlives graceful shutdown
+	// and gets SIGKILL'd mid-tick — a mid-archive kill leaves the
+	// .archiving sentinel in place (recoverable on next boot, but
+	// cleaner to close the channel and let the goroutine exit after
+	// its current sweep). swarm_gc.Stop is a no-op if not started.
+	if h.SwarmGC != nil {
+		h.SwarmGC.Stop()
 	}
 
 	// Join the channel supervisor's per-installation goroutines so the
