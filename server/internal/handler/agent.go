@@ -62,6 +62,11 @@ type AgentResponse struct {
 	// for this agent (empty = use runtime default). The picker is per-runtime
 	// per-model; the API never normalizes across providers. See MUL-2339.
 	ThinkingLevel string `json:"thinking_level"`
+	// 0.5.22 MUL-3963 port: PermissionMode ("private" | "public_to") and
+	// InvocationTargets (the per-agent allow-list). Visibility stays as
+	// a derived legacy field (see agent_permission.go::deriveLegacyVisibility).
+	PermissionMode     string                      `json:"permission_mode"`
+	InvocationTargets  []AgentInvocationTargetDTO `json:"invocation_targets"`
 	// SystemKey (0.3.51) — optional system-prompt binding, empty when
 	// the agent runs its own instructions verbatim. Reserved for
 	// future system-prompt bindings — see daemon.go::loadSystemPromptBinding
@@ -806,6 +811,12 @@ type CreateAgentRequest struct {
 	MaxConcurrentTasks int32             `json:"max_concurrent_tasks"`
 	Model              string            `json:"model"`
 	ThinkingLevel      string            `json:"thinking_level"`
+	// 0.5.22 MUL-3963: new permission field. Empty string defaults to
+	// 'private' in CreateAgent (the column default). Visibility is now a
+	// derived legacy field; new clients should pass permission_mode +
+	// invocation_targets instead.
+	PermissionMode     string                      `json:"permission_mode"`
+	InvocationTargets  []AgentInvocationTargetDTO `json:"invocation_targets"`
 	// SystemKey (0.3.51) — optional system-prompt binding. Empty/NULL
 	// means the agent runs its own instructions verbatim. Forward-
 	// compatible: a future binding key can be added without a schema
@@ -870,6 +881,13 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Visibility == "" {
 		req.Visibility = "private"
+	}
+	if req.PermissionMode == "" {
+		// 0.5.22 MUL-3963: deny-by-default. Old clients that pass only
+		// the legacy visibility field get a 'private' permission mode;
+		// the backfill in migration 245 already mapped 'workspace'
+		// visibility -> 'public_to' for pre-existing rows.
+		req.PermissionMode = "private"
 	}
 	if req.MaxConcurrentTasks == 0 {
 		req.MaxConcurrentTasks = 6
@@ -963,6 +981,11 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		Model:              pgtype.Text{String: req.Model, Valid: req.Model != ""},
 		ThinkingLevel:      pgtype.Text{String: req.ThinkingLevel, Valid: req.ThinkingLevel != ""},
 		SystemKey:          pgtype.Text{String: req.SystemKey, Valid: req.SystemKey != ""},
+		// 0.5.22 MUL-3963: pass through the new permission_mode (defaulted
+		// in the request body to 'private' if absent). The legacy visibility
+		// column stays in sync as a derived field (see applyPermissionToResponse
+		// / deriveLegacyVisibility in agent_permission.go).
+		PermissionMode:     req.PermissionMode,
 	})
 	if err != nil {
 		// Unique constraint on (workspace_id, name) — return a clear conflict error

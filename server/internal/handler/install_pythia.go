@@ -106,6 +106,9 @@ func upsertPythiaRuntimeAgent(ctx context.Context, h *Handler, workspaceID pgtyp
 		McpConfig:     []byte(`{}`),
 		Model:         pgtype.Text{},
 		ThinkingLevel: pgtype.Text{},
+		// 0.5.22 MUL-3963: match the visibility='workspace' with
+		// permission_mode='public_to' (per mig 245 backfill convention).
+		PermissionMode: "public_to",
 	})
 	if err != nil {
 		return pgtype.UUID{}, err

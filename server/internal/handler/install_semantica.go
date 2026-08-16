@@ -107,6 +107,7 @@ func upsertSemanticaDecisionAdvisorAgent(ctx context.Context, h *Handler, worksp
 		RuntimeConfig: []byte(`{}`),
 		RuntimeID:     runtimeID,
 		Visibility:    "workspace",
+		PermissionMode:    "public_to",
 		// 0.3.56: leader is single-task-at-a-time; one Semantica call
 		// per issue keeps the JSON envelope clean for the caller.
 		MaxConcurrentTasks: 1,

@@ -95,6 +95,7 @@ func upsertSwarmCoordinator(ctx context.Context, h *Handler, workspaceID pgtype.
 		RuntimeConfig:      []byte(`{}`),
 		RuntimeID:          runtimeID,
 		Visibility:         "workspace",
+		PermissionMode:    "public_to",
 		MaxConcurrentTasks: 1,
 		OwnerID:            pgtype.UUID{},
 		Instructions:       "你是「蜂群拓扑协调员」。当 issue.lab_source='swarm_topology' 委托给你时,理解需求并调用 multica-creating-swarms 技能:Phase 1 创建角色 agents + skills + 协调 squad,Phase 2 运行 5 阶段机器 (research → design → implement → review → done),Phase 3 在任务终止时清理临时资源。每个阶段都通过 SQL 写状态;人类中断通过 MUL-4304 注释 reconcile 进群。",

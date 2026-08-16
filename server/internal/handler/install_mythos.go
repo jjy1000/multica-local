@@ -264,6 +264,13 @@ func upsertMythosAgent(
 		McpConfig:     []byte(`{}`),
 		Model:         pgtype.Text{},
 		ThinkingLevel: pgtype.Text{},
+		// 0.5.22 MUL-3963: permission_mode defaults to 'private' (deny-by-default).
+		// Mythos leader agents are owner-created within the workspace; mark
+		// them public_to workspace to match the existing visibility='workspace'.
+		// The MUL-3963 visibility->permission_mode backfill in mig 245 will
+		// have set this column for pre-existing rows; this is for the
+		// fresh-insert path.
+		PermissionMode: "public_to",
 	})
 	if cerr != nil {
 		if re, rerr := h.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{

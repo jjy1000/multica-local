@@ -118,6 +118,7 @@ func upsertCodeCanvasAgent(ctx context.Context, h *Handler, workspaceID pgtype.U
 		RuntimeConfig:      []byte(`{}`),
 		RuntimeID:          runtimeID,
 		Visibility:         "workspace",
+		PermissionMode:    "public_to",
 		MaxConcurrentTasks: 1,
 		OwnerID:            pgtype.UUID{},
 		// 0.3.56: explicit reference to the multica-code-canvas skill

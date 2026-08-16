@@ -411,6 +411,7 @@ func upsertClaudeScienceAgent(
 		RuntimeConfig:      []byte(`{}`),
 		RuntimeID:          runtimeID,
 		Visibility:         "workspace",
+		PermissionMode:    "public_to",
 		MaxConcurrentTasks: 1,
 		OwnerID:            pgtype.UUID{},
 		Instructions:       instructions,

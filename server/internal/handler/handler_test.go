@@ -234,13 +234,16 @@ func createHandlerTestAgent(t *testing.T, name string, mcpConfig []byte) string 
 	t.Helper()
 
 	var agentID string
+	// 0.5.22 MUL-3963: permission_mode column is NOT NULL DEFAULT 'private';
+	// the column default applies on INSERT but explicit insert is clearer
+	// for the test fixture.
 	if err := testPool.QueryRow(context.Background(), `
 		INSERT INTO agent (
 			workspace_id, name, description, runtime_mode, runtime_config,
 			runtime_id, visibility, max_concurrent_tasks, owner_id,
-			instructions, custom_env, custom_args, mcp_config
+			instructions, custom_env, custom_args, mcp_config, permission_mode
 		)
-		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'private', 1, $4, '', '{}'::jsonb, '[]'::jsonb, $5)
+		VALUES ($1, $2, '', 'cloud', '{}'::jsonb, $3, 'private', 1, $4, '', '{}'::jsonb, '[]'::jsonb, $5, 'private')
 		RETURNING id
 	`, testWorkspaceID, name, handlerTestRuntimeID(t), testUserID, mcpConfig).Scan(&agentID); err != nil {
 		t.Fatalf("failed to create handler test agent: %v", err)

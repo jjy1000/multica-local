@@ -91,6 +91,7 @@ func upsertAgentCreationExpert(ctx context.Context, h *Handler, workspaceID pgty
 		RuntimeConfig:      []byte(`{}`),
 		RuntimeID:          runtimeID,
 		Visibility:         "workspace",
+		PermissionMode:    "public_to",
 		MaxConcurrentTasks: 1,
 		OwnerID:            pgtype.UUID{},
 		Instructions:       "你是「智能体创建专家」。当用户把任务委托给你时,理解需求并调用技能(multica-lab-builder / multica-creating-agents)创建对应的智能体、技能、团队或自动化工程。创建后把结果、用法和后续维护建议写回任务。",
