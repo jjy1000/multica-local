@@ -127,7 +127,13 @@ type Service struct {
 	q   OrchestratorQuerier
 	log *slog.Logger
 
-	mu      sync.Mutex
+	// 0.5.22 audit fix (P2-12): sync.RWMutex for the running map.
+	// Read-mostly: the existence check at StartOrchestrator:181
+	// fires on every HTTP request + every ResumeOrchestration loop
+	// iteration; the insert is once per run. RLock for read, Lock
+	// for write. Marked and unregister take the write lock; other
+	// paths that just check existence take the read lock.
+	mu      sync.RWMutex
 	running map[pgtype.UUID]*Orchestrator
 
 	// 0.5.22 audit fix (P1-11): dedup-set for "role-agent has no bound
@@ -166,9 +172,9 @@ func NewService(q OrchestratorQuerier, log *slog.Logger) *Service {
 //     'running').
 //   - ResumeOrchestration at daemon bootstrap for each active run.
 func (s *Service) StartOrchestrator(ctx context.Context, runID pgtype.UUID) error {
-	s.mu.Lock()
+	s.mu.RLock()
 	if _, exists := s.running[runID]; exists {
-		s.mu.Unlock()
+		s.mu.RUnlock()
 		s.log.Debug("swarm orchestrator already running", "run_id", runID.String())
 		return nil
 	}
@@ -177,7 +183,7 @@ func (s *Service) StartOrchestrator(ctx context.Context, runID pgtype.UUID) erro
 	// StartOrchestrator caller. The terminal-status re-check happens
 	// on the next tick anyway (tick.go:277-279), so a stale read is
 	// self-healing. Re-take the lock to do the insert.
-	s.mu.Unlock()
+	s.mu.RUnlock()
 	run, err := s.q.GetSwarmRun(ctx, runID)
 	if err != nil {
 		return fmt.Errorf("get swarm run: %w", err)
@@ -250,6 +256,17 @@ func (s *Service) ResumeOrchestration(ctx context.Context, workspaceID pgtype.UU
 	for _, run := range runs {
 		if run.WorkspaceID != workspaceID {
 			continue
+		}
+		// 0.5.22 audit fix (P2-15): emit a hint log when the run is
+		// paused on disk. The orchestrator's tick will no-op on the
+		// IsPaused early-return at orchestrator.go:357-359, so the
+		// goroutine ticks idle until the user clicks Resume. Without
+		// this log an operator reading daemon startup logs has no
+		// signal that the run is parked.
+		if run.IsPaused {
+			s.log.Info("swarm orchestrator resumed (paused on disk; tick will no-op until user resumes)",
+				"run_id", run.ID.String(),
+				"workspace_id", workspaceID.String())
 		}
 		if err := s.StartOrchestrator(ctx, run.ID); err != nil {
 			s.log.Warn("swarm orchestrator resume failed",
@@ -362,7 +379,16 @@ func (s *Service) tick(ctx context.Context, runID pgtype.UUID) error {
 	// tick. Idempotent: skips roles that already exist by name. The
 	// leader fills topology_spec during the planning phase; before
 	// that the spec is empty and bootstrapFromSpec is a no-op.
-	if err := s.bootstrapFromSpec(ctx, runID); err != nil {
+	// 0.5.22 audit fix (P2-4): skip the bootstrap when the run is
+	// already past the bootstrap window. The status guard lives
+	// INSIDE bootstrapFromSpec so it short-circuits only the
+	// bootstrap work — phase-advance + heartbeat still fire on
+	// every tick. Saves ~8640 redundant decode+ListSwarmRolesByRun
+	// calls across a 72h run.
+	// 0.5.22 audit fix (P2-16): pass the already-loaded run row to
+	// skip the redundant GetSwarmRun that bootstrapFromSpec used to
+	// do at the top.
+	if err := s.bootstrapFromSpec(ctx, run); err != nil {
 		s.log.Warn("swarm bootstrap from spec failed",
 			"run_id", runID.String(), "err", err.Error())
 		// Non-fatal: next tick retries. Transient DB errors must
@@ -672,12 +698,25 @@ func (s *Service) markFailed(ctx context.Context, runID pgtype.UUID, reason stri
 // closes. Mirrors resolveOrSynthesizeProductRuntime at
 // handler/boot_provision_product_labs.go:77 (same online-first +
 // synthetic-offline-stub fallback).
-func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) error {
-	run, err := s.q.GetSwarmRun(ctx, runID)
-	if err != nil {
-		return fmt.Errorf("get swarm run: %w", err)
-	}
+//
+// 0.5.22 audit fix (P2-4): per-tick bootstrap gate. bootstrapFromSpec
+// was called on every 30s tick for the entire run lifetime. After
+// the first successful bootstrap (status flips to 'running' at
+// the bottom of bootstrapFromSpec), every subsequent tick re-reads
+// the spec, re-decodes the JSON, re-builds the existingByName map,
+// then short-circuits because every role is already in
+// 'ready'/'running' (P1-2 fix). For a 72h run that's ~8640 ticks
+// of redundant work. The status guard short-circuits ONLY the
+// bootstrap work — tick() continues to advancePhase + tickRole.
+func (s *Service) bootstrapFromSpec(ctx context.Context, run db.SwarmRun) error {
 	if isTerminal(run.Status) {
+		return nil
+	}
+	// P2-4 status gate: skip the bootstrap work for runs that are
+	// already past the bootstrap window. Status check sits INSIDE
+	// the function so the call site doesn't need to know the gate
+	// semantics — keeps the tick() flow uniform.
+	if run.Status == string(StatusRunning) || run.Status == string(StatusMonitoring) {
 		return nil
 	}
 
@@ -691,7 +730,7 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 	runtimeID, runtimeErr := s.q.GetOnlineRuntimeByWorkspace(ctx, run.WorkspaceID)
 	if runtimeErr != nil {
 		s.log.Warn("swarm bootstrap: GetOnlineRuntimeByWorkspace failed; falling back to synthetic",
-			"run_id", runID.String(), "err", runtimeErr.Error())
+			"run_id", run.ID.String(), "err", runtimeErr.Error())
 	}
 	if !runtimeID.Valid {
 		row, upsertErr := s.q.UpsertAgentRuntime(ctx, db.UpsertAgentRuntimeParams{
@@ -725,7 +764,7 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 		return fmt.Errorf("invalid topology spec: %w", verr)
 	}
 
-	existing, err := s.q.ListSwarmRolesByRun(ctx, runID)
+	existing, err := s.q.ListSwarmRolesByRun(ctx, run.ID)
 	if err != nil {
 		return fmt.Errorf("list existing roles: %w", err)
 	}
@@ -809,7 +848,7 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 			ResourceID:   agent.ID,
 		}); verr != nil {
 			s.log.Warn("swarm bootstrap: visibility row insert failed (role will surface in regular pickers)",
-				"run_id", runID.String(),
+				"run_id", run.ID.String(),
 				"agent_id", agent.ID.String(),
 				"err", verr.Error())
 		}
@@ -824,7 +863,7 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 				parentID = id
 			} else {
 				s.log.Warn("swarm bootstrap: parent_role_name unresolved",
-					"run_id", runID.String(),
+					"run_id", run.ID.String(),
 					"role", roleSpec.Name,
 					"parent", roleSpec.ParentRoleName)
 			}
@@ -840,7 +879,7 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 		}
 
 		swarmRole, rerr := s.q.CreateSwarmRole(ctx, db.CreateSwarmRoleParams{
-			SwarmRunID:       runID,
+			SwarmRunID:       run.ID,
 			AgentID:          agent.ID,
 			RoleName:         roleSpec.Name,
 			RoleInstructions: roleSpec.Instructions,
@@ -872,7 +911,7 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 		delete(s.runtimeMissingLogged, swarmRole.ID)
 		s.mu.Unlock()
 		s.log.Info("swarm role bootstrapped",
-			"run_id", runID.String(),
+			"run_id", run.ID.String(),
 			"role_name", roleSpec.Name,
 			"agent_id", agent.ID.String(),
 			"role_id", swarmRole.ID.String())
@@ -884,13 +923,13 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 	// to the live state.
 	if run.Status == string(StatusPreparing) || run.Status == string(StatusPlanning) {
 		if _, serr := s.q.SetSwarmRunStatus(ctx, db.SetSwarmRunStatusParams{
-			ID:     runID,
+			ID:     run.ID,
 			Status: string(StatusRunning),
 		}); serr != nil {
 			return fmt.Errorf("set run running: %w", serr)
 		}
 		s.log.Info("swarm run status flipped to running",
-			"run_id", runID.String(),
+			"run_id", run.ID.String(),
 			"from", run.Status)
 	}
 	return nil

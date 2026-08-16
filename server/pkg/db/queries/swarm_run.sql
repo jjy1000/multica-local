@@ -80,9 +80,16 @@ RETURNING *;
 -- name: RecordSwarmInterrupt :one
 -- Stamp the user interrupt timestamp + reason on the swarm_run row.
 -- A separate row is also written to swarm_interrupt for audit.
+--
+-- 0.5.22 audit fix (P2-13): the original UPDATE unconditionally
+-- overwrote both columns on every call, so two sequential interrupts
+-- (e.g. pause → resume → cancel) dropped the first reason. The
+-- WHERE guard preserves the earliest timestamp + reason — the
+-- audit trail lives in the separate swarm_interrupt table anyway,
+-- this row is just the most-recent marker.
 UPDATE swarm_run
-SET interrupted_at = now(),
-    interrupt_reason = @interrupt_reason::text
+SET interrupted_at = CASE WHEN interrupted_at IS NULL THEN now() ELSE interrupted_at END,
+    interrupt_reason = CASE WHEN interrupted_at IS NULL THEN @interrupt_reason::text ELSE interrupt_reason END
 WHERE id = @id::uuid
 RETURNING *;
 

@@ -227,17 +227,20 @@ func TestTickBootstrapFromSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal spec: %v", err)
 	}
+	run := db.SwarmRun{
+		ID:           runID,
+		Status:       string(StatusPlanning),
+		CurrentPhase: string(PhaseResearch),
+		TopologySpec: specJSON,
+	}
 	f := &fakeQuerier{
-		run: db.SwarmRun{
-			ID:           runID,
-			Status:       string(StatusPlanning),
-			CurrentPhase: string(PhaseResearch),
-			TopologySpec: specJSON,
-		},
+		run: run,
 	}
 	svc := NewService(f, nil)
 
-	if err := svc.bootstrapFromSpec(context.Background(), runID); err != nil {
+	// 0.5.22 P2-16 fix: bootstrapFromSpec now takes the run row,
+	// not the run id (the caller already loaded it).
+	if err := svc.bootstrapFromSpec(context.Background(), run); err != nil {
 		t.Fatalf("bootstrapFromSpec: %v", err)
 	}
 
