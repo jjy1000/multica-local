@@ -152,3 +152,33 @@ apps/desktop/package.json                              (0.5.21 → 0.5.22)
 - i18n 4-locale translation pass
 - `multica swarm list / pause / cancel / inspect` for direct CLI access to running swarms
 - Optional: Anthropic research "spawn-50 antipattern" guardrail — log warning when role count approaches 6
+---
+
+## Addendum — closed-loop audit fix (2026-08-16)
+
+**Post-ship multilens audit** (4 lenses × adversarial verify, 37 agents)
+found the feature shipped but never actually ran — every bootstrap
+500'd. 13 P0 + 12 P1 + 13 P2 closed-loop breakages fixed across 10
+atomic commits + migration 244. See the commit messages (`85799b54e` →
+`4be708847`) for the per-fix detail; summary table:
+
+| # | Defect | Effect |
+|---|---|---|
+| P0-1 | `ResourceType("swarm_run")` not in lock enum | every bootstrap 500 |
+| P0-2 | `TopologySpec` nil → SQL NULL vs NOT NULL | every bootstrap 23502 |
+| P0-3/4 | two `*Service` instances + non-atomic lazy-init | double orchestrator goroutine per run |
+| P0-5 | role-agent `runtime_id` = zero UUID | dispatch loop never closed |
+| P0-6 | empty roles → `0 < 0` gate skip | false-complete in ~30s |
+| P0-7/8 | missing `drainTasks` on terminal exits | daemons poll dead tasks |
+| P0-9 | drain missed `waiting_local_directory` | ghost tasks claimable |
+| P0-10 | coda `AuthorID` NULL vs NOT NULL | summary silently dropped |
+| P0-11 | `SwarmStateResponse` missing `is_paused` | Pause label permanently wrong |
+| P0-12/13 | GC visibility + lock cleanup stubs | unbounded row leaks |
+
+Migration **244** (`swarm_run_resource_type`) widens
+`experimental_resource_lock.resource_type` to include `swarm_run`.
+
+**Verification:** `go build ./...` clean · `go test -race -short
+./internal/service/swarm/` ok · `go test -race -short
+./internal/experimental/` ok · `pnpm typecheck` 6/6 · `migrate up`
+applied 243 + 244 against live DB.
