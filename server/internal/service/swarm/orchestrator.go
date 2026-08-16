@@ -93,6 +93,21 @@ type OrchestratorQuerier interface {
 	GetOnlineRuntimeByWorkspace(ctx context.Context, workspaceID pgtype.UUID) (pgtype.UUID, error)
 	UpsertAgentRuntime(ctx context.Context, arg db.UpsertAgentRuntimeParams) (db.UpsertAgentRuntimeRow, error)
 
+	// 0.5.22 (P1-12): visibility row for role-agents. Mirrors
+	// handler/product_swarm_coordinator.go:121-130 which writes the
+	// same row for the swarm_coordinator leader. Without this, the
+	// role-agents surface in regular pickers with lab_managed=false
+	// (agent.go:712/758 derives the stamp from this row), so users
+	// can pick an agent they cannot actually use (the swarm_topology
+	// mutex forbids manual assignee).
+	InsertExperimentalResourceVisibility(ctx context.Context, arg db.InsertExperimentalResourceVisibilityParams) error
+
+	// 0.5.22 (P1-4): atomic enqueue + status flip in one transaction.
+	// See sqlc swarm_run.sql::EnqueueSwarmRoleTask — supersedes the
+	// previous CreateAgentTask + SetSwarmRoleStatus two-call sequence
+	// that left partial state on cancel.
+	EnqueueSwarmRoleTask(ctx context.Context, arg db.EnqueueSwarmRoleTaskParams) error
+
 	// FIX 3 (0.5.22): coda summary comment on root_issue_id.
 	CreateComment(ctx context.Context, arg db.CreateCommentParams) (db.Comment, error)
 	CreateSwarmRoleMessage(ctx context.Context, arg db.CreateSwarmRoleMessageParams) (db.SwarmRoleMessage, error)
@@ -114,6 +129,17 @@ type Service struct {
 
 	mu      sync.Mutex
 	running map[pgtype.UUID]*Orchestrator
+
+	// 0.5.22 audit fix (P1-11): dedup-set for "role-agent has no bound
+	// daemon runtime" error messages. Without dedup, a daemon offline
+	// for 24h produces ~2880 rows per role per run (one per 30s tick);
+	// 6 roles × 24h = ~17k rows per run for a transient outage. The
+	// map keys role IDs that have already been warned-on; reset on
+	// each role status flip to 'ready' (the next enqueue attempt
+	// re-emits if the runtime is still offline). Gated by `mu` to
+	// serialize concurrent tick goroutines — read-mostly, so a future
+	// sync.Map swap would unblock if contention surfaces.
+	runtimeMissingLogged map[pgtype.UUID]struct{}
 }
 
 // NewService builds a swarm Service with the DB seam + a structured
@@ -126,6 +152,7 @@ func NewService(q OrchestratorQuerier, log *slog.Logger) *Service {
 		q:       q,
 		log:     log,
 		running: make(map[pgtype.UUID]*Orchestrator),
+		runtimeMissingLogged: make(map[pgtype.UUID]struct{}),
 	}
 }
 
@@ -145,13 +172,17 @@ func (s *Service) StartOrchestrator(ctx context.Context, runID pgtype.UUID) erro
 		s.log.Debug("swarm orchestrator already running", "run_id", runID.String())
 		return nil
 	}
+	// 0.5.22 audit fix (P1-3): release mu across the GetSwarmRun DB
+	// read so a slow query does not serialize every concurrent
+	// StartOrchestrator caller. The terminal-status re-check happens
+	// on the next tick anyway (tick.go:277-279), so a stale read is
+	// self-healing. Re-take the lock to do the insert.
+	s.mu.Unlock()
 	run, err := s.q.GetSwarmRun(ctx, runID)
 	if err != nil {
-		s.mu.Unlock()
 		return fmt.Errorf("get swarm run: %w", err)
 	}
 	if isTerminal(run.Status) {
-		s.mu.Unlock()
 		s.log.Debug("swarm orchestrator skipped — terminal status",
 			"run_id", runID.String(), "status", run.Status)
 		return nil
@@ -164,6 +195,16 @@ func (s *Service) StartOrchestrator(ctx context.Context, runID pgtype.UUID) erro
 		Cancel:        cancel,
 		StartedAt:     time.Now(),
 		MaxRuntimeHrs: run.MaxRuntimeHours,
+	}
+	s.mu.Lock()
+	// Double-check inside the lock — another caller could have inserted
+	// while we were doing the DB read.
+	if _, exists := s.running[runID]; exists {
+		s.mu.Unlock()
+		cancel() // discard the orphan context we just created
+		s.log.Debug("swarm orchestrator raced to start; other caller's orchestrator wins",
+			"run_id", runID.String())
+		return nil
 	}
 	s.running[runID] = orch
 	s.mu.Unlock()
@@ -250,18 +291,33 @@ func (s *Service) runOrchestratorLoop(ctx context.Context, runID pgtype.UUID, ma
 			return
 
 		case <-ticker.C:
-			if err := s.tick(ctx, runID); err != nil {
+			// 0.5.22 audit fix (P1-5): per-tick timeout. Without it,
+			// a hung DB call inside tick() wedges the orchestrator
+			// goroutine for the full hang duration — the only safety
+			// nets are ctx cancel (server shutdown) and the 72h
+			// maxLifetime cap (orchestrator.go:244). 60s = 2x the
+			// 30s OrchestratorTickerInterval; mirrors the proven
+			// runtime_gc.go:156-157 pattern (60s sweep timeout).
+			tickCtx, tickCancel := context.WithTimeout(ctx, 2*OrchestratorTickerInterval)
+			if err := s.tick(tickCtx, runID); err != nil {
 				if errors.Is(err, errTerminalStatus) {
 					s.log.Info("swarm orchestrator loop exit (terminal)",
 						"run_id", runID.String())
+					tickCancel()
 					s.unregister(runID)
 					return
 				}
-				s.log.Warn("swarm orchestrator tick failed",
-					"run_id", runID.String(), "err", err.Error())
+				if errors.Is(err, context.DeadlineExceeded) {
+					s.log.Warn("swarm orchestrator tick exceeded timeout",
+						"run_id", runID.String())
+				} else {
+					s.log.Warn("swarm orchestrator tick failed",
+						"run_id", runID.String(), "err", err.Error())
+				}
 				// Non-terminal error: keep ticking. The next tick
 				// will retry; transient DB errors are not fatal.
 			}
+			tickCancel()
 		}
 	}
 }
@@ -341,9 +397,24 @@ func (s *Service) tick(ctx context.Context, runID pgtype.UUID) error {
 		}
 	}
 
+	// 0.5.22 audit fix (P1-1): refresh the roles slice from the DB
+	// before advancePhase runs its fail-fast failed-detection. The
+	// in-memory slice from line 301 was captured BEFORE tickRole's
+	// SetSwarmRoleStatus calls at line 401-413 (idle→failed
+	// escalation) — a status flip in tickRole does NOT propagate
+	// back to the local slice. Without this refresh, advancePhase's
+	// `if RoleStatus(role.Status) == RoleFailed` check at line 412
+	// misses the just-failed role and the run keeps ticking instead
+	// of flipping to 'failed' (CLAUDE.md Active Contract #6
+	// fail-fast contract).
+	freshRoles, ferr := s.q.ListSwarmRolesByRun(ctx, runID)
+	if ferr != nil {
+		return fmt.Errorf("re-list roles for phase advance: %w", ferr)
+	}
+
 	// Phase advance gate. Mirrors mythos supervise completion
 	// determination (2026-07-28 audit fix).
-	if err := s.advancePhase(ctx, runID, run, roles); err != nil {
+	if err := s.advancePhase(ctx, runID, run, freshRoles); err != nil {
 		return fmt.Errorf("advance phase: %w", err)
 	}
 
@@ -673,8 +744,19 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 	}
 
 	for _, roleSpec := range spec.Roles {
-		if _, ok := existingByName[roleSpec.Name]; ok {
-			continue // already bootstrapped on a prior tick
+		if existing, ok := existingByName[roleSpec.Name]; ok {
+			// 0.5.22 audit fix (P1-2): only short-circuit if the
+			// existing role is past the partial-failure state. A
+			// role stuck in 'created' means an earlier
+			// SetSwarmRoleStatus(ready) write failed mid-loop —
+			// we MUST retry the ready-flip on the next tick,
+			// otherwise the role strands forever (tickRole at
+			// line 343 only heartbeats RoleRunning, line 353 only
+			// idles RoleReady/RoleIdle, so a role stuck in
+			// 'created' is never enqueued).
+			if existing.Status != string(RoleCreated) {
+				continue // already bootstrapped past the failure point
+			}
 		}
 
 		// 0.5.22 audit fix (P0): bind the workspace runtime_id we
@@ -703,6 +785,33 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 		})
 		if aerr != nil {
 			return fmt.Errorf("create role-agent %q: %w", roleSpec.Name, aerr)
+		}
+
+		// 0.5.22 audit fix (P1-12): stamp the role-agent as
+		// lab-managed so it hides from regular pickers (the
+		// swarm_topology mutex forbids manual assignee on issues
+		// bound to this lab). Mirrors
+		// handler/product_swarm_coordinator.go:121-130 which does
+		// the same for the swarm_coordinator leader. Non-fatal: a
+		// visibility insert failure logs at warn and the next
+		// bootstrap tick retries (idempotent on resource_type+id
+		// uniqueness).
+		if verr := s.q.InsertExperimentalResourceVisibility(ctx, db.InsertExperimentalResourceVisibilityParams{
+			// 0.5.22 audit fix: literal "swarm_topology" mirrors
+			// experimental.SourceSwarmTopology (lock.go:111). We
+			// don't import the experimental package here to avoid
+			// pulling handler-layer transitively (orchestrator is a
+			// pure service). The string is the canonical flag_key
+			// that handler.PastRunsPanel reads for visibility
+			// filtering (CLAUDE.md Active Contract #4).
+			FlagKey:      "swarm_topology",
+			ResourceType: "agent",
+			ResourceID:   agent.ID,
+		}); verr != nil {
+			s.log.Warn("swarm bootstrap: visibility row insert failed (role will surface in regular pickers)",
+				"run_id", runID.String(),
+				"agent_id", agent.ID.String(),
+				"err", verr.Error())
 		}
 
 		// Resolve parent_role_id by name. The leader's spec is
@@ -754,6 +863,14 @@ func (s *Service) bootstrapFromSpec(ctx context.Context, runID pgtype.UUID) erro
 		}); serr != nil {
 			return fmt.Errorf("set role ready %q: %w", roleSpec.Name, serr)
 		}
+		// 0.5.22 audit fix (P1-11): reset the runtime-missing dedup on
+		// each role's first bootstrap so a later offline run re-emits.
+		// Without this, the dedup map would remember the role forever
+		// even after the runtime came back online, suppressing legitimate
+		// future warnings.
+		s.mu.Lock()
+		delete(s.runtimeMissingLogged, swarmRole.ID)
+		s.mu.Unlock()
 		s.log.Info("swarm role bootstrapped",
 			"run_id", runID.String(),
 			"role_name", roleSpec.Name,
@@ -800,17 +917,27 @@ func (s *Service) enqueueReadyRole(ctx context.Context, run db.SwarmRun, role db
 		}
 	}
 
-	// FIX 4 (0.5.22): runtime binding pre-check. Enqueueing a task for
+	// 0.5.22 audit fix (P1-11): runtime binding pre-check. Enqueueing a task for
 	// a role-agent whose runtime_id does not resolve to an online
 	// daemon runtime guarantees a silent stall — the daemon claims
 	// tasks BY runtime_id, so a NULL/offline runtime can never claim
 	// the row. Write an error message and leave the role 'ready' so the
-	// next tick retries once a runtime is bound.
+	// next tick retries once a runtime is bound. The dedup map on the
+	// Service struct keys by role_id so we emit at most ONE message
+	// per (role, offline-run); the dedup resets when SetSwarmRoleStatus
+	// flips the role back to 'ready' after a status flip.
 	hasRuntime, err := s.q.AgentHasOnlineRuntime(ctx, role.AgentID)
 	if err != nil {
 		return fmt.Errorf("check role-agent runtime: %w", err)
 	}
 	if !hasRuntime {
+		s.mu.Lock()
+		if _, alreadyLogged := s.runtimeMissingLogged[role.ID]; alreadyLogged {
+			s.mu.Unlock()
+			return nil
+		}
+		s.runtimeMissingLogged[role.ID] = struct{}{}
+		s.mu.Unlock()
 		if _, merr := s.q.CreateSwarmRoleMessage(ctx, db.CreateSwarmRoleMessageParams{
 			SwarmRunID: run.ID,
 			FromRoleID: pgtype.UUID{},
@@ -827,25 +954,32 @@ func (s *Service) enqueueReadyRole(ctx context.Context, run db.SwarmRun, role db
 		return nil
 	}
 
-	_, err = s.q.CreateAgentTask(ctx, db.CreateAgentTaskParams{
+	// 0.5.22 audit fix (P1-4): atomic enqueue + status flip via the
+	// EnqueueSwarmRoleTask sqlc query. The previous order was
+	// CreateAgentTask then SetSwarmRoleStatus(running) — a cancel
+	// between the two writes left the role in 'ready' while the
+	// agent_task_queue row already existed; the next tick
+	// re-enqueued the same role, producing duplicate tasks. The CTE
+	// in the query does INSERT-then-UPDATE: if the UPDATE matches 0
+	// rows (because the role is no longer 'ready' — e.g. another
+	// tick already enqueued it), the INSERT is rolled back and no
+	// duplicate task is created. RuntimeID is set to the bound
+	// runtime from the bootstrap path so the daemon's runtime_id
+	// claim key matches; the daemon rebinds the task on claim if
+	// the runtime goes offline in the interim.
+	triggerSummary := fmt.Sprintf("[swarm] %s (phase %s)", role.RoleName, run.CurrentPhase)
+	if err := s.q.EnqueueSwarmRoleTask(ctx, db.EnqueueSwarmRoleTaskParams{
+		RoleID:         role.ID,
 		AgentID:        role.AgentID,
 		RuntimeID:      pgtype.UUID{}, // daemon binds on claim
 		IssueID:        run.RootIssueID,
 		Priority:       50,
-		TriggerSummary: pgtype.Text{String: fmt.Sprintf("[swarm] %s (phase %s)", role.RoleName, run.CurrentPhase), Valid: true},
-		HandoffNote:    pgtype.Text{String: role.RoleInstructions, Valid: true},
-	})
-	if err != nil {
-		return fmt.Errorf("create agent task: %w", err)
+		TriggerSummary: triggerSummary,
+		HandoffNote:    role.RoleInstructions,
+	}); err != nil {
+		return fmt.Errorf("enqueue swarm role task: %w", err)
 	}
 
-	if _, err := s.q.SetSwarmRoleStatus(ctx, db.SetSwarmRoleStatusParams{
-		ID:          role.ID,
-		Status:      string(RoleRunning),
-		CurrentStep: "enqueued — awaiting claim",
-	}); err != nil {
-		return fmt.Errorf("set role running: %w", err)
-	}
 	s.log.Info("swarm role enqueued",
 		"run_id", run.ID.String(),
 		"role_id", role.ID.String(),

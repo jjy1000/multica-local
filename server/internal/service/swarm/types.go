@@ -109,6 +109,15 @@ const (
 // Mirrors mythos_run.status CHECK but with 'preparing' (leader about
 // to bootstrap) + 'planning' (leader analysing + drafting role plan)
 // prepended to the running/monitoring/completed/aborted/failed set.
+//
+// 0.5.22 audit fix (P1-7): 'planning' and 'monitoring' are reserved
+// enum values accepted by the SQL CHECK but with zero writers in the
+// current fork. The orchestrator reads 'planning' at orchestrator.go
+// to detect bootstrap-mid-transition; 'monitoring' is reserved for a
+// future "all roles enqueued, awaiting daemon progress" state that the
+// current 5-phase machine collapses into 'running'. Forward-only per
+// CLAUDE.md invariant — the enum stays accepted by the CHECK so a
+// future writer can land without a migration.
 type SwarmStatus string
 
 const (

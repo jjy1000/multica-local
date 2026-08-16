@@ -29,10 +29,26 @@ SELECT * FROM swarm_run WHERE root_issue_id = $1;
 -- name: SetSwarmRunStatus :one
 -- Mirrors mythos_run SetMythosRunStatus semantics: terminal status auto-stamps
 -- completed_at; non-terminal leaves it NULL.
+--
+-- 0.5.22 audit fix (P1-9): the CASE previously stamped completed_at
+-- on EVERY terminal write — a second SetSwarmRunStatus call (e.g.
+-- orchestrator.runOrchestratorLoop terminal-status detect racing
+-- the handler cancel path) overwrote the original terminal timestamp
+-- and skewed the 7d GC window. The fix: only stamp completed_at when
+-- the row is NOT already in a terminal status. The case is a 2x2:
+--   current_status  / supplied_status -> stamp?
+--   terminal       / any              -> keep existing (preserves audit)
+--   non-terminal   / terminal         -> stamp now()
+--   non-terminal   / non-terminal     -> keep NULL
 UPDATE swarm_run
 SET status = @status::text,
-    completed_at = CASE WHEN @status::text IN ('completed','aborted','failed')
-                       THEN now() ELSE completed_at END
+    completed_at = CASE
+        WHEN status IN ('completed','aborted','failed')
+            THEN completed_at
+        WHEN @status::text IN ('completed','aborted','failed')
+            THEN now()
+        ELSE completed_at
+    END
 WHERE id = @id::uuid
 RETURNING *;
 
@@ -239,3 +255,28 @@ UPDATE agent_task_queue
 SET status = 'cancelled'
 WHERE agent_id IN (SELECT agent_id FROM swarm_role WHERE swarm_run_id = $1)
   AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory');
+-- name: EnqueueSwarmRoleTask :exec
+-- 0.5.22 audit fix (P1-4): atomic enqueue + status flip. The previous
+-- order was CreateAgentTask then SetSwarmRoleStatus(running) — a
+-- service shutdown between the two writes left the role in 'ready'
+-- while the agent_task_queue row already existed; the next tick
+-- re-enqueued the same role, producing duplicate tasks. This query
+-- does both writes in one transaction so partial state is impossible.
+-- INSERT-then-UPDATE: if the UPDATE matches 0 rows (because the role
+-- is no longer 'ready'), the INSERT is rolled back and no duplicate
+-- task is created.
+WITH inserted AS (
+    INSERT INTO agent_task_queue (
+        agent_id, runtime_id, issue_id, priority, trigger_summary, handoff_note
+    ) VALUES (
+        @agent_id::uuid, @runtime_id::uuid, @issue_id::uuid,
+        @priority::int, @trigger_summary::text, @handoff_note::text
+    )
+    RETURNING id
+)
+UPDATE swarm_role
+SET status = 'running',
+    current_step = 'enqueued — awaiting claim',
+    last_heartbeat_at = now()
+WHERE id = @role_id::uuid
+  AND status = 'ready';

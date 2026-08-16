@@ -292,6 +292,56 @@ func (q *Queries) DeleteSwarmRun(ctx context.Context, id pgtype.UUID) error {
 	return err
 }
 
+const enqueueSwarmRoleTask = `-- name: EnqueueSwarmRoleTask :exec
+WITH inserted AS (
+    INSERT INTO agent_task_queue (
+        agent_id, runtime_id, issue_id, priority, trigger_summary, handoff_note
+    ) VALUES (
+        $2::uuid, $3::uuid, $4::uuid,
+        $5::int, $6::text, $7::text
+    )
+    RETURNING id
+)
+UPDATE swarm_role
+SET status = 'running',
+    current_step = 'enqueued — awaiting claim',
+    last_heartbeat_at = now()
+WHERE id = $1::uuid
+  AND status = 'ready'
+`
+
+type EnqueueSwarmRoleTaskParams struct {
+	RoleID         pgtype.UUID `json:"role_id"`
+	AgentID        pgtype.UUID `json:"agent_id"`
+	RuntimeID      pgtype.UUID `json:"runtime_id"`
+	IssueID        pgtype.UUID `json:"issue_id"`
+	Priority       int32       `json:"priority"`
+	TriggerSummary string      `json:"trigger_summary"`
+	HandoffNote    string      `json:"handoff_note"`
+}
+
+// 0.5.22 audit fix (P1-4): atomic enqueue + status flip. The previous
+// order was CreateAgentTask then SetSwarmRoleStatus(running) — a
+// service shutdown between the two writes left the role in 'ready'
+// while the agent_task_queue row already existed; the next tick
+// re-enqueued the same role, producing duplicate tasks. This query
+// does both writes in one transaction so partial state is impossible.
+// INSERT-then-UPDATE: if the UPDATE matches 0 rows (because the role
+// is no longer 'ready'), the INSERT is rolled back and no duplicate
+// task is created.
+func (q *Queries) EnqueueSwarmRoleTask(ctx context.Context, arg EnqueueSwarmRoleTaskParams) error {
+	_, err := q.db.Exec(ctx, enqueueSwarmRoleTask,
+		arg.RoleID,
+		arg.AgentID,
+		arg.RuntimeID,
+		arg.IssueID,
+		arg.Priority,
+		arg.TriggerSummary,
+		arg.HandoffNote,
+	)
+	return err
+}
+
 const getSwarmRole = `-- name: GetSwarmRole :one
 SELECT id, swarm_run_id, agent_id, role_name, role_instructions, parent_role_id, depends_on, status, last_heartbeat_at, current_step, created_at FROM swarm_role WHERE id = $1
 `
@@ -834,8 +884,13 @@ func (q *Queries) SetSwarmRunPhase(ctx context.Context, arg SetSwarmRunPhasePara
 const setSwarmRunStatus = `-- name: SetSwarmRunStatus :one
 UPDATE swarm_run
 SET status = $1::text,
-    completed_at = CASE WHEN $1::text IN ('completed','aborted','failed')
-                       THEN now() ELSE completed_at END
+    completed_at = CASE
+        WHEN status IN ('completed','aborted','failed')
+            THEN completed_at
+        WHEN $1::text IN ('completed','aborted','failed')
+            THEN now()
+        ELSE completed_at
+    END
 WHERE id = $2::uuid
 RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused
 `
@@ -847,6 +902,18 @@ type SetSwarmRunStatusParams struct {
 
 // Mirrors mythos_run SetMythosRunStatus semantics: terminal status auto-stamps
 // completed_at; non-terminal leaves it NULL.
+//
+// 0.5.22 audit fix (P1-9): the CASE previously stamped completed_at
+// on EVERY terminal write — a second SetSwarmRunStatus call (e.g.
+// orchestrator.runOrchestratorLoop terminal-status detect racing
+// the handler cancel path) overwrote the original terminal timestamp
+// and skewed the 7d GC window. The fix: only stamp completed_at when
+// the row is NOT already in a terminal status. The case is a 2x2:
+//
+//	current_status  / supplied_status -> stamp?
+//	terminal       / any              -> keep existing (preserves audit)
+//	non-terminal   / terminal         -> stamp now()
+//	non-terminal   / non-terminal     -> keep NULL
 func (q *Queries) SetSwarmRunStatus(ctx context.Context, arg SetSwarmRunStatusParams) (SwarmRun, error) {
 	row := q.db.QueryRow(ctx, setSwarmRunStatus, arg.Status, arg.ID)
 	var i SwarmRun

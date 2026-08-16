@@ -103,6 +103,25 @@ func (f *fakeQuerier) UpsertAgentRuntime(_ context.Context, arg db.UpsertAgentRu
 	return db.UpsertAgentRuntimeRow{ID: newSwarmTestUUID()}, nil
 }
 
+// 0.5.22 P1-12 fix: bootstrapFromSpec now writes a visibility row
+// for every role-agent so it hides from regular pickers (mirrors
+// product_swarm_coordinator.go:121-130). fakeQuerier records the
+// call so tests can pin that the wiring fires.
+func (f *fakeQuerier) InsertExperimentalResourceVisibility(_ context.Context, arg db.InsertExperimentalResourceVisibilityParams) error {
+	f.calls = append(f.calls, "InsertExperimentalResourceVisibility:"+arg.ResourceType)
+	return nil
+}
+
+// 0.5.22 P1-4 fix: enqueueReadyRole now uses EnqueueSwarmRoleTask
+// (atomic INSERT + UPDATE) instead of CreateAgentTask +
+// SetSwarmRoleStatus. fakeQuerier records the call so tests can pin
+// the new atomic path.
+func (f *fakeQuerier) EnqueueSwarmRoleTask(_ context.Context, arg db.EnqueueSwarmRoleTaskParams) error {
+	f.calls = append(f.calls, "EnqueueSwarmRoleTask")
+	_ = arg
+	return nil
+}
+
 func (f *fakeQuerier) CreateSwarmRoleMessage(_ context.Context, arg db.CreateSwarmRoleMessageParams) (db.SwarmRoleMessage, error) {
 	f.calls = append(f.calls, "CreateSwarmRoleMessage:"+arg.Type)
 	return db.SwarmRoleMessage{}, nil
