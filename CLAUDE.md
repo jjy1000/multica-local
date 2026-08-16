@@ -1081,6 +1081,24 @@ References:
 - Cleanup GC (server/internal/experimental/swarm_gc.go)
 - Active Contract #5 mutex extension in issue.go:2222-2254 (mirrors mythos sole gate)
 
+### 6. Lab auto-dispatch opt-out (0.5.22) — per-catalog opt-out for "display + manual trigger" labs
+
+`experimental.Flag.AutoDispatch *bool` is the per-catalog opt-out for the standard 0.3.46 auto-dispatch contract. Nil / `*AutoDispatch == true` = unchanged behaviour (lab_source flip → assignee auto-rewrite → `maybeEnqueueOnAssign` runs the task queue). `*AutoDispatch == false` = the assignee is still written (leader-rewrite still applies, so IssueLabsSection + the lab workbench header show the right agent), but the enqueue gate short-circuits — the user must explicitly trigger via the lab workbench's "Run research" button.
+
+Enforced at three layers (defense in depth):
+
+1. `service/issue.go::maybeEnqueueOnAssign` (CreateIssue path).
+2. `service/issue_trigger.go::WillEnqueueRun` (UpdateIssue + BatchUpdateIssues chokepoint — single `IssueTriggerInput` predicate).
+3. Reading path: `experimental.AutoDispatch(key)` collapses nil/unknown/disabled into the right default; consumed at the two layers above and exposed to the renderer via `ExperimentalFlagResponse.AutoDispatch` so the IssueContextBar can decide whether to render the Run button.
+
+`claude_science_lab` is the only opt-out lab today (user preference: research runs are 30+ minutes — auto-firing them on every new `lab_source`-bound issue surprised the user). Adding a second opt-out lab is a 3-line catalog edit (`Flag.AutoDispatch = ptrBool(false)`) — no service-layer or router changes needed.
+
+The manual trigger fires via `POST /api/experimental/claude-science/issues/{id}/run` (`server/internal/handler/claude_science_run.go`), which calls `TaskService.EnqueueTaskForIssue` directly — bypassing the service gates because the endpoint IS the manual opt-in. The route is mounted inside the existing `RequireExperimentalFlag("claude_science_lab")` chi group in `cmd/server/router.go` (off-flag callers see 404). Endpoints errors: 400 (wrong lab_source / missing agent assignee), 403 (non-member), 404 (issue not found), 409 (pending task exists for `(issue, agent)`), 500 (enqueue failure).
+
+Tests: `TestAutoDispatchFlagBehavior` in `server/internal/experimental/registry_test.go` pins the helper semantics; future regression pins for the service-layer gates belong in `issue_lab_dispatch_test.go` (existing file).
+
+**Do NOT re-add the auto-enqueue side of the contract for opted-out labs** — that was the surprise the opt-out was designed to prevent. If a future contributor needs background enqueue for claude_science_lab, the right answer is a second user-controlled toggle (e.g. `manifest.trigger_modes`), not removing the catalog flag.
+
 ## Known Stability Surfaces
 
 > **8 fork-applicable HIGH vuln contracts pending.** 2026-08-05 vuln scan (62 findings, 13 HIGH, 8 fork-applicable) triaged at `.omc/audit/2026-08-05-vuln-scan/triage.md`. The 8 P0 contracts (F-002 / F-005 / F-006 / F-007 / F-008 / F-013 / F-027 / F-028) get written into this section when their fixes ship. 0.5.17 went usability-first instead of sec-first, so all 8 contracts are still pending as of this release. Do NOT re-touch those code paths without first reading the triage + the landed contract bullet.

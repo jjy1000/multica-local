@@ -536,6 +536,17 @@ func (s *IssueService) maybeEnqueueOnAssign(ctx context.Context, issue db.Issue,
 	if !issue.AssigneeType.Valid || !issue.AssigneeID.Valid {
 		return
 	}
+	// 0.5.22 lab auto-dispatch opt-out (claude_science_lab). The leader
+	// is still written by assignDefaultLabAgent (so IssueLabsSection +
+	// the lab workbench header show the right assignee), but no agent
+	// task is enqueued — the user must explicitly trigger via the lab
+	// workbench's "Run research" button (POST
+	// /api/experimental/claude-science/issues/:id/run). Only catalog
+	// entries with AutoDispatch=false honor this; unknown / nil lab
+	// keys default to true so every other lab keeps the 0.3.46 contract.
+	if issue.LabSource.Valid && !experimental.AutoDispatch(issue.LabSource.String) {
+		return
+	}
 	if s.shouldEnqueueAgentTask(ctx, issue) {
 		if _, err := s.TaskService.EnqueueTaskForIssue(ctx, issue); err != nil {
 			slog.Warn("enqueue agent task on create failed",

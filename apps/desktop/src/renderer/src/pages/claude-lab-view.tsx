@@ -69,7 +69,7 @@ import {
   Play,
   Sparkles,
 } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
 import { ForecastStreamView, LabChatPanel, labChatPanelPropsFromContext } from "@multica/views/experimental";
@@ -381,6 +381,7 @@ function IssueContextBar({
   const { t } = useT("claude-lab");
   const router = useNavigation();
   const slug = getCurrentSlug();
+  const queryClient = useQueryClient();
   const ctx = useLabWorkbenchContext(wsId, selectedIssueId);
   const issue = ctx.data?.issue;
   const labSeq = ctx.data?.lab_seq ?? 0;
@@ -391,6 +392,42 @@ function IssueContextBar({
     if (!slug) return;
     router.push(paths.workspace(slug).issueDetail(selectedIssueId));
   };
+
+  // 0.5.22: manual "Run research" trigger. claude_science_lab opts out
+  // of auto-dispatch (the leader-rewrite still applies, but no
+  // agent_task_queue row is created until the user clicks). Hide the
+  // button while a task is in flight so the user can't double-enqueue.
+  const tasks = ctx.data?.tasks ?? [];
+  const inFlight = tasks.some(
+    (task) =>
+      task.status === "queued" ||
+      task.status === "running" ||
+      task.status === "preparing" ||
+      task.status === "dispatched" ||
+      task.status === "waiting_local_directory" ||
+      task.status === "deferred",
+  );
+  const runResearch = useMutation({
+    mutationFn: async () => {
+      const resp = await api.rawRequest(
+        `/api/experimental/claude-science/issues/${selectedIssueId}/run`,
+        { method: "POST" },
+      );
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(text || `HTTP ${resp.status}`);
+      }
+      return (await resp.json()) as { task_id: string };
+    },
+    onSuccess: () => {
+      // The lab context query carries the new task row; refetch so the
+      // PlanTimeline + lab_seq refresh immediately instead of waiting
+      // for the 5s polling beat.
+      queryClient.invalidateQueries({
+        queryKey: ["claude-lab-context", selectedIssueId],
+      });
+    },
+  });
 
   return (
     <div
@@ -415,6 +452,24 @@ function IssueContextBar({
       <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
         {t(($) => $.plan_lab_seq_label, { seq: labSeq })}
       </span>
+      {issue?.lab_source === "claude_science_lab" && !inFlight && (
+        <button
+          type="button"
+          onClick={() => runResearch.mutate()}
+          disabled={runResearch.isPending}
+          className="rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+          title={t(($) => $.dispatch_manually_hint)}
+        >
+          {runResearch.isPending
+            ? t(($) => $.loading)
+            : t(($) => $.run_research_button)}
+        </button>
+      )}
+      {runResearch.isError && (
+        <span className="text-[10px] text-destructive">
+          {t(($) => $.loading_failed)}
+        </span>
+      )}
     </div>
   );
 }

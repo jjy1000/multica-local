@@ -58,12 +58,16 @@ func ensureReadyResearchAgent(t *testing.T, wsID pgtype.UUID, owner pgtype.UUID)
 // UpdateIssue path). Flipping lab_source onto claude_science_lab on an
 // unassigned, active (todo) issue must:
 //  1. auto-assign the `research` leader agent, and
-//  2. enqueue a run for it (RunSourceAssign).
+//  2. NOT enqueue a run — claude_science_lab is the 0.5.22
+//     auto-dispatch opt-out (Active Contract #6 in root CLAUDE.md);
+//     the user must explicitly click "Run research" on the lab
+//     workbench to start the run.
 //
-// The bug: the PATCH carries no assignee_* field, so assigneeChanged stayed
-// false and WillEnqueueRun fell through to its default (no run). The fix folds
-// the lab auto-assign into assigneeChanged.
-func TestUpdateIssueLabSourceDispatchesResearch(t *testing.T) {
+// Pre-0.5.22 this test asserted (2) fired. The auto-dispatch opt-out
+// broke that — the test was renamed and its assertion flipped so it
+// now pins the opt-out side of the contract. The leader-rewrite half
+// is still pinned (lines 101-106).
+func TestUpdateIssueLabSourceClaudeOptOutNoAutoDispatch(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -105,8 +109,52 @@ func TestUpdateIssueLabSourceDispatchesResearch(t *testing.T) {
 		t.Fatalf("expected assignee_id=%s, got %v", researchIDStr, resp.AssigneeID)
 	}
 
-	if got := taskCountFor(t, issue.ID, researchIDStr); got == 0 {
-		t.Fatalf("selecting the science lab enqueued no research run (dispatch regression)")
+	// 0.5.22: opt-out asserts NO auto-dispatch. Pre-0.5.22 the same
+	// assertion was a non-zero count — the catalog AutoDispatch=false
+	// flipped WillEnqueueRun to skip the enqueue for this lab.
+	if got := taskCountFor(t, issue.ID, researchIDStr); got != 0 {
+		t.Fatalf("claude_science_lab is auto-dispatch opt-out (Active Contract #6), but %d run(s) were enqueued", got)
+	}
+}
+
+// TestUpdateIssueLabSourcePythiaAutoDispatchStillFires — 0.5.22 sibling
+// to TestUpdateIssueLabSourceClaudeOptOutNoAutoDispatch. Confirms the
+// opt-out is per-catalog, NOT global: pythia_oracle (AutoDispatch
+// unset → default true) still enqueues on lab_source flip, so the
+// 0.3.46 contract is preserved for every lab that hasn't explicitly
+// opted out.
+func TestUpdateIssueLabSourcePythiaAutoDispatchStillFires(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	owner := mustCreateTestMember(t, wsUUID)
+	pythiaID := ensureReadyLabLeader(t, wsUUID, owner, "pythia_runtime")
+	pythiaIDStr := util.UUIDToString(pythiaID)
+
+	issue := createIssueForTest(t, map[string]any{
+		"title":  "lab-dispatch-pythia-still-fires",
+		"status": "todo",
+	})
+
+	w := httptest.NewRecorder()
+	req := withURLParam(
+		newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{
+			"lab_source": "pythia_oracle",
+		}),
+		"id", issue.ID,
+	)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("UpdateIssue lab_source (pythia): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if got := taskCountFor(t, issue.ID, pythiaIDStr); got == 0 {
+		t.Fatalf("pythia_oracle has no AutoDispatch=false override; lab-source flip must still auto-dispatch")
 	}
 }
 
@@ -214,8 +262,13 @@ func TestUpdateIssueLabSourceRewritesStaleAssignee(t *testing.T) {
 	// assignee_* field; the labAutoAssigned fold in UpdateIssue is what
 	// closes that loop. Pin a non-zero research-run count to catch any
 	// regression that drops the fold or breaks the lab-leader dispatch.
-	if got := taskCountFor(t, issue.ID, researchIDStr); got == 0 {
-		t.Fatalf("case D dispatch: stale-assignee rewrite enqueued no research run (P0#4 regression)")
+	//
+	// 0.5.22: claude_science_lab opted out of auto-dispatch (Active
+	// Contract #6). The leader-rewrite half is still pinned above; this
+	// half now asserts NO task is enqueued (the opt-out side of the
+	// contract).
+	if got := taskCountFor(t, issue.ID, researchIDStr); got != 0 {
+		t.Fatalf("claude_science_lab is auto-dispatch opt-out (Active Contract #6), but %d run(s) were enqueued", got)
 	}
 }
 
@@ -383,6 +436,10 @@ func TestUpdateIssueLabSourceMythosSoleNoAutoAssign(t *testing.T) {
 // issues must auto-assign the lab leader for every issue and arm the
 // dispatch path (labAutoRewrote folded into assigneeChanged). Pin
 // both the per-issue rewrite AND a non-zero research-run count.
+//
+// 0.5.22: claude_science_lab opted out of auto-dispatch (Active
+// Contract #6). The leader-rewrite half is still pinned below; the
+// dispatch half now asserts ZERO tasks (the opt-out side).
 func TestBatchUpdateIssuesLabSourceAutoAssignsLeader(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -439,11 +496,11 @@ func TestBatchUpdateIssuesLabSourceAutoAssignsLeader(t *testing.T) {
 			t.Errorf("issue %s: expected assignee_id=%s, got=%v", id, researchIDStr, aid)
 		}
 
-		// Dispatch assertion: every active issue must enqueue a run
-		// for the rewritten leader (mirrors UpdateIssue case D +
-		// TestUpdateIssueLabSourceDispatchesResearch coverage).
-		if got := taskCountFor(t, id, researchIDStr); got == 0 {
-			t.Errorf("issue %s: batch lab-source flip enqueued no research run (P0#4 Batch parity regression)", id)
+		// 0.5.22: opt-out asserts ZERO enqueued tasks (per
+		// TestUpdateIssueLabSourceClaudeOptOutNoAutoDispatch).
+		if got := taskCountFor(t, id, researchIDStr); got != 0 {
+			t.Errorf("issue %s: claude_science_lab is auto-dispatch opt-out (Active Contract #6), but %d run(s) were enqueued",
+				id, got)
 		}
 	}
 }
@@ -539,9 +596,9 @@ func TestUpdateIssueLabSourcePythiaOracle(t *testing.T) {
 	}
 
 	var resp struct {
-		AssigneeType pgtype.Text  `json:"assignee_type"`
-		AssigneeID   pgtype.UUID  `json:"assignee_id"`
-		LabSource    *string      `json:"lab_source"`
+		AssigneeType pgtype.Text `json:"assignee_type"`
+		AssigneeID   pgtype.UUID `json:"assignee_id"`
+		LabSource    *string     `json:"lab_source"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)

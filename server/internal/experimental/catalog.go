@@ -116,6 +116,22 @@ type Flag struct {
 	// issue-detail.tsx for the timeline comment filter) now read
 	// `(flags ?? []).find(...).hides_deliverable_in_issue_timeline`.
 	HidesDeliverableInIssueTimeline bool `json:"hides_deliverable_in_issue_timeline,omitempty"`
+	// AutoDispatch — when nil (the zero value), the lab follows the
+	// standard 0.3.46 contract: lab_source flip → assignee auto-rewrite
+	// to the leader → maybeEnqueueOnAssign runs the task queue. When
+	// *AutoDispatch == false, the lab still auto-assigns the leader
+	// (so IssueLabsSection + the lab workbench view show the right
+	// assignee) but the enqueue gate short-circuits — the user must
+	// trigger the run explicitly (e.g. via @mention, a workspace-scoped
+	// lab UI button, or the daemon CLI). Used by labs whose runs are
+	// expensive enough that an automatic 30+ minute background run on
+	// every new issue would surprise the user (claude_science_lab).
+	// Pointer is required so we can distinguish "not configured =
+	// default true" from "explicitly opted out = false"; a plain bool
+	// could not encode that without a sentinel. Free function
+	// `experimental.AutoDispatch(key)` collapses both layers (built-in
+	// catalog + user plugins) for callers; nil entry returns true.
+	AutoDispatch *bool `json:"auto_dispatch,omitempty"`
 	// Sidebar mirrors entry_points.sidebar[*] from the manifest so
 	// GET /api/experimental-flags can ship the nav rows in one call.
 	// Loaded at boot from the manifest under MULTICA_RESOURCES_DIR.
@@ -191,6 +207,13 @@ var Catalog = []Flag{
 		// the old per-flag check.
 		RuntimeKind:                     "inline",
 		HidesDeliverableInIssueTimeline: true,
+		// 0.5.22: opt out of the auto-dispatch contract. Research
+		// runs are expensive (~30+ min) and the user prefers the lab
+		// to remain a passive holder of the issue (IssueLabsSection
+		// link + timeline summary card) until they explicitly trigger
+		// work via @mention or the lab workbench. Leader-rewrite still
+		// applies so assignee stays = research agent.
+		AutoDispatch: ptrBool(false),
 	},
 	{
 		Key:        "pythia_oracle",
@@ -251,6 +274,13 @@ var Catalog = []Flag{
 		// /api/experimental/swarm-topology/* is gated by this flag —
 		// off-flag callers get a uniform 404 (indistinguishable from a
 		// nonexistent route, per experimental_guard.go).
+		//
+		// 0.5.22: description refreshed to match the orchestrator's
+		// 3-phase lifecycle contract (multica-creating-swarms
+		// bootstrap → execute → cleanup); HideFromIssueLabPicker
+		// stays false so users can pick swarm_topology per issue via
+		// the LabPicker (the contract puts the lab in charge of the
+		// assignee via the mutex gate, not in a globals-only mode).
 		Key:        "swarm_topology",
 		DefaultVal: false,
 		Title: LocalizedString{
@@ -258,8 +288,8 @@ var Catalog = []Flag{
 			Zh: "蜂群拓扑",
 		},
 		Description: LocalizedString{
-			En: "Multi-agent role-graph topology: a leader agent authors a role spec, role-agents execute per-node instructions in topological order, and the orchestrator cancels in-flight tasks on user interrupt. Off by default — enable to bind swarm_topology per issue via the LabPicker.",
-			Zh: "多智能体角色图拓扑:leader 智能体撰写角色规格,角色智能体按拓扑顺序执行节点指令,用户中断时编排器取消进行中的任务。默认关闭 — 通过 LabPicker 将 swarm_topology 绑定到具体 issue。",
+			En: "Self-organising multi-agent system. The leader authors role-agents + skills + a coordinating squad on bootstrap, then walks a 5-phase machine. Off by default.",
+			Zh: "自组织多智能体系统。leader 在启动时创建角色 agents + skills + 协调 squad,运行 5 阶段机器。默认关闭。",
 		},
 		ManifestPath: "experiments/swarm_topology/manifest.json",
 		RuntimeKind:  "headless",
@@ -318,6 +348,52 @@ var Catalog = []Flag{
 		ProxyPrefix:                     "/experimental/code-canvas",
 		LoopbackService:                 "code_canvas",
 		HidesDeliverableInIssueTimeline: true,
+	},
+	{
+		// semantica: 0.5.22 Semantica × Multica Phase 2 integration.
+		//
+		// Phase 1 (0.5.22 dev cycle) shipped the catalog entry, vendor
+		// run.sh, REST API bridge, and the `multica-semantica` curl skill.
+		// Phase 2 adds: semantica_decision_advisor leader agent (installable,
+		// hidden when flag is off), terminal-issue decision sync via the
+		// events bus, a Labs-tab iframe view at /experimental/semantica-explorer,
+		// and `multica lab delegate semantica "<task>"` (resolved by the
+		// `resolveLabFlagKey` pass-through fix in cmd_lab.go).
+		//
+		// The subprocess path is unchanged from Phase 1 — semantica uses the
+		// GENERIC subprocess-manager (resolveGenericSubprocessManager)
+		// because it needs no env injection beyond SEMANTICA_REPO_PATH,
+		// which the run.sh script reads from process.env directly.
+		Key:        "semantica",
+		DefaultVal: false,
+		Title: LocalizedString{
+			En: "Semantica Knowledge Graph",
+			Zh: "Semantica 知识图谱",
+		},
+		Description: LocalizedString{
+			En: "Local subprocess that bridges Semantica (knowledge graph + decision records) into Multica. Phase 2 adds the semantica_decision_advisor agent for delegation, terminal-issue decision sync, and a Labs-tab iframe. Off by default.",
+			Zh: "本地子进程,把 Semantica(知识图谱 + 决策记录)桥接到 Multica。Phase 2 新增 semantica_decision_advisor agent 支持委托、终态 issue 自动同步决策、Labs 标签页 iframe。默认关闭。",
+		},
+		ManifestPath:    "experiments/semantica/manifest.json",
+		RuntimeKind:     "subprocess",
+		ProxyPrefix:     "/experimental/semantica",
+		LoopbackService: "semantica",
+		// Phase 2: opt into the issue LabPicker so users can bind
+		// lab_source=semantica per-issue (mirrors pythia_oracle /
+		// claude_science_lab). The decision-sync listener and the iframe
+		// tab together make semantica a first-class issue-bound lab.
+		HideFromIssueLabPicker:          false,
+		HidesDeliverableInIssueTimeline: true,
+		// Phase 2: sidebar entry routes to /experimental/semantica-explorer
+		// (NOT /experimental/semantica — that path is reserved for the
+		// REST proxy used by the agent subprocess).
+		Sidebar: []SidebarRow{
+			{
+				Key:      "experimental_semantica",
+				LabelKey: "experimental_semantica",
+				Route:    "/experimental/semantica-explorer",
+			},
+		},
 	},
 	// 0.5.6: `agent_self_optimization` and `agent_creation_studio`
 	// are no longer catalog entries. The two flags were promoted to
@@ -455,3 +531,38 @@ func DefaultFor(key string) bool {
 	// user plugins default to false (opt-in)
 	return false
 }
+
+// AutoDispatch reports whether an issue with lab_source=key should
+// auto-enqueue a task on the lab leader when created (CreateIssue +
+// UpdateIssue paths via IssueService.maybeEnqueueOnAssign / handler
+// WillEnqueueRun). Defaults to true so existing labs keep their
+// 0.3.46 behaviour; flags that opt out (claude_science_lab) set
+// Flag.AutoDispatch = ptrBool(false).
+//
+// Note: this gate does NOT block the leader-rewrite (assignDefaultLabAgent /
+// assignDefaultLabAgentOnUpdate). The assignee still becomes the lab
+// leader — only the auto-enqueue is skipped. Users can still trigger a
+// run explicitly via @mention, lab UI buttons, or daemon CLI.
+//
+// Built-in catalog wins on key collision (matches DefaultFor's rule);
+// user plugins that omit AutoDispatch fall back to true.
+func AutoDispatch(key string) bool {
+	if isBuiltinKey(key) {
+		for _, f := range Catalog {
+			if f.Key == key {
+				return f.AutoDispatch == nil || *f.AutoDispatch
+			}
+		}
+	}
+	userPluginMu.RLock()
+	defer userPluginMu.RUnlock()
+	if f, ok := userPlugins[key]; ok && f.AutoDispatch != nil {
+		return *f.AutoDispatch
+	}
+	return true
+}
+
+// ptrBool returns a pointer to the literal bool. Helper for filling
+// Flag.AutoDispatch at the catalog literal site without making every
+// site spell out `b := false; AutoDispatch: &b`.
+func ptrBool(b bool) *bool { return &b }

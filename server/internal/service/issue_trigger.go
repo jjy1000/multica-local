@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/experimental"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -82,6 +83,17 @@ func allowAllAgents(db.Agent) bool { return true }
 func (s *IssueService) WillEnqueueRun(ctx context.Context, in IssueTriggerInput, probe IssueTriggerProbe) (IssueRunTrigger, bool) {
 	issue := in.Issue
 	if !issue.AssigneeType.Valid || !issue.AssigneeID.Valid {
+		return IssueRunTrigger{}, false
+	}
+	// 0.5.22 lab auto-dispatch opt-out (claude_science_lab). This is
+	// the single chokepoint for both the UpdateIssue and
+	// BatchUpdateIssues write paths (IssueService.WillEnqueueRun gates
+	// both), so a gate here short-circuits BOTH paths in one place.
+	// The leader-rewrite still applies on the Update path; only the
+	// enqueue is skipped. The manual-run endpoint
+	// (handler/claude_science_run.go) calls TaskService.EnqueueTaskForIssue
+	// directly and is unaffected.
+	if issue.LabSource.Valid && !experimental.AutoDispatch(issue.LabSource.String) {
 		return IssueRunTrigger{}, false
 	}
 	canAccess := probe.CanAccessAgent

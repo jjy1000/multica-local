@@ -69,5 +69,7 @@
   "plan_timeline_status_preparing": "준비 중",
   "plan_timeline_status_waiting_local_directory": "로컬 디렉토리 대기 중",
   "plan_timeline_status_deferred": "연기됨",
-  "lab_chat_send_hint": "{{count}}/{{max}} · ⌘↩ 보내기"
+  "lab_chat_send_hint": "{{count}}/{{max}} · ⌘↩ 보내기",
+  "run_research_button": "지금 연구",
+  "dispatch_manually_hint": "연구 실행을 수동으로 디스패치"
 }

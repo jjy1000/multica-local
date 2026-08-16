@@ -32,9 +32,9 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
-	swarmsvc "github.com/multica-ai/multica/server/internal/service/swarm"
 	agent_trust "github.com/multica-ai/multica/server/internal/service/agent_trust"
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
+	swarmsvc "github.com/multica-ai/multica/server/internal/service/swarm"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
@@ -565,6 +565,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallCodeCanvas(context.Background(), userID, workspaceID)
 			})
+		// 0.5.22 Semantica × Multica Phase 2: install handler for the
+		// semantica lab. Mirrors pythia_oracle / code_canvas shape — a
+		// single-leader install that provisions the
+		// semantica_decision_advisor agent + visibility row. The
+		// Semantica FastAPI subprocess itself is owned by the desktop
+		// manager-factory; the install handler only writes the DB rows
+		// the daemon auto-dispatch path lands on.
+		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceSemantica),
+			func(userID, workspaceID string) error {
+				return hh.InstallSemantica(context.Background(), userID, workspaceID)
+			})
 		// 0.5.3: agent_creation_studio upgraded from an action-only lab to
 		// an issue-bound lab: selecting it in LabPicker writes
 		// issue.lab_source='agent_creation_studio' and the leader agent
@@ -943,6 +954,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// existing issue / agent / comment sqlc queries instead
 			// of introducing per-issue lists — see lab.go header.
 			handler.RegisterClaudeLabContextRoute(r, h)
+			// 0.5.22: manual "Run research" endpoint for the
+			// auto_dispatch=false catalog opt-out (claude_science_lab).
+			// Bypasses the service-layer gates so the workbench's
+			// "Run research" button can fire on demand.
+			handler.RegisterClaudeScienceRunRoute(r, h)
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(h.RequireExperimentalFlag("llm_wiki_bridge"))

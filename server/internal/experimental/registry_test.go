@@ -125,3 +125,54 @@ func TestRegistry_RollbackDefaultNoop(t *testing.T) {
 		t.Fatalf("RunRollback default: %v", err)
 	}
 }
+
+// TestAutoDispatchFlagBehavior (0.5.22) pins the AutoDispatch helper
+// contract: nil pointer and *true both mean "auto-dispatch as before";
+// *false means "skip auto-dispatch — user must trigger manually"; and
+// unknown keys default to true so a typo or a retired catalog entry
+// never silently turns off the agent enqueue.
+//
+// The helper reads Catalog directly, so the test snapshots + restores
+// the global slice around a temporary mutation. AutoDispatch itself
+// does not consult the registry's flag map.
+//
+// NOT t.Parallel(): this test mutates the package-global Catalog, which
+// races with TestCatalog_NewFlagsHaveManifestPaths / _RuntimeAndBridgeFlagsAreKnown
+// (also parallel). Serial execution is intentional.
+func TestAutoDispatchFlagBehavior(t *testing.T) {
+
+	trueVal := true
+	falseVal := false
+
+	orig := Catalog
+	t.Cleanup(func() { Catalog = orig })
+
+	Catalog = []Flag{
+		{Key: "lab_default", AutoDispatch: nil},
+		{Key: "lab_explicit_true", AutoDispatch: &trueVal},
+		{Key: "lab_explicit_false", AutoDispatch: &falseVal},
+		// claude_science_lab pin: the only production opt-out
+		// (snapshot of the real catalog value).
+		{Key: "claude_science_lab", AutoDispatch: &falseVal},
+		{Key: "pythia_oracle", AutoDispatch: nil},
+	}
+
+	cases := []struct {
+		key  string
+		want bool
+	}{
+		{"lab_default", true},
+		{"lab_explicit_true", true},
+		{"lab_explicit_false", false},
+		{"claude_science_lab", false},
+		{"pythia_oracle", true},
+		{"unknown_key", true},
+	}
+	for _, c := range cases {
+		t.Run(c.key, func(t *testing.T) {
+			if got := AutoDispatch(c.key); got != c.want {
+				t.Fatalf("AutoDispatch(%q) = %v, want %v", c.key, got, c.want)
+			}
+		})
+	}
+}

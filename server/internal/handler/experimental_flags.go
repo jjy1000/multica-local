@@ -74,6 +74,15 @@ type ExperimentalFlagResponse struct {
 	// have no per-issue agent) — the renderer then falls back to a generic
 	// "lab owns the roster" hint.
 	LeaderAgent string `json:"leader_agent,omitempty"`
+	// 0.5.22: mirror of Flag.AutoDispatch. True (default) means the
+	// service-layer auto-dispatch path (CreateIssue + UpdateIssue + Batch)
+	// still fires the lab leader agent right after the leader-rewrite.
+	// False (claude_science_lab) means the gate short-circuits — the
+	// assignee is still written, but no agent_task_queue row is created
+	// until the user explicitly clicks "Run research" on the lab
+	// workbench's IssueContextBar. The renderer uses this to know whether
+	// to render the Run button.
+	AutoDispatch bool `json:"auto_dispatch"`
 }
 
 // ExperimentalFlagsListResponse wraps the list so future metadata
@@ -132,6 +141,7 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			HideFromIssueLabPicker:          f.HideFromIssueLabPicker,
 			AlwaysShowInLabPicker:           f.AlwaysShowInLabPicker,
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
+			AutoDispatch:                    f.AutoDispatch == nil || *f.AutoDispatch,
 		}
 		// 0.3.65: expose the lab's default owner agent so the property panel
 		// can show "实验室测试智能体: <name>" under the locked assignee. Same
@@ -183,6 +193,7 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			AlwaysShowInLabPicker:           f.AlwaysShowInLabPicker,
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 			IsUserPlugin:                    true,
+			AutoDispatch:                    f.AutoDispatch == nil || *f.AutoDispatch,
 		}
 		// 0.3.65: user plugins auto-dispatch via their manifest's
 		// capabilities.leader (UserPluginLeader) — surface it the same way
