@@ -40,6 +40,7 @@ import { PropRow } from "../../common/prop-row";
 import { availabilityConfig } from "../presence";
 import { CharCounter } from "./char-counter";
 import { useT } from "../../i18n";
+import { AccessPicker } from "./inspector/access-picker";
 import { ConcurrencyPicker } from "./inspector/concurrency-picker";
 import { ModelPicker } from "./inspector/model-picker";
 import { RuntimePicker } from "./inspector/runtime-picker";
@@ -58,6 +59,7 @@ interface InspectorProps {
   // a write needs.
   runtimes: AgentRuntime[];
   members: MemberWithUser[];
+  workspaceId: string;
   currentUserId: string | null;
   /**
    * Computed by the parent via `useAgentPermissions(agent).canEdit.allowed`.
@@ -95,6 +97,7 @@ export function AgentDetailInspector({
   presence,
   runtimes,
   members,
+  workspaceId,
   currentUserId,
   canEdit,
   onUpdate,
@@ -154,6 +157,23 @@ export function AgentDetailInspector({
             value={agent.visibility}
             canEdit={canEdit}
             onChange={(v) => update({ visibility: v })}
+          />
+        </PropRow>
+        <PropRow
+          label={t(($) => $.access_picker.prop_label)}
+          interactive={false}
+        >
+          <AccessPicker
+            agent={agent}
+            members={members}
+            workspaceId={workspaceId}
+            canEdit={canEdit}
+            onChange={(next) =>
+              update({
+                permission_mode: next.permission_mode,
+                invocation_targets: next.invocation_targets,
+              })
+            }
           />
         </PropRow>
         <PropRow label={t(($) => $.inspector.prop_concurrency)} interactive={false}>

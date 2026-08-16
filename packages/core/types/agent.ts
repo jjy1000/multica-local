@@ -4,6 +4,35 @@ export type AgentRuntimeMode = "local" | "cloud";
 
 export type AgentVisibility = "workspace" | "private";
 
+// ---------------------------------------------------------------------------
+// Invocation permission (MUL-3963 port, 0.5.22)
+//
+// `permission_mode` is the authoritative column; `visibility` is a derived
+// legacy field kept for older clients. `private` = deny-by-default (owner +
+// explicit targets only); `public_to` = open to a published allow-list
+// (`invocation_targets`). public_to with a `workspace` target reads as
+// "workspace visibility" under the legacy two-value field; everything else
+// reads as "private". See
+// `server/internal/handler/agent_permission.go::deriveLegacyVisibility`.
+// ---------------------------------------------------------------------------
+
+export type PermissionMode = "private" | "public_to";
+
+export type InvocationTargetType = "workspace" | "member" | "team";
+
+export interface InvocationTarget {
+  /** `workspace` | `member` | `team`. `team` is a placeholder for future
+   *  group targeting; the backend accepts the row but the UI today only
+   *  picks workspace and member entries. */
+  target_type: InvocationTargetType;
+  /**
+   * Concrete id of the target. `null` for team placeholders the client
+   *  hasn't resolved (server stores NULL); always present for workspace
+   *  (= workspace id) and member (= user id) rows.
+   */
+  target_id: string | null;
+}
+
 // Runtime visibility is a separate axis from agent visibility — different
 // vocabulary because it gates a different action. "private" (default) means
 // only the runtime owner and workspace admins can bind agents to it;
@@ -367,6 +396,25 @@ export interface Agent {
    */
   mcp_config_redacted?: boolean;
   visibility: AgentVisibility;
+  /**
+   * 0.5.22 MUL-3963 port — authoritative permission axis. Defaults to
+   * `"private"` for rows persisted before migration 245 (server fills
+   * the column with `private` on backfill). Older clients that only
+   * know the legacy `visibility` field read it as the derived
+   * two-value surface (workspace -> `public_to` + workspace target;
+   * private -> everything else).
+   */
+  permission_mode?: PermissionMode;
+  /**
+   * Allow-list when `permission_mode === "public_to"`. For a `public_to`
+   * agent WITHOUT a workspace target, only entries listed here can
+   * invoke. Empty array on a public_to agent means nobody outside the
+   * owner can invoke (the lock-down degenerate). Backends that predate
+   * migration 245 omit the field; consumers must treat `undefined` as
+   * an empty list (the legacy visibility check would have hidden the
+   * agent entirely anyway).
+   */
+  invocation_targets?: InvocationTarget[];
   status: AgentStatus;
   max_concurrent_tasks: number;
   model: string;
@@ -423,6 +471,16 @@ export interface CreateAgentRequest {
   custom_env?: Record<string, string>;
   custom_args?: string[];
   visibility?: AgentVisibility;
+  /**
+   * 0.5.22 MUL-3963 port — when supplied, takes precedence over
+   * `visibility`. Backend normalises legacy visibility into the new
+   * axis (visibility="workspace" -> public_to + workspace target;
+   * visibility="private" -> private with no targets).
+   */
+  permission_mode?: PermissionMode;
+  /** Allow-list for `public_to` agents. Ignored when `permission_mode`
+   *  is `private` (or unset / `undefined`). MUL-3963. */
+  invocation_targets?: InvocationTarget[];
   max_concurrent_tasks?: number;
   model?: string;
   /** Optional runtime-native reasoning/effort token. See `Agent.thinking_level`. */
@@ -489,6 +547,14 @@ export interface CreateAgentFromTemplateRequest {
   /** Workspace skill IDs attached **in addition to** the template's
    *  skills. Server dedupes against template skills automatically. */
   extra_skill_ids?: string[];
+  /** 0.5.22 MUL-3963 port — overrides the template's own permission
+   *  settings. When omitted, the template's `permission_mode` /
+   *  `invocation_targets` are preserved verbatim. See `CreateAgentRequest`
+   *  for the precedence contract with the legacy `visibility` field. */
+  permission_mode?: PermissionMode;
+  /** 0.5.22 MUL-3963 port — allow-list override; see
+   *  `CreateAgentRequest.invocation_targets`. */
+  invocation_targets?: InvocationTarget[];
 }
 
 export interface CreateAgentFromTemplateResponse {
@@ -536,6 +602,18 @@ export interface UpdateAgentRequest {
    */
   mcp_config?: unknown | null;
   visibility?: AgentVisibility;
+  /**
+   * 0.5.22 MUL-3963 port — see `CreateAgentRequest.permission_mode`.
+   * When omitted (and `visibility` is also omitted) the persisted mode
+   * is unchanged.
+   */
+  permission_mode?: PermissionMode;
+  /** 0.5.22 MUL-3963 port — replaces the agent's allow-list wholesale
+   *  (the server deletes-then-re-inserts via `replaceInvocationTargets`).
+   *  An empty array clears the allow-list. Ignored when `permission_mode`
+   *  is set to `private` (the list is meaningless for a deny-by-default
+   *  agent). */
+  invocation_targets?: InvocationTarget[];
   status?: AgentStatus;
   max_concurrent_tasks?: number;
   model?: string;

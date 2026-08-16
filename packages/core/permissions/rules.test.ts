@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Agent, Comment, Member, RuntimeDevice, Skill } from "../types";
+import type { Agent, Comment, InvocationTarget, Member, RuntimeDevice, Skill } from "../types";
 import {
   canAssignAgentToIssue,
   canChangeMemberRole,
@@ -10,6 +10,7 @@ import {
   canEditAgent,
   canEditComment,
   canEditSkill,
+  canInvokeAgent,
   canManageMembers,
   canUpdateWorkspaceSettings,
 } from "./rules";
@@ -296,6 +297,153 @@ describe("workspace-level rules", () => {
     expect(canManageMembers({ userId: ALICE, role: "member" }).allowed).toBe(
       false,
     );
+  });
+});
+
+describe("canInvokeAgent (MUL-3963)", () => {
+  const WS = "ws_1";
+
+  // Private-agent baseline. Owner / admin bypass; everyone else denied.
+  const priv = makeAgent({ owner_id: ALICE, permission_mode: "private" });
+
+  it("denies logged-out actors", () => {
+    const d = canInvokeAgent(priv, { userId: null, role: null }, {
+      actorType: "member",
+      actorID: BOB,
+      workspaceID: WS,
+    });
+    expect(d.allowed).toBe(false);
+    expect(d.reason).toBe("not_authenticated");
+  });
+
+  it("allows the owner on private agents", () => {
+    expect(
+      canInvokeAgent(priv, { userId: ALICE, role: "member" }, {
+        actorType: "member",
+        actorID: ALICE,
+        workspaceID: WS,
+      }).allowed,
+    ).toBe(true);
+  });
+
+  it("allows admin/owner role on private agents", () => {
+    expect(
+      canInvokeAgent(priv, { userId: BOB, role: "admin" }, {
+        actorType: "member",
+        actorID: BOB,
+        workspaceID: WS,
+      }).allowed,
+    ).toBe(true);
+    expect(
+      canInvokeAgent(priv, { userId: BOB, role: "owner" }, {
+        actorType: "member",
+        actorID: BOB,
+        workspaceID: WS,
+      }).allowed,
+    ).toBe(true);
+  });
+
+  it("denies non-owner member on private agents", () => {
+    const d = canInvokeAgent(priv, { userId: BOB, role: "member" }, {
+      actorType: "member",
+      actorID: BOB,
+      workspaceID: WS,
+    });
+    expect(d.allowed).toBe(false);
+    expect(d.reason).toBe("private_visibility");
+  });
+
+  // Public-to baseline. Allow-list evaluation kicks in.
+  const targets: InvocationTarget[] = [
+    { target_type: "member", target_id: ALICE },
+  ];
+  const pub = makeAgent({
+    owner_id: ALICE,
+    permission_mode: "public_to",
+    invocation_targets: targets,
+  });
+
+  it("allows a member present in the allow-list", () => {
+    expect(
+      canInvokeAgent(pub, { userId: ALICE, role: "member" }, {
+        actorType: "member",
+        actorID: ALICE,
+        workspaceID: WS,
+      }).allowed,
+    ).toBe(true);
+  });
+
+  it("denies a member absent from the allow-list", () => {
+    const d = canInvokeAgent(pub, { userId: BOB, role: "member" }, {
+      actorType: "member",
+      actorID: BOB,
+      workspaceID: WS,
+    });
+    expect(d.allowed).toBe(false);
+    expect(d.reason).toBe("private_visibility");
+  });
+
+  it("lets an agent/system actor reach a workspace-broad public_to agent", () => {
+    const wsPub = makeAgent({
+      owner_id: ALICE,
+      permission_mode: "public_to",
+      invocation_targets: [{ target_type: "workspace", target_id: WS }],
+    });
+    expect(
+      canInvokeAgent(wsPub, { userId: BOB, role: "member" }, {
+        actorType: "member",
+        actorID: BOB,
+        workspaceID: WS,
+      }).allowed,
+    ).toBe(true);
+    expect(
+      canInvokeAgent(wsPub, { userId: BOB, role: "member" }, {
+        actorType: "agent",
+        actorID: "agt_other",
+        workspaceID: WS,
+      }).allowed,
+    ).toBe(true);
+  });
+
+  it("blocks an agent actor from a member-only public_to agent", () => {
+    // No workspace target in the list, only member entries — agent
+    // dispatch must NOT silently reach a member-only allow-list.
+    const d = canInvokeAgent(pub, { userId: BOB, role: "member" }, {
+      actorType: "agent",
+      actorID: "agt_other",
+      workspaceID: WS,
+    });
+    expect(d.allowed).toBe(false);
+  });
+
+  it("denies on public_to with an empty allow-list", () => {
+    const lockDown = makeAgent({
+      owner_id: ALICE,
+      permission_mode: "public_to",
+      invocation_targets: [],
+    });
+    const d = canInvokeAgent(lockDown, { userId: BOB, role: "member" }, {
+      actorType: "member",
+      actorID: BOB,
+      workspaceID: WS,
+    });
+    expect(d.allowed).toBe(false);
+  });
+
+  it("treats missing permission_mode as private", () => {
+    const legacy = makeAgent({
+      owner_id: ALICE,
+      visibility: "private",
+      // permission_mode omitted (pre-migration-245 backend row)
+    });
+    delete (legacy as { permission_mode?: string }).permission_mode;
+    const d = canInvokeAgent(legacy, { userId: BOB, role: "member" }, {
+      actorType: "member",
+      actorID: BOB,
+      workspaceID: WS,
+    });
+    expect(d.allowed).toBe(false);
+    expect(d.reason).toBe("private_visibility");
   });
 });
 

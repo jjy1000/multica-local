@@ -172,6 +172,36 @@
     "trigger_aria": "워크스페이스 스킬 연결",
     "trigger_label": "연결"
   },
+  "access_picker": {
+    "prop_label": "접근 권한",
+    "trigger_tooltip": "접근 권한 · {{value}}",
+    "section_title": "이 에이전트를 호출할 수 있는 사용자",
+    "section_intro": "「비공개」는 본인과 워크스페이스 관리자만 호출할 수 있습니다. 「공개」는 워크스페이스 전체 또는 특정 멤버로 허용 목록을 게시할 수 있습니다.",
+    "permission_mode": {
+      "private": "비공개",
+      "public_to": "공개",
+      "private_hint": "본인과 워크스페이스 관리자만 이 에이전트를 호출할 수 있습니다.",
+      "public_to_hint": "아래 허용 목록의 멤버가 이 에이전트를 호출할 수 있습니다."
+    },
+    "allowlist_title": "허용 목록",
+    "allowlist_empty": "본인과 워크스페이스 관리자 외에는 이 에이전트를 호출할 수 없습니다.",
+    "allowlist_empty_public": "워크스페이스 전체를 추가하거나 아래에서 멤버를 추가하여 호출을 허용하세요.",
+    "workspace_target_label": "워크스페이스 멤버",
+    "workspace_target_hint": "이 워크스페이스의 모든 멤버가 이 에이전트를 호출할 수 있습니다.",
+    "workspace_target_remove_aria": "워크스페이스 전체 접근 제거",
+    "workspace_target_add_label": "워크스페이스 멤버",
+    "workspace_target_add_hint": "이 워크스페이스의 모든 멤버가 이 에이전트를 호출할 수 있도록 허용합니다.",
+    "workspace_target_already": "이미 추가됨 — 워크스페이스 멤버는 이미 이 에이전트를 호출할 수 있습니다.",
+    "members_section": "멤버",
+    "members_empty": "추가할 다른 워크스페이스 멤버가 없습니다.",
+    "member_remove_aria": "{{name}} 제거",
+    "add_member_aria": "허용 목록에 멤버 추가",
+    "search_placeholder": "멤버 검색…",
+    "no_matches": "일치하는 멤버가 없습니다.",
+    "saved_toast": "접근 권한이 업데이트되었습니다",
+    "save_failed_toast": "접근 권한 업데이트 실패",
+    "deny_hint": "이 에이전트의 호출 가능 사용자를 변경할 권한이 없습니다."
+  },
   "pickers": {
     "concurrency_tooltip": "동시 실행 · 최대 {{value}}개 작업",
     "concurrency_range": "최대 동시 작업 수({{min}}-{{max}})",

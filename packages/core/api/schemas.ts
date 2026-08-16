@@ -16,6 +16,7 @@ import type {
   CreateBillingPortalSessionResponse,
   GroupedIssuesResponse,
   InboxWorkspaceUnread,
+  InvocationTarget,
   Issue,
   LabContext,
   ListIssuesResponse,
@@ -763,6 +764,113 @@ export const EMPTY_AGENT_TEMPLATE_DETAIL: AgentTemplate = {
 const MinimalAgentSchema = z.object({
   id: z.string(),
 }).loose();
+
+// ---------------------------------------------------------------------------
+// MUL-3963 invocation-permission DTOs (0.5.22)
+//
+// The agent list / detail / create / update responses stamp two additive
+// fields: `permission_mode` ("private" | "public_to") and
+// `invocation_targets` (the per-agent allow-list). Older backends that
+// predate migration 245 omit both; we default to `private` and an empty
+// list so the legacy "owner only" gate stays the safe fallback. The
+// schemas are intentionally LENIENT — `target_type` is stored as
+// `z.string()` so a future server-side enum widening doesn't fail the
+// parse (and downstream code already filters unknown values via the
+// `unknown` DecisionReason + optional chaining).
+// ---------------------------------------------------------------------------
+
+const PermissionModeSchema = z.enum(["private", "public_to"]);
+
+const InvocationTargetSchema = z.object({
+  // Stored as `z.string()` not `z.enum([...])` — a future "team" or
+  // "group" target type must not break clients that pin the parser.
+  target_type: z.string().default(""),
+  target_id: z.string().nullable().optional().transform((v) => v ?? null),
+}).loose();
+
+const InvocationTargetListSchema = z.array(InvocationTargetSchema).default([]);
+
+/**
+ * Schema for the full `Agent` DTO returned by `GET /api/agents`,
+ * `GET /api/agents/{id}`, `POST /api/agents`, `PUT /api/agents/{id}`,
+ * and the `archive` / `restore` subroutes. Loose so unknown additive
+ * fields pass through without failing the parse — the agent list query
+ * continues to work against newer servers, and vice versa. The new
+ * invocation-permission fields default to the safe side when missing.
+ *
+ * The legacy `visibility` field stays required (it is the historical
+ * surface; older servers may still ship without `permission_mode` /
+ * `invocation_targets` and the UI must keep rendering the visibility
+ * badge in that case).
+ */
+export const AgentResponseSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  runtime_id: z.string(),
+  name: z.string(),
+  description: z.string().default(""),
+  instructions: z.string().default(""),
+  avatar_url: z.string().nullable().optional().transform((v) => v ?? null),
+  runtime_mode: z.string().default("local"),
+  runtime_config: z.unknown().default({}),
+  custom_args: z.array(z.string()).default([]),
+  visibility: z.string().default("private"),
+  // 0.5.22 MUL-3963 port — additive on top of the legacy visibility.
+  // Older backends (pre-migration 245) omit both; treat as the safe
+  // "private, no allow-list" surface so the trigger gate stays fail-
+  // closed for any pre-port agent row.
+  permission_mode: PermissionModeSchema.optional().default("private"),
+  invocation_targets: InvocationTargetListSchema,
+  status: z.string().default("idle"),
+  max_concurrent_tasks: z.number().default(1),
+  model: z.string().default(""),
+  thinking_level: z.string().nullable().optional().transform((v) => v ?? ""),
+  owner_id: z.string().nullable().optional().transform((v) => v ?? null),
+  skills: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().default(""),
+  }).loose()).default([]),
+  lab_managed: z.boolean().optional().default(false),
+  has_custom_env: z.boolean().optional().default(false),
+  custom_env_key_count: z.number().optional().default(0),
+  mcp_config: z.unknown().nullable().optional().transform((v) => v ?? null),
+  mcp_config_redacted: z.boolean().optional().default(false),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+  archived_at: z.string().nullable().optional().transform((v) => v ?? null),
+  archived_by: z.string().nullable().optional().transform((v) => v ?? null),
+}).loose();
+
+export const EMPTY_AGENT_RESPONSE: Agent = {
+  id: "",
+  workspace_id: "",
+  runtime_id: "",
+  name: "",
+  description: "",
+  instructions: "",
+  avatar_url: null,
+  runtime_mode: "local",
+  runtime_config: {},
+  custom_args: [],
+  visibility: "private",
+  permission_mode: "private",
+  invocation_targets: [],
+  status: "idle",
+  max_concurrent_tasks: 1,
+  model: "",
+  owner_id: null,
+  skills: [],
+  lab_managed: false,
+  created_at: "",
+  updated_at: "",
+  archived_at: null,
+  archived_by: null,
+};
+
+/** Empty allow-list — `[]` is the canonical "no targets, deny by default"
+ *  state; downstream selectors treat undefined / empty identically. */
+export const EMPTY_INVOCATION_TARGETS: InvocationTarget[] = [];
 
 export const CreateAgentFromTemplateResponseSchema = z.object({
   agent: MinimalAgentSchema,

@@ -159,6 +159,36 @@
     "trigger_aria": "ワークスペースのスキルを追加",
     "trigger_label": "追加"
   },
+  "access_picker": {
+    "prop_label": "アクセス",
+    "trigger_tooltip": "アクセス · {{value}}",
+    "section_title": "このエージェントを呼び出せるユーザー",
+    "section_intro": "「プライベート」はあなたとワークスペース管理者のみ。「公開」は呼び出しを許可するユーザー（ワークスペース全体または特定のメンバー）を公開できます。",
+    "permission_mode": {
+      "private": "プライベート",
+      "public_to": "公開",
+      "private_hint": "あなたとワークスペース管理者のみがこのエージェントを呼び出せます。",
+      "public_to_hint": "下の許可リストのメンバーがこのエージェントを呼び出せます。"
+    },
+    "allowlist_title": "許可リスト",
+    "allowlist_empty": "あなたとワークスペース管理者以外は誰もこのエージェントを呼び出せません。",
+    "allowlist_empty_public": "ワークスペース全体を追加するか、下でメンバーを追加して呼び出しを許可します。",
+    "workspace_target_label": "ワークスペースメンバー",
+    "workspace_target_hint": "このワークスペースのすべてのメンバーがこのエージェントを呼び出せます。",
+    "workspace_target_remove_aria": "ワークスペース全体へのアクセスを削除",
+    "workspace_target_add_label": "ワークスペースメンバー",
+    "workspace_target_add_hint": "このワークスペースのすべてのメンバーがこのエージェントを呼び出せるようにします。",
+    "workspace_target_already": "追加済み — ワークスペースメンバーはすでにこのエージェントを呼び出せます。",
+    "members_section": "メンバー",
+    "members_empty": "追加可能な他のワークスペースメンバーがいません。",
+    "member_remove_aria": "{{name}} を削除",
+    "add_member_aria": "許可リストにメンバーを追加",
+    "search_placeholder": "メンバーを検索…",
+    "no_matches": "一致するメンバーがありません。",
+    "saved_toast": "アクセスが更新されました",
+    "save_failed_toast": "アクセスの更新に失敗しました",
+    "deny_hint": "このエージェントの呼び出し可能ユーザーを変更する権限がありません。"
+  },
   "pickers": {
     "concurrency_tooltip": "同時実行数 · 最大 {{value}} 件の同時タスク",
     "concurrency_range": "最大同時タスク数（{{min}}–{{max}}）",

@@ -167,6 +167,36 @@
     "trigger_aria": "附加工作区 skill",
     "trigger_label": "附加"
   },
+  "access_picker": {
+    "prop_label": "访问权限",
+    "trigger_tooltip": "访问权限 · {{value}}",
+    "section_title": "谁可以调用这个智能体",
+    "section_intro": "「私密」仅允许你和工作区管理员调用。「公开」可发布允许列表：工作区全员或指定成员。",
+    "permission_mode": {
+      "private": "私密",
+      "public_to": "公开",
+      "private_hint": "只有你和工作区管理员可以调用此智能体。",
+      "public_to_hint": "下方允许列表中的成员可以调用此智能体。"
+    },
+    "allowlist_title": "允许列表",
+    "allowlist_empty": "除你和工作区管理员外，其他人无法调用此智能体。",
+    "allowlist_empty_public": "添加工作区全员或在下方添加成员以允许他们调用此智能体。",
+    "workspace_target_label": "工作区成员",
+    "workspace_target_hint": "工作区内所有成员都可以调用此智能体。",
+    "workspace_target_remove_aria": "移除工作区全员访问",
+    "workspace_target_add_label": "工作区成员",
+    "workspace_target_add_hint": "允许工作区所有成员调用此智能体。",
+    "workspace_target_already": "已添加 — 工作区成员已经可以调用此智能体。",
+    "members_section": "成员",
+    "members_empty": "没有可添加的其他工作区成员。",
+    "member_remove_aria": "移除 {{name}}",
+    "add_member_aria": "添加成员到允许列表",
+    "search_placeholder": "搜索成员…",
+    "no_matches": "无匹配的成员。",
+    "saved_toast": "访问权限已更新",
+    "save_failed_toast": "访问权限更新失败",
+    "deny_hint": "你没有权限更改此智能体的调用方。"
+  },
   "pickers": {
     "concurrency_tooltip": "并发 · 最多 {{value}} 个并行 task",
     "concurrency_range": "最大并行 task 数（{{min}}–{{max}}）",

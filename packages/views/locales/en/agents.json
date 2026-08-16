@@ -172,6 +172,36 @@
     "trigger_aria": "Attach a workspace skill",
     "trigger_label": "Attach"
   },
+  "access_picker": {
+    "prop_label": "Access",
+    "trigger_tooltip": "Access · {{value}}",
+    "section_title": "Who can invoke this agent",
+    "section_intro": "Private restricts the agent to you and workspace admins. Public lets you publish an allow-list of who else can invoke it — workspace-wide, or specific members.",
+    "permission_mode": {
+      "private": "Private",
+      "public_to": "Public",
+      "private_hint": "Only you and workspace admins can invoke this agent.",
+      "public_to_hint": "Anyone on the allow-list below can invoke this agent."
+    },
+    "allowlist_title": "Allow-list",
+    "allowlist_empty": "Nobody outside you and workspace admins can invoke this agent.",
+    "allowlist_empty_public": "Pick workspace-wide or add members below to allow them to invoke this agent.",
+    "workspace_target_label": "Workspace members",
+    "workspace_target_hint": "Every member of this workspace can invoke this agent.",
+    "workspace_target_remove_aria": "Remove workspace-wide access",
+    "workspace_target_add_label": "Workspace members",
+    "workspace_target_add_hint": "Allow every member of this workspace to invoke this agent.",
+    "workspace_target_already": "Already added — workspace members can already invoke this agent.",
+    "members_section": "Members",
+    "members_empty": "No other workspace members to add.",
+    "member_remove_aria": "Remove {{name}}",
+    "add_member_aria": "Add member to allow-list",
+    "search_placeholder": "Search members…",
+    "no_matches": "No members match.",
+    "saved_toast": "Access updated",
+    "save_failed_toast": "Failed to update access",
+    "deny_hint": "You don't have permission to change who can invoke this agent."
+  },
   "pickers": {
     "concurrency_tooltip": "Concurrency · {{value}} max concurrent tasks",
     "concurrency_range": "Max concurrent tasks ({{min}}–{{max}})",

@@ -291,6 +291,7 @@ export function AgentDetailPage({ agentId }: AgentDetailPageProps) {
           presence={presence}
           runtimes={runtimes}
           members={members}
+          workspaceId={wsId ?? ""}
           currentUserId={currentUser?.id ?? null}
           canEdit={canEdit.allowed}
           onUpdate={handleUpdate}

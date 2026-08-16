@@ -1,6 +1,7 @@
 import type {
   Agent,
   Comment,
+  InvocationTarget,
   Member,
   MemberRole,
   RuntimeDevice,
@@ -21,6 +22,107 @@ import { ALLOW, deny, type Decision, type PermissionContext } from "./types";
 
 const isAdminLike = (role: MemberRole | null) =>
   role === "owner" || role === "admin";
+
+// ---------------------------------------------------------------------------
+// Invocation permission (MUL-3963 port, 0.5.22)
+//
+// Mirrors `server/internal/handler/agent_permission.go::canInvokeAgent`:
+// owner always wins; `private` denies by default (except owner +
+// admin/owner role); `public_to` allows when the actor matches an entry
+// in `invocation_targets` (workspace entry grants any member, member
+// entry grants that specific user_id, team placeholders are reserved for
+// future use). agent and system actors bypass the member-targeted list
+// when a workspace target is present (they need to reach public_to
+// agents even without a per-member entry).
+// ---------------------------------------------------------------------------
+
+export interface InvocationContext {
+  /** "member" | "agent" | "system". Drives which allow-list branches fire
+   *  — non-member actors only match a workspace-broad target. */
+  actorType: "member" | "agent" | "system";
+  /** The actor id (member user_id, agent id, or task id for system). */
+  actorID: string;
+  /**
+   * Workspace id the invocation targets. Needed so the workspace-broad
+   * allow-list entry can be matched structurally; the server stores the
+   * workspace uuid verbatim in `target_id` for workspace targets.
+   */
+  workspaceID: string;
+}
+
+/**
+ * Pure predicate deciding whether a specific actor can trigger this
+ * agent. The view gate (`canAccessPrivateAgent` in Go, surface of
+ * `useAgentPermissions`) is separate — this is the **trigger** gate
+ * (dispatch / assignment / comment `@mention` / chat tool-use).
+ *
+ * Returns a `Decision` so the UI can show a consistent denial message
+ * without re-deriving the reason. `allowed: true` does not imply the
+ * caller is *editing* the agent — see `canEditAgent` for that.
+ */
+export function canInvokeAgent(
+  agent: Agent,
+  ctx: PermissionContext,
+  invocation: InvocationContext,
+): Decision {
+  if (ctx.userId === null) {
+    return deny("not_authenticated", "Sign in to invoke this agent.");
+  }
+
+  // Owner bypass — the agent's owner (and admins / workspace owners)
+  // can always invoke, regardless of allow-list.
+  if (isAdminLike(ctx.role)) return ALLOW;
+  if (agent.owner_id !== null && agent.owner_id === ctx.userId) return ALLOW;
+
+  // Deny-by-default for `private`. Only owner + admins reach the
+  // function past this point, so anyone else is denied.
+  const mode = agent.permission_mode ?? "private";
+  if (mode !== "public_to") {
+    return deny(
+      "private_visibility",
+      "Personal agent — only the owner and workspace admins can invoke it.",
+    );
+  }
+
+  // public_to without a workspace target = member-only allow-list. A
+  // member actor hits the entry iff their user_id matches a member
+  // target; non-member actors (agent/system) cannot reach the agent
+  // without a workspace-broad target.
+  const targets: InvocationTarget[] = agent.invocation_targets ?? [];
+  if (matchesAllowList(targets, invocation)) return ALLOW;
+
+  return deny(
+    "private_visibility",
+    "This agent only allows specific members to invoke it — ask the owner to add you.",
+  );
+}
+
+function matchesAllowList(
+  targets: InvocationTarget[],
+  invocation: InvocationContext,
+): boolean {
+  for (const t of targets) {
+    // Workspace target grants every workspace member; agent/system
+    // actors also reach it (otherwise public_to agents would be
+    // unreachable from a squad dispatch).
+    if (t.target_type === "workspace" && t.target_id === invocation.workspaceID) {
+      return true;
+    }
+    // Member target only matches a human member with that user_id.
+    // Agent and system actors skip member-only targets.
+    if (
+      t.target_type === "member" &&
+      invocation.actorType === "member" &&
+      t.target_id === invocation.actorID
+    ) {
+      return true;
+    }
+    // Team placeholder — the backend accepts the row but the UI does
+    // not yet expose group-pickers; treat as a future expansion point
+    // and skip rather than letting it accidentally grant access.
+  }
+  return false;
+}
 
 // ---- Agents ----------------------------------------------------------------
 
