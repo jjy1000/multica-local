@@ -24,7 +24,7 @@ import (
 //   multica swarm list       --workspace-id <uuid>
 //   multica swarm status     --run-id <uuid>
 //   multica swarm cancel     --run-id <uuid>
-//   multica swarm interrupt  --run-id <uuid> --kind <pause|redirect|inject_message> [--message <text>]
+//   multica swarm interrupt  --run-id <uuid> --kind <pause|resume|redirect|inject_message> [--message <text>]
 //
 // All verbs are membership-gated + flag-gated upstream, so when the
 // swarm_topology Labs flag is off the server returns 404 and the CLI
@@ -66,7 +66,7 @@ func init() {
 	swarmCancelCmd.Flags().StringVar(&swarmCancelRunID, "run-id", "", "Swarm run UUID to cancel (required)")
 
 	swarmInterruptCmd.Flags().StringVar(&swarmInterruptRunID, "run-id", "", "Swarm run UUID (required)")
-	swarmInterruptCmd.Flags().StringVar(&swarmInterruptKind, "kind", "", "Interrupt kind: pause|redirect|inject_message (required)")
+	swarmInterruptCmd.Flags().StringVar(&swarmInterruptKind, "kind", "", "Interrupt kind: pause|resume|redirect|inject_message (required)")
 	swarmInterruptCmd.Flags().StringVar(&swarmInterruptMessage, "message", "", "Optional free-form message (used by inject_message)")
 
 	swarmCmd.GroupID = groupExperimental
@@ -107,7 +107,7 @@ var swarmCancelCmd = &cobra.Command{
 
 var swarmInterruptCmd = &cobra.Command{
 	Use:   "interrupt",
-	Short: "Send a non-cancel interrupt (pause / redirect / inject_message) to a swarm run",
+	Short: "Send a non-cancel interrupt (pause / resume / redirect / inject_message) to a swarm run",
 	RunE:  runSwarmInterrupt,
 }
 
@@ -172,18 +172,23 @@ func runSwarmList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	var parsed struct {
-		Runs []map[string]any `json:"runs"`
-	}
+	// 0.5.22 audit fix (P0): the server's GetSwarmRunsByWorkspace returns a
+	// TOP-LEVEL JSON array (swarm_run.go:432 writeJSON(w, 200, []SwarmRunResponse)),
+	// NOT an envelope {"runs":[...]}. The previous code decoded into a
+	// struct{Runs []map[string]any} which always unmarshalled empty
+	// (encoding/json returns UnmarshalTypeError "cannot unmarshal array
+	// into Go struct"), so `multica swarm list` printed "no swarm runs"
+	// even when the workspace had runs.
+	var parsed []map[string]any
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return fmt.Errorf("list: decode: %w", err)
 	}
-	if len(parsed.Runs) == 0 {
+	if len(parsed) == 0 {
 		fmt.Println("no swarm runs in this workspace")
 		return nil
 	}
 	fmt.Printf("%-36s %-12s %-14s %s\n", "RUN_ID", "STATUS", "PHASE", "STARTED_AT")
-	for _, r := range parsed.Runs {
+	for _, r := range parsed {
 		fmt.Printf("%-36s %-12s %-14s %s\n",
 			strVal(r, "id"), strVal(r, "status"), strVal(r, "current_phase"), strVal(r, "started_at"))
 	}
@@ -255,9 +260,9 @@ func runSwarmInterrupt(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--run-id is required")
 	}
 	switch swarmInterruptKind {
-	case "pause", "redirect", "inject_message":
+	case "pause", "resume", "redirect", "inject_message":
 	default:
-		return fmt.Errorf("--kind must be pause|redirect|inject_message")
+		return fmt.Errorf("--kind must be pause|resume|redirect|inject_message")
 	}
 
 	client, err := newAPIClient(cmd)
