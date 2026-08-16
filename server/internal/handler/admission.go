@@ -69,14 +69,15 @@ const (
 	ReasonRuntimeOffline        DispatchReasonCode = "runtime_offline"
 	ReasonAttributionBlocked    DispatchReasonCode = "attribution_blocked"
 	ReasonAlreadyActive         DispatchReasonCode = "already_active"
+	// ReasonSelfTriggerSuppressed: the target was intentionally not (re-)triggered
+	// because doing so would be a self-trigger the guard suppresses, and no active
+	// run remains to cover it — e.g. a squad leader's own @mention of its squad
+	// whose latest task is already terminal. Not a permission block, but NOT
+	// success: nothing new runs. (Renamed in MUL-4525 §2 round-4 from the
+	// earlier ReasonAlreadyHandled to avoid implying the NEW comment was
+	// already processed; the real meaning is a suppressed self-trigger.)
 	ReasonSelfTriggerSuppressed DispatchReasonCode = "self_trigger_suppressed"
-	// ReasonAlreadyHandled: the target was intentionally not (re-)triggered
-	// because the acting agent's own prior activity already covered it and no
-	// active run remains — e.g. a squad leader's self-@mention that the
-	// self-trigger guard suppresses with no active task left (MUL-4525 §2
-	// round-3). Not a permission block, but NOT success: nothing new runs.
-	ReasonAlreadyHandled DispatchReasonCode = "already_handled"
-	ReasonInternalError  DispatchReasonCode = "internal_error"
+	ReasonInternalError         DispatchReasonCode = "internal_error"
 )
 
 // DispatchTarget is the caller-visible reference to an execution target.
@@ -143,11 +144,10 @@ func dispatchBlockedFallbackMessage(code DispatchReasonCode) string {
 	case ReasonAlreadyActive:
 		return "a run is already active for this target"
 	case ReasonSelfTriggerSuppressed:
+		// MUL-4525 §2 round-4: a self-trigger was suppressed because doing so
+		// would re-fire the acting agent on its own prior activity AND no
+		// active run remains; nothing new runs.
 		return "the target's own trigger was suppressed"
-	case ReasonAlreadyHandled:
-		// MUL-4525 §2 round-3: a self-trigger was suppressed because the
-		// acting agent's own prior task already covered it; nothing new runs.
-		return "the target's prior activity already handled this trigger"
 	case ReasonInternalError:
 		return "the run failed an internal check"
 	default:

@@ -324,7 +324,7 @@ func TestCreateComment_SquadLeaderSelfMentionCompletedTaskDoesNotFakeSuccess(t *
 	if o.TargetType != "squad" || o.TargetID != squadID {
 		t.Fatalf("outcome target = %+v, want squad %s", o, squadID)
 	}
-	if o.Status != DispatchBlocked || o.ReasonCode != ReasonAlreadyHandled {
+	if o.Status != DispatchBlocked || o.ReasonCode != ReasonSelfTriggerSuppressed {
 		t.Errorf("outcome = %+v, want blocked/already_handled (must not fake success)", o)
 	}
 	// No new task was enqueued (only the pre-seeded completed one exists).

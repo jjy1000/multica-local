@@ -1473,9 +1473,13 @@ func (h *Handler) enqueueCommentAgentTriggers(ctx context.Context, issue db.Issu
 			// dispatched, running) task still exists, completion reconciliation
 			// (reconcileCommentsOnCompletion — landed in C2) is what guarantees
 			// this comment earns a bounded follow-up. Only when NO active task
-			// exists is a fresh enqueue both safe and necessary.
-			if h.hasActiveTaskForIssueAndAgent(ctx, issue.ID, trigger.Agent.ID) {
-				record(trigger, DispatchDeferred, ReasonDeferred)
+			// exists is a fresh enqueue both safe and necessary. On a query
+			// failure we fail closed (no fresh enqueue) and report a non-success
+			// internal_error rather than a fabricated deferred (MUL-4525 §2
+			// round-4, Elon review).
+			active, activeErr := h.hasActiveTaskForIssueAndAgent(ctx, issue.ID, trigger.Agent.ID)
+			if status, reason, enqueueFresh := decidePostMergeMiss(active, activeErr); !enqueueFresh {
+				record(trigger, status, reason)
 				continue
 			}
 		}
@@ -1612,11 +1616,13 @@ func (h *Handler) enqueueSingleCommentTrigger(ctx context.Context, issue db.Issu
 // hasActiveTaskForIssueAndAgent reports whether the (issue, agent) pair has any
 // non-terminal task whose completion will drive completion reconciliation
 // (MUL-4195). Used after a merge miss to decide between deferring to
-// reconcileCommentsOnCompletion and enqueuing a fresh follow-up. Fail-closed:
-// on a DB error we return true so the caller does NOT enqueue a possibly
-// colliding duplicate — worst case the comment is caught by reconcile rather
-// than double-run.
-func (h *Handler) hasActiveTaskForIssueAndAgent(ctx context.Context, issueID, agentID pgtype.UUID) bool {
+// reconcileCommentsOnCompletion and enqueuing a fresh follow-up. Returns the
+// query error rather than swallowing it (MUL-4525 §2 round-4, Elon review):
+// callers must fail closed on error (never enqueue a possibly-colliding
+// duplicate) AND must not report a success — "cannot confirm whether a run is
+// active" is never the same as "a run is active". See decidePostMergeMiss /
+// decideSuppressedLeaderOutcome for the two decisions.
+func (h *Handler) hasActiveTaskForIssueAndAgent(ctx context.Context, issueID, agentID pgtype.UUID) (bool, error) {
 	active, err := h.Queries.HasActiveTaskForIssueAndAgent(ctx, db.HasActiveTaskForIssueAndAgentParams{
 		IssueID: issueID,
 		AgentID: agentID,
@@ -1624,9 +1630,29 @@ func (h *Handler) hasActiveTaskForIssueAndAgent(ctx context.Context, issueID, ag
 	if err != nil {
 		slog.Warn("has active task for issue+agent check failed",
 			"issue_id", uuidToString(issueID), "agent_id", uuidToString(agentID), "error", err)
-		return true
+		return false, err
 	}
-	return active
+	return active, nil
+}
+
+// decidePostMergeMiss lives in admission.go (extracted at MUL-4525 §2 test
+// extraction) and is reused here.
+
+// decideSuppressedLeaderOutcome maps the self-trigger-suppressed squad
+// leader's active-task check to an honest outcome (MUL-4525 §2 round-4,
+// Elon review). A query failure is never success — it is internal_error,
+// not a fabricated deferred. A confirmed active run defers (its reconcile
+// covers the comment); otherwise nothing runs and the outcome is
+// self_trigger_suppressed.
+func decideSuppressedLeaderOutcome(active bool, activeErr error) (DispatchStatus, DispatchReasonCode) {
+	switch {
+	case activeErr != nil:
+		return DispatchBlocked, ReasonInternalError
+	case active:
+		return DispatchDeferred, ReasonAlreadyActive
+	default:
+		return DispatchBlocked, ReasonSelfTriggerSuppressed
+	}
 }
 
 // mergeCommentIntoPendingTask folds a newly-arrived comment into the existing
@@ -2039,14 +2065,14 @@ func (h *Handler) computeMentionedAgentCommentTriggers(ctx context.Context, issu
 			// non-terminal task is still active (its completion reconcile
 			// covers this comment); otherwise the latest task is already
 			// terminal and nothing runs, so report a non-success
-			// `already_handled` — never a success-shaped `deferred`.
+			// `self_trigger_suppressed` — never a success-shaped `deferred`. On a
+			// query failure the outcome is internal_error, never a fabricated
+			// deferred (MUL-4525 §2 round-4, Elon review).
 			if authorType == "agent" && authorID == uuidToString(leaderID) &&
 				h.lastTaskWasLeader(ctx, issue.ID, leaderID) {
-				if h.hasActiveTaskForIssueAndAgent(ctx, issue.ID, leaderID) {
-					addTarget(commentMentionTarget{TargetType: "squad", TargetID: m.ID, Status: DispatchDeferred, ReasonCode: ReasonAlreadyActive})
-				} else {
-					addTarget(commentMentionTarget{TargetType: "squad", TargetID: m.ID, Status: DispatchBlocked, ReasonCode: ReasonAlreadyHandled})
-				}
+				active, activeErr := h.hasActiveTaskForIssueAndAgent(ctx, issue.ID, leaderID)
+				status, reason := decideSuppressedLeaderOutcome(active, activeErr)
+				addTarget(commentMentionTarget{TargetType: "squad", TargetID: m.ID, Status: status, ReasonCode: reason})
 				continue
 			}
 			agent, err := h.Queries.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{
