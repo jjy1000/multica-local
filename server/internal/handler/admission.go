@@ -70,7 +70,13 @@ const (
 	ReasonAttributionBlocked    DispatchReasonCode = "attribution_blocked"
 	ReasonAlreadyActive         DispatchReasonCode = "already_active"
 	ReasonSelfTriggerSuppressed DispatchReasonCode = "self_trigger_suppressed"
-	ReasonInternalError         DispatchReasonCode = "internal_error"
+	// ReasonAlreadyHandled: the target was intentionally not (re-)triggered
+	// because the acting agent's own prior activity already covered it and no
+	// active run remains — e.g. a squad leader's self-@mention that the
+	// self-trigger guard suppresses with no active task left (MUL-4525 §2
+	// round-3). Not a permission block, but NOT success: nothing new runs.
+	ReasonAlreadyHandled DispatchReasonCode = "already_handled"
+	ReasonInternalError  DispatchReasonCode = "internal_error"
 )
 
 // DispatchTarget is the caller-visible reference to an execution target.
@@ -138,6 +144,10 @@ func dispatchBlockedFallbackMessage(code DispatchReasonCode) string {
 		return "a run is already active for this target"
 	case ReasonSelfTriggerSuppressed:
 		return "the target's own trigger was suppressed"
+	case ReasonAlreadyHandled:
+		// MUL-4525 §2 round-3: a self-trigger was suppressed because the
+		// acting agent's own prior task already covered it; nothing new runs.
+		return "the target's prior activity already handled this trigger"
 	case ReasonInternalError:
 		return "the run failed an internal check"
 	default:
