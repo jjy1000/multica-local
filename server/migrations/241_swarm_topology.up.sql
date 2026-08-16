@@ -108,6 +108,14 @@ CREATE TABLE swarm_role (
     -- Sequential = hard predecessor; Parallel = may overlap if idle.
     -- Stored as JSONB for flexibility (MUL-4525 may add new edge
     -- types — additive, no migration needed).
+    --
+    -- 0.5.22 audit fix (P1-10): the JSONB column is currently dead
+    -- schema — the orchestrator's DAG walk uses parent_role_id
+    -- exclusively and no consumer reads depends_on. We do NOT drop
+    -- the column (forward-only invariant, CLAUDE.md) — leaving the
+    -- schema in place lets MUL-4525 land a parallel/sequential edge
+    -- implementation without a migration. The 16 bytes per role are
+    -- acceptable overhead (MaxSwarmRoles=6 → ~96 bytes per run).
     depends_on JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- created (row written, agent may not exist yet)
     -- ready (agent exists, daemon can claim)
@@ -190,22 +198,11 @@ CREATE TABLE swarm_interrupt (
 CREATE INDEX idx_swarm_interrupt_by_run
     ON swarm_interrupt(swarm_run_id, created_at DESC);
 
--- experimental_resource_lock CHECK widened to include swarm_topology.
--- Without this widening, the swarm install handler's INSERT into
--- experimental_resource_lock would reject the swarm_topology source
--- value. Mirrors mig 149's mythos_swarm widening + mig 154's
--- claude_science_lab widening.
---
--- Full list is preserved (claude_science / mythos_swarm / swarm_topology
--- / agent_self_optimization / agent_creation_studio / constitution_agent)
--- even though agent_self_optimization + agent_creation_studio +
--- constitution_agent are retired (0.5.6 / 0.3.57) — per CLAUDE.md
--- "experimental_resource_lock CHECK constraints outlive retired flags —
--- and that's expected", the CHECK is forward-only.
-ALTER TABLE experimental_resource_lock
-    DROP CONSTRAINT experimental_resource_lock_experimental_source_check,
-    ADD CONSTRAINT experimental_resource_lock_experimental_source_check
-        CHECK (experimental_source IN (
-            'claude_science','mythos_swarm','swarm_topology',
-            'agent_self_optimization','agent_creation_studio','constitution_agent'
-        ));
+-- experimental_resource_lock CHECK widening moved to migration 242
+-- (semantica × Multica Phase 2). Mig 241 originally tried to set the
+-- CHECK to a 6-value set that DROPPED 'pythia_oracle' / 'llm_wiki_bridge'
+-- / 'code_canvas' — those values still exist in the table from prior
+-- installs, so the new CHECK failed on existing rows (23514). The 242
+-- widening combines 'swarm_topology' with the original value set +
+-- 'semantica', which keeps every existing row valid AND covers the new
+-- flag.

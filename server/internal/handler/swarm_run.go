@@ -159,12 +159,33 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 		MaxRuntimeHours: maxRuntime,
 	})
 	if err != nil {
+		// 0.5.22 audit fix (P1-8): map unique_violation (23505) from the
+		// concurrent-bootstrap race back to the existing row. Without
+		// this, two concurrent POST /runs on the same root_issue_id
+		// both pass the GetSwarmRunByRootIssue err==nil gate, both
+		// race CreateSwarmRun, the loser 500s instead of returning the
+		// existing run. Standard helper at handler.go:418-420 — used by
+		// 15+ sibling handlers (autopilot.go:1055, skill.go:408, etc).
+		if isUniqueViolation(err) {
+			if existing, rerr := h.Queries.GetSwarmRunByRootIssue(r.Context(), rootIssueUUIDFromString(req.RootIssueID)); rerr == nil && existing.ID.Valid {
+				writeJSON(w, http.StatusOK, h.swarmRunToResponse(existing, nil))
+				return
+			}
+		}
 		writeError(w, http.StatusInternalServerError, "create swarm run: "+err.Error())
 		return
 	}
 
 	// Lock the resource claim (mirrors install_mythos pattern).
 	if err := experimental.Claim(r.Context(), h.Queries, experimental.SourceSwarmTopology, experimental.LockSwarmRun, run.ID); err != nil {
+		// 0.5.22 audit fix (P1-6): roll back the run row so we don't
+		// leak a stuck-preparing row that ResumeOrchestration is the
+		// only path to recover from. Best-effort: a failed delete logs
+		// and we still return 500.
+		if delErr := h.Queries.DeleteSwarmRun(r.Context(), run.ID); delErr != nil {
+			slog.Warn("swarm run rollback failed after claim error",
+				"run_id", run.ID.String(), "err", delErr.Error())
+		}
 		writeError(w, http.StatusInternalServerError, "claim lock: "+err.Error())
 		return
 	}
@@ -189,9 +210,21 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "swarm orchestrator service not wired; please retry")
 		return
 	}
+	// 0.5.22 audit fix (P1-6): on StartOrchestrator failure, roll back
+	// the partially-bootstrapped row so the workspace is not stuck in
+	// status='preparing' with no orchestrator goroutine + no tick +
+	// no bootstrap. Without this, the handler returned 201 Created
+	// while the row sat in zombie-preparing until ResumeOrchestration
+	// recovered it at the next server boot.
 	if err := svc.StartOrchestrator(r.Context(), run.ID); err != nil {
-		slog.Warn("swarm orchestrator start failed",
+		slog.Warn("swarm orchestrator start failed; rolling back run row",
 			"run_id", run.ID.String(), "err", err.Error())
+		if delErr := h.Queries.DeleteSwarmRun(r.Context(), run.ID); delErr != nil {
+			slog.Warn("swarm run rollback failed after StartOrchestrator error",
+				"run_id", run.ID.String(), "err", delErr.Error())
+		}
+		writeError(w, http.StatusInternalServerError, "start orchestrator: "+err.Error())
+		return
 	}
 
 	writeJSON(w, http.StatusCreated, h.swarmRunToResponse(run, nil))
