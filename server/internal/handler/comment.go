@@ -1544,8 +1544,22 @@ func (h *Handler) computeCommentAgentTriggers(ctx context.Context, issue db.Issu
 		triggers = append(triggers, trigger)
 	}
 
-	if actorType == "member" && h.shouldEnqueueOnComment(ctx, issue, actorType, actorID, opts) &&
-		!h.commentMentionsOthersButNotAssignee(content, issue) &&
+	// 0.5.22 MUL-4525 §2 fix: emit the issue-assignee trigger
+	// UNCONDITIONALLY (gated only on the actor/issue shape, not on
+	// shouldEnqueueOnComment). shouldEnqueueOnComment previously
+	// short-circuited the trigger emission when a pending task
+	// existed, which silently dropped the merge path: enqueue was
+	// never called, merge never ran, the second comment's mention
+	// was lost. The merge vs. fresh decision now lives in
+	// enqueueCommentAgentTriggers (where AlreadyPending drives the
+	// choice); this function only decides whether the trigger is in
+	// the list at all.
+	//
+	// The remaining content-shape filters (commentMentionsOthersButNotAssignee
+	// / isReplyToMemberThread) are kept as gate conditions; the
+	// previously-deferred 'comment mentions a different agent, don't
+	// re-dispatch the assignee' rule is still in effect.
+	if actorType == "member" && !h.commentMentionsOthersButNotAssignee(content, issue) &&
 		!h.isReplyToMemberThread(ctx, parentComment, content, issue) {
 		if agent, err := h.Queries.GetAgentInWorkspace(ctx, db.GetAgentInWorkspaceParams{
 			ID:          issue.AssigneeID,
