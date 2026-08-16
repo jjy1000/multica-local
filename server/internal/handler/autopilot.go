@@ -1127,7 +1127,12 @@ func (h *Handler) validateAutopilotAssignee(w http.ResponseWriter, r *http.Reque
 			return false
 		}
 		// Private-leader gate: the member configuring the autopilot must have
-		// access to the private leader, same as validateAssigneePair.
+		// access to the private leader (view gate, not trigger gate — this
+		// is a SETUP-time check, not a runtime trigger). MUL-3963 separates
+		// view (canAccessPrivateAgent) from trigger (canInvokeAgent) gates;
+		// the autopilot config path is a view surface (admin/owner can
+		// configure any private leader for the workspace), so the
+		// pre-port canAccessPrivateAgent is the correct gate.
 		actorType, actorID := h.resolveActor(r, requestUserID(r), util.UUIDToString(workspaceID))
 		if !h.canAccessPrivateAgent(r.Context(), leader, actorType, actorID, util.UUIDToString(workspaceID)) {
 			writeError(w, http.StatusForbidden, "cannot assign autopilot to squad with private leader")

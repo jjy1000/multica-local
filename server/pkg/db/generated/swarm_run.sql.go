@@ -737,8 +737,8 @@ func (q *Queries) MarkSwarmRoleMessageRead(ctx context.Context, arg MarkSwarmRol
 
 const recordSwarmInterrupt = `-- name: RecordSwarmInterrupt :one
 UPDATE swarm_run
-SET interrupted_at = now(),
-    interrupt_reason = $1::text
+SET interrupted_at = CASE WHEN interrupted_at IS NULL THEN now() ELSE interrupted_at END,
+    interrupt_reason = CASE WHEN interrupted_at IS NULL THEN $1::text ELSE interrupt_reason END
 WHERE id = $2::uuid
 RETURNING id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused
 `
@@ -750,6 +750,13 @@ type RecordSwarmInterruptParams struct {
 
 // Stamp the user interrupt timestamp + reason on the swarm_run row.
 // A separate row is also written to swarm_interrupt for audit.
+//
+// 0.5.22 audit fix (P2-13): the original UPDATE unconditionally
+// overwrote both columns on every call, so two sequential interrupts
+// (e.g. pause → resume → cancel) dropped the first reason. The
+// WHERE guard preserves the earliest timestamp + reason — the
+// audit trail lives in the separate swarm_interrupt table anyway,
+// this row is just the most-recent marker.
 func (q *Queries) RecordSwarmInterrupt(ctx context.Context, arg RecordSwarmInterruptParams) (SwarmRun, error) {
 	row := q.db.QueryRow(ctx, recordSwarmInterrupt, arg.InterruptReason, arg.ID)
 	var i SwarmRun

@@ -46,6 +46,18 @@ type Agent struct {
 	ThinkingLevel         pgtype.Text        `json:"thinking_level"`
 	SystemKey             pgtype.Text        `json:"system_key"`
 	DisabledRuntimeSkills []byte             `json:"disabled_runtime_skills"`
+	// Agent invocation permission mode (MUL-3963). private = owner only; public_to = allow-list in agent_invocation_target. Replaces visibility as the authorization source for triggering runs; visibility is now a derived legacy field. Default private = deny-by-default.
+	PermissionMode string `json:"permission_mode"`
+}
+
+// Allow-list of who may invoke a public_to agent (MUL-3963). One row per (agent, target_type, target); targets stack and canInvokeAgent OR-matches. workspace rows store the agent workspace_id in target_id; member rows store the user id; team rows are reserved and inert in V1. Rows only matter when agent.permission_mode = public_to. No DB foreign keys: agent_id / created_by / member target_id relationships are maintained in the application layer (see migration comment).
+type AgentInvocationTarget struct {
+	ID         pgtype.UUID        `json:"id"`
+	AgentID    pgtype.UUID        `json:"agent_id"`
+	TargetType string             `json:"target_type"`
+	TargetID   pgtype.UUID        `json:"target_id"`
+	CreatedBy  pgtype.UUID        `json:"created_by"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
 type AgentOptEdit struct {
@@ -155,8 +167,9 @@ type AgentTaskQueue struct {
 	CoalescedCommentIds   []pgtype.UUID      `json:"coalesced_comment_ids"`
 	SessionRolloutMissing bool               `json:"session_rollout_missing"`
 	RetiredSessionID      pgtype.Text        `json:"retired_session_id"`
-	OriginatorUserID      pgtype.UUID        `json:"originator_user_id"`
-	AccountableUserID     pgtype.UUID        `json:"accountable_user_id"`
+	// Top-of-chain human originator for this run. For human-triggered tasks (comment by a member, chat, quick-create) equals that member. For agent-fanout tasks inherited from the parent task's originator_user_id via comment.source_task_id. NULL when no human is in the chain (autopilot, system-driven). Used by canInvokeAgent to judge A2A by the originator; the Composio overlay now follows invocation permission and uses the agent owner's connection, so this is audit/attribution + A2A gating, NOT a Composio owner==originator gate (MUL-3963).
+	OriginatorUserID  pgtype.UUID `json:"originator_user_id"`
+	AccountableUserID pgtype.UUID `json:"accountable_user_id"`
 }
 
 type AgentTrustEvent struct {

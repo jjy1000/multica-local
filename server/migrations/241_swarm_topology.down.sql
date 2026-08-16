@@ -19,11 +19,7 @@ DROP INDEX IF EXISTS idx_swarm_run_active;
 DROP INDEX IF EXISTS idx_swarm_run_by_workspace;
 DROP TABLE IF EXISTS swarm_run;
 
--- Restore the pre-241 lock CHECK (no swarm_topology).
-ALTER TABLE experimental_resource_lock
-    DROP CONSTRAINT experimental_resource_lock_experimental_source_check,
-    ADD CONSTRAINT experimental_resource_lock_experimental_source_check
-        CHECK (experimental_source IN (
-            'claude_science','mythos_swarm',
-            'agent_self_optimization','agent_creation_studio','constitution_agent'
-        ));
+-- Lock CHECK update moved to migration 242 — see that migration's
+-- comment for the rationale (mig 241's original CHECK update was
+-- too narrow and failed against existing pythia_oracle /
+-- llm_wiki_bridge / code_canvas rows).
