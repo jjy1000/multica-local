@@ -485,7 +485,10 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue, t
 	if len(triggerCommentID) > 0 {
 		commentID = triggerCommentID[0]
 	}
-	return s.enqueueIssueTask(ctx, issue, commentID, false, "")
+	// 0.5.22: empty originator for legacy callers (the comment path threads
+	// its own via the new *WithOriginator variant). Empty maps to NULL
+	// via sqlc.narg, which preserves the pre-port INSERT semantics.
+	return s.enqueueIssueTask(ctx, issue, commentID, false, "", pgtype.UUID{})
 }
 
 // EnqueueTaskForIssueWithHandoff is the assign/promote variant that carries a
@@ -493,7 +496,20 @@ func (s *TaskService) EnqueueTaskForIssue(ctx context.Context, issue db.Issue, t
 // dedicated task column; the daemon renders it via the assignment-handoff
 // branch. Empty note behaves exactly like EnqueueTaskForIssue.
 func (s *TaskService) EnqueueTaskForIssueWithHandoff(ctx context.Context, issue db.Issue, handoffNote string) (db.AgentTaskQueue, error) {
-	return s.enqueueIssueTask(ctx, issue, pgtype.UUID{}, false, handoffNote)
+	return s.enqueueIssueTask(ctx, issue, pgtype.UUID{}, false, handoffNote, pgtype.UUID{})
+}
+
+// EnqueueTaskForIssueWithOriginator is the MUL-4525 §2 variant that
+// stamps the new task's originator_user_id at insert time so the
+// same-(issue, agent) merge path can re-stamp it to the most-recent
+// triggering user. Pass pgtype.UUID{} to leave the column NULL (for
+// trusted internal callers that already manage attribution elsewhere).
+func (s *TaskService) EnqueueTaskForIssueWithOriginator(ctx context.Context, issue db.Issue, originatorUserID pgtype.UUID, triggerCommentID ...pgtype.UUID) (db.AgentTaskQueue, error) {
+	var commentID pgtype.UUID
+	if len(triggerCommentID) > 0 {
+		commentID = triggerCommentID[0]
+	}
+	return s.enqueueIssueTask(ctx, issue, commentID, false, "", originatorUserID)
 }
 
 // enqueueIssueTask is the shared implementation behind EnqueueTaskForIssue
@@ -501,7 +517,11 @@ func (s *TaskService) EnqueueTaskForIssueWithHandoff(ctx context.Context, issue 
 // daemon claim handler skips the (agent_id, issue_id) resume lookup — the
 // user already judged the prior output bad, a fresh agent session is the
 // expected behavior.
-func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, forceFreshSession bool, handoffNote string) (db.AgentTaskQueue, error) {
+//
+// originatorUserID is the 0.5.22 MUL-4525 §2 plumbing: the
+// trigger-originator is stamped at insert time so the merge path can
+// re-stamp on a same-(issue, agent) merge. Empty UUID -> NULL.
+func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, forceFreshSession bool, handoffNote string, originatorUserID pgtype.UUID) (db.AgentTaskQueue, error) {
 	if !issue.AssigneeID.Valid {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", "issue has no assignee")
 		return db.AgentTaskQueue{}, fmt.Errorf("issue has no assignee")
@@ -530,6 +550,10 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, trig
 		TriggerSummary:    s.buildCommentTriggerSummary(ctx, triggerCommentID),
 		ForceFreshSession: pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
 		HandoffNote:       pgtype.Text{String: handoffNote, Valid: handoffNote != ""},
+		// 0.5.22: pass through the originator so mergeCommentIntoPendingTask
+		// can re-stamp it on a subsequent same-(issue, agent) mention.
+		// Empty UUID -> NULL (legacy behaviour).
+		OriginatorUserID:   originatorUserID,
 	})
 	if err != nil {
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
@@ -561,7 +585,14 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, trig
 // a worker, not a leader, so the briefing gate in daemon.go will not
 // match even if a non-zero UUID were stamped. Pass zero UUID.
 func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
-	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, false, false, "", pgtype.UUID{})
+	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, false, false, "", pgtype.UUID{}, pgtype.UUID{})
+}
+
+// EnqueueTaskForMentionWithOriginator is the MUL-4525 §2 variant that
+// stamps the new task's originator_user_id at insert time. Pass
+// pgtype.UUID{} to leave the column NULL.
+func (s *TaskService) EnqueueTaskForMentionWithOriginator(ctx context.Context, issue db.Issue, agentID pgtype.UUID, originatorUserID pgtype.UUID, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
+	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, false, false, "", pgtype.UUID{}, originatorUserID)
 }
 
 // EnqueueTaskForSquadLeader is the leader-role variant of EnqueueTaskForMention.
@@ -579,7 +610,13 @@ func (s *TaskService) EnqueueTaskForMention(ctx context.Context, issue db.Issue,
 // legal — the daemon will then fall back to the legacy
 // issue.AssigneeType=="squad" lookup on claim (see daemon.go briefing gate).
 func (s *TaskService) EnqueueTaskForSquadLeader(ctx context.Context, issue db.Issue, leaderID pgtype.UUID, squadID pgtype.UUID, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
-	return s.enqueueMentionTask(ctx, issue, leaderID, triggerCommentID, true, false, "", squadID)
+	return s.enqueueMentionTask(ctx, issue, leaderID, triggerCommentID, true, false, "", squadID, pgtype.UUID{})
+}
+
+// EnqueueTaskForSquadLeaderWithOriginator is the MUL-4525 §2 variant.
+// Pass pgtype.UUID{} to leave the column NULL.
+func (s *TaskService) EnqueueTaskForSquadLeaderWithOriginator(ctx context.Context, issue db.Issue, leaderID pgtype.UUID, squadID pgtype.UUID, originatorUserID pgtype.UUID, triggerCommentID pgtype.UUID) (db.AgentTaskQueue, error) {
+	return s.enqueueMentionTask(ctx, issue, leaderID, triggerCommentID, true, false, "", squadID, originatorUserID)
 }
 
 // EnqueueTaskForSquadLeaderWithHandoff is the assign/promote variant carrying a
@@ -588,10 +625,10 @@ func (s *TaskService) EnqueueTaskForSquadLeader(ctx context.Context, issue db.Is
 //
 // squadID semantics match EnqueueTaskForSquadLeader.
 func (s *TaskService) EnqueueTaskForSquadLeaderWithHandoff(ctx context.Context, issue db.Issue, leaderID pgtype.UUID, squadID pgtype.UUID, handoffNote string) (db.AgentTaskQueue, error) {
-	return s.enqueueMentionTask(ctx, issue, leaderID, pgtype.UUID{}, true, false, handoffNote, squadID)
+	return s.enqueueMentionTask(ctx, issue, leaderID, pgtype.UUID{}, true, false, handoffNote, squadID, pgtype.UUID{})
 }
 
-func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool, forceFreshSession bool, handoffNote string, squadID pgtype.UUID) (db.AgentTaskQueue, error) {
+func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool, forceFreshSession bool, handoffNote string, squadID pgtype.UUID, originatorUserID pgtype.UUID) (db.AgentTaskQueue, error) {
 	agent, err := s.Queries.GetAgent(ctx, agentID)
 	if err != nil {
 		slog.Error("mention task enqueue failed: agent not found", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
@@ -617,6 +654,9 @@ func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.Issue, ag
 		ForceFreshSession: pgtype.Bool{Bool: forceFreshSession, Valid: forceFreshSession},
 		HandoffNote:       pgtype.Text{String: handoffNote, Valid: handoffNote != ""},
 		SquadID:           squadID,
+		// 0.5.22: thread originator so the same-(issue, agent) merge
+		// path can re-stamp to the most-recent triggering user.
+		OriginatorUserID:   originatorUserID,
 	})
 	if err != nil {
 		slog.Error("mention task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
@@ -1895,13 +1935,13 @@ func (s *TaskService) RerunIssue(ctx context.Context, issueID pgtype.UUID, sourc
 func (s *TaskService) enqueueRerunTask(ctx context.Context, issue db.Issue, agentID pgtype.UUID, triggerCommentID pgtype.UUID, isLeader bool) (db.AgentTaskQueue, error) {
 	if issue.AssigneeType.String == "agent" && issue.AssigneeID.Valid &&
 		util.UUIDToString(issue.AssigneeID) == util.UUIDToString(agentID) {
-		return s.enqueueIssueTask(ctx, issue, triggerCommentID, true, "")
+		return s.enqueueIssueTask(ctx, issue, triggerCommentID, true, "", pgtype.UUID{})
 	}
 	// Retry / rerun paths do not propagate squad_id — the source task may be
 	// from before migration 127. Stamping zero here keeps the SQL safe; the
 	// daemon's briefing gate handles the legacy-in-flight case via the
 	// per-claim fallback (shouldInjectSquadLeaderBriefing).
-	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, isLeader, true, "", pgtype.UUID{})
+	return s.enqueueMentionTask(ctx, issue, agentID, triggerCommentID, isLeader, true, "", pgtype.UUID{}, pgtype.UUID{})
 }
 
 // HandleFailedTasks runs the post-failure side effects for a batch of

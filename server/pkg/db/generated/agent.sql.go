@@ -1221,7 +1221,8 @@ func (q *Queries) CreateAgent(ctx context.Context, arg CreateAgentParams) (Agent
 const createAgentTask = `-- name: CreateAgentTask :one
 INSERT INTO agent_task_queue (
     agent_id, runtime_id, issue_id, status, priority, trigger_comment_id,
-    trigger_summary, force_fresh_session, is_leader_task, handoff_note, squad_id
+    trigger_summary, force_fresh_session, is_leader_task, handoff_note, squad_id,
+    originator_user_id
 )
 VALUES (
     $1, $2, $3, 'queued', $4, $5,
@@ -1229,7 +1230,8 @@ VALUES (
     COALESCE($7::boolean, FALSE),
     COALESCE($8::boolean, FALSE),
     $9,
-    $10
+    $10,
+    $11
 )
 RETURNING id, agent_id, issue_id, status, priority, dispatched_at, started_at, completed_at, result, error, created_at, context, runtime_id, session_id, work_dir, trigger_comment_id, chat_session_id, autopilot_run_id, attempt, max_attempts, parent_task_id, failure_reason, trigger_summary, force_fresh_session, is_leader_task, wait_reason, initiator_user_id, handoff_note, prepare_lease_expires_at, squad_id, runtime_mcp_overlay, escalation_for_task_id, fire_at, delivered_comment_ids, chat_input_task_id, coalesced_comment_ids, session_rollout_missing, retired_session_id, originator_user_id, accountable_user_id
 `
@@ -1245,8 +1247,12 @@ type CreateAgentTaskParams struct {
 	IsLeaderTask      pgtype.Bool `json:"is_leader_task"`
 	HandoffNote       pgtype.Text `json:"handoff_note"`
 	SquadID           pgtype.UUID `json:"squad_id"`
+	OriginatorUserID  pgtype.UUID `json:"originator_user_id"`
 }
 
+// 0.5.22: added originator_user_id to the INSERT (was previously left NULL by
+// the upstream query, blocking the MUL-4525 §2 merge-with-originator-re-stamp
+// path that re-stamps the originator on a same-(issue, agent) merge).
 func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams) (AgentTaskQueue, error) {
 	row := q.db.QueryRow(ctx, createAgentTask,
 		arg.AgentID,
@@ -1259,6 +1265,7 @@ func (q *Queries) CreateAgentTask(ctx context.Context, arg CreateAgentTaskParams
 		arg.IsLeaderTask,
 		arg.HandoffNote,
 		arg.SquadID,
+		arg.OriginatorUserID,
 	)
 	var i AgentTaskQueue
 	err := row.Scan(

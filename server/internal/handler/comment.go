@@ -1407,7 +1407,16 @@ func (h *Handler) enqueueCommentAgentTriggers(ctx context.Context, issue db.Issu
 		switch trigger.Source {
 		case commentTriggerSourceIssueAssignee:
 			if trigger.Squad != nil {
-				if _, err := h.TaskService.EnqueueTaskForSquadLeader(ctx, issue, trigger.Agent.ID, trigger.Squad.ID, triggerCommentID); err != nil {
+				// 0.5.22: thread originatorUserID so the same-(issue, agent)
+				// merge path can re-stamp to the most-recent triggering user.
+				// For members the originator is the actor; for agent
+				// actors it's empty (the triggering comment's task already
+				// carries the chain root via X-Task-ID resolver).
+				originator := actorID
+				if originatorID := parseUUID(actorID); !originatorID.Valid && actorType == "member" {
+					originator = actorID
+				}
+				if _, err := h.TaskService.EnqueueTaskForSquadLeaderWithOriginator(ctx, issue, trigger.Agent.ID, trigger.Squad.ID, parseUUID(originator), triggerCommentID); err != nil {
 					slog.Warn("enqueue squad leader task failed",
 						"issue_id", uuidToString(issue.ID),
 						"squad_id", uuidToString(trigger.Squad.ID),
@@ -1416,18 +1425,21 @@ func (h *Handler) enqueueCommentAgentTriggers(ctx context.Context, issue db.Issu
 				}
 				continue
 			}
-			if _, err := h.TaskService.EnqueueTaskForIssue(ctx, issue, triggerCommentID); err != nil {
+			originator := parseUUID(actorID)
+			if _, err := h.TaskService.EnqueueTaskForIssueWithOriginator(ctx, issue, originator, triggerCommentID); err != nil {
 				slog.Warn("enqueue agent task on comment failed", "issue_id", uuidToString(issue.ID), "error", err)
 			}
 		case commentTriggerSourceMentionSquadLeader:
-			if _, err := h.TaskService.EnqueueTaskForSquadLeader(ctx, issue, trigger.Agent.ID, trigger.Squad.ID, triggerCommentID); err != nil {
+			originator := parseUUID(actorID)
+			if _, err := h.TaskService.EnqueueTaskForSquadLeaderWithOriginator(ctx, issue, trigger.Agent.ID, trigger.Squad.ID, originator, triggerCommentID); err != nil {
 				slog.Warn("enqueue squad leader mention task failed",
 					"issue_id", uuidToString(issue.ID),
 					"agent_id", uuidToString(trigger.Agent.ID),
 					"error", err)
 			}
 		case commentTriggerSourceMentionAgent:
-			if _, err := h.TaskService.EnqueueTaskForMention(ctx, issue, trigger.Agent.ID, triggerCommentID); err != nil {
+			originator := parseUUID(actorID)
+			if _, err := h.TaskService.EnqueueTaskForMentionWithOriginator(ctx, issue, trigger.Agent.ID, originator, triggerCommentID); err != nil {
 				slog.Warn("enqueue mention agent task failed",
 					"issue_id", uuidToString(issue.ID),
 					"agent_id", uuidToString(trigger.Agent.ID),

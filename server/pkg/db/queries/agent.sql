@@ -229,9 +229,13 @@ WHERE agent_id = $1
   AND status IN ('completed', 'failed', 'cancelled');
 
 -- name: CreateAgentTask :one
+-- 0.5.22: added originator_user_id to the INSERT (was previously left NULL by
+-- the upstream query, blocking the MUL-4525 §2 merge-with-originator-re-stamp
+-- path that re-stamps the originator on a same-(issue, agent) merge).
 INSERT INTO agent_task_queue (
     agent_id, runtime_id, issue_id, status, priority, trigger_comment_id,
-    trigger_summary, force_fresh_session, is_leader_task, handoff_note, squad_id
+    trigger_summary, force_fresh_session, is_leader_task, handoff_note, squad_id,
+    originator_user_id
 )
 VALUES (
     $1, $2, $3, 'queued', $4, sqlc.narg(trigger_comment_id),
@@ -239,7 +243,8 @@ VALUES (
     COALESCE(sqlc.narg('force_fresh_session')::boolean, FALSE),
     COALESCE(sqlc.narg('is_leader_task')::boolean, FALSE),
     sqlc.narg(handoff_note),
-    sqlc.narg(squad_id)
+    sqlc.narg(squad_id),
+    sqlc.narg(originator_user_id)
 )
 RETURNING *;
 
