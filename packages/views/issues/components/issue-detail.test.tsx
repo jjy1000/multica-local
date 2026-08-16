@@ -1,6 +1,6 @@
 import { forwardRef, useRef, useState, useImperativeHandle } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Issue, TimelineEntry } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
@@ -229,12 +229,14 @@ const mockApiObj = vi.hoisted(() => ({
   getProject: vi.fn(),
   listProjects: vi.fn().mockResolvedValue({ projects: [] }),
   listExperimentalFlags: vi.fn().mockResolvedValue([]),
+  rawRequest: vi.fn(),
 }));
 
 vi.mock("@multica/core/api", () => ({
   api: mockApiObj,
   getApi: () => mockApiObj,
   setApiInstance: vi.fn(),
+  parseWithFallback: (raw: unknown) => raw,
 }));
 
 // Mock issue config
@@ -588,6 +590,45 @@ describe("IssueDetail (shared)", () => {
       expect(screen.getByText("Started working on this")).toBeInTheDocument();
     });
     expect(screen.getByText("I can help with this")).toBeInTheDocument();
+  });
+
+  it("renders a lab summary card with a jump link when the lab hides its deliverable", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      lab_source: "claude_science_lab",
+    });
+    mockApiObj.listExperimentalFlags.mockResolvedValue([
+      {
+        key: "claude_science_lab",
+        enabled: true,
+        default_enabled: false,
+        title: { en: "Claude Research Lab", zh: "Claude 科研实验室" },
+        description: { en: "", zh: "" },
+        hides_deliverable_in_issue_timeline: true,
+      },
+    ]);
+    mockApiObj.rawRequest.mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        tasks: [
+          {
+            id: "task-1",
+            status: "completed",
+            result_summary: "研究已完成，见实验室报告。",
+            created_at: "2026-01-18T00:00:00Z",
+          },
+        ],
+      }),
+    });
+
+    renderIssueDetail();
+
+    const card = await screen.findByTestId("lab-deliverable-summary");
+    expect(card).toHaveTextContent("研究已完成，见实验室报告。");
+
+    const link = within(card).getByRole("link");
+    expect(link).toHaveAttribute("href", "/experimental/claude-lab?issue=issue-1");
   });
 
   it("shows loading skeleton while data is loading", () => {

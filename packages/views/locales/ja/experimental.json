@@ -74,6 +74,7 @@
     "desc_mythos": "エージェントスウォーム。`sole`（スウォームが課題を終端まで所有）と `enhancer`（スウォームが前置 + 監視し、選択した担当者が実行）の 2 モード。",
     "desc_llm_wiki_bridge": "LLM Wiki のローカル stdio ブリッジ。MCP 風動詞で、wiki ファイル / 検索 / 状態をエディタやエージェントランタイムにストリーム配信。",
     "desc_code_canvas": "プロトタイピング、コードのスケッチ、エージェント生成スニペットの並列閲覧のためのインタラクティブキャンバス。",
+    "desc_swarm_topology": "自己組織化マルチエージェントトポロジー。リーダーが役割エージェント + スキル + 調整スカッドを作成し、5 フェーズのマシン（リサーチ → 設計 → 実装 → レビュー → 完了）を進める。",
     "desc_plugin": "ユーザーインストール型のラボプラグイン。マニフェスト駆動のタブ（チャット / 成果物 / テーブル / iframe / コード / 設定）を、プラグイン毎に分離されたインラインランタイム上で実行。"
   },
   "code_canvas": {
@@ -91,8 +92,25 @@
     "not_enabled_title": "Code Canvas は無効です",
     "not_enabled_desc": "設定 → Labs で code_canvas フラグを有効にすると、ここでコードをキャンバスビューに描画できます。"
   },
+  "semantica": {
+    "crumb_labs": "実験機能",
+    "title": "Semantica エクスプローラー",
+    "connecting": "Semantica に接続中…",
+    "not_enabled_title": "Semantica は無効です",
+    "not_enabled_desc": "設定 → Labs で Semantica Knowledge Graph フラグを有効にすると、エクスプローラーを利用できます。",
+    "boot_error_title": "Semantica の起動に失敗しました",
+    "retry": "再試行",
+    "iframe_title": "Semantica エクスプローラー"
+  },
   "lab_output_panel": {
     "empty": "実行結果はまだありません",
+    "summary_card_title": "科研ラボの結果",
+    "open_in_lab": "ラボで開く",
+    "status_running": "実行中",
+    "status_queued": "待機中",
+    "status_completed": "完了",
+    "status_failed": "失敗",
+    "status_cancelled": "キャンセル",
     "error": "ラボ出力の読み込みに失敗しました",
     "retry": "再試行",
     "closed": "実験は終了しています",

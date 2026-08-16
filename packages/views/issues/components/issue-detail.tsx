@@ -68,6 +68,7 @@ import { ThreadNavPanel, mentionsUser, type ThreadNavThread } from "./thread-nav
 import { collectThreadReplies, deriveThreadResolution } from "./thread-utils";
 import { IssueAgentHeaderChip } from "./issue-agent-header-chip";
 import { IssueLabsSection, labSourceRouteSuffix, AgentTrustCorrectButton } from "./issue-labs-section";
+import { LabDeliverableSummary } from "../../experimental/components/lab-deliverable-summary";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -398,7 +399,8 @@ function shallowEqualEntries(a: TimelineEntry[], b: TimelineEntry[]): boolean {
 type TimelineItem =
   | { kind: "comment"; id: string; entry: TimelineEntry }
   | { kind: "resolved-bar"; id: string; entry: TimelineEntry }
-  | { kind: "activity-group"; id: string; entries: TimelineEntry[] };
+  | { kind: "activity-group"; id: string; entries: TimelineEntry[] }
+  | { kind: "lab-summary"; id: string; labSource: string };
 
 type RawTimelineGroup = {
   type: "comment" | "activities";
@@ -1136,10 +1138,24 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // changes (timeline events) or expandedResolved flips (user toggles a
   // resolved thread). Kept in a useMemo so Virtuoso's data identity is stable
   // across unrelated re-renders.
-  const items = useMemo<TimelineItem[]>(
-    () => flattenGroups(timelineView.groups, expandedResolved),
-    [timelineView.groups, expandedResolved],
-  );
+  const items = useMemo<TimelineItem[]>(() => {
+    const flat = flattenGroups(timelineView.groups, expandedResolved);
+    // Labs that hide their deliverable from the timeline (agent comments
+    // already filtered above) get a single trailing summary card instead, so
+    // the timeline still links to the lab's full report in its workbench view.
+    if (
+      hideLabAgentComments &&
+      issue?.lab_source &&
+      labSourceRouteSuffix(issue.lab_source)
+    ) {
+      flat.push({
+        kind: "lab-summary",
+        id: `lab-summary-${issue.id}`,
+        labSource: issue.lab_source,
+      });
+    }
+    return flat;
+  }, [timelineView.groups, expandedResolved, hideLabAgentComments, issue?.lab_source]);
 
   // ID of the trailing activity block — the only one expanded by default.
   const lastActivityGroupId = useMemo(() => {
@@ -1511,7 +1527,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
       { content: issue?.description, attachments: descEditorAttachments },
     ];
     for (const item of items) {
-      if (item.kind === "activity-group") continue;
+      if (item.kind !== "comment" && item.kind !== "resolved-bar") continue;
       blocks.push({
         content: item.entry.content,
         attachments: item.entry.attachments,
@@ -2096,6 +2112,13 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             onResolvedExpandChange={toggleResolvedExpand}
             highlightedCommentId={highlightedId}
           />
+        </div>
+      );
+    }
+    if (item.kind === "lab-summary") {
+      return (
+        <div className="pb-3">
+          <LabDeliverableSummary wsId={wsId} issueId={id} labSource={item.labSource} />
         </div>
       );
     }
