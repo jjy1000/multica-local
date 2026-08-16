@@ -59,6 +59,8 @@
     "experimental_llm_wiki_bridge": "LLM Wiki 本地桥接",
     "experimental_claude_science_lab": "Claude 科研实验室",
     "experimental_code_canvas": "代码画布",
+    "experimental_swarm_topology": "蜂群拓扑",
+    "experimental_semantica": "Semantica 探索器",
     "error_fallback": "侧边栏渲染失败。",
     "error_retry": "重试"
   }

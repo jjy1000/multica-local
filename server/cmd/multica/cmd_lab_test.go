@@ -12,13 +12,16 @@ import (
 )
 
 // TestResolveLabFlagKey pins the <lab> → flag_key normalization: a bare slug
-// gets the "user_" prefix, an already-prefixed key passes through, and input
-// whitespace is trimmed before prefixing.
+// gets the "user_" prefix, an already-prefixed key passes through, a
+// built-in catalog key (e.g. "semantica") passes through unchanged so
+// `multica lab delegate semantica "..."` lands on lab_source="semantica"
+// (not "user_semantica"), and input whitespace is trimmed before prefixing.
 func TestResolveLabFlagKey(t *testing.T) {
 	cases := []struct{ name, in, want string }{
 		{"bare slug gets user_ prefix", "my-lab", "user_my-lab"},
 		{"already-prefixed passes through", "user_my-lab", "user_my-lab"},
 		{"whitespace trimmed", "  my-lab  ", "user_my-lab"},
+		{"built-in catalog key passes through", "semantica", "semantica"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -74,6 +74,12 @@ const staticFlagDescriptors: ReadonlyArray<ManagerFactoryDescriptor> = [
   { flagKey: "mythos_swarm", kind: "headless", label: "experimental_mythos" },
   { flagKey: "llm_wiki_bridge", kind: "subprocess", label: "experimental_llm_wiki_bridge" },
   { flagKey: "code_canvas", kind: "subprocess", label: "experimental_code_canvas" },
+  // 0.5.22 Phase 2: semantica is a catalog-only subprocess flag driven by
+  // the generic manifest path (resolveGenericSubprocessManager). The static
+  // descriptor is the cold-boot safety net — without it, on a boot where
+  // loadFlagDescriptors() has not resolved the server catalog yet, the IPC
+  // dispatcher cannot answer experimental:semantica:get-status.
+  { flagKey: "semantica", kind: "subprocess", label: "experimental_semantica" },
   // 0.3.57: constitution_agent retired alongside migration 165.
 ];
 

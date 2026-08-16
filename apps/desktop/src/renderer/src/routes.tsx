@@ -35,6 +35,7 @@ import { SwarmTopologyView } from "./pages/swarm-topology-view";
 import { PythiaView } from "./pages/pythia-view";
 import { LLMWikiBridgeView } from "./pages/llm-wiki-bridge-view";
 import { CodeCanvasView } from "./pages/code-canvas-view";
+import { SemanticaExplorerView } from "./pages/semantica-explorer-view";
 // 0.5.4: agent-creation-studio page deleted — the studio is now an
 // issue-bound lab. Users pick it in the LabPicker, and tasks dispatch
 // to `agent_creation_expert` (which then authors the resources via
@@ -169,6 +170,17 @@ export const appRoutes: RouteObject[] = [
         path: "experimental/code-canvas",
         element: <CodeCanvasView />,
         handle: { title: "Code Canvas" },
+      },
+      {
+        // 0.5.22 Phase 2: semantica Labs-tab view. Iframe wrapper around the
+        // Semantica Explorer SPA. URL is /experimental/semantica-explorer
+        // (NOT /experimental/semantica — that path is reserved for the REST
+        // proxy the agent subprocess calls). Distinction matters: a future
+        // /experimental/semantica-decisions tab should not collide with the
+        // API proxy at /experimental/semantica/api/decisions.
+        path: "experimental/semantica-explorer",
+        element: <SemanticaExplorerView />,
+        handle: { title: "Semantica Explorer" },
       },
       {
         // 0.3.60: generic user plugin shell. The slug comes from the URL

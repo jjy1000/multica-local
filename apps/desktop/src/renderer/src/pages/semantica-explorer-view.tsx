@@ -1,0 +1,190 @@
+import { useEffect, useState } from "react";
+import { FlaskConical, Loader2 } from "lucide-react";
+import { useExperimentalFlag } from "@multica/core/experimental";
+import { useT } from "@multica/views/i18n";
+import { DragStrip } from "@multica/views/platform";
+
+// SemanticaExplorerView (0.5.22 Phase 2)
+//
+// Labs-tab view for the `semantica` flag. Mounts the Semantica Explorer
+// SPA (vendored FastAPI + static bundle) in a sandboxed iframe.
+//
+// URL resolution: the generic subprocess path (manager-factory.ts →
+// subprocess-manager.ts) spawns apps/desktop/vendor/semantica/run.sh and
+// registers the loopback URL. The renderer reaches it through the generic
+// `experimental:<flagKey>:<verb>` IPC surface (window.experimentalAPI.invoke),
+// NOT a dedicated semantica bridge — semantica is a catalog-only subprocess
+// flag with no per-flag manager, mirroring code_canvas.
+//
+// Sandbox contract (root CLAUDE.md Known Stability Surfaces):
+//   - allow-scripts: required for the Semantica Explorer SPA + chart libs.
+//   - allow-same-origin: FORBIDDEN. The reverse proxy already strips
+//     Cookie / Authorization and forwards only X-API-Key; adding
+//     allow-same-origin would re-leak the iframe's storage to the renderer
+//     origin and defeat the iframe boundary.
+//   - referrerPolicy="no-referrer" matches the plugin-shell convention.
+export function SemanticaExplorerView() {
+  const enabled = useExperimentalFlag("semantica", false);
+  const { t } = useT("experimental");
+  const [url, setUrl] = useState<string | null>(null);
+  const [status, setStatus] = useState<string>("idle");
+  const [error, setError] = useState<string | null>(null);
+  // Bumped on Retry to re-run the boot effect after a failed start.
+  const [retryKey, setRetryKey] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+
+    async function bootAndPoll() {
+      try {
+        await window.experimentalAPI.invoke("semantica", "ensure-up");
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
+      while (!cancelled) {
+        const nextStatus = (await window.experimentalAPI.invoke(
+          "semantica",
+          "get-status",
+        )) as string | null;
+        const nextUrl = (await window.experimentalAPI.invoke(
+          "semantica",
+          "get-url",
+        )) as string | null;
+        setStatus(nextStatus ?? "idle");
+        if (nextUrl) {
+          setUrl(nextUrl);
+          break;
+        }
+        if (nextStatus === "error") {
+          setError(
+            "Semantica manager reported an error — verify python3 is on PATH and the Semantica repo is installed",
+          );
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 1_000));
+      }
+    }
+
+    void bootAndPoll();
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, retryKey]);
+
+  if (!enabled) {
+    return (
+      <div className="flex h-full w-full flex-col">
+        <DragStrip />
+        <Header
+          crumbLabs={t(($) => $.semantica.crumb_labs)}
+          title={t(($) => $.semantica.title)}
+        />
+        <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+          <h1 className="text-lg font-semibold text-foreground">
+            {t(($) => $.semantica.not_enabled_title)}
+          </h1>
+          <p className="max-w-md text-sm text-muted-foreground">
+            {t(($) => $.semantica.not_enabled_desc)}
+          </p>
+        </main>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-full w-full flex-col">
+        <DragStrip />
+        <Header
+          crumbLabs={t(($) => $.semantica.crumb_labs)}
+          title={t(($) => $.semantica.title)}
+        />
+        <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+          <h1 className="text-lg font-semibold text-foreground">
+            {t(($) => $.semantica.boot_error_title)}
+          </h1>
+          <p className="max-w-md text-sm text-muted-foreground">{error}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setUrl(null);
+              setStatus("idle");
+              setRetryKey((k) => k + 1);
+            }}
+            className="mt-2 inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground"
+          >
+            {t(($) => $.semantica.retry)}
+          </button>
+        </main>
+      </div>
+    );
+  }
+
+  if (!url) {
+    return (
+      <div className="flex h-full w-full flex-col">
+        <DragStrip />
+        <Header
+          crumbLabs={t(($) => $.semantica.crumb_labs)}
+          title={t(($) => $.semantica.title)}
+          status={status}
+        />
+        <main className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+          <span>
+            {t(($) => $.semantica.connecting)} (manager: {status})…
+          </span>
+        </main>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full w-full flex-col">
+      <DragStrip />
+      <Header
+        crumbLabs={t(($) => $.semantica.crumb_labs)}
+        title={t(($) => $.semantica.title)}
+        status={status}
+      />
+      <iframe
+        src={`${url}/`}
+        title={t(($) => $.semantica.iframe_title)}
+        sandbox="allow-scripts"
+        referrerPolicy="no-referrer"
+        className="w-full flex-1 border-0"
+      />
+    </div>
+  );
+}
+
+function Header({
+  crumbLabs,
+  title,
+  status,
+}: {
+  crumbLabs: string;
+  title: string;
+  status?: string;
+}) {
+  return (
+    <header className="flex h-9 shrink-0 items-center gap-3 border-b border-border bg-background px-6 text-xs text-muted-foreground">
+      <div className="flex items-center gap-1.5">
+        <FlaskConical className="size-3.5" aria-hidden />
+        <span className="font-medium text-foreground">{crumbLabs}</span>
+        <span className="text-muted-foreground/60">/</span>
+        <span>{title}</span>
+      </div>
+      {status ? (
+        <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+          {status}
+        </span>
+      ) : null}
+    </header>
+  );
+}

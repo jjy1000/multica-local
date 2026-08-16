@@ -81,14 +81,28 @@ func init() {
 // leader / offline runtime) from hanging for the full --timeout.
 var labDelegateNoTaskGrace = 30 * time.Second
 
-// resolveLabFlagKey normalizes the <lab> argument into the user plugin flag
-// key: a bare slug ("my-lab") gets the "user_" prefix, an already-prefixed key
-// passes through. Whitespace is trimmed first.
+// resolveLabFlagKey normalizes the <lab> argument into the flag key the
+// server will accept on POST /api/issues {"lab_source": ...}.
+//
+// Resolution order (each step short-circuits):
+//  1. Already-prefixed user plugin key ("user_event-sim") → pass through.
+//  2. Built-in catalog key (e.g. "semantica", "pythia_oracle") → pass
+//     through. Pre-Phase 2 this branch was missing, so any built-in
+//     lab alias got silently rewritten to "user_<slug>" and the server
+//     rejected the create with "lab_source must match a known flag key".
+//  3. Bare slug → prepend the "user_" namespace.
+//
+// Whitespace is trimmed first so `"  semantica  "` resolves the same as
+// `"semantica"`.
 func resolveLabFlagKey(labArg string) string {
 	flagKey := strings.TrimSpace(labArg)
-	if !experimental.IsUserPluginKey(flagKey) {
-		flagKey = experimental.UserPluginPrefix + flagKey
+	if experimental.IsUserPluginKey(flagKey) {
+		return flagKey
 	}
+	if experimental.IsKnownKey(flagKey) {
+		return flagKey
+	}
+	flagKey = experimental.UserPluginPrefix + flagKey
 	return flagKey
 }
 

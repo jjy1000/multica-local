@@ -3040,6 +3040,14 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 		// `lab_source='agent_creation_studio'` issue still resolves
 		// to the leader (the 0.3.46 P0#4 leader-rewrite contract).
 		return AgentCreationExpertName, true
+	case "semantica":
+		// 0.5.22 Semantica × Multica Phase 2: leader for the
+		// semantica lab. Install handler provisions the agent row
+		// bound to the multica-semantica-decision-advisor skill.
+		// String MUST match defaultLeaderAgentForLab in
+		// service/issue.go and upsertSemanticaDecisionAdvisorAgent
+		// in install_semantica.go.
+		return "semantica_decision_advisor", true
 	case "mythos_swarm":
 		// Mythos owns the roster via its own runner; auto-assign is
 		// intentionally suppressed (the sole-mutex gate above keeps

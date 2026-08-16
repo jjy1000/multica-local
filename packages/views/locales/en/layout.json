@@ -59,6 +59,8 @@
     "experimental_llm_wiki_bridge": "LLM Wiki Bridge",
     "experimental_claude_science_lab": "Claude Research Lab",
     "experimental_code_canvas": "Code Canvas",
+    "experimental_swarm_topology": "Swarm Topology",
+    "experimental_semantica": "Semantica Explorer",
     "error_fallback": "Sidebar failed to render.",
     "error_retry": "Retry"
   }

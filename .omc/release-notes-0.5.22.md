@@ -182,3 +182,103 @@ Migration **244** (`swarm_run_resource_type`) widens
 ./internal/service/swarm/` ok · `go test -race -short
 ./internal/experimental/` ok · `pnpm typecheck` 6/6 · `migrate up`
 applied 243 + 244 against live DB.
+
+---
+
+## Semantica × Multica Phase 2 (2026-08-16)
+
+Second feature shipping in 0.5.22: the **Semantica lab plugin** — a
+local knowledge-graph + decision-record subprocess (`python -m
+semantica.explorer`) bridged into Multica as a Labs flag. Brings
+ontology / SPARQL / causal-chain / precedent search to agent roles,
+with an end-to-end decision-sync loop: a Multica issue reaching a
+terminal status is POSTed to Semantica's `/api/decisions` as an
+idempotent `multica_<uuid>` record, so later lab-bound issues can
+query prior decisions as precedents.
+
+### What's new (14 new + 11 modified files)
+
+- **Catalog + manifest** — `semantica` Flag (`catalog.go:353`,
+  `HidesDeliverableInIssueTimeline: true`), `SourceSemantica`
+  (`lock.go:119`), `experiments/semantica/manifest.json`,
+  `vendor/semantica/run.sh` + `requirements.txt` (FastAPI + uvicorn +
+  pydantic), migration **242** (CHECK widened to `semantica`).
+- **Install handler** — `install_semantica.go` upserts the
+  `semantica_decision_advisor` leader agent, claims the lock, seeds
+  visibility rows, heals `runtime_id`. Workspace-scoped (matches
+  `install_pythia`).
+- **Leader wiring** — `defaultLabLeaderForKey` (`handler/issue.go:3043`)
+  + `defaultLeaderAgentForLab` (`service/issue.go:385`) map
+  `lab_source='semantica'` → `semantica_decision_advisor`.
+- **Decision sync loop** — `cmd/server/decision_sync_listeners.go`
+  subscribes to `EventIssueUpdated` + `EventTaskCompleted/Failed/Cancelled`,
+  dedupes via `recentSyncDedup` (5-min TTL), re-reads the `db.Issue`
+  row (never trusting the payload's heterogeneous `issue` field), and
+  fires `handler.SyncIssueDecisionToSemantica` → `POST /api/decisions`
+  in a fire-and-forget goroutine (10s timeout, never panics).
+- **Skills** — `multica-semantica-decision-advisor` (delegation
+  specialist; `SKILL.md` + `references/api-source-map.md`) +
+  `multica-semantica` (explorer curl skill).
+- **UI** — `semantica-explorer-view.tsx` (Labs-tab iframe,
+  `sandbox="allow-scripts"` only, `referrerPolicy="no-referrer"`,
+  opaque origin — no `allow-same-origin` per CLAUDE.md hard rule).
+  Route `/experimental/semantica-explorer` (NOT `/experimental/semantica`
+  — that prefix is reserved for the REST proxy).
+- **CLI** — `multica lab delegate semantica "<task>"` via the general
+  built-in-key pass-through (`resolveLabFlagKey`); no new endpoint.
+- **i18n** — 4-locale `experimental_semantica` sidebar label +
+  `experimental.json` semantica block.
+
+### Review fixes (multilens audit: 3 reviewers + adversarial verify, 29 findings → 6 HIGH fixed)
+
+| # | Severity | Defect | Fix |
+|---|---|---|---|
+| 1 | HIGH | UTF-8 byte-slice truncated CJK descriptions mid-codepoint | rune-aware `[]rune` slice + `utf8.RuneCountInString` |
+| 2 | HIGH | `recentSyncDedup` unbounded growth (~25 MB/yr) | janitor goroutine (`evictStaleSyncEntries`, ticks every TTL) |
+| 3 | MED | Load+Store race → up to 4 concurrent POSTs | `sync.Map.LoadOrStore` atomic dedup |
+| 4 | **NEW** | `extractIssueID` panics on nil `*IssueResponse` | nil-pointer guard (found by the new test, not the verifier) |
+| 5 | LOW | empty `row.Title` → unsearchable decision record | UUID-based `"Untitled issue <uuid>"` fallback |
+
+19 new tests pin the contracts: dedup TTL + 100-goroutine concurrency,
+`syncIssueRow` four-case predicate, goroutine-offload non-blocking
+(httptest slow-upstream, assert caller <100 ms), end-to-end sync 6
+paths (happy / subprocess-down / 5xx / flag-off / nil-registry).
+
+### Verification
+
+```
+gofmt: clean
+go vet:  clean
+go test -race ./internal/handler/           → ok (18.1s)
+go test -race ./internal/experimental/      → ok (1.6s)
+go test -race ./cmd/server/ (semantica tests) → ok (1.9s)
+```
+
+### Deferred to 0.5.23
+
+- **MED F8/F9** — `X-API-Key` injection for `SEMANTICA_REQUIRE_AUTH=1`
+  mode (fork default is anonymous, so not a live bug).
+- **MED F10** — `workspace_id` partitioning on the Semantica corpus
+  (INCONCLUSIVE — needs the Semantica Python source to confirm).
+- **LOW/NIT** — `http.DefaultClient` pool sharing, `--task` length
+  cap in `cmd_lab.go`, iframe `src` double-slash.
+
+### Files changed (Semantica)
+
+```
+apps/desktop/resources/experiments/semantica/manifest.json      (new)
+apps/desktop/vendor/semantica/run.sh + requirements.txt         (new)
+apps/desktop/src/renderer/src/pages/semantica-explorer-view.tsx (new)
+apps/desktop/src/renderer/src/routes.tsx                        (+7)
+apps/desktop/src/main/experimental/manager-factory.ts           (+8)
+server/cmd/server/decision_sync_listeners.go + _test.go         (new)
+server/internal/handler/decision_sync.go + _test.go             (new)
+server/internal/handler/install_semantica.go + _test.go         (new)
+server/internal/service/builtin_skills/multica-semantica-decision-advisor/*  (new)
+server/internal/service/builtin_skills/multica-semantica/*      (new)
+server/migrations/242_semantica_visibility_seed.{up,down}.sql   (new)
+server/internal/handler/issue.go                                (+10, defaultLabLeaderForKey)
+server/cmd/server/main.go                                       (+8, registerDecisionSyncListeners)
+server/cmd/multica/cmd_lab.go + _test.go                        (built-in key pass-through)
+packages/views/locales/{en,zh-Hans,ja,ko}/layout.json           (experimental_semantica)
+```

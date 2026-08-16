@@ -1,0 +1,52 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "semantica",
+    "flag": "semantica",
+    "title": { "en": "Semantica Knowledge Graph", "zh": "Semantica 知识图谱" },
+    "description": {
+      "en": "Local subprocess that bridges Semantica into Multica. Phase 2 adds the semantica_decision_advisor agent (delegatable via `multica lab delegate semantica`), terminal-issue decision sync (POST /api/decisions), and a Labs-tab iframe at /experimental/semantica-explorer. Phase 1 catalog + REST bridge + curl skill still apply. Off by default.",
+      "zh": "本地子进程,把 Semantica 桥接到 Multica。Phase 2 新增 semantica_decision_advisor agent(`multica lab delegate semantica` 可委托)、终态 issue 自动同步决策(POST /api/decisions)、Labs 标签页 iframe(/experimental/semantica-explorer)。Phase 1 catalog + REST 桥接 + curl技能仍生效。默认关闭。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "capabilities": {
+      "skills": ["multica-semantica", "multica-semantica-decision-advisor"],
+      "agents": ["semantica_decision_advisor"],
+      "squads": [],
+      "permissions": ["agent:invoke"]
+    },
+    "entry_points": {
+      "sidebar": [
+        {
+          "key": "semantica",
+          "label_key": "experimental_semantica",
+          "route": "/experimental/semantica-explorer"
+        }
+      ],
+      "settings": { "route": "/experimental/semantica-explorer" }
+    },
+    "runtime": {
+      "kind": "subprocess",
+      "binary": "experiments/semantica/run.sh",
+      "args": [],
+      "health_path": "/api/health",
+      "ready_timeout_ms": 120000,
+      "stop_grace_ms": 10000,
+      "on_missing": "service not bundled — install Semantica (pip install -e $SEMANTICA_REPO_PATH) and set SEMANTICA_REPO_PATH in the desktop env"
+    },
+    "resources": {
+      "installable": true,
+      "lockable_resources": ["agent:semantica_decision_advisor"],
+      "install_handler": "semantica"
+    },
+    "safety": {
+      "init_timeout_ms": 120000,
+      "burst": { "threshold": 3, "window_seconds": 60 },
+      "panic_recover": true,
+      "ip_allowlist": ["127.0.0.0/8"]
+    }
+  }
+}
