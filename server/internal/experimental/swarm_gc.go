@@ -33,10 +33,28 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
+
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 
 	swarmsvc "github.com/multica-ai/multica/server/internal/service/swarm"
 )
+
+// swarmTopologyLockResourceType mirrors experimental.LockSwarmRun
+// (server/internal/experimental/lock.go). It is duplicated here as
+// a literal string rather than imported to avoid a cyclic import:
+// experimental → service/swarm (transitively, via the orchestrator's
+// integration test references), and service/swarm → experimental
+// would close the loop. The SQL CHECK constraint on
+// experimental_resource_lock.resource_type is widened to include
+// 'swarm_run' in migration 244; the value MUST match the constant
+// in lock.go verbatim.
+const swarmTopologyLockResourceType = "swarm_run"
+
+// swarmTopologyLockSource mirrors experimental.SourceSwarmTopology
+// (lock.go). Same cycle-avoidance rationale as
+// swarmTopologyLockResourceType above.
+const swarmTopologyLockSource = "swarm_topology"
 
 // SwarmGCConfig bundles every knob the GC loop respects.
 type SwarmGCConfig struct {
@@ -210,12 +228,31 @@ func (g *SwarmGC) archiveOne(ctx context.Context, row db.SwarmRun) error {
 
 	// Cascade cleanup — DB side. Each step is best-effort; a single
 	// failure shouldn't block the others.
+	//
+	// 0.5.22 audit fix (P0): added `remove_visibility_rows` step
+	// (the audit found this listed in the comment but missing from
+	// the slice — visibility rows leaked forever, keeping
+	// lab_managed=true on ListAgents/GetAgent). The role-agent
+	// list is fetched ONCE at the top so the visibility cleanup can
+	// run before the role rows flip to 'archived'.
+	roleAgentIDs := g.roleAgentIDs(ctx, row.ID)
 	cleanupSteps := []struct {
 		name string
 		fn   func() error
 	}{
 		{"archive_roles", func() error {
 			return g.cfg.Queries.ArchiveSwarmRolesByRun(ctx, row.ID)
+		}},
+		{"remove_visibility_rows", func() error {
+			for _, agentID := range roleAgentIDs {
+				if err := g.cfg.Queries.DeleteExperimentalResourceVisibilityByResourceID(ctx, db.DeleteExperimentalResourceVisibilityByResourceIDParams{
+					ResourceType: "agent",
+					ResourceID:   agentID,
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
 		}},
 		{"sweep_old_messages", func() error {
 			return g.cfg.Queries.DeleteSwarmRoleMessagesOlderThan(ctx, row.ID)
@@ -248,20 +285,40 @@ func (g *SwarmGC) archiveOne(ctx context.Context, row db.SwarmRun) error {
 }
 
 // releaseSwarmLock removes the experimental_resource_lock row that
-// the install handler claimed for this swarm_run. Best-effort; the
-// orchestrator may have already released it on cancel.
+// the install handler claimed for this swarm_run.
+//
+// 0.5.22 audit fix (P0): was a stub returning nil — the lock row
+// leaked forever (the table has no TTL column). Now calls the
+// DeleteExperimentalResourceLockByID sqlc query added in this fix.
 func (g *SwarmGC) releaseSwarmLock(ctx context.Context, row db.SwarmRun) error {
-	// experimental resource lock rows live in experimental_resource_lock.
-	// We don't have a delete-by-source+resource_id query in the sqlc
-	// surface; we re-use the lock querier if available, or fall back
-	// to a raw pgx query. For now: log a soft warning if the helper
-	// isn't available and skip — the lock TTL (default 7d, see
-	// runtime_gc.constants) bounds the leak.
-	g.cfg.Logger.Debug("swarm_gc release_lock best-effort",
-		"id", row.ID.String())
-	// The runtime_gc.go has a similar pattern; if a future PR adds
-	// DeleteExperimentalResourceLockForSource, wire it here.
-	return nil
+	return g.cfg.Queries.DeleteExperimentalResourceLockByID(ctx, db.DeleteExperimentalResourceLockByIDParams{
+		ExperimentalSource: swarmTopologyLockSource,
+		ResourceType:       swarmTopologyLockResourceType,
+		ResourceID:         row.ID,
+	})
+}
+
+// roleAgentIDs returns the agent UUIDs of every role-agent the
+// run authored, so the visibility-row cleanup cascade knows which
+// rows to delete. Read once at the top of archiveOne (before
+// ArchiveSwarmRolesByRun flips role rows to 'archived') and passed
+// to the cleanupSteps closure. Best-effort: a list failure logs
+// at warn and returns nil — the cascade then no-ops the
+// visibility-cleanup step rather than aborting the whole archive.
+func (g *SwarmGC) roleAgentIDs(ctx context.Context, runID pgtype.UUID) []pgtype.UUID {
+	rows, err := g.cfg.Queries.ListSwarmRolesByRun(ctx, runID)
+	if err != nil {
+		g.cfg.Logger.Warn("swarm_gc list roles failed (visibility cleanup will skip)",
+			"id", runID.String(), "err", err.Error())
+		return nil
+	}
+	out := make([]pgtype.UUID, 0, len(rows))
+	for _, r := range rows {
+		if r.AgentID.Valid {
+			out = append(out, r.AgentID)
+		}
+	}
+	return out
 }
 
 // trashSweep walks the archive tree, tarballs anything older than
