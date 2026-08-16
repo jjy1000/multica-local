@@ -19,6 +19,7 @@ const LABS = [
   { slug: "mythos", labelKey: "experimental_mythos", descKey: "desc_mythos" },
   { slug: "llm-wiki", labelKey: "experimental_llm_wiki_bridge", descKey: "desc_llm_wiki_bridge" },
   { slug: "code-canvas", labelKey: "experimental_code_canvas", descKey: "desc_code_canvas" },
+  { slug: "swarm-topology", labelKey: "experimental_swarm_topology", descKey: "desc_swarm_topology" },
 ] as const;
 
 export default function ExperimentalIndexPage() {

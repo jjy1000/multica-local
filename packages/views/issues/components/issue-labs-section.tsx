@@ -133,6 +133,50 @@ export function AgentTrustCorrectButton({
   );
 }
 
+// Swarm run status pill (0.5.22 FIX 2). Reads the issue-side swarm_run
+// reverse lookup (GET /api/issues/{id}/swarm-runs) and renders a compact
+// status pill next to the LabBadge when lab_source === "swarm_topology".
+// The endpoint returns a single object (UNIQUE on root_issue_id) or 404;
+// 404 (no run, or flag-off via RequireExperimentalFlag) maps to `null`
+// and hides the pill. Status/phase are raw server enum strings — the
+// same values the desktop swarm-topology view renders without i18n.
+interface SwarmRunStatus {
+  id: string;
+  status: string;
+  current_phase: string;
+}
+
+const SWARM_STATUS_TONES: Record<string, string> = {
+  preparing: "bg-slate-100 text-slate-700",
+  planning: "bg-blue-100 text-blue-700",
+  running: "bg-blue-200 text-blue-900",
+  monitoring: "bg-amber-100 text-amber-700",
+  completed: "bg-emerald-100 text-emerald-700",
+  aborted: "bg-slate-200 text-slate-700",
+  failed: "bg-red-100 text-red-700",
+};
+
+function SwarmRunStatusPill({ run }: { run: SwarmRunStatus }) {
+  const tone = SWARM_STATUS_TONES[run.status] ?? "bg-slate-100 text-slate-700";
+  return (
+    <AppLink
+      href="/experimental/swarm-topology"
+      className="shrink-0"
+      aria-label={`swarm run: ${run.status}`}
+    >
+      <span
+        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${tone}`}
+        data-swarm-status={run.status}
+      >
+        {run.status}
+        {run.current_phase ? (
+          <span className="opacity-70">· {run.current_phase}</span>
+        ) : null}
+      </span>
+    </AppLink>
+  );
+}
+
 /**
  * Sidebar "Labs" section for issues that were tagged with a lab source.
  */export function IssueLabsSection({
@@ -148,6 +192,31 @@ export function AgentTrustCorrectButton({
   const wsId = useWorkspaceId();
   const { data: flags } = useExperimentalFlags();
   const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
+
+  // Swarm run status (0.5.22 FIX 2). Poll the issue-side reverse lookup
+  // so the pill tracks the orchestrator's live status/phase. Mode B
+  // refetch (Active Contract #1): 5s while a run is non-terminal, 30s
+  // once terminal or absent (404 → null).
+  const swarmRun = useQuery({
+    queryKey: ["swarm-run", issueId],
+    queryFn: async (): Promise<SwarmRunStatus | null> => {
+      const res = await api.rawRequest(
+        `/api/issues/${encodeURIComponent(issueId)}/swarm-runs`,
+      );
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`swarm run fetch failed: ${res.status}`);
+      return res.json();
+    },
+    enabled: labSource === "swarm_topology",
+    staleTime: 5_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data && !["completed", "aborted", "failed"].includes(data.status)) {
+        return 5_000;
+      }
+      return 30_000;
+    },
+  });
 
   const [open, setOpen] = useState(true);
 
@@ -258,6 +327,12 @@ export function AgentTrustCorrectButton({
                 {indicator.label}
               </span>
             )}
+            {/* Swarm run status pill (0.5.22). Renders only when the
+                issue is bound to a swarm_topology run AND the run
+                exists (404 → no pill). */}
+            {swarmRun.data ? (
+              <SwarmRunStatusPill run={swarmRun.data} />
+            ) : null}
           </div>
 
           {/* 0.5.18 M1: converged read-side output panel for the four

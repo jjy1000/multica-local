@@ -1,12 +1,23 @@
 {
   "apiVersion": "multica.dev/experiment/v1",
   "kind": "Experiment",
-  "metadata": {"key": "swarm_topology"},
-  "spec": {
-    "entry_points": {
-      "sidebar": [{"suffix": "swarm-topology", "label": {"en": "Swarm Topology", "zh": "蜂群拓扑"}}]
+  "metadata": {
+    "name": "swarm_topology",
+    "flag": "swarm_topology",
+    "title": { "en": "Swarm Topology", "zh": "蜂群拓扑" },
+    "description": {
+      "en": "Self-organising multi-agent system. The leader authors role-agents + skills + a coordinating squad on bootstrap, then walks a 5-phase machine. Off by default.",
+      "zh": "自组织多智能体系统。leader 在启动时创建角色 agents + skills + 协调 squad,运行 5 阶段机器。默认关闭。"
     },
-    "runtime": {"kind": "none"},
-    "capabilities": {}
+    "default_enabled": false
+  },
+  "spec": {
+    "capabilities": {},
+    "entry_points": {
+      "sidebar": [
+        { "key": "swarm_topology", "label_key": "experimental_swarm_topology", "route": "/experimental/swarm-topology" }
+      ]
+    },
+    "runtime": { "kind": "headless" }
   }
 }
