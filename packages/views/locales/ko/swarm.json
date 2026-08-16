@@ -1,0 +1,76 @@
+{
+  "title": "Swarm Topology",
+  "description": "자기 조직화 멀티 에이전트 시스템. 부트스트랩 시 leader 가 역할 에이전트 + 스킬 + 조정용 squad 를 생성한 뒤 5단계(리서치 → 설계 → 구현 → 리뷰 → 완료)를 진행합니다. 각 역할은 독립 에이전트로 실행되며, 오케스트레이터가 30초마다 tick 하고 종료 상태에서 swarm_gc 로 모두 정리합니다.",
+  "bootstrap": {
+    "label": "swarm 초기화",
+    "description": "issue 를 선택하고 문제를 설명하세요. 부트스트랩 시 leader 가 역할 에이전트 + 스킬 + 조정용 squad 를 생성합니다.",
+    "issue_label": "issue",
+    "issue_placeholder": "제목 또는 식별자로 issue 검색…",
+    "issue_helper": "이미 swarm 에 부트스트랩된 issue 는 숨겨집니다 —— root_issue_id 열이 UNIQUE 이므로 재부트스트랩은 멱등이며, 동일 issue 에 새 swarm 을 만들 수 없습니다.",
+    "problem_label": "문제 설명",
+    "problem_placeholder": "예: 영속성, 인증, 테스트를 갖춘 멀티 모듈 웹앱 구축",
+    "max_hours_label": "최대 실행 시간(시간)",
+    "max_hours_helper": "기본 72시간. 하드 상한 168시간(1주). 초과 시 오케스트레이터가 상태를 failed 로 바꾸고 사유는 max_lifetime 이 됩니다.",
+    "workspace_label": "워크스페이스",
+    "submit": "swarm 초기화",
+    "bootstrapping": "초기화 중…"
+  },
+  "roles": {
+    "title": "역할",
+    "name": "이름",
+    "status": "상태",
+    "current_step": "현재 단계",
+    "last_heartbeat": "마지막 하트비트"
+  },
+  "past_runs": {
+    "title": "지난 실행",
+    "description": "이 워크스페이스의 swarm_run 히스토리입니다. 오래된 실행은 7일 후 swarm_gc 에 의해 보관됩니다(runtime_gc 보존 기간과 동일).",
+    "empty": "지난 실행이 아직 없습니다.",
+    "loading": "지난 실행 로딩 중…"
+  },
+  "live": {
+    "title": "실시간 토폴로지",
+    "phase": "단계",
+    "active_roles": "활성 역할",
+    "completed_roles": "완료된 역할",
+    "run_id": "run id"
+  },
+  "graph": {
+    "empty": "아직 역할이 없습니다. 부트스트랩 단계에서 leader 가 역할 에이전트를 생성합니다(리서치 → 설계 → 구현 → 리뷰).",
+    "legend": "범례",
+    "aria": "역할 에이전트 {{count}}개를 포함한 swarm topology"
+  },
+  "interrupt": {
+    "label": "swarm 컨트롤",
+    "active_hint": "단계별 디스패치. 일시 중지 시 실행 중인 역할은 완료됩니다.",
+    "terminal_hint": "run {{status}};컨트롤이 비활성화되었습니다.",
+    "pause": "일시 중지",
+    "pausing": "일시 중지 중…",
+    "cancel": "취소",
+    "cancelling": "취소 중…",
+    "inject": "메시지 주입",
+    "hide": "숨기기",
+    "inject_placeholder": "swarm 에 다음 할 일을 알려주세요…",
+    "inject_send": "보내기",
+    "sending": "보내는 중…",
+    "cancel_confirm_title": "이 swarm 실행을 취소할까요?",
+    "cancel_confirm_description": "오케스트레이터가 진행 중인 모든 역할 에이전트를 중단하고 상태를 즉시 aborted 로 변경합니다. 이 작업은 취소할 수 없습니다 —— 동일 issue 의 재부트스트랩은 고유한 root_issue_id 인덱스에 의해 차단됩니다.",
+    "cancel_confirm_action": "실행 취소",
+    "cancel_keep_running": "계속 실행",
+    "resume": "재개",
+    "resuming": "재개 중…"
+  },
+  "status": {
+    "preparing": "준비 중",
+    "planning": "계획 중",
+    "running": "실행 중",
+    "monitoring": "모니터링 중",
+    "completed": "완료됨",
+    "aborted": "중단됨",
+    "failed": "실패",
+    "created": "생성됨",
+    "ready": "준비됨",
+    "idle": "유휴",
+    "archived": "보관됨"
+  }
+}

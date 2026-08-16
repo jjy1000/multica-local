@@ -35,12 +35,15 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 
 import { SwarmInterruptBar, SwarmTopologyGraph, type SwarmRole } from "@multica/views/experimental";
 
+import { useT } from "@multica/views/i18n";
+
 const API_BASE = "/api/experimental/swarm-topology";
 
 interface SwarmRunState {
   run_id: string;
   status: string;
   current_phase: string;
+  is_paused?: boolean;
   roles: SwarmRole[];
   active_role_count: number;
   completed_role_count: number;
@@ -83,7 +86,7 @@ async function fetchSwarmState(runId: string): Promise<SwarmRunState> {
 
 async function postInterrupt(
   runId: string,
-  kind: "pause" | "cancel" | "redirect" | "inject_message",
+  kind: "pause" | "resume" | "cancel" | "redirect" | "inject_message",
   payload?: unknown,
 ): Promise<unknown> {
   const resp = await api.rawRequest(`${API_BASE}/runs/${runId}/interrupt`, {
@@ -148,7 +151,7 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
   });
 
   const interrupt = useMutation({
-    mutationFn: (args: { kind: "pause" | "cancel" | "inject_message"; payload?: string }) =>
+    mutationFn: (args: { kind: "pause" | "resume" | "cancel" | "inject_message"; payload?: string }) =>
       postInterrupt(runId!, args.kind, args.payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["swarm-topology", "state", runId] });
@@ -157,7 +160,7 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
   });
 
   const onInterrupt = useCallback(
-    async (kind: "pause" | "cancel" | "inject_message", payload?: string) => {
+    async (kind: "pause" | "resume" | "cancel" | "inject_message", payload?: string) => {
       await interrupt.mutateAsync({ kind, payload });
     },
     [interrupt],
@@ -178,6 +181,7 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
         <SwarmInterruptBar
           runId={runId}
           status={state.data?.status ?? "preparing"}
+          isPaused={state.data?.is_paused ?? false}
           onInterrupt={onInterrupt}
         />
       ) : null}
@@ -187,17 +191,12 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
 }
 
 function Header() {
+  const { t } = useT("swarm");
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Swarm Topology</CardTitle>
-        <CardDescription>
-          Self-organising multi-agent system. The leader authors role-agents +
-          skills + a coordinating squad on bootstrap, then walks a 5-phase
-          machine (research → design → implement → review → done). Each
-          role runs as an independent agent; the orchestrator ticks every
-          30s and tears everything down via swarm_gc on terminal status.
-        </CardDescription>
+        <CardTitle>{t(($) => $.title)}</CardTitle>
+        <CardDescription>{t(($) => $.description)}</CardDescription>
       </CardHeader>
     </Card>
   );
@@ -212,15 +211,16 @@ function ActiveRun({
   state: SwarmRunState | undefined;
   loading: boolean;
 }) {
+  const { t } = useT("swarm");
   return (
     <Card data-testid="swarm-topology-active">
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
-          <span>Live topology</span>
+          <span>{t(($) => $.live.title)}</span>
           <span className="flex items-center gap-2 text-sm font-normal">
             <StatusBadge status={state?.status ?? "loading"} />
             <span className="text-muted-foreground">
-              phase: <strong>{state?.current_phase ?? "—"}</strong>
+              {t(($) => $.live.phase)}: <strong>{state?.current_phase ?? "—"}</strong>
             </span>
           </span>
         </CardTitle>
@@ -232,9 +232,9 @@ function ActiveRun({
           <SwarmTopologyGraph roles={state?.roles ?? []} />
         )}
         <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
-          <Counter label="Active roles" value={state?.active_role_count ?? 0} />
-          <Counter label="Completed roles" value={state?.completed_role_count ?? 0} />
-          <Counter label="Run id" value={runId.slice(0, 8) + "…"} mono />
+          <Counter label={t(($) => $.live.active_roles)} value={state?.active_role_count ?? 0} />
+          <Counter label={t(($) => $.live.completed_roles)} value={state?.completed_role_count ?? 0} />
+          <Counter label={t(($) => $.live.run_id)} value={runId.slice(0, 8) + "…"} mono />
         </div>
       </CardContent>
     </Card>
@@ -242,21 +242,22 @@ function ActiveRun({
 }
 
 function RoleList({ roles }: { roles: SwarmRole[] }) {
+  const { t } = useT("swarm");
   if (roles.length === 0) return null;
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Roles</CardTitle>
+        <CardTitle>{t(($) => $.roles.title)}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-muted-foreground">
-                <th className="py-2 pr-3">Name</th>
-                <th className="py-2 pr-3">Status</th>
-                <th className="py-2 pr-3">Current step</th>
-                <th className="py-2 pr-3">Last heartbeat</th>
+                <th className="py-2 pr-3">{t(($) => $.roles.name)}</th>
+                <th className="py-2 pr-3">{t(($) => $.roles.status)}</th>
+                <th className="py-2 pr-3">{t(($) => $.roles.current_step)}</th>
+                <th className="py-2 pr-3">{t(($) => $.roles.last_heartbeat)}</th>
               </tr>
             </thead>
             <tbody>
@@ -285,20 +286,18 @@ function RoleList({ roles }: { roles: SwarmRole[] }) {
 }
 
 function PastRunsPanel({ runs, loading }: { runs: SwarmRun[]; loading: boolean }) {
+  const { t } = useT("swarm");
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Past runs</CardTitle>
-        <CardDescription>
-          Historical swarm_run rows in this workspace. Older runs are
-          archived by swarm_gc after 7 days (mirrors runtime_gc retention).
-        </CardDescription>
+        <CardTitle>{t(($) => $.past_runs.title)}</CardTitle>
+        <CardDescription>{t(($) => $.past_runs.description)}</CardDescription>
       </CardHeader>
       <CardContent>
         {loading ? (
           <Skeleton className="h-20 w-full" />
         ) : runs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No past runs yet.</p>
+          <p className="text-sm text-muted-foreground">{t(($) => $.past_runs.empty)}</p>
         ) : (
           <ul className="space-y-2 text-sm">
             {runs.map((r) => (
@@ -322,6 +321,7 @@ function BootstrapForm({
   workspaceId?: string;
   onBootstrapped: (run: SwarmRun) => void;
 }) {
+  const { t } = useT("swarm");
   const [issueId, setIssueId] = useState("");
   const [problem, setProblem] = useState("");
   const [maxHours, setMaxHours] = useState(72);
@@ -334,11 +334,8 @@ function BootstrapForm({
   return (
     <Card data-testid="swarm-topology-bootstrap">
       <CardHeader>
-        <CardTitle>Bootstrap a swarm</CardTitle>
-        <CardDescription>
-          Pick an issue and describe the problem. The leader will author
-          role-agents + skills + a coordinating squad on bootstrap.
-        </CardDescription>
+        <CardTitle>{t(($) => $.bootstrap.label)}</CardTitle>
+        <CardDescription>{t(($) => $.bootstrap.description)}</CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -353,34 +350,31 @@ function BootstrapForm({
           className="space-y-4"
         >
           <div className="space-y-2">
-            <Label htmlFor="swarm-issue-id">Issue</Label>
+            <Label htmlFor="swarm-issue-id">{t(($) => $.bootstrap.issue_label)}</Label>
             <IssuePicker
               value={issueId}
               onChange={setIssueId}
               disabled={bootstrap.isPending}
             />
             <p className="text-xs text-muted-foreground">
-              Issues already bootstrapped into a swarm are hidden — the
-              root_issue_id column is UNIQUE, so re-bootstrapping is
-              idempotent and a fresh swarm on the same issue is not
-              possible.
+              {t(($) => $.bootstrap.issue_helper)}
             </p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="swarm-problem">Problem statement</Label>
+            <Label htmlFor="swarm-problem">{t(($) => $.bootstrap.problem_label)}</Label>
             <Input
               id="swarm-problem"
               type="text"
               value={problem}
               onChange={(e) => setProblem(e.target.value)}
-              placeholder="e.g. Build a multi-module webapp with persistence, auth, and tests"
+              placeholder={t(($) => $.bootstrap.problem_placeholder)}
               required
               disabled={bootstrap.isPending}
               data-testid="swarm-bootstrap-problem"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="swarm-max-hours">Max runtime hours</Label>
+            <Label htmlFor="swarm-max-hours">{t(($) => $.bootstrap.max_hours_label)}</Label>
             <Input
               id="swarm-max-hours"
               type="number"
@@ -392,13 +386,12 @@ function BootstrapForm({
               data-testid="swarm-bootstrap-max-hours"
             />
             <p className="text-xs text-muted-foreground">
-              Default 72h. Hard cap 168h (1 week). Orchestrator flips
-              status='failed' with reason 'max_lifetime' on overrun.
+              {t(($) => $.bootstrap.max_hours_helper)}
             </p>
           </div>
           {workspaceId ? (
             <p className="text-xs text-muted-foreground">
-              Workspace: <span className="font-mono">{workspaceId}</span>
+              {t(($) => $.bootstrap.workspace_label)}: <span className="font-mono">{workspaceId}</span>
             </p>
           ) : null}
           {bootstrap.error ? (
@@ -409,7 +402,7 @@ function BootstrapForm({
             disabled={bootstrap.isPending || !issueId || !problem}
             data-testid="swarm-bootstrap-submit"
           >
-            {bootstrap.isPending ? "Bootstrapping…" : "Bootstrap swarm"}
+            {bootstrap.isPending ? t(($) => $.bootstrap.bootstrapping) : t(($) => $.bootstrap.submit)}
           </Button>
         </form>
       </CardContent>
@@ -418,6 +411,8 @@ function BootstrapForm({
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const { t } = useT("swarm");
+  const tAny = t as unknown as (sel: (res: any) => string) => string;
   const colors: Record<string, string> = {
     preparing: "bg-slate-100 text-slate-700",
     planning: "bg-blue-100 text-blue-700",
@@ -432,12 +427,15 @@ function StatusBadge({ status }: { status: string }) {
     archived: "bg-slate-200 text-slate-500",
   };
   const cls = colors[status] ?? "bg-slate-100 text-slate-700";
+  // Use i18n label if available (handles zh/ja/ko fallback to status enum
+  // string); falls back to the raw enum so unknown statuses don't 404.
+  const label = tAny(($) => $.status[status]) ?? status;
   return (
     <span
       className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${cls}`}
       data-status={status}
     >
-      {status}
+      {label}
     </span>
   );
 }

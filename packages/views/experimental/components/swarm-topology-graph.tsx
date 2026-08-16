@@ -9,8 +9,14 @@
 // button, NOT a graph gesture. The graph itself never mutates state —
 // it just reflects swarm_role rows fetched from /api/experimental/
 // swarm-topology/runs/{id}/state.
+//
+// a11y: each node has a <title> for native SVG tooltip AND a visually-
+// hidden <ul> for screen readers. Status is conveyed by a glyph (not
+// color alone) for colorblind accessibility — per design-quality.md.
 
 import { useMemo } from "react";
+
+import { useT } from "../../i18n";
 
 export interface SwarmRole {
   id: string;
@@ -35,17 +41,29 @@ const NODE_GAP_X = 40;
 const NODE_GAP_Y = 30;
 const PADDING = 16;
 
-const STATUS_COLOR: Record<string, { fill: string; stroke: string }> = {
-  created:   { fill: "#f1f5f9", stroke: "#94a3b8" },
-  ready:     { fill: "#dbeafe", stroke: "#3b82f6" },
-  running:   { fill: "#bfdbfe", stroke: "#1d4ed8" },
-  idle:      { fill: "#fef3c7", stroke: "#d97706" },
-  completed: { fill: "#d1fae5", stroke: "#059669" },
-  failed:    { fill: "#fee2e2", stroke: "#dc2626" },
-  archived:  { fill: "#e5e7eb", stroke: "#6b7280" },
+// Status → { fill, stroke, glyph }.
+// Glyph ensures colorblind users can distinguish statuses without relying
+// on hue (per design-quality.md "Color used semantically").
+const STATUS_VISUAL: Record<
+  string,
+  { fill: string; stroke: string; glyph: string }
+> = {
+  created:   { fill: "#f1f5f9", stroke: "#94a3b8", glyph: "○" },
+  ready:     { fill: "#dbeafe", stroke: "#3b82f6", glyph: "●" },
+  running:   { fill: "#bfdbfe", stroke: "#1d4ed8", glyph: "◐" },
+  idle:      { fill: "#fef3c7", stroke: "#d97706", glyph: "◐" },
+  completed: { fill: "#d1fae5", stroke: "#059669", glyph: "✓" },
+  failed:    { fill: "#fee2e2", stroke: "#dc2626", glyph: "✗" },
+  archived:  { fill: "#e5e7eb", stroke: "#6b7280", glyph: "▣" },
 };
 
 export function SwarmTopologyGraph({ roles, className }: SwarmTopologyGraphProps) {
+  const { t } = useT("swarm");
+  // useT is typed against the closed enum of status keys. Unknown
+  // statuses (forward-compatible enum additions, server-side drift)
+  // fall through to the raw enum string. Cast to bypass the closed
+  // union when indexing by an arbitrary string.
+  const tAny = t as unknown as (sel: (res: any) => string) => string;
   // Topological layout: compute levels (depth from any root), then
   // position each role in its level's row.
   const layout = useMemo(() => computeLayout(roles), [roles]);
@@ -57,8 +75,7 @@ export function SwarmTopologyGraph({ roles, className }: SwarmTopologyGraphProps
     return (
       <div className={className} data-testid="swarm-topology-graph-empty">
         <div className="rounded-md border border-dashed border-muted p-6 text-center text-sm text-muted-foreground">
-          No roles yet. The leader will author role-agents during the
-          bootstrap phase (research → design → implement → review).
+          {t(($) => $.graph.empty)}
         </div>
       </div>
     );
@@ -69,7 +86,7 @@ export function SwarmTopologyGraph({ roles, className }: SwarmTopologyGraphProps
       className={className}
       data-testid="swarm-topology-graph"
       role="img"
-      aria-label={`Swarm topology with ${roles.length} role-agents`}
+      aria-label={t(($) => $.graph.aria, { count: roles.length })}
     >
       <svg
         width={totalW}
@@ -78,7 +95,7 @@ export function SwarmTopologyGraph({ roles, className }: SwarmTopologyGraphProps
         xmlns="http://www.w3.org/2000/svg"
         className="font-sans text-xs"
       >
-        <title>Swarm topology</title>
+        <title>{t(($) => $.title)}</title>
         {/* Edges first so nodes render on top. */}
         {layout.edges.map((edge, i) => {
           const from = layout.nodes.find((n) => n.id === edge.from);
@@ -120,8 +137,9 @@ export function SwarmTopologyGraph({ roles, className }: SwarmTopologyGraphProps
 
         {/* Nodes. */}
         {layout.nodes.map((node) => {
-          const colors = STATUS_COLOR[node.status] ?? STATUS_COLOR.created;
-          if (!colors) return null;
+          const visual = STATUS_VISUAL[node.status] ?? STATUS_VISUAL.created;
+          if (!visual) return null;
+          const statusLabel = tAny(($) => $.status[node.status]) || node.status;
           return (
             <g
               key={node.id}
@@ -130,17 +148,33 @@ export function SwarmTopologyGraph({ roles, className }: SwarmTopologyGraphProps
               data-role-name={node.role_name}
               data-status={node.status}
             >
+              {/* Native SVG tooltip for sighted mouse hover */}
+              <title>
+                {node.role_name} — {statusLabel}
+                {node.current_step ? ` · ${node.current_step}` : ""}
+              </title>
               <rect
                 width={NODE_W}
                 height={NODE_H}
                 rx={6}
-                fill={colors.fill}
-                stroke={colors.stroke}
+                fill={visual.fill}
+                stroke={visual.stroke}
                 strokeWidth={node.status === "running" ? 2.5 : 1.5}
               />
               <text
                 x={NODE_W / 2}
-                y={20}
+                y={18}
+                textAnchor="middle"
+                fill="#0f172a"
+                fontWeight={600}
+                fontSize={14}
+                aria-hidden="true"
+              >
+                {visual.glyph}
+              </text>
+              <text
+                x={NODE_W / 2}
+                y={36}
                 textAnchor="middle"
                 fill="#0f172a"
                 fontWeight={600}
@@ -149,28 +183,52 @@ export function SwarmTopologyGraph({ roles, className }: SwarmTopologyGraphProps
               </text>
               <text
                 x={NODE_W / 2}
-                y={38}
+                y={50}
                 textAnchor="middle"
                 fill="#475569"
                 fontSize={10}
               >
-                {node.status}
-                {node.current_step ? ` · ${truncate(node.current_step, 12)}` : ""}
+                {statusLabel}
+                {node.current_step ? ` · ${truncate(node.current_step, 10)}` : ""}
               </text>
             </g>
           );
         })}
       </svg>
 
+      {/* Visually-hidden role list for screen readers (the SVG itself
+          is not readable by SR without alt text per node). */}
+      <ul className="sr-only" aria-label={t(($) => $.graph.aria, { count: roles.length })}>
+        {layout.nodes.map((node) => (
+          <li key={node.id}>
+            {node.role_name} —
+            {tAny(($) => $.status[node.status]) || node.status}
+            {node.current_step ? ` — ${node.current_step}` : ""}
+          </li>
+        ))}
+      </ul>
+
       {/* Legend. */}
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
-        {Object.entries(STATUS_COLOR).map(([status, colors]) => (
+        <span className="font-medium text-muted-foreground mr-1">
+          {t(($) => $.graph.legend)}
+        </span>
+        {Object.entries(STATUS_VISUAL).map(([status, visual]) => (
           <span key={status} className="inline-flex items-center gap-1.5">
             <span
-              className="inline-block h-3 w-3 rounded-sm"
-              style={{ background: colors.fill, borderColor: colors.stroke, borderWidth: 1 }}
-            />
-            <span className="text-muted-foreground">{status}</span>
+              className="inline-flex items-center justify-center h-3 w-3 rounded-sm text-[10px]"
+              style={{
+                background: visual.fill,
+                borderColor: visual.stroke,
+                borderWidth: 1,
+              }}
+              aria-hidden="true"
+            >
+              {visual.glyph}
+            </span>
+            <span className="text-muted-foreground">
+              {tAny(($) => $.status[status]) || status}
+            </span>
           </span>
         ))}
       </div>
