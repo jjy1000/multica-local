@@ -109,6 +109,14 @@ const (
 	// tears everything down on terminal status. See
 	// server/internal/service/swarm/orchestrator.go.
 	SourceSwarmTopology Source = "swarm_topology"
+	// SourceSemantica is the 0.5.22 Semantica × Multica integration lab.
+	// Owns the `semantica_decision_advisor` leader agent (the only
+	// installable resource) so the P0#4 leader-rewrite path can land
+	// `multica lab delegate semantica "<task>"` jobs on the right agent.
+	// The Semantica FastAPI subprocess lifecycle itself is owned by the
+	// desktop manager-factory; the install handler only writes the DB
+	// rows that the daemon auto-dispatch path lands on.
+	SourceSemantica Source = "semantica"
 )
 
 // AllSources is the developer-facing read-only list of every known
@@ -127,6 +135,7 @@ var AllSources = []Source{
 	SourceCodeCanvas,
 	SourceAgentCreationStudio,
 	SourceSwarmTopology,
+	SourceSemantica,
 }
 
 // Valid reports whether s is in AllSources.
@@ -145,12 +154,18 @@ func (s Source) Valid() bool {
 type ResourceType string
 
 const (
-	LockWorkspace ResourceType = "workspace"
-	LockSkill     ResourceType = "skill"
-	LockAgent     ResourceType = "agent"
-	LockSquad     ResourceType = "squad"
-	LockMember    ResourceType = "member"
-	LockMCPServer ResourceType = "mcp_server"
+	LockWorkspace  ResourceType = "workspace"
+	LockSkill      ResourceType = "skill"
+	LockAgent      ResourceType = "agent"
+	LockSquad      ResourceType = "squad"
+	LockMember     ResourceType = "member"
+	LockMCPServer  ResourceType = "mcp_server"
+	// 0.5.22 (audit fix 2026-08-16): swarm_run is the per-row
+	// lock target for the swarm topology orchestrator. The
+	// handler/swarm_run.go::PostSwarmRun path claims one lock per
+	// swarm_run row so the GC can release it on archive; the SQL
+	// CHECK was widened in mig 244 to admit this value.
+	LockSwarmRun ResourceType = "swarm_run"
 )
 
 // ErrLocked is the public error returned by handleLockedWrite when a
@@ -218,7 +233,7 @@ func Claim(ctx context.Context, q LockQuerier, src Source, rt ResourceType, id p
 		return ErrUnknownSource
 	}
 	switch rt {
-	case LockWorkspace, LockSkill, LockAgent, LockSquad, LockMember, LockMCPServer:
+	case LockWorkspace, LockSkill, LockAgent, LockSquad, LockMember, LockMCPServer, LockSwarmRun:
 	default:
 		return ErrUnknownResourceType
 	}
@@ -275,7 +290,7 @@ func RestoreOne(ctx context.Context, q LockQuerier, src Source, rt ResourceType,
 		return 0, ErrUnknownSource
 	}
 	switch rt {
-	case LockWorkspace, LockSkill, LockAgent, LockSquad, LockMember, LockMCPServer:
+	case LockWorkspace, LockSkill, LockAgent, LockSquad, LockMember, LockMCPServer, LockSwarmRun:
 	default:
 		return 0, ErrUnknownResourceType
 	}

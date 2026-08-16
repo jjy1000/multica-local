@@ -27,7 +27,7 @@ const cancelAgentTasksBySwarmRun = `-- name: CancelAgentTasksBySwarmRun :exec
 UPDATE agent_task_queue
 SET status = 'cancelled'
 WHERE agent_id IN (SELECT agent_id FROM swarm_role WHERE swarm_run_id = $1)
-  AND status IN ('queued', 'dispatched', 'running')
+  AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory')
 `
 
 // Drain in-flight agent_task_queue rows when a swarm_run is aborted.
@@ -36,10 +36,17 @@ WHERE agent_id IN (SELECT agent_id FROM swarm_role WHERE swarm_run_id = $1)
 // status detect (defense-in-depth — covers the gap between user-cancel and
 // the next 30s tick).
 //
-// Filters by agent_id IN (the run's role-agents) AND status IN the three
+// Filters by agent_id IN (the run's role-agents) AND status IN the four
 // active states — terminal rows (completed/failed/cancelled) are untouched
 // so audit trail + history stay intact. The schema has no cancelled_at
 // column, so we just flip status; downstream readers distinguish by status.
+//
+// 0.5.22 audit fix (P0): added 'waiting_local_directory' to the active
+// set. Migration 109 added this status to agent_task_queue CHECK (and
+// later migrations 128/141/147 treat it as active in task filters), but
+// the swarm drain omitted it — a role task waiting on a local
+// directory path would survive a swarm abort and become a ghost queue
+// row the daemon could later pick up after the run was already terminal.
 //
 // Returns no rows (:exec) because the handler doesn't need to enumerate
 // them — the caller observes via GetSwarmRunStatus / GetAgentTaskList.

@@ -31,6 +31,20 @@ WHERE id = $1;
 SELECT * FROM agent
 WHERE id = $1 AND workspace_id = $2;
 
+-- name: AgentHasOnlineRuntime :one
+-- True when the agent's runtime_id resolves to a live (online) daemon
+-- runtime. Used by the swarm orchestrator's enqueueReadyRole pre-check
+-- (0.5.22) to avoid enqueueing an agent_task_queue row that no daemon
+-- can ever claim (the silent-stall where runtime_id is NULL or the
+-- bound runtime is offline).
+SELECT EXISTS (
+    SELECT 1
+    FROM agent a
+    JOIN agent_runtime ar ON ar.id = a.runtime_id
+    WHERE a.id = $1
+      AND ar.status = 'online'
+);
+
 -- name: CreateAgent :one
 -- 0.3.51: system_key added (was $17 / nil-safe). NULL means "no explicit
 -- system-prompt binding" — matches the pre-migration behaviour.

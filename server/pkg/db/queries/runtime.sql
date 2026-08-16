@@ -332,3 +332,16 @@ WHERE status = 'offline'
   AND last_seen_at < now() - make_interval(secs => @stale_seconds::double precision)
   AND id NOT IN (SELECT DISTINCT runtime_id FROM agent)
 RETURNING id, workspace_id;
+
+-- name: GetOnlineRuntimeByWorkspace :one
+-- Returns the most-recently-active online runtime for the given
+-- workspace, or empty pgtype.UUID if none. Used by the swarm
+-- orchestrator's bootstrapFromSpec (0.5.22 P0 fix): the role-agent
+-- CreateAgent call MUST bind a runtime_id so AgentHasOnlineRuntime
+-- (agent.sql:40-46) — which joins agent.runtime_id=agent_runtime.id
+-- — matches and the dispatch loop actually closes. Mirrors
+-- handler.resolveWorkspaceOnlineRuntime but at the SQL layer.
+SELECT id FROM agent_runtime
+WHERE workspace_id = $1 AND status = 'online'
+ORDER BY last_seen_at DESC NULLS LAST, created_at DESC
+LIMIT 1;

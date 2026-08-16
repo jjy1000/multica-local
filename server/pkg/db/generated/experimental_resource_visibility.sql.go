@@ -11,6 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const deleteExperimentalResourceVisibilityByResourceID = `-- name: DeleteExperimentalResourceVisibilityByResourceID :exec
+DELETE FROM experimental_resource_visibility
+WHERE resource_type = $1 AND resource_id = $2
+`
+
+type DeleteExperimentalResourceVisibilityByResourceIDParams struct {
+	ResourceType string      `json:"resource_type"`
+	ResourceID   pgtype.UUID `json:"resource_id"`
+}
+
+// 0.5.22 (P0 fix, audit 2026-08-16): used by swarm_gc.archiveOne to
+// remove the visibility rows for role-agents before DeleteSwarmRun
+// runs. Without this, role-agents whose swarm_run is archived keep
+// their lab_managed=true stamp on ListAgents/GetAgent, leaking the
+// resource into regular pickers forever (verified — the audit found
+// the comment at swarm_gc.go:175-179 lists this step but the
+// cleanupSteps slice had only 3 entries; visibility was missing).
+func (q *Queries) DeleteExperimentalResourceVisibilityByResourceID(ctx context.Context, arg DeleteExperimentalResourceVisibilityByResourceIDParams) error {
+	_, err := q.db.Exec(ctx, deleteExperimentalResourceVisibilityByResourceID, arg.ResourceType, arg.ResourceID)
+	return err
+}
+
 const insertExperimentalResourceVisibility = `-- name: InsertExperimentalResourceVisibility :exec
 INSERT INTO experimental_resource_visibility (flag_key, resource_type, resource_id, hidden)
 VALUES ($1, $2, $3, TRUE)

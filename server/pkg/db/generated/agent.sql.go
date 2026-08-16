@@ -11,6 +11,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const agentHasOnlineRuntime = `-- name: AgentHasOnlineRuntime :one
+SELECT EXISTS (
+    SELECT 1
+    FROM agent a
+    JOIN agent_runtime ar ON ar.id = a.runtime_id
+    WHERE a.id = $1
+      AND ar.status = 'online'
+)
+`
+
+// True when the agent's runtime_id resolves to a live (online) daemon
+// runtime. Used by the swarm orchestrator's enqueueReadyRole pre-check
+// (0.5.22) to avoid enqueueing an agent_task_queue row that no daemon
+// can ever claim (the silent-stall where runtime_id is NULL or the
+// bound runtime is offline).
+func (q *Queries) AgentHasOnlineRuntime(ctx context.Context, id pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, agentHasOnlineRuntime, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const archiveAgent = `-- name: ArchiveAgent :one
 UPDATE agent SET archived_at = now(), archived_by = $2, updated_at = now()
 WHERE id = $1

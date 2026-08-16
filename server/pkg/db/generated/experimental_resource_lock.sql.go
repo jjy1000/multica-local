@@ -49,6 +49,30 @@ func (q *Queries) CountExperimentalResourceLocksByType(ctx context.Context, expe
 	return items, nil
 }
 
+const deleteExperimentalResourceLockByID = `-- name: DeleteExperimentalResourceLockByID :exec
+DELETE FROM experimental_resource_lock
+WHERE experimental_source = $1
+  AND resource_type = $2
+  AND resource_id = $3
+`
+
+type DeleteExperimentalResourceLockByIDParams struct {
+	ExperimentalSource string      `json:"experimental_source"`
+	ResourceType       string      `json:"resource_type"`
+	ResourceID         pgtype.UUID `json:"resource_id"`
+}
+
+// 0.5.22 (P0 fix, audit 2026-08-16): used by swarm_gc.archiveOne
+// to release the per-swarm_run lock row after archive. Without this,
+// every swarm_run row leaves an orphan lock row in
+// experimental_resource_lock — the table has no TTL column, so the
+// leak is unbounded (verified — releaseSwarmLock was a stub returning
+// nil at swarm_gc.go:253-265).
+func (q *Queries) DeleteExperimentalResourceLockByID(ctx context.Context, arg DeleteExperimentalResourceLockByIDParams) error {
+	_, err := q.db.Exec(ctx, deleteExperimentalResourceLockByID, arg.ExperimentalSource, arg.ResourceType, arg.ResourceID)
+	return err
+}
+
 const getExperimentalResourceLock = `-- name: GetExperimentalResourceLock :one
 SELECT id,
        experimental_source,

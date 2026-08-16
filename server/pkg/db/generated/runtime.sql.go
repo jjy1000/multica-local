@@ -449,6 +449,27 @@ func (q *Queries) GetAgentRuntimeForWorkspace(ctx context.Context, arg GetAgentR
 	return i, err
 }
 
+const getOnlineRuntimeByWorkspace = `-- name: GetOnlineRuntimeByWorkspace :one
+SELECT id FROM agent_runtime
+WHERE workspace_id = $1 AND status = 'online'
+ORDER BY last_seen_at DESC NULLS LAST, created_at DESC
+LIMIT 1
+`
+
+// Returns the most-recently-active online runtime for the given
+// workspace, or empty pgtype.UUID if none. Used by the swarm
+// orchestrator's bootstrapFromSpec (0.5.22 P0 fix): the role-agent
+// CreateAgent call MUST bind a runtime_id so AgentHasOnlineRuntime
+// (agent.sql:40-46) — which joins agent.runtime_id=agent_runtime.id
+// — matches and the dispatch loop actually closes. Mirrors
+// handler.resolveWorkspaceOnlineRuntime but at the SQL layer.
+func (q *Queries) GetOnlineRuntimeByWorkspace(ctx context.Context, workspaceID pgtype.UUID) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, getOnlineRuntimeByWorkspace, workspaceID)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const listAgentRuntimes = `-- name: ListAgentRuntimes :many
 SELECT id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at, created_at, updated_at, owner_id, legacy_daemon_id, visibility, profile_id FROM agent_runtime
 WHERE workspace_id = $1

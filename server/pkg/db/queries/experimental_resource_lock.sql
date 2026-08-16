@@ -99,3 +99,15 @@ WHERE experimental_source = $1
   AND resource_type = $2
   AND resource_id = $3
   AND hidden = true;
+
+-- name: DeleteExperimentalResourceLockByID :exec
+-- 0.5.22 (P0 fix, audit 2026-08-16): used by swarm_gc.archiveOne
+-- to release the per-swarm_run lock row after archive. Without this,
+-- every swarm_run row leaves an orphan lock row in
+-- experimental_resource_lock — the table has no TTL column, so the
+-- leak is unbounded (verified — releaseSwarmLock was a stub returning
+-- nil at swarm_gc.go:253-265).
+DELETE FROM experimental_resource_lock
+WHERE experimental_source = $1
+  AND resource_type = $2
+  AND resource_id = $3;

@@ -43,3 +43,14 @@ ON CONFLICT (flag_key, resource_type, resource_id) DO NOTHING;
 -- agent seeded by any flag is lab-managed regardless of which one.
 SELECT resource_id FROM experimental_resource_visibility
 WHERE resource_type = $1;
+
+-- name: DeleteExperimentalResourceVisibilityByResourceID :exec
+-- 0.5.22 (P0 fix, audit 2026-08-16): used by swarm_gc.archiveOne to
+-- remove the visibility rows for role-agents before DeleteSwarmRun
+-- runs. Without this, role-agents whose swarm_run is archived keep
+-- their lab_managed=true stamp on ListAgents/GetAgent, leaking the
+-- resource into regular pickers forever (verified — the audit found
+-- the comment at swarm_gc.go:175-179 lists this step but the
+-- cleanupSteps slice had only 3 entries; visibility was missing).
+DELETE FROM experimental_resource_visibility
+WHERE resource_type = $1 AND resource_id = $2;
