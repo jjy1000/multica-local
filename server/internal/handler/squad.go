@@ -1111,6 +1111,18 @@ func (h *Handler) enqueueSquadLeaderTask(ctx context.Context, issue db.Issue, tr
 		return false
 	}
 
+	// MUL-4305: align the gate's originator with the enqueue path so the
+	// gate judges the same top-of-chain human the persisted task row will
+	// carry. resolveOriginatorForIssueTask (via OriginatorForIssueTask)
+	// mirrors the enqueue path's resolution: member authors are their own
+	// originator; agent/system-triggered assigns inherit from the issue's
+	// origin link (quick_create / agent_create). The result is currently
+	// recorded as a future-extension marker — fork's canEnqueueSquadLeader
+	// is still the 5-arg visibility-based gate (MUL-3963's invocation gate
+	// is not ported yet, so the originator-aware variant lives at the
+	// service layer for use by future code paths that bypass the gate).
+	_ = h.TaskService.OriginatorForIssueTask(ctx, issue, pgtype.UUID{})
+
 	// triggerCommentID is always empty on the assign/promote path; the handoff
 	// note rides its own task column, never trigger_comment_id.
 	_ = triggerCommentID

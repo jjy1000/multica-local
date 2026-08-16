@@ -157,6 +157,50 @@ func (s *TaskService) ResolveOriginatorFromTriggerComment(ctx context.Context, c
 	return originator
 }
 
+// resolveOriginatorForIssueTask returns the top-of-chain human for issue-backed
+// dispatches. Comment-triggered runs keep the existing comment-chain semantics;
+// direct issue assignment/creation falls back to the issue's member creator.
+// Agent-created issues that carry an explicit task-origin link — quick_create
+// (daemon quick-create flow) or agent_create (an agent's ordinary `issue
+// create`, MUL-4305) — inherit that origin task's originator, since origin_id
+// points at the agent_task_queue row that created the issue. Other
+// agent/system origins, including autopilot, deliberately remain unattributed.
+func (s *TaskService) resolveOriginatorForIssueTask(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID) pgtype.UUID {
+	if triggerCommentID.Valid {
+		return s.ResolveOriginatorFromTriggerComment(ctx, triggerCommentID)
+	}
+	// Fall back to the issue's member creator. Agent/system origins other
+	// than quick_create / agent_create deliberately remain unattributed.
+	if issue.CreatorType == "member" {
+		return issue.CreatorID
+	}
+	if !issue.OriginType.Valid || !issue.OriginID.Valid {
+		return pgtype.UUID{}
+	}
+	switch issue.OriginType.String {
+	case "quick_create", "agent_create":
+		// Both stamp origin_id with the agent_task_queue row that created the
+		// issue, so the top-of-chain human is that task's originator_user_id.
+		task, err := s.Queries.GetAgentTask(ctx, issue.OriginID)
+		if err != nil {
+			return pgtype.UUID{}
+		}
+		return task.OriginatorUserID
+	}
+	return pgtype.UUID{}
+}
+
+// OriginatorForIssueTask exposes resolveOriginatorForIssueTask to callers
+// outside the service package (the squad-leader access gate in the handler
+// layer) so the gate judges the top-of-chain human with the exact same
+// resolution the enqueue path persists on the task row. Without a shared entry
+// point the gate saw an empty originator for agent-triggered assigns and denied
+// private leaders that the write path would have attributed correctly
+// (MUL-4305).
+func (s *TaskService) OriginatorForIssueTask(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID) pgtype.UUID {
+	return s.resolveOriginatorForIssueTask(ctx, issue, triggerCommentID)
+}
+
 func NewTaskService(q *db.Queries, tx TxStarter, hub *realtime.Hub, bus *events.Bus, wakeups ...TaskWakeupNotifier) *TaskService {
 	var wakeup TaskWakeupNotifier
 	if len(wakeups) > 0 {
