@@ -288,8 +288,28 @@ func TestCompleteTask_ReconcilesAgentAuthoredMentionToCompletedAgent(t *testing.
 	}
 	// Two workspace-invocable agents: A authors the mention, B is the target
 	// (and the agent whose run completes / reconciles).
+	//
+	// 0.5.22 MUL-4525 §2: the @mention gate now uses canInvokeAgent, which
+	// admits an agent-actor mention to a public_to-workspace agent (the
+	// workspaceBroad exception for webhook/system automation, also covers
+	// agent-to-agent within the same workspace). Without a workspace allow-list
+	// entry, an agent-authored mention to a private B would be blocked and
+	// reconcile would correctly report zero follow-ups + a blocked outcome;
+	// that's covered by the dedicated MUL-4525 §2 tests in
+	// comment_trigger_outcomes_test.go.
 	agentA := createHandlerTestAgent(t, "Reconcile A2A Author A", nil)
 	agentB := createHandlerTestAgent(t, "Reconcile A2A Target B", nil)
+	if _, err := testPool.Exec(ctx, `UPDATE agent SET permission_mode = 'public_to' WHERE id = $1`, agentB); err != nil {
+		t.Fatalf("setup: promote B to public_to: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO agent_invocation_target (agent_id, target_type, target_id, created_by)
+		VALUES ($1, 'workspace', $2, $3)
+		ON CONFLICT DO NOTHING
+	`, agentB, testWorkspaceID, testUserID); err != nil {
+		t.Fatalf("setup: workspace target for B: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM agent_invocation_target WHERE agent_id = $1`, agentB) })
 
 	// Issue assigned to B so B's completion is the one that reconciles.
 	var issueID string

@@ -312,6 +312,31 @@ func fetchAgentMcpConfig(t *testing.T, agentID string) []byte {
 	return mcpConfig
 }
 
+// makeAgentWorkspaceInvocable promotes a freshly-created handler test agent
+// from permission_mode='private' to 'public_to' with a workspace target —
+// the post-MUL-4525 §2 posture required for an agent-actor's @mention to pass
+// canInvokeAgent when the actor has no resolved human originator (the typical
+// test fixture shape). Mirrors the production posture for cross-agent
+// delegation handoffs and is reused by the agent-authored-mention tests that
+// pre-date the MUL-3963 / MUL-4525 §2 port.
+func makeAgentWorkspaceInvocable(t *testing.T, agentID string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := testPool.Exec(ctx, `UPDATE agent SET permission_mode = 'public_to' WHERE id = $1`, agentID); err != nil {
+		t.Fatalf("promote agent %s to public_to: %v", agentID, err)
+	}
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO agent_invocation_target (agent_id, target_type, target_id, created_by)
+		VALUES ($1, 'workspace', $2, $3)
+		ON CONFLICT DO NOTHING
+	`, agentID, testWorkspaceID, testUserID); err != nil {
+		t.Fatalf("insert workspace invocation target for %s: %v", agentID, err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM agent_invocation_target WHERE agent_id = $1`, agentID)
+	})
+}
+
 func assertJSONEqual(t *testing.T, got []byte, want string) {
 	t.Helper()
 
@@ -3118,6 +3143,12 @@ func TestMemberReplyToAgentRootDoesNotInheritParentMentions(t *testing.T) {
 
 	jAgent := createHandlerTestAgent(t, "J", nil)
 	reviewerAgent := createHandlerTestAgent(t, "Reviewer", nil)
+	// 0.5.22 MUL-4525 §2: the @mention gate now uses canInvokeAgent, which
+	// requires the target agent to admit this actor. J (the agent author) has
+	// no resolved human originator in the test fixture, so Reviewer must be
+	// workspace-invocable for the @Reviewer mention to pass the gate. This
+	// mirrors the production posture for cross-agent delegation handoffs.
+	makeAgentWorkspaceInvocable(t, reviewerAgent)
 
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
@@ -3403,6 +3434,11 @@ func TestAgentExplicitMentionStillTriggers(t *testing.T) {
 
 	agentA := createHandlerTestAgent(t, "Handoff Agent A", nil)
 	agentB := createHandlerTestAgent(t, "Handoff Agent B", nil)
+	// 0.5.22 MUL-4525 §2: Agent B must be workspace-invocable so the explicit
+	// @Agent B mention from Agent A passes canInvokeAgent. Without this, the
+	// gate denies the mention and the test's "handoff still works" assertion
+	// would regress (silently, since the test only checks task count).
+	makeAgentWorkspaceInvocable(t, agentB)
 
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{

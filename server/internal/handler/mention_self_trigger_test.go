@@ -14,7 +14,7 @@ import (
 // without preserving a production wrapper that nothing else calls.
 func enqueueMentionedAgentTasksForTest(t *testing.T, ctx context.Context, issue db.Issue, comment db.Comment, parentComment *db.Comment, authorType, authorID string) {
 	t.Helper()
-	triggers := testHandler.computeMentionedAgentCommentTriggers(ctx, issue, comment.Content, parentComment, authorType, authorID, commentTriggerComputeOptions{})
+	triggers, _ := testHandler.computeMentionedAgentCommentTriggers(ctx, issue, comment.Content, parentComment, authorType, authorID, commentTriggerComputeOptions{})
 	testHandler.enqueueCommentAgentTriggers(ctx, issue, comment.ID, triggers, authorType, authorID)
 }
 
@@ -58,6 +58,13 @@ func newSelfMentionFixture(t *testing.T) selfMentionFixture {
 	if err := testPool.QueryRow(ctx, `SELECT runtime_id FROM agent WHERE id = $1`, jID).Scan(&runtimeID); err != nil {
 		t.Fatalf("load runtime: %v", err)
 	}
+	// 0.5.22 MUL-4525 §2: the @mention gate now uses canInvokeAgent. J is
+	// authoring comments that @mention itself from a test fixture without a
+	// resolved human originator, so J must be workspace-invocable for the
+	// self-mention to pass the gate. Mirrors the production posture for
+	// cross-agent delegation handoffs and is the post-port shape required
+	// for the MUL-2338 child→parent self-mention handoff to keep working.
+	makeAgentWorkspaceInvocable(t, jID)
 
 	insertIssue := func(title string) string {
 		t.Helper()

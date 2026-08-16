@@ -131,6 +131,15 @@ var ErrParentIssueNotFound = errors.New("parent issue not found in this workspac
 // having to remember it. Callers translate this into 400.
 var ErrProjectNotFound = errors.New("project not found in this workspace")
 
+// ErrAttributionFailClosed is the typed sentinel returned by the comment-
+// merge attribution path when it cannot resolve a human originator for the
+// new trigger comment and the workspace forbids the owner_fallback degrade
+// (MUL-4302, MUL-4525 §2). The merge is REFUSED (the original task keeps
+// its precise snapshot) but a duplicate enqueue is never produced. HTTP
+// callers map this to a 403 with reason_code=attribution_blocked so the
+// client can render an honest "blocked, not coalesced" surface.
+var ErrAttributionFailClosed = errors.New("comment merge attribution fail-closed")
+
 // IssueCreateResult is the typed return from IssueService.Create.
 //
 //   - On the happy path: Issue is the new row, Attachments lists the
