@@ -541,7 +541,13 @@ func TestConsecutiveCommentsDifferentOriginatorsFullEnqueuePath(t *testing.T) {
 	// of 2nd agent→agent mention while target has dispatched task) is
 	// covered by TestCompleteTask_ReconcilesAgentAuthoredMentionToCompletedAgent
 	// above, which passes against the minimal MUL-4304 port.
-	t.Skip("fork skip: requires MUL-4525 merge-with-originator-re-stamp (4 commits not yet ported)")
+	// 0.5.22: fork skip removed. The minimal MUL-4304 port in this fork
+	// re-stamps originator_user_id on merge (see mergeCommentIntoPendingTask
+	// in comment.go:1487 — it passes the new author as
+	// NewOriginatorUserID). The merge-side behaviour should already
+	// satisfy the test's core assertions; any new failure will surface
+	// as a precise delta to fix.
+	_ = testHandler
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
