@@ -2710,6 +2710,81 @@ func TestCompleteTask_CommentTriggered_SynthesizesCommentWhenAgentSilent(t *test
 	}
 }
 
+// Regression test for 0.3.45.4 (P0#3.5): when a task reaches the terminal
+// agent_task_queue.status 'completed', CompleteTask must flip a bound issue
+// from 'in_review' (or 'todo') to 'done'. The gate previously compared
+// task.Status against 'done', which is an issue.status value and never
+// matches agent_task_queue's enum, so lab-bound issues stayed 'in_review'
+// forever.
+func TestCompleteTask_FlipsIssueInReviewToDoneOnCompletion(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+
+	var agentID, runtimeID string
+	if err := testPool.QueryRow(ctx, `
+		SELECT a.id, a.runtime_id FROM agent a WHERE a.workspace_id = $1 LIMIT 1
+	`, testWorkspaceID).Scan(&agentID, &runtimeID); err != nil {
+		t.Fatalf("setup: get agent: %v", err)
+	}
+
+	cases := []struct {
+		name        string
+		issueStatus string
+		wantStatus  string
+	}{
+		{"in_review flips to done", "in_review", "done"},
+		{"todo flips to done", "todo", "done"},
+		{"in_progress stays in_progress", "in_progress", "in_progress"},
+		{"done stays done (idempotent)", "done", "done"},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var issueID string
+			if err := testPool.QueryRow(ctx, `
+				INSERT INTO issue (workspace_id, title, status, priority, creator_id, creator_type, number, position)
+				VALUES ($1, $2, $3, 'none', $4, 'member', $5, 0)
+				RETURNING id
+			`, testWorkspaceID, fmt.Sprintf("complete-task-status fixture %d", i), tc.issueStatus, testUserID, 900000+i).Scan(&issueID); err != nil {
+				t.Fatalf("setup: create issue: %v", err)
+			}
+			t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, issueID) })
+
+			var taskID string
+			if err := testPool.QueryRow(ctx, `
+				INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, started_at)
+				VALUES ($1, $2, $3, 'running', 0, now())
+				RETURNING id
+			`, agentID, runtimeID, issueID).Scan(&taskID); err != nil {
+				t.Fatalf("setup: create task: %v", err)
+			}
+			t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+
+			w := httptest.NewRecorder()
+			req := newDaemonTokenRequest("POST", "/api/daemon/tasks/"+taskID+"/complete",
+				map[string]any{"output": ""},
+				testWorkspaceID, "legit-daemon")
+			req = withURLParam(req, "taskId", taskID)
+
+			testHandler.CompleteTask(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("CompleteTask: expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+
+			var got string
+			if err := testPool.QueryRow(ctx, `SELECT status FROM issue WHERE id = $1`, issueID).Scan(&got); err != nil {
+				t.Fatalf("read issue status: %v", err)
+			}
+			if got != tc.wantStatus {
+				t.Fatalf("issue status = %q, want %q (initial %q, task completed)", got, tc.wantStatus, tc.issueStatus)
+			}
+		})
+	}
+}
+
 // Companion to the above: when the agent DID post its own comment during the
 // run, CompleteTask must not synthesize a duplicate. Guards against the
 // common case where the fix is over-eager and creates two comments per task.

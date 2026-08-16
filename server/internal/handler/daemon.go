@@ -2579,8 +2579,10 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	// 'in_progress' means the daemon is still running, and the
 	// task that just completed is a child task, not the issue
 	// itself. Only flip the two states the agent is expected to
-	// leave behind on completion.
-	if task.IssueID.Valid && task.Status == "done" {
+	// leave behind on completion. The gate keys on
+	// agent_task_queue.status, whose terminal enum is 'completed'
+	// (not 'done' — 'done' is an issue.status value).
+	if task.IssueID.Valid && task.Status == "completed" {
 		issueRow, ierr := h.Queries.GetIssue(r.Context(), task.IssueID)
 		if ierr == nil && (issueRow.Status == "in_review" || issueRow.Status == "todo") {
 			if _, uerr := h.Queries.UpdateIssueStatus(r.Context(), db.UpdateIssueStatusParams{
