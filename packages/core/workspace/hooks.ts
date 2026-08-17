@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { Workspace } from "../types";
+import type { Agent, MemberWithUser, Squad, Workspace } from "../types";
 import { useWorkspaceId } from "../hooks";
 import {
   memberListOptions,
@@ -18,6 +18,14 @@ import { resolvePublicFileUrl } from "./avatar-url";
 // cache key. Sharing one reference keeps the loading snapshot referentially
 // stable so memo deps like `workspaces.length` don't fire on every render.
 const EMPTY_WORKSPACES: Workspace[] = [];
+// MUL-4985: the member/agent/squad directory queries are `undefined` while
+// loading. A fresh `= []` default allocates a new array on every render, so
+// `getActorName` (memoized on those arrays) changes identity every render and
+// consumers that list it in their own memo deps churn a new value each render.
+// Sharing one reference keeps the loading snapshot referentially stable.
+const EMPTY_MEMBERS: MemberWithUser[] = [];
+const EMPTY_AGENTS: Agent[] = [];
+const EMPTY_SQUADS: Squad[] = [];
 
 /**
  * Shared authoritative-state contract for the workspace list.
@@ -46,9 +54,9 @@ export function useWorkspaceList({ enabled = true }: { enabled?: boolean } = {})
 
 export function useActorName() {
   const wsId = useWorkspaceId();
-  const { data: members = [] } = useQuery(memberListOptions(wsId));
-  const { data: agents = [] } = useQuery(agentListOptions(wsId));
-  const { data: squads = [] } = useQuery(squadListOptions(wsId));
+  const { data: members = EMPTY_MEMBERS } = useQuery(memberListOptions(wsId));
+  const { data: agents = EMPTY_AGENTS } = useQuery(agentListOptions(wsId));
+  const { data: squads = EMPTY_SQUADS } = useQuery(squadListOptions(wsId));
 
   const getMemberName = useCallback((userId: string) => {
     const m = members.find((m) => m.user_id === userId);
