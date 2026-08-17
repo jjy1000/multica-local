@@ -24,7 +24,6 @@ import { PgDownloadProgress } from "./components/pg-download-progress";
 import { MigrationDialog } from "./components/migration-dialog";
 import { useTabStore } from "./stores/tab-store";
 import { useWindowOverlayStore } from "./stores/window-overlay-store";
-import { useOpenSettingsShortcut } from "./hooks/use-open-settings-shortcut";
 import { useDaemonIPCBridge } from "./platform/daemon-ipc-bridge";
 import { createDesktopLocaleAdapter } from "./platform/i18n-adapter";
 import { captureEvent } from "@multica/core/analytics";
@@ -434,9 +433,6 @@ export default function App() {
   const systemLocale = window.desktopAPI.systemLocale;
   const runtimeConfigResult = window.desktopAPI.runtimeConfig;
   useCmdWCloseTab();
-  // Mounted at the App root for the same reason as Cmd+W: the chord has to
-  // work in every renderer state, not only inside the tab shell.
-  useOpenSettingsShortcut();
 
   // Flush a freeze/crash breadcrumb the main process parked from a previous
   // session. A true hang or process death can't report itself when it happens

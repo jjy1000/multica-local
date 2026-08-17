@@ -190,14 +190,6 @@ const desktopAPI = {
       ipcRenderer.removeListener("tab:close-active", handler);
     };
   },
-  /** Listen for Cmd/Ctrl+, requests to open Settings. Only the main window
-   *  subscribes — main delivers the chord there even when it was pressed in
-   *  an issue window, because Settings is a tab. Returns an unsubscribe fn. */
-  onOpenSettings: (callback: () => void) => {
-    const handler = () => callback();
-    ipcRenderer.on("settings:open", handler);
-    return () => ipcRenderer.removeListener("settings:open", handler);
-  },
   /** Ask the main process to close the window (used after closing the last tab). */
   closeWindow: () => ipcRenderer.send("window:close"),
 };
