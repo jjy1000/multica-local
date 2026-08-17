@@ -2,7 +2,7 @@
 name: upstream-integration-2026-q3
 description: 上游 multica-ai/multica v0.4.26 全谱 cherry-pick sweep final consolidated report (2026-08-17)
 created: 2026-08-17T10:00:00Z
-updated: 2026-08-17T10:34:00Z
+updated: 2026-08-17T04:41:40Z
 ---
 
 # Upstream Integration 2026 Q3 — Final Consolidated Report
@@ -98,37 +98,51 @@ MUL-5854: 不适用 (local 结构已正确)
 
 20 commits UI/UX (Cmd+,/history nav/mention hover/keyboard shortcuts/lint). 下次 session 重试。
 
-## Verification (final)
+## Batch 2 — 并行 agent 批次 2 (5 commits, 2026-08-17)
+
+第二批 3 个 agent (wave-arch2 / wave-cleanup2 / wave-ui2)。UI agent 中途被 **429 token 配额超限** 杀掉,但落地了 3 commits。成果全部 merge + verify:
+
+| 本地 SHA | Upstream | MUL | 主题 | Agent |
+|---|---|---|---|---|
+| `58ab45f70` | `e519dd9e8` | MUL-6168 | perf(tasks) bulk cancel 去重 agent-status reconcile (`service/task.go` add-add hunk,2 处) + `task_cancel_reconcile_dedup_test.go` | wave-arch2 |
+| `16f3101ec` | `822c6a0b8` | — | sub-issue 继承 parent assignee — **source-only selective cherry-pick** (upstream test 引用未实现的 `removeParent`,tests dropped;`35afc1893` revert 后重新应用 source) | wave-cleanup2 |
+| `0de552fe6` | — | MUL-6060 | fix(editor) Markdown H4-H6 不再折叠成 H1 (`prose.css` + heading-levels test) | wave-ui2 |
+| `e293be05f` | `9ba3a8bdf` | MUL-5980 | feat(board) 空白处左键拖拽横向平移 (`use-board-drag-pan.ts` + 346 行 test) | wave-ui2 |
+| `680ef6310` | — | MUL-6002 | feat(agents) agent 环境变量批量编辑模式 (`env-tab.tsx` + `env-file.ts` + 4 locales,2597 行) | wave-ui2 |
+
+Cleanup agent 还验证了 **0.5.25 ship ready** (pnpm typecheck / go test / go build 全 PASS),但 `make ship-mac` 未跑 (需 user 授权)。
+
+## Verification (batch 2 final)
 
 ```
 $ pnpm typecheck
 Tasks: 6 successful, 6 total
 
-$ go test ./internal/handler/ ./internal/daemon/execenv/ ./internal/metrics/
-ok  handler    0.752s
-ok  daemon/execenv  0.718s
-ok  metrics    0.876s
+$ go test -count=1 ./internal/service/ + TestDistinctAgentIDs*
+ok
 
 $ go build ./...
 exit 0
+
+$ npx vitest run use-board-drag-pan.test.tsx env-tab.test.tsx env-file.test.ts
+Test Files 3 passed / Tests 62 passed
 ```
 
-## Final HEAD: `8d2f6847e fix(views): release the drag lock on cancelled drags (MUL-6240)`
+## Final HEAD (batch 2): `680ef6310 MUL-6002: feat(agents) bulk edit agent env vars`
 
-Worktree branches `epic/0.5.26-wave{1,3,4}` 现在可删除。Plan doc 保留作历史。
+6 个 session worktree 已移除,6 个 merged branch 已删除 (`epic/0.5.26-wave*` + `worktree-agent-*`)。
 
 ## 下一 session 建议
 
-1. **重试 Wave 2** (UI/UX 增量 — 20 commits)
-2. **Backfill conflict queue** (3 commits with manual adaptation)
-3. **Ship 0.5.26** when next batch done
+1. **Wave 2 剩余 17 commits** (UI/UX — Cmd+, / history nav / mention hover / keyboard shortcuts / lint)。429 配额是硬约束 — 等配额恢复再开 agent,或主线程逐 commit inline cherry-pick (成本更低)
+2. **Backfill 剩 1**: MUL-5979 (`agent-detail-page.tsx` 本地演化大,需逐行适配)
+3. **Ship 0.5.26** (当前 0.5.25 基线 + 13 个集成 commit;ship 前需 `make ship-mac` user 授权)
 
 ## 完成判定
 
-✅ 8 commits applied + verified  
+✅ 8 (batch 1) + 5 (batch 2) = **13 commits applied + verified**  
 ✅ N/A catalog 完整 (36 commits 验证不适用)  
 ✅ Wave 3 / 4 架构 analysis 完成  
-✅ Plan doc 留存作历史  
-⏳ Wave 2 retry pending  
-⏳ 3 backfill commits pending  
-⏳ Final 0.5.26 ship pending
+✅ Backfill 3/3 (MUL-6168 ✓, sub-issue ✓ source-only, MUL-5979 仍待)  
+⏳ Wave 2 17/20 pending (429 配额限制)  
+⏳ Final 0.5.26 ship pending (需 user 授权 `make ship-mac`)
