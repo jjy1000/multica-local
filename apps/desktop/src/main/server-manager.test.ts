@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   pickPgBackend,
   runMigrate,
+  pgProbeUrl,
   type PickPgBackendArgs,
 } from "./server-manager";
 
@@ -131,3 +132,54 @@ describe("runMigrate — P0 structural guard (data-safety line)", () => {
 //
 // The smoke test in `.omc/plans/0.3.1-stability-fixes.md` step 10
 // is the runnable verification harness for these three fixes.
+
+describe("pgProbeUrl — 0.5.31 P1 loopback-only guard", () => {
+  const DEFAULT_URL =
+    "postgres://multica:multica@127.0.0.1:5432/multica?sslmode=disable";
+  const orig = process.env["DATABASE_URL"];
+
+  afterEach(() => {
+    if (orig === undefined) delete process.env["DATABASE_URL"];
+    else process.env["DATABASE_URL"] = orig;
+  });
+
+  it("returns the loopback default when DATABASE_URL is unset", () => {
+    delete process.env["DATABASE_URL"];
+    expect(pgProbeUrl()).toBe(DEFAULT_URL);
+  });
+
+  it("accepts a localhost DATABASE_URL", () => {
+    process.env["DATABASE_URL"] =
+      "postgres://u:p@localhost:5432/multica?sslmode=disable";
+    expect(pgProbeUrl()).toBe(
+      "postgres://u:p@localhost:5432/multica?sslmode=disable",
+    );
+  });
+
+  it("accepts 127.0.0.1 / ::1", () => {
+    process.env["DATABASE_URL"] =
+      "postgres://u:p@127.0.0.1:5432/multica?sslmode=disable";
+    expect(pgProbeUrl()).toBe(
+      "postgres://u:p@127.0.0.1:5432/multica?sslmode=disable",
+    );
+    process.env["DATABASE_URL"] =
+      "postgres://u:p@[::1]:5432/multica?sslmode=disable";
+    expect(pgProbeUrl()).toBe(
+      "postgres://u:p@[::1]:5432/multica?sslmode=disable",
+    );
+  });
+
+  it("REJECTS a remote / public-host DATABASE_URL (data-localization)", () => {
+    process.env["DATABASE_URL"] =
+      "postgres://u:p@prod-db.internal.example.com:5432/multica";
+    expect(pgProbeUrl()).toBe(DEFAULT_URL);
+    process.env["DATABASE_URL"] =
+      "postgres://u:p@203.0.113.9:5432/multica";
+    expect(pgProbeUrl()).toBe(DEFAULT_URL);
+  });
+
+  it("REJECTS a malformed DATABASE_URL", () => {
+    process.env["DATABASE_URL"] = "not-a-url";
+    expect(pgProbeUrl()).toBe(DEFAULT_URL);
+  });
+});

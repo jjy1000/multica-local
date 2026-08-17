@@ -226,11 +226,41 @@ function serverEnvPath(profile: string): string {
   return join(profileDir(profile), ".env");
 }
 
-function pgProbeUrl(): string {
+// pgProbeUrl is exported for tests. Production callers read it from
+// module scope; the 0.5.31 P1 loopback-only guard is pinned by
+// server-manager.test.ts::pgProbeUrl.
+export function pgProbeUrl(): string {
   // The multica-server binary reads POSTGRES_* from the env first, then
   // falls back to DATABASE_URL. For probing we use the same defaults
   // that the docker-compose.yml used to use (v0.2.x legacy reference).
-  return process.env["DATABASE_URL"] ?? "postgres://multica:multica@127.0.0.1:5432/multica?sslmode=disable";
+  //
+  // 0.5.31 P1 (audit, DATABASE_URL leak): only accept a loopback
+  // DATABASE_URL. The value is persisted verbatim to
+  // ~/.multica/profiles/<name>/.env at first launch (serializeEnvFile),
+  // so a stale/foreign DATABASE_URL in the caller's shell (e.g. a prod
+  // DB, a cloud host, or a colleague's compose file) would be baked
+  // into the server's config and the probe would reach outside the
+  // machine. Fork-local contract: the server must stay on loopback.
+  // Malformed URLs and any non-loopback host fall back to the default.
+  const DEFAULT_URL =
+    "postgres://multica:multica@127.0.0.1:5432/multica?sslmode=disable";
+  const raw = process.env["DATABASE_URL"];
+  if (!raw) return DEFAULT_URL;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.toLowerCase();
+    if (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "::1" ||
+      host === "[::1]"
+    ) {
+      return raw;
+    }
+  } catch {
+    // Not a parseable URL — fall back to default (same as unset).
+  }
+  return DEFAULT_URL;
 }
 
 async function probePg(): Promise<boolean> {
