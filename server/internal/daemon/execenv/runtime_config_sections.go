@@ -137,7 +137,7 @@ func writeWorkspaceContext(b *strings.Builder, ctx TaskContextForEnv) {
 }
 
 // writeAvailableCommands emits the slim Available Commands section
-// (~2.4k chars vs legacy ~4.4k). Every test-asserted substring is
+// (~3.0k chars vs legacy ~4.4k). Every test-asserted substring is
 // preserved: each `multica issue …` command name, all three `comment add`
 // input modes, `--description-file <path>`, `--parent ""`, the
 // `Next reply cursor` / `Next thread cursor` stderr labels, the three
@@ -151,6 +151,7 @@ func writeWorkspaceContext(b *strings.Builder, ctx TaskContextForEnv) {
 func writeAvailableCommands(b *strings.Builder) {
 	b.WriteString("## Available Commands\n\n")
 	b.WriteString("Prefer `--output json` for structured data. The default brief lists only the core agent loop and common issue create/update tasks; for everything else run `multica --help` or `multica <command> --help`.\n\n")
+	b.WriteString("`--output json` writes JSON to stdout; confirmations and warnings go to stderr. Do not merge them (`2>&1`) into anything that parses the output — that makes a write that SUCCEEDED look like it failed and invites a duplicate retry.\n\n")
 	b.WriteString("### Core\n")
 	b.WriteString("- `multica issue get <id> --output json` — full issue.\n")
 	b.WriteString("- `multica issue comment list <issue-id> [--thread <comment-id> [--tail N] | --recent N] [--before <ts> --before-id <uuid>] [--since <RFC3339>] [--full] --output json` — thread-aware comment reads. Resolved threads come back folded by default on complete-thread reads (default list, `--recent`, `--thread` without `--tail`); pass `--full` to expand. Page older replies / threads with `--before`/`--before-id` (stderr labels: `Next reply cursor`, `Next thread cursor`); `--help` for full semantics.\n")
@@ -174,6 +175,7 @@ func writeAvailableCommands(b *strings.Builder) {
 func writeAvailableCommandsQuickCreate(b *strings.Builder) {
 	b.WriteString("## Available Commands\n\n")
 	b.WriteString("**Use `--output json` for structured data.** For anything beyond `issue create`, run `multica --help` or `multica <command> --help`.\n\n")
+	b.WriteString("`--output json` writes JSON to stdout; confirmations and warnings go to stderr. Do not merge them (`2>&1`) into anything that parses the output — that makes a write that SUCCEEDED look like it failed and invites a duplicate retry.\n\n")
 	b.WriteString("### Core\n")
 	b.WriteString("- `multica issue create --title \"...\" [--description \"...\" | --description-file <path> | --description-stdin] [--priority X] [--status X] [--assignee X | --assignee-id <uuid>] [--parent <issue-id>] [--stage N] [--project <project-id>] [--due-date <RFC3339>] [--attachment <path>]` — Create a new issue; `--attachment` may be repeated. For agent-authored long descriptions, prefer `--description-file <path>` over `--description-stdin` (flags after a HEREDOC terminator can be silently swallowed, #4182).\n\n")
 }
