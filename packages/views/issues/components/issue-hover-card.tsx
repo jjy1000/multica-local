@@ -96,7 +96,7 @@ function IssueHoverCardAssignee({
       <ActorAvatar
         actorType={actorType}
         actorId={actorId}
-        size="sm"
+        size={20}
         enableHoverCard={false}
         profileLink={false}
         className="shrink-0"
