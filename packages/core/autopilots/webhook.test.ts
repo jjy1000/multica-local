@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { buildAutopilotWebhookUrl } from "./webhook";
 import type { AutopilotTrigger } from "../types";

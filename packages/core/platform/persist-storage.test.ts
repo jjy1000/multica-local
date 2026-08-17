@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
 import { createPersistStorage } from "./persist-storage";
 import type { StorageAdapter } from "../types/storage";

@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Tests for the generic manifest-driven subprocess manager (0.3.25).
 //
 // resolveGenericSubprocessManager reads

@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Tests for the SSE frame parser. The wire shape is documented in
 // engine/server.py: each frame is one or more `data:` lines (JSON)
 // terminated by a blank line. Heartbeats are `:`-prefixed lines that

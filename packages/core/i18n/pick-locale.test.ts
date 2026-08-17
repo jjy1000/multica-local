@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { matchLocale, pickLocale } from "./pick-locale";
 import type { LocaleAdapter } from "./types";

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { recommendTemplate } from "./recommend-template";
 import type { Role, UseCase } from "./types";

@@ -19,20 +19,25 @@ function createMemoryStorage(): Storage {
   };
 }
 
-const localStorageIsUsable =
-  typeof globalThis.localStorage?.getItem === "function" &&
-  typeof globalThis.localStorage?.setItem === "function" &&
-  typeof globalThis.localStorage?.removeItem === "function" &&
-  typeof globalThis.localStorage?.clear === "function";
+// Everything below patches gaps in jsdom. Pure-logic suites opt out of jsdom
+// with `// @vitest-environment node` and share this file, so there is no DOM to
+// patch there — bail out rather than guard each stub.
+if (typeof window !== "undefined") {
+  const localStorageIsUsable =
+    typeof globalThis.localStorage?.getItem === "function" &&
+    typeof globalThis.localStorage?.setItem === "function" &&
+    typeof globalThis.localStorage?.removeItem === "function" &&
+    typeof globalThis.localStorage?.clear === "function";
 
-if (!localStorageIsUsable) {
-  const storage = createMemoryStorage();
-  Object.defineProperty(globalThis, "localStorage", {
-    configurable: true,
-    value: storage,
-  });
-  Object.defineProperty(window, "localStorage", {
-    configurable: true,
-    value: storage,
-  });
+  if (!localStorageIsUsable) {
+    const storage = createMemoryStorage();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: storage,
+    });
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: storage,
+    });
+  }
 }

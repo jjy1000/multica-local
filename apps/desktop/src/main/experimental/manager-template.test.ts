@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Regression test for the P1 main-process crash fix (0.3.9).
 //
 // Before this fix, `BaseExperimentalManager.start()` called `spawn()`

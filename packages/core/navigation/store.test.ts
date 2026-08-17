@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 
 // EXCLUDED_PREFIXES is private to store.ts but checked here via behavior.

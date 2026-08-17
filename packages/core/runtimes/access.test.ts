@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { AgentRuntime } from "../types";
 import { isRuntimeUsableForUser } from "./access";

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { ChainProvider } from "./chain-provider";
 import { StaticProvider } from "./static-provider";

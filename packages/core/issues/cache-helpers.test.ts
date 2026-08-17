@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { Issue, ListIssuesCache } from "../types";
 import { insertByPosition, patchIssueInBuckets } from "./cache-helpers";

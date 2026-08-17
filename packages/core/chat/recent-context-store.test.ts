@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it } from "vitest";
 import { selectRecentContexts, useRecentContextStore } from "./recent-context-store";
 

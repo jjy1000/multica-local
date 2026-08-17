@@ -1,3 +1,4 @@
+// @vitest-environment node
 // PythiaReportSurface.test.tsx (0.3.29+)
 //
 // Light-weight unit coverage for the SSE-block parser that the

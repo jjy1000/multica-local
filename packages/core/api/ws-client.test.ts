@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WSClient } from "./ws-client";
 import type { WSMessage } from "../types/events";

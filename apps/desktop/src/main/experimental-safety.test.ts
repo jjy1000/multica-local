@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";

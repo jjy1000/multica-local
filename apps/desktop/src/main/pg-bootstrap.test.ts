@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 
 // Mock the `electron` module BEFORE importing pg-bootstrap so the

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import type { Issue } from "../types";
 import { commonIssueFields } from "./batch";

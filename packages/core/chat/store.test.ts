@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it } from "vitest";
 import { createChatStore, newSessionDraftKey } from "./store";
 import type { StorageAdapter } from "../types";

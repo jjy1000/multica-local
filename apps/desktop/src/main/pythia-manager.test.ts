@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Tests for managerBootHint — the renderer-facing error mapper that
 // turns PythiaManager.start() failures into actionable Chinese hints.
 

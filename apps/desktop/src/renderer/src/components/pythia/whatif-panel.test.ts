@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Tests for the WhatIf → PythiaPrediction adapter. The Pythia wire
 // shape uses `statement` for the prediction title and may omit
 // agents[] (swarm deliberation is optional). The renderer UI type

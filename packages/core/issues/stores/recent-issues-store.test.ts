@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { beforeEach, describe, expect, it } from "vitest";
 import { useRecentIssuesStore, selectRecentIssues } from "./recent-issues-store";
 

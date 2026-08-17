@@ -1,3 +1,4 @@
+// @vitest-environment node
 // Tests for the equirectangular projection and leading-persona helper
 // used by GlobeSVG. Pure functions, no DOM / React.
 

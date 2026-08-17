@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from "vitest";
 import { deriveGitHubSettings } from "./settings";
 import type { Workspace } from "../types";
