@@ -522,6 +522,57 @@ func (s *IssueService) publishIssueCreated(issue db.Issue, attachments []db.Atta
 	})
 }
 
+// PublishAttachmentsChanged refreshes attachments and the issue projection
+// after a detached channel media transaction. Issue creation is broadcast
+// before the remote download finishes, so the attachment event closes the
+// cache gap for current clients. The issue:updated event carries the newly
+// materialized description through a pre-existing protocol that installed
+// desktop clients already understand.
+func (s *IssueService) PublishAttachmentsChanged(ctx context.Context, issue db.Issue, actorID pgtype.UUID) {
+	if s.Bus == nil {
+		return
+	}
+	s.Bus.Publish(events.Event{
+		Type:        protocol.EventIssueAttachmentsChanged,
+		WorkspaceID: util.UUIDToString(issue.WorkspaceID),
+		ActorType:   "member",
+		ActorID:     util.UUIDToString(actorID),
+		Payload: map[string]any{
+			"issue_id": util.UUIDToString(issue.ID),
+		},
+	})
+	if s.Queries == nil {
+		return
+	}
+
+	current, err := s.Queries.GetIssueInWorkspace(ctx, db.GetIssueInWorkspaceParams{
+		ID:          issue.ID,
+		WorkspaceID: issue.WorkspaceID,
+	})
+	if err != nil {
+		slog.Warn("failed to load issue after channel media bind",
+			"issue_id", util.UUIDToString(issue.ID), "error", err)
+		return
+	}
+	workspace, err := s.Queries.GetWorkspace(ctx, issue.WorkspaceID)
+	if err != nil {
+		slog.Warn("failed to load workspace after channel media bind",
+			"workspace_id", util.UUIDToString(issue.WorkspaceID), "error", err)
+		return
+	}
+	s.Bus.Publish(events.Event{
+		Type:        protocol.EventIssueUpdated,
+		WorkspaceID: util.UUIDToString(issue.WorkspaceID),
+		ActorType:   "member",
+		ActorID:     util.UUIDToString(actorID),
+		Payload: map[string]any{
+			"issue":            IssueToMapWithCategory(ctx, s.Queries, current, workspace.IssuePrefix),
+			"assignee_changed": false,
+			"status_changed":   false,
+			"project_changed":  false,
+		},
+	})
+}
 func (s *IssueService) captureCreatedAnalytics(issue db.Issue, creatorType, actorID string, opts IssueCreateOpts) {
 	if s.Analytics == nil {
 		return

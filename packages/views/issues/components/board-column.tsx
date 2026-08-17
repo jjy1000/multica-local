@@ -1,5 +1,6 @@
 "use client";
 
+import { statusCategoryOfKey } from "@multica/core/issues";
 import { memo, useMemo, type ReactNode } from "react";
 import { EyeOff, MoreHorizontal, Plus, UserMinus } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
@@ -61,7 +62,7 @@ export const BoardColumn = memo(function BoardColumn({
   sortLabel?: string | null;
 }) {
   const status = group.status;
-  const cfg = status ? STATUS_CONFIG[status] : null;
+  const cfg = status ? STATUS_CONFIG[statusCategoryOfKey(status)] : null;
   const { setNodeRef, isOver } = useDroppable({ id: group.id });
   const viewStoreApi = useViewStoreApi();
   const { t } = useT("issues");

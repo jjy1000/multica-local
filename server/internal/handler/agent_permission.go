@@ -149,7 +149,6 @@ func parsePermissionInput(
 ) (resolvedPermission, bool, error) {
 	hasPermissionMode := permissionMode != nil
 	hasTargets := len(targets) > 0
-
 	if !hasPermissionMode && legacyVisibility == nil {
 		return resolvedPermission{}, false, nil
 	}

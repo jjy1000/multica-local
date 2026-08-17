@@ -12,6 +12,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/integrations/channel"
 	"github.com/multica-ai/multica/server/internal/service"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // Router is the channel-agnostic inbound pipeline — the generalization of the
@@ -451,7 +452,23 @@ func (r *Router) createIssue(ctx context.Context, inst ResolvedInstallation, ori
 		OriginType:   pgtype.Text{String: originType, Valid: originType != ""},
 		OriginID:     sessionID,
 	}
-	return r.issues.Create(ctx, params, service.IssueCreateOpts{})
+// Without a BroadcastPayload the service emits its minimal
+	// {"issue_id": ...} stub, and every issue:created consumer that reads the
+	// "issue" key drops the event — most visibly the subscriber listener, which
+	// needs id + creator_id and so never subscribed the person who typed
+	// /issue to their own issue. issueToMap is the shared renderer for events
+	// published outside the HTTP handler; it stays key-compatible with the
+	// IssueResponse that handler path broadcasts, so clients see one issue
+	// shape regardless of which entry point created the issue.
+	opts := service.IssueCreateOpts{
+		BroadcastPayload: func(issue db.Issue, _ []db.Attachment) map[string]any {
+			// Plain issueToMap is authoritative here: this path always creates
+			// with the built-in "todo" above, and a built-in status IS its own
+			// category, so no catalog read is possible or needed. (MUL-6243)
+			return map[string]any{"issue": service.IssueToMap(issue, "")}
+		},
+	}
+	return r.issues.Create(ctx, params, opts)
 }
 
 // ErrEmptyIssueTitle is returned by createIssue when /issue has no title and

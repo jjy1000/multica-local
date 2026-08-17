@@ -1,3 +1,4 @@
+import { normalizeStatusPatch } from "./status-category";
 import { useState, useCallback } from "react";
 import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { api } from "../api";
@@ -235,6 +236,12 @@ export function useUpdateIssue() {
       // written into the query cache (MUL-3375). Strip them from the patch; the
       // mutationFn above still sends the full payload to the API.
       const { suppress_run: _suppressRun, handoff_note: _handoffNote, ...patch } = data;
+      // A patch that drops parent_issue_id (or nulls it) removes the issue from
+      // its parent's children cache; any other parent-touch is a no-op for that
+      // cache. (MUL-6243)
+      const detachedFromParent =
+        Object.prototype.hasOwnProperty.call(data, "parent_issue_id") &&
+        (data.parent_issue_id === null || data.parent_issue_id === undefined);
       // Fire-and-forget cancelQueries — keeps onMutate synchronous so the
       // cache update happens in the same tick as mutate(). Awaiting would
       // yield to the event loop, letting @dnd-kit reset its visual state
@@ -281,7 +288,9 @@ export function useUpdateIssue() {
         qc.setQueryData<Issue[]>(
           issueKeys.children(wsId, parentId),
           (old) =>
-            old?.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+detachedFromParent
+              ? old?.filter((c) => c.id !== id)
+              : old?.map((c) => (c.id === id ? { ...c, ...normalizeStatusPatch(patch) } : c)),
         );
       }
       return { prevLists, prevDetail, prevChildren, parentId, id };
@@ -497,7 +506,7 @@ export function useBatchUpdateIssues() {
         affectedParentIds.add(parentId);
         prevChildren.set(parentId, data);
         qc.setQueryData<Issue[]>(issueKeys.children(wsId, parentId), (old) =>
-          old?.map((c) => (idSet.has(c.id) ? { ...c, ...patch } : c)),
+          old?.map((c) => (idSet.has(c.id) ? { ...c, ...normalizeStatusPatch(patch) } : c)),
         );
       }
 

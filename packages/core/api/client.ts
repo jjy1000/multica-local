@@ -703,8 +703,9 @@ export class ApiClient {
   // FF_CUSTOM_ISSUE_STATUSES. Mutating verbs (create/update/archive) hit the
   // owner/admin gate and may 403/404 — callers should treat those as user-
   // facing signals, not as "the feature is missing".
-  async listIssueStatuses(): Promise<ListIssueStatusesResponse> {
-    const raw = await this.fetch<unknown>("/api/issue-statuses");
+  async listIssueStatuses(includeArchived = false): Promise<ListIssueStatusesResponse> {
+    const query = includeArchived ? "?include_archived=true" : "";
+    const raw = await this.fetch<unknown>(`/api/issue-statuses${query}`);
     return parseWithFallback(
       raw,
       ListIssueStatusesResponseSchema,
@@ -738,6 +739,11 @@ export class ApiClient {
     });
   }
 
+  /**
+   * Archives a custom status, retiring it from future use. Issues already on it
+   * keep it and keep behaving as their category prescribes; only new
+   * assignments are refused. Built-in statuses return 403.
+   */
   async archiveIssueStatus(key: string): Promise<void> {
     await this.fetch(`/api/issue-statuses/${encodeURIComponent(key)}`, {
       method: "DELETE",

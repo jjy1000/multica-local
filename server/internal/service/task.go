@@ -2100,7 +2100,7 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 							// it here too. Without it the board / status-filter
 							// caches keep showing the issue as in_progress until
 							// the next write touches it (#4648 / MUL-3782).
-							s.broadcastIssueUpdated(updatedIssue, issue.Status)
+							s.broadcastIssueUpdated(ctx, updatedIssue, issue.Status)
 						}
 					}
 				}
@@ -2673,7 +2673,7 @@ func (s *TaskService) broadcastChatDone(ctx context.Context, task db.AgentTaskQu
 // emit status-change activity / notifications. That is intentional for the
 // realtime-staleness fix (#4648 / MUL-3782); folding those side effects in
 // would mean unifying the payload type and is left as a follow-up.
-func (s *TaskService) broadcastIssueUpdated(issue db.Issue, prevStatus string) {
+func (s *TaskService) broadcastIssueUpdated(ctx context.Context, issue db.Issue, prevStatus string) {
 	prefix := s.getIssuePrefix(issue.WorkspaceID)
 	s.Bus.Publish(events.Event{
 		Type:        protocol.EventIssueUpdated,
@@ -2681,7 +2681,7 @@ func (s *TaskService) broadcastIssueUpdated(issue db.Issue, prevStatus string) {
 		ActorType:   "system",
 		ActorID:     "",
 		Payload: map[string]any{
-			"issue":          issueToMap(issue, prefix),
+			"issue":          IssueToMapWithCategory(ctx, s.Queries, issue, prefix),
 			"status_changed": prevStatus != issue.Status,
 			"prev_status":    prevStatus,
 		},
@@ -2802,6 +2802,10 @@ func issueToMap(issue db.Issue, issuePrefix string) map[string]any {
 		"title":           issue.Title,
 		"description":     util.TextToPtr(issue.Description),
 		"status":          issue.Status,
+		// Mirrors handler.IssueResponse.StatusCategory: a built-in status IS
+		// its own category, so this resolves with no catalog lookup. Empty for
+		// a custom status, which consumers resolve via the catalog. (MUL-6243)
+		"status_category": builtInStatusCategory(issue.Status),
 		"priority":        issue.Priority,
 		"assignee_type":   util.TextToPtr(issue.AssigneeType),
 		"assignee_id":     util.UUIDToPtr(issue.AssigneeID),
@@ -2814,6 +2818,33 @@ func issueToMap(issue db.Issue, issuePrefix string) map[string]any {
 		"created_at":      util.TimestampToString(issue.CreatedAt),
 		"updated_at":      util.TimestampToString(issue.UpdatedAt),
 	}
+}
+
+// builtInStatusCategory returns a status's category when it can be known
+// without a catalog read — i.e. for the 7 built-ins, where key == category.
+func builtInStatusCategory(status string) string {
+	if issuestatus.IsBuiltIn(status) {
+		return status
+	}
+	return ""
+}
+
+// IssueToMap is the exported alias of issueToMap so cross-package callers
+// (channel engine, autopilot) can build the same payload shape. Built-in
+// statuses have a category built into the key — custom ones resolve through
+// IssueToMapWithCategory at the call site. (MUL-6243)
+func IssueToMap(issue db.Issue, issuePrefix string) map[string]any {
+	return issueToMap(issue, issuePrefix)
+}
+
+// IssueToMapWithCategory is IssueToMap with an AUTHORITATIVE status_category,
+// resolved through the catalog so a custom status is not emitted with a blank
+// one. Background events go through here; clients treat this payload as a
+// complete issue and bucket it by category. (MUL-6243)
+func IssueToMapWithCategory(ctx context.Context, q issuestatus.Querier, issue db.Issue, issuePrefix string) map[string]any {
+	m := issueToMap(issue, issuePrefix)
+	m["status_category"] = issuestatus.Effective(ctx, q, issue.WorkspaceID, issue.Status)
+	return m
 }
 
 // parseQuickCreateContext returns the quick-create payload if the task's

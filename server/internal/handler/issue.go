@@ -227,8 +227,53 @@ func validateIssueEnum(w http.ResponseWriter, field, value string, allowed []str
 	return false
 }
 
+// fillStatusCategories resolves status_category for responses whose status is
+// CUSTOM. The pure builders below fill it for built-in keys — where key IS the
+// category — and leave it empty otherwise, so this is the step that makes the
+// field authoritative on every payload a client caches or buckets by.
+//
+// Uses one Resolver for the whole slice: built-in statuses cost no query, and a
+// page full of custom ones costs one catalog read rather than one per row. The
+// Resolver includes ARCHIVED statuses, because an issue left on an archived
+// status still belongs in its category's column. (MUL-6243)
+func (h *Handler) fillStatusCategories(ctx context.Context, wsID pgtype.UUID, resps []IssueResponse) {
+	fill := h.newStatusCategoryFiller(ctx, wsID)
+	for i := range resps {
+		fill(&resps[i])
+	}
+}
+
+// newStatusCategoryFiller returns a request-scoped filler backed by ONE
+// Resolver. Reuse it across every response a request builds: the Resolver reads
+// the catalog at most once, so a page of custom-status rows costs one query
+// rather than one per row. Creating a filler per row would reintroduce the N+1
+// this exists to avoid. (MUL-6243)
+func (h *Handler) newStatusCategoryFiller(ctx context.Context, wsID pgtype.UUID) func(*IssueResponse) {
+	resolver := issuestatus.NewResolver(wsID)
+	return func(resp *IssueResponse) {
+		if resp == nil || resp.StatusCategory != "" {
+			return
+		}
+		resp.StatusCategory = resolver.Effective(ctx, h.Queries, resp.Status)
+	}
+}
+
+// fillStatusCategory is the single-response form. Only for endpoints that build
+// exactly ONE response; anything looping must use newStatusCategoryFiller.
+func (h *Handler) fillStatusCategory(ctx context.Context, wsID pgtype.UUID, resp *IssueResponse) {
+	h.newStatusCategoryFiller(ctx, wsID)(resp)
+}
+
 func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
+	// A built-in status IS its own category, so this costs no catalog lookup and
+	// every response carries it. A CUSTOM status is left empty here and filled
+	// in by endpoints that resolve the catalog (see the children endpoints'
+	// Resolver); consumers fall back on the same rule. (MUL-6243)
+	statusCategory := ""
+	if issuestatus.IsBuiltIn(i.Status) {
+		statusCategory = i.Status
+	}
 	return IssueResponse{
 		ID:            uuidToString(i.ID),
 		WorkspaceID:   uuidToString(i.WorkspaceID),
@@ -237,6 +282,7 @@ func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 		Title:         i.Title,
 		Description:   textToPtr(i.Description),
 		Status:        i.Status,
+		StatusCategory: statusCategory,
 		Priority:      i.Priority,
 		AssigneeType:  textToPtr(i.AssigneeType),
 		AssigneeID:    uuidToPtr(i.AssigneeID),
@@ -253,11 +299,17 @@ func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
+
 	}
 }
 
 // issueListRowToResponse converts a list-query row (no description) to an IssueResponse.
 func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueResponse {
+	// Same pure built-in resolution as issueToResponse. (MUL-6243)
+	statusCategory := ""
+	if issuestatus.IsBuiltIn(i.Status) {
+		statusCategory = i.Status
+	}
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
 		ID:            uuidToString(i.ID),
@@ -267,6 +319,7 @@ func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueRespons
 		Title:         i.Title,
 		Description:   textToPtr(i.Description),
 		Status:        i.Status,
+		StatusCategory: statusCategory,
 		Priority:      i.Priority,
 		AssigneeType:  textToPtr(i.AssigneeType),
 		AssigneeID:    uuidToPtr(i.AssigneeID),
@@ -283,6 +336,7 @@ func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueRespons
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
+
 	}
 }
 
@@ -318,6 +372,11 @@ func (h *Handler) labelsByIssue(ctx context.Context, wsUUID pgtype.UUID, issueID
 }
 
 func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueResponse {
+	// Same pure built-in resolution as issueToResponse. (MUL-6243)
+	statusCategory := ""
+	if issuestatus.IsBuiltIn(i.Status) {
+		statusCategory = i.Status
+	}
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
 		ID:            uuidToString(i.ID),
@@ -327,6 +386,7 @@ func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueRes
 		Title:         i.Title,
 		Description:   textToPtr(i.Description),
 		Status:        i.Status,
+		StatusCategory: statusCategory,
 		Priority:      i.Priority,
 		AssigneeType:  textToPtr(i.AssigneeType),
 		AssigneeID:    uuidToPtr(i.AssigneeID),
@@ -343,6 +403,7 @@ func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueRes
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
 		Metadata:      parseIssueMetadata(i.Metadata),
+
 	}
 }
 
@@ -888,12 +949,14 @@ func (h *Handler) SearchIssues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prefix := h.getIssuePrefix(ctx, wsUUID)
+	fillSearch := h.newStatusCategoryFiller(ctx, wsUUID)
 	resp := make([]SearchIssueResponse, len(results))
 	for i, sr := range results {
 		sir := SearchIssueResponse{
 			IssueResponse: issueToResponse(sr.issue, prefix),
 			MatchSource:   sr.matchSource,
 		}
+		fillSearch(&sir.IssueResponse)
 		// Always populate comment snippet when a matching comment exists
 		if sr.matchedCommentContent != "" {
 			snippet := extractSnippet(sr.matchedCommentContent, q)
@@ -1031,9 +1094,11 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 			ids[i] = issue.ID
 		}
 		labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
+		fillOpen := h.newStatusCategoryFiller(ctx, wsUUID)
 		resp := make([]IssueResponse, len(issues))
 		for i, issue := range issues {
 			resp[i] = openIssueRowToResponse(issue, prefix)
+			fillOpen(&resp[i])
 			labels := labelsMap[resp[i].ID]
 			if labels == nil {
 				labels = []LabelResponse{}
@@ -1067,6 +1132,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	var statusFilter pgtype.Text
 	if s := r.URL.Query().Get("status"); s != "" {
 		statusFilter = pgtype.Text{String: s, Valid: true}
+
 	}
 
 	// scheduled=true restricts the result to issues that have at least one of
@@ -1118,6 +1184,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 
 	if statusFilter.Valid {
 		where = append(where, fmt.Sprintf("i.status = %s", addArg(statusFilter.String)))
+
 	}
 	if priorityFilter.Valid {
 		where = append(where, fmt.Sprintf("i.priority = %s", addArg(priorityFilter.String)))
@@ -1271,6 +1338,7 @@ LIMIT %s OFFSET %s`, whereSql, orderBy, limitRef, offsetRef)
 		}
 		resp[i].Labels = &labels
 	}
+	h.fillStatusCategories(ctx, wsUUID, resp)
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"issues": resp,
@@ -1454,6 +1522,23 @@ func (h *Handler) ListGroupedIssues(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(statuses) > 0 {
 		where = append(where, fmt.Sprintf("i.status = ANY(%s::text[])", addArg(statuses)))
+	}
+	// See ListIssues: category filtering is what lets the board keep a fixed
+	// column count as a workspace adds custom statuses. (MUL-6243)
+	statusCategories := splitCommaParam(r.URL.Query().Get("status_categories"))
+	if len(statusCategories) == 0 {
+		statusCategories = splitCommaParam(r.URL.Query().Get("status_category"))
+	}
+	if len(statusCategories) > 0 {
+		// See ListIssues: expanded to keys so the (workspace_id, status) index
+		// still drives the scan. (MUL-6243)
+		keys, err := issuestatus.ExpandCategories(r.Context(), h.Queries, wsUUID, statusCategories)
+		if err != nil {
+			slog.Warn("expand status categories failed", append(logger.RequestAttrs(r), "error", err)...)
+			writeError(w, http.StatusInternalServerError, "failed to resolve status categories")
+			return
+		}
+		where = append(where, fmt.Sprintf("i.status = ANY(%s::text[])", addArg(keys)))
 	}
 
 	priorities := splitCommaParam(r.URL.Query().Get("priorities"))
@@ -1771,6 +1856,9 @@ ORDER BY
 	}
 	labelsMap := h.labelsByIssue(ctx, wsUUID, ids)
 	prefix := h.getIssuePrefix(ctx, wsUUID)
+	// One Resolver for the whole page — a per-row filler would query the
+	// catalog once per custom-status row. (MUL-6243)
+	fillGrouped := h.newStatusCategoryFiller(ctx, wsUUID)
 
 	groups := []IssueAssigneeGroupResponse{}
 	groupIndex := map[string]int{}
@@ -1790,6 +1878,7 @@ ORDER BY
 		}
 
 		issue := issueListRowToResponse(row.ListIssuesRow, prefix)
+		fillGrouped(&issue)
 		labels := labelsMap[issue.ID]
 		if labels == nil {
 			labels = []LabelResponse{}
@@ -1809,6 +1898,7 @@ func (h *Handler) GetIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
 	resp := issueToResponse(issue, prefix)
+	h.fillStatusCategory(r.Context(), issue.WorkspaceID, &resp)
 	detailLabels := h.labelsByIssue(r.Context(), issue.WorkspaceID, []pgtype.UUID{issue.ID})[uuidToString(issue.ID)]
 	if detailLabels == nil {
 		detailLabels = []LabelResponse{}
@@ -2532,6 +2622,11 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	// payload builder and the HTTP response share the same value.
 	prefix := h.getIssuePrefix(r.Context(), wsUUID)
 
+	// One filler for this create, shared by the broadcast payload and the HTTP
+	// response below, so a custom-status create reads the catalog once per
+	// request rather than once per payload. (MUL-6243)
+	fillCreated := h.newStatusCategoryFiller(r.Context(), wsUUID)
+
 	// Analytics agent ID: assignee agent when the issue is being assigned
 	// to an agent, otherwise the creator agent for agent-authored issues.
 	// Resolved here (not in the service) because creator identity is HTTP-side.
@@ -2596,6 +2691,12 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		Platform:         func() string { p, _, _ := middleware.ClientMetadataFromContext(r.Context()); return p }(),
 		BroadcastPayload: func(issue db.Issue, atts []db.Attachment) map[string]any {
 			payload := issueToResponse(issue, prefix)
+			// The event other tabs receive must carry the category too — filling
+			// only the HTTP response below is too late for them, and a create
+			// they cannot bucket forces a full refetch. Shares one filler with
+			// the HTTP response so a custom-status create reads the catalog once
+			// per request, not once per payload. (MUL-6243)
+			fillCreated(&payload)
 			payload.Attachments = buildAttachmentResponses(atts)
 			return map[string]any{"issue": payload}
 		},
@@ -2604,6 +2705,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, service.ErrActiveDuplicate) {
 		dup := *res.DuplicateIssue
 		existing := issueToResponse(dup, h.getIssuePrefix(r.Context(), dup.WorkspaceID))
+		h.fillStatusCategory(r.Context(), dup.WorkspaceID, &existing)
 		writeJSON(w, http.StatusConflict, map[string]any{
 			"code":  "active_duplicate_issue",
 			"error": duplicateIssueMessage(existing),
@@ -2659,6 +2761,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := issueToResponse(issue, prefix)
+	fillCreated(&resp)
 	resp.Attachments = buildAttachmentResponses(res.Attachments)
 	writeJSON(w, http.StatusCreated, resp)
 }
@@ -3093,6 +3196,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	resp := issueToResponse(issue, prefix)
 	slog.Info("issue updated", append(logger.RequestAttrs(r), "issue_id", id, "workspace_id", workspaceID)...)
 
+	h.fillStatusCategory(r.Context(), issue.WorkspaceID, &resp)
 	assigneeChanged := (req.AssigneeType != nil || req.AssigneeID != nil) &&
 		(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))
 	// Lab auto-assign happens without an explicit assignee_* field in the
@@ -3676,6 +3780,7 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updated := 0
+
 	for _, issueID := range req.IssueIDs {
 		issueUUID, err := util.ParseUUID(issueID)
 		if err != nil {
@@ -3962,6 +4067,10 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		resp := issueToResponse(issue, prefix)
 		actorType, actorID := h.resolveActor(r, userID, workspaceID)
 
+		// One Resolver for the whole batch — a per-issue filler would query the
+		// catalog once per custom-status row. (MUL-6243)
+		fillBatch := h.newStatusCategoryFiller(r.Context(), wsUUID)
+		fillBatch(&resp)
 		assigneeChanged := (req.Updates.AssigneeType != nil || req.Updates.AssigneeID != nil) &&
 			(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))
 		// 0.3.47 (P0#4 Batch parity): batch rewrites the assignee above
