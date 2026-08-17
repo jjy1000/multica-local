@@ -6,7 +6,7 @@
 -- flows have NO insert path in the fork:
 --
 --   - verification_code    (migration 009, email one-time codes)
---   - personal_access_tokens (migration 011, cloud API PAT)
+--   - personal_access_token (migration 011, cloud API PAT)
 --
 -- Any rows present are pure legacy residue from pre-fork installs.
 -- TRUNCATE (not DELETE) is used because:
@@ -26,4 +26,4 @@
 -- per-table sub-context timeout.
 
 TRUNCATE TABLE verification_code;
-TRUNCATE TABLE personal_access_tokens;
+TRUNCATE TABLE personal_access_token;
