@@ -90,6 +90,32 @@ pnpm --filter @multica/desktop bundle-cli || die "bundle-cli failed — aborting
 step "4/7 electron-vite build (renderer)"
 pnpm --filter @multica/desktop build || die "renderer build failed — aborting"
 
+# --- 4a. Verify the renderer output before packaging ----------------------------
+# A stale `apps/desktop/out/` from a previous broken build can survive if
+# vite's incremental cache is dirty, and electron-builder then packages the
+# corrupted index.html into the asar. The visible symptom is the Electron
+# main process exits silently within ~200ms (HTML parser fails on
+# `<!doctype>` not being the first byte, OR an inlined JS module
+# prepended to the head). Caught here before packaging instead of at
+# cold-start verify (memory 0.5.30 — 0.5.29 ship crashed silently because
+# this check was missing). Three invariants: file exists, first byte is
+# '<', reasonable size. rawRequest still catches stale renderer.
+step "4a/7 verify renderer index.html is well-formed (first byte = '<', size in [200, 5000])"
+INDEX_HTML="$DESKTOP/out/renderer/index.html"
+[ -f "$INDEX_HTML" ] || die "renderer output missing: $INDEX_HTML — electron-vite build did not produce index.html"
+INDEX_SIZE=$(wc -c < "$INDEX_HTML" | tr -d ' ')
+INDEX_FIRST_BYTE=$(head -c 1 "$INDEX_HTML" | od -An -c | tr -d ' ' | head -c 1)
+if [ "$INDEX_FIRST_BYTE" != '<' ]; then
+  echo "    FAIL: index.html first byte is '$INDEX_FIRST_BYTE' (0x$(head -c 1 "$INDEX_HTML" | od -An -tx1 | tr -d ' ')) — expected '<' (start of '<!doctype html>')"
+  echo "    First 200 bytes of the broken file:"
+  head -c 200 "$INDEX_HTML" | sed 's/^/      /'
+  die "renderer index.html is corrupted — Vite likely inlined an asset (history: 0.5.30, after Semantica Round 7+ + MUL-6254). Wipe apps/desktop/out/ and re-run step 4."
+fi
+if [ "$INDEX_SIZE" -lt 200 ] || [ "$INDEX_SIZE" -gt 5000 ]; then
+  die "renderer index.html size $INDEX_SIZE bytes is out of [200, 5000] range — Vite build produced an unexpected artifact. Wipe apps/desktop/out/ and re-run step 4."
+fi
+echo "    index.html OK: $INDEX_SIZE bytes, starts with '<'"
+
 # --- 5. Package to dist/mac-arm64/Multica.app --------------------------------
 # MUST run with cwd=apps/desktop: from the repo root electron-builder would
 # package the root dist/ and fail with "index.js not found in archive".
