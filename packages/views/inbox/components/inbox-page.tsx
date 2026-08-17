@@ -181,24 +181,11 @@ export function InboxPage() {
     });
   };
 
-  const handleUnarchive = (id: string) => {
-    advanceSelectionPast(id, archivedItems);
-    unarchiveMutation.mutate(id, {
-      onSuccess: () => toast.success(t(($) => $.toasts.unarchived)),
-      onError: (err) =>
-        toast.error(
-          err instanceof Error && err.message
-            ? err.message
-            : t(($) => $.errors.unarchive_failed),
-        ),
-    });
-  };
-
   // Keep the listener stable while using the latest selected-item action.
   const actionOnSelectedRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     actionOnSelectedRef.current = selected
-      ? () => (isArchivedView ? handleUnarchive(selected.id) : handleArchive(selected.id))
+      ? () => handleArchive(selected.id)
       : null;
   });
 
