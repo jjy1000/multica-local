@@ -736,3 +736,34 @@ func newRestartTestCmd(t *testing.T, profile string) *cobra.Command {
 // rejects with 401 (expired or revoked) must abort the restart BEFORE the
 // running daemon is stopped. Otherwise restart kills the working daemon and
 // the replacement child dies in preflight, leaving no daemon at all (#5165).
+
+// TestDaemonLogSourcePathGuaranteesAbsolute pins daemonLogSourcePath (upstream
+// #6884): the resolved daemon.log path must be absolute even for the default
+// profile, because it is shown to the user to paste into an editor or shell.
+func TestDaemonLogSourcePathGuaranteesAbsolute(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MULTICA_WORKSPACES_ROOT", "")
+
+	for _, tc := range []struct {
+		profile string
+		wantSub string
+	}{
+		{"", filepath.Join(home, ".multica")},
+		{"desktop-api", filepath.Join(home, ".multica", "profiles", "desktop-api")},
+	} {
+		p, err := daemonLogSourcePath(tc.profile)
+		if err != nil {
+			t.Fatalf("daemonLogSourcePath(%q): %v", tc.profile, err)
+		}
+		if !filepath.IsAbs(p) {
+			t.Fatalf("daemonLogSourcePath(%q) = %q, not absolute", tc.profile, p)
+		}
+		if !strings.Contains(p, tc.wantSub) {
+			t.Fatalf("daemonLogSourcePath(%q) = %q, want under %q", tc.profile, p, tc.wantSub)
+		}
+		if p != daemonLogPathForProfile(tc.profile) {
+			t.Fatalf("daemonLogSourcePath(%q) = %q, daemonLogPathForProfile = %q", tc.profile, p, daemonLogPathForProfile(tc.profile))
+		}
+	}
+}
