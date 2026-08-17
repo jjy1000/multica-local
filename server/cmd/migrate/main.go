@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -26,6 +27,48 @@ import (
 // retry the hook + migration.
 type preMigrationHook func(ctx context.Context, pool *pgxpool.Pool) error
 
+// concurrentIndexCleanups maps migration version → index name for every
+// migration whose up direction builds an index with CREATE INDEX
+// CONCURRENTLY. An interrupted build leaves an INVALID index behind:
+// `IF NOT EXISTS` would then treat the leftover as success and record
+// the migration as applied while the index stays unusable, and a bare
+// `CREATE` would stay wedged on "already exists". Each entry gets a
+// pre-migration hook that drops the INVALID leftover before the retry
+// rebuilds cleanly.
+//
+// MUL-6288 (upstream #7073) — the registry covers all 24 concurrent up
+// builds in the fork's own migrations (035–248; fork numbering diverges
+// from upstream, so every key/value pair is verified against the fork's
+// migration files by TestEveryConcurrentUpBuildHasCleanup). No fork
+// migration's down file rebuilds an index with CREATE INDEX
+// CONCURRENTLY, so there is deliberately no down-direction registry.
+var concurrentIndexCleanups = map[string]string{
+	"035_task_queue_issue_id_index":                    "idx_agent_task_queue_issue_id",
+	"067_task_queue_claim_candidate_index":             "idx_agent_task_queue_claim_candidates",
+	"074_task_usage_updated_at_index":                  "idx_task_usage_updated_at",
+	"075_task_usage_created_at_index":                  "idx_task_usage_created_at",
+	"078_task_usage_created_at_legacy_index":           "idx_task_usage_created_at_legacy",
+	"080_agent_task_queue_queued_index":                "idx_agent_task_queue_queued_created_at",
+	"106_member_user_workspace_index":                  "idx_member_user_workspace",
+	"114_agent_task_queue_running_started_at_index":    "idx_agent_task_queue_running_started_at",
+	"115_agent_runtime_last_seen_at_index":             "idx_agent_runtime_last_seen_at",
+	"119_user_created_at_index":                        "idx_user_created_at",
+	"125_agent_task_queue_dispatched_prepare_index":    "idx_agent_task_queue_dispatched_prepare",
+	"137_chat_pinned_agent_index":                      "idx_chat_pinned_agent_user_ws",
+	"140_chat_session_pinned_index":                    "idx_chat_session_pinned",
+	"144_chat_message_input_owner_index":               "idx_chat_message_input_owner",
+	"208_client_usage_daily_unique_index":              "client_usage_daily_identity_date_uidx",
+	"210_client_usage_daily_query_index":               "client_usage_daily_activity_client_user_idx",
+	"211_client_usage_daily_workspace_index":           "client_usage_daily_workspace_idx",
+	"218_issue_workspace_assignee_index":               "idx_issue_workspace_assignee",
+	"219_issue_workspace_parent_index":                 "idx_issue_workspace_parent",
+	"220_issue_workspace_position_index":               "idx_issue_workspace_position",
+	"221_agent_task_queue_terminal_completed_at_index": "idx_agent_task_queue_terminal_completed_at",
+	"222_agent_task_queue_agent_terminal_latest_index": "idx_agent_task_queue_agent_terminal_latest",
+	"225_chat_session_project_index":                   "idx_chat_session_project",
+	"248_agent_runtime_id_index":                       "idx_agent_runtime_id",
+}
+
 // preMigrationHooks wires migration version → hook. The version key is
 // the file basename without the `.up.sql` suffix, matching what
 // `migrations.ExtractVersion` returns.
@@ -37,8 +80,57 @@ type preMigrationHook func(ctx context.Context, pool *pgxpool.Pool) error
 // can advance the watermark. The hook runs the same idempotent
 // monthly-slice backfill that
 // `cmd/backfill_task_usage_hourly` exposes to operators.
-var preMigrationHooks = map[string]preMigrationHook{
-	"103_drop_legacy_daily_rollups": runTaskUsageHourlyHook,
+//
+// Every concurrentIndexCleanups entry is merged in with an
+// invalid-index cleanup hook (MUL-6288), so an interrupted concurrent
+// build is dropped before its migration retries.
+var preMigrationHooks = func() map[string]preMigrationHook {
+	hooks := map[string]preMigrationHook{
+		"103_drop_legacy_daily_rollups": runTaskUsageHourlyHook,
+	}
+	for version, index := range concurrentIndexCleanups {
+		hooks[version] = cleanupInvalidConcurrentIndexHook(index)
+	}
+	return hooks
+}()
+
+// cleanupInvalidConcurrentIndexHook removes an INVALID index left by an
+// interrupted or failed CREATE INDEX CONCURRENTLY before the migration
+// retries. Without this guard, `CREATE INDEX ... IF NOT EXISTS` would
+// treat the leftover relation as success and allow a later migration to
+// drop the still-valid old index. Non-index relations fail closed
+// instead of being dropped implicitly.
+func cleanupInvalidConcurrentIndexHook(indexRegclass string) preMigrationHook {
+	return func(ctx context.Context, pool *pgxpool.Pool) error {
+		var schemaName, relationName string
+		var isIndex, isValid bool
+		err := pool.QueryRow(ctx, `
+			SELECT n.nspname, c.relname, c.relkind = 'i', COALESCE(i.indisvalid, FALSE)
+			FROM pg_class c
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			LEFT JOIN pg_index i ON i.indexrelid = c.oid
+			WHERE c.oid = to_regclass($1)
+		`, indexRegclass).Scan(&schemaName, &relationName, &isIndex, &isValid)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("inspect concurrent index %q: %w", indexRegclass, err)
+		}
+		if !isIndex {
+			return fmt.Errorf("relation %q exists but is not an index", indexRegclass)
+		}
+		if isValid {
+			return nil
+		}
+
+		qualifiedName := pgx.Identifier{schemaName, relationName}.Sanitize()
+		if _, err := pool.Exec(ctx, "DROP INDEX CONCURRENTLY IF EXISTS "+qualifiedName); err != nil {
+			return fmt.Errorf("drop invalid concurrent index %s: %w", qualifiedName, err)
+		}
+		slog.Warn("removed invalid index before migration retry", "index", qualifiedName)
+		return nil
+	}
 }
 
 func runTaskUsageHourlyHook(ctx context.Context, pool *pgxpool.Pool) error {
