@@ -33,10 +33,15 @@ func TestQuickCreateIssueParentTrustBoundary(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	// Resolve the seeded runtime + agent for this workspace, then bump the
-	// runtime metadata to a CLI version that clears MinQuickCreateCLIVersion.
-	// The seed runtime uses metadata '{}'::jsonb which would otherwise trip
-	// the daemon-version gate before we ever reach the parent_issue_id check.
+	// Test isolation: parallel tests (agent_test.go:1051) flip the shared
+	// testRuntimeID to 'offline' and restore it via their own t.Cleanup.
+	// When their UPDATE lands between this test's "set online" and the
+	// handler's isRuntimeOnline read, the gate returns false → 422
+	// agent_unavailable before we ever reach the parent_issue_id
+	// assertions. A defensive UPDATE right before each handler call
+	// (3 retries) closes the window in 2/3 of runs but is not 100% —
+	// the only deterministic answer is the runtimeOnlineOverride
+	// hook on Handler, set here for the duration of the test.
 	var runtimeID, agentID string
 	if err := testPool.QueryRow(ctx,
 		`SELECT id FROM agent_runtime WHERE workspace_id = $1 LIMIT 1`,
@@ -57,9 +62,21 @@ func TestQuickCreateIssueParentTrustBoundary(t *testing.T) {
 		t.Fatalf("bump runtime cli_version: %v", err)
 	}
 	t.Cleanup(func() {
+		// Restore the harness default metadata (cli_version empty).
 		testPool.Exec(context.Background(),
 			`UPDATE agent_runtime SET metadata = '{}'::jsonb WHERE id = $1`, runtimeID)
+		// Clear the runtimeOnlineOverride so a later test in the
+		// same package sees the normal gate behaviour.
+		testHandler.RuntimeOnlineOverride = nil
 	})
+
+	// Force the isRuntimeOnline gate open for the duration of this
+	// test. Without this, the parallel-test race on testRuntimeID
+	// leaves the gate returning false and the handler emits 422
+	// before reaching the parent_issue_id assertions we want to
+	// verify. nil = use the real gate (production default).
+	override := true
+	testHandler.RuntimeOnlineOverride = &override
 
 	// Same-workspace parent — must be accepted and threaded through.
 	var localParentID string

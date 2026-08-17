@@ -2054,7 +2054,14 @@ func writeAgentUnavailable(w http.ResponseWriter, reason string) {
 // reachable (status == "online"). Quick-create rejects submissions whose
 // agent's runtime is offline so the user gets immediate feedback in the
 // modal instead of an inbox failure twenty seconds later.
+//
+// Test-only override: when h.RuntimeOnlineOverride is non-nil the gate
+// returns the dereferenced value without reading the DB. Production
+// always leaves the field nil.
 func (h *Handler) isRuntimeOnline(ctx context.Context, runtimeID pgtype.UUID) bool {
+	if h.RuntimeOnlineOverride != nil {
+		return *h.RuntimeOnlineOverride
+	}
 	rt, err := h.Queries.GetAgentRuntime(ctx, runtimeID)
 	if err != nil {
 		return false

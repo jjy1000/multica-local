@@ -159,6 +159,15 @@ type Handler struct {
 	// hook at server shutdown closes the ticker channel cleanly
 	// before SIGKILL. Nil is acceptable — test-only builds skip it.
 	RuntimeGC *experimental.RuntimeGC
+	// RuntimeOnlineOverride (test-only, 0.5.25) — when non-nil, the
+	// isRuntimeOnline gate returns the dereferenced value instead of
+	// reading agent_runtime.status. Used by tests that need the gate
+	// to behave deterministically regardless of what parallel tests
+	// do to the shared testRuntimeID row. Production: always nil.
+	// Set in TestQuickCreateIssueParentTrustBoundary to break the
+	// testRuntimeID race documented in memory
+	// 0.5.25-runtimegc-fix-2026-08-17.md.
+	RuntimeOnlineOverride *bool
 	// SelfOptService (0.3.45.1) owns the agent_self_optimization
 	// scheduler tickers + runner dispatch. Boot wires it from
 	// cmd/server/router.go. Nil is acceptable — the HTTP handlers
