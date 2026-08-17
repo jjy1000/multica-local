@@ -5,6 +5,7 @@ import { ChevronDown, Cloud, Loader2, Lock } from "lucide-react";
 import { ProviderLogo } from "../../runtimes/components/provider-logo";
 import { ActorAvatar } from "../../common/actor-avatar";
 import type { MemberWithUser, RuntimeDevice } from "@multica/core/types";
+import { isRuntimeUsableForUser } from "@multica/core/runtimes";
 import {
   Popover,
   PopoverTrigger,
@@ -229,16 +230,11 @@ export function RuntimePicker({
   );
 }
 
-// Visibility gate exposed so the parent can defend Create against a locked
-// selection (e.g. duplicate of an agent whose runtime is now private).
-export function isRuntimeUsableForUser(
-  r: RuntimeDevice,
-  currentUserId: string | null,
-): boolean {
-  if (!currentUserId) return true;
-  if (r.owner_id === currentUserId) return true;
-  return r.visibility === "public";
-}
+// Single source of truth lives in @multica/core/runtimes/access.ts — the same
+// predicate the create / duplicate / builder surfaces use, so a runtime this
+// picker locks is exactly the one the API and CLI refuse (MUL-6126). Re-export
+// keeps the parent (create-agent-dialog) compiling against this module.
+export { isRuntimeUsableForUser } from "@multica/core/runtimes";
 
 function computeFilteredRuntimes(
   runtimes: RuntimeDevice[],

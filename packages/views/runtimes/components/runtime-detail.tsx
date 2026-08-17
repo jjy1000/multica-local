@@ -200,7 +200,7 @@ export function RuntimeDetail({ runtime }: { runtime: AgentRuntime }) {
               runtime={runtime}
               cliVersion={cliVersion}
               launchedBy={launchedBy}
-              canEdit={!!canEditRuntime}
+              canEditVisibility={!!isRuntimeOwner}
               canDelete={!!canDelete}
               onDelete={() => setDeleteOpen(true)}
             />
@@ -469,14 +469,20 @@ function DiagnosticsCard({
   runtime,
   cliVersion,
   launchedBy,
-  canEdit,
+  canEditVisibility,
   canDelete,
   onDelete,
 }: {
   runtime: AgentRuntime;
   cliVersion: string | null;
   launchedBy: string | null;
-  canEdit: boolean;
+  /**
+   * Runtime owner only — narrower than the card's other affordances on
+   * purpose (MUL-6126). Sharing a machine with the workspace is the owner's
+   * call, so a workspace admin sees the read-only chip here even though they
+   * may still rename or delete the runtime.
+   */
+  canEditVisibility: boolean;
   canDelete: boolean;
   onDelete: () => void;
 }) {
@@ -492,7 +498,7 @@ function DiagnosticsCard({
           <div className="mb-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
             {t(($) => $.detail.diagnostics_visibility)}
           </div>
-          {canEdit ? (
+          {canEditVisibility ? (
             <VisibilityEditor runtime={runtime} />
           ) : (
             <VisibilityReadout runtime={runtime} />
@@ -535,11 +541,13 @@ function DiagnosticsCard({
   );
 }
 
-// VisibilityReadout renders a static "Private" / "Public" pill for users
-// who can't edit the runtime. The description used to sit under the chip;
-// it now lives in the hover tooltip so the Diagnostics column stays compact
-// and matches the surrounding sections. Older backends that omit the field
-// render as "Private" to match the strict default.
+// VisibilityReadout renders a static "Private" / "Public" pill for everyone
+// who is not the runtime owner — workspace admins included (MUL-6126). Its
+// tooltip is phrased in the third person for that reason; the editor's own
+// hints stay in the second person. The description used to sit under the
+// chip; it now lives in the hover tooltip so the Diagnostics column stays
+// compact and matches the surrounding sections. Older backends that omit the
+// field render as "Private" to match the strict default.
 function VisibilityReadout({ runtime }: { runtime: AgentRuntime }) {
   const { t } = useT("runtimes");
   const visibility = runtime.visibility === "public" ? "public" : "private";
@@ -557,15 +565,15 @@ function VisibilityReadout({ runtime }: { runtime: AgentRuntime }) {
         }
       />
       <TooltipContent>
-        {t(($) => $.detail.visibility_hint[visibility])}
+        {t(($) => $.detail.visibility_hint_readonly[visibility])}
       </TooltipContent>
     </Tooltip>
   );
 }
 
-// VisibilityEditor lets the runtime owner (or workspace admin) flip
-// public↔private. The PATCH endpoint also re-checks; this is a UI gate, not
-// a security boundary. Per-choice description text lives in the hover
+// VisibilityEditor lets the runtime owner flip public↔private. Owner only —
+// the PATCH endpoint refuses a workspace admin here (canSetRuntimeVisibility);
+// this is a UI gate, not a security boundary. Per-choice description text lives in the hover
 // tooltip so the two buttons stay a tight icon+label pair instead of the
 // previous two-line block that competed with the surrounding cards.
 function VisibilityEditor({ runtime }: { runtime: AgentRuntime }) {
