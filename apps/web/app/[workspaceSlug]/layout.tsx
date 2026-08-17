@@ -46,7 +46,7 @@ export default function WorkspaceLayout({
 
   // Resolve workspace by slug from the React Query list cache.
   // Enabled only when user is authenticated — otherwise the list query isn't seeded.
-  const { data: workspace, isFetched: listFetched } = useQuery({
+  const { data: workspace, isFetched: listReady } = useQuery({
     ...workspaceBySlugOptions(workspaceSlug),
     enabled: !!user,
   });
@@ -84,7 +84,7 @@ export default function WorkspaceLayout({
   // Don't render children until workspace is resolved. useWorkspaceId()
   // throws when the list hasn't populated or the slug is unknown — gating
   // here makes that invariant hold for every descendant.
-  if (!listFetched) return loadingIndicator;
+  if (!listReady) return loadingIndicator;
   if (!workspace) {
     // If we've resolved this slug before in this session, it was just
     // removed from our list (deleted/left/evicted). A navigate is almost
