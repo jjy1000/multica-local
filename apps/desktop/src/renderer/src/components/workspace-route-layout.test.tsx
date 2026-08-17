@@ -8,7 +8,7 @@ const state = vi.hoisted(() => ({
   isAuthLoading: false,
   overlay: null as { type: string } | null,
   workspace: null as { id: string; slug: string } | null,
-  listFetched: true,
+  listReady: true,
   wsList: [] as { id: string; slug: string }[],
   workspaceSeen: true,
   modalRenders: 0,
@@ -125,7 +125,7 @@ beforeEach(() => {
   state.isAuthLoading = false;
   state.overlay = null;
   state.workspace = { id: "ws-1", slug: "acme" };
-  state.listFetched = true;
+  state.listReady = true;
   state.wsList = [{ id: "ws-1", slug: "acme" }];
   state.workspaceSeen = true;
   state.modalRenders = 0;
