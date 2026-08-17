@@ -122,6 +122,26 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
   is a 3-line catalog edit — no service-layer or router changes needed.
   Tests: `TestAutoDispatchFlagBehavior` in
   `internal/experimental/registry_test.go`.
+- **Experimental runtime GC for `experimental_claude_runtime_session` (0.5.25).**
+  `experimental.RuntimeGC` is the 30/90/120-day retention ladder for claude
+  science research sessions (migration 151). Three contracts: (1) `Run()`
+  never closes `g.stopped` itself — `Stop()` owns the close-once contract
+  via `stopOne`. The pre-0.5.25 code called `g.stopOne.Do(close(g.stopped))`
+  *eagerly* at the top of `Run()`, so the first `select` evaluated
+  `<-g.stopped` immediately and the GC exited without ever ticking.
+  (2) `Start()` is wired at boot in `cmd/server/router.go` alongside
+  `swarm_gc.Start()`. Pre-0.5.25 it was orphaned — the comment "parallel
+  to runtime_gc.Start pattern" had never been realized on the runtime_gc
+  side. Store the GC on `Handler.RuntimeGC` so `cmd/server/main.go`'s
+  shutdown can call `Stop()` before SIGKILL. (3) The loop body is
+  regression-pinned by `TestRuntimeGC_RunSweepsBeforeExit` (asserts
+  `sweepCount >= 2` in 60ms at 20ms Interval; FAILS on pre-fix code
+  with "got 0 sweep invocations", PASSES with fix). `sweepCount` is an
+  `atomic.Uint64` field on `RuntimeGC` that `sweep()` increments —
+  production ignores it, tests read it. **Before touching this GC:**
+  read memory `0.5.25-runtimegc-fix-2026-08-17.md` and add a sweep-
+  execution assertion to the test (do not assume the loop body runs
+  just because the code looks right).
 - **`lab_managed` DTO stamp.** `agent.go::ListAgents` / `squad.go::ListSquads` AND the single-fetch `GetAgent` / `GetSquad` (0.5.18 SEC-P1-7 closed the single-fetch gap)
   derive `lab_managed?: boolean` from `experimental_resource_visibility` (not a
   column). Row-level `filterLabsHiddenByDefault` is one layer; selection surfaces
