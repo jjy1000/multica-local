@@ -326,6 +326,13 @@ async function buildServerEnv(profile: string, port: number): Promise<ServerEnv>
   if (existsSync(envFile)) {
     const raw = await readFile(envFile, "utf-8");
     env = parseEnvFile(raw);
+    // Pin PORT to the freshly-derived port so a stale or missing PORT
+    // line in the persisted .env can't let a shell-leaked process.env.PORT
+    // (or an old 8080) survive into the spawned server. Same class as
+    // the daemon --server-url fix (commit e4a69d314, 0.5.27): the
+    // desktop-owned URL must win over whatever the shell environment
+    // happens to carry.
+    if (env.PORT !== String(port)) env.PORT = String(port);
   } else {
     env = {
       PORT: String(port),
