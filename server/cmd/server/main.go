@@ -549,6 +549,9 @@ func main() {
 	if h.RuntimeGC != nil {
 		h.RuntimeGC.Stop()
 	}
+	if h.SemanticaGC != nil {
+		h.SemanticaGC.Stop()
+	}
 
 	// Join the channel supervisor's per-installation goroutines so the
 	// lease renewer can issue a final release before process exit;

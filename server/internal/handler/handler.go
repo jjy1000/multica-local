@@ -175,6 +175,15 @@ type Handler struct {
 	// hook at server shutdown closes the ticker channel cleanly
 	// before SIGKILL. Nil is acceptable — test-only builds skip it.
 	RuntimeGC *experimental.RuntimeGC
+	// SemanticaGC (0.5.30 P1-3 — synthesizer Round 7) sweeps the
+	// per-workspace semantica-graph*.provenance files older than
+	// 90 days, plus pre-P1-1 orphan .api-key files. Filesystem-only
+	// (Semantica is an external Python service that owns its own
+	// storage); default interval 24h, default retention 90d. Wired
+	// alongside RuntimeGC + SwarmGC in cmd/server/router.go; Stop
+	// from cmd/server/main.go shutdown. Nil is acceptable — test-
+	// only builds skip it.
+	SemanticaGC *experimental.SemanticaGC
 	// RuntimeOnlineOverride (test-only, 0.5.25) — when non-nil, the
 	// isRuntimeOnline gate returns the dereferenced value instead of
 	// reading agent_runtime.status. Used by tests that need the gate

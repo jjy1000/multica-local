@@ -51,6 +51,45 @@ Record-decision body shape:
 }
 ```
 
+### DecisionRecord shape (multica → semantica POST /api/decisions)
+
+0.5.30 P1-2 — synthesizer Round 7. The Multica-side `decision_sync.go`
+fires this envelope when a Multica issue reaches a terminal status
+(done / cancelled / closed). The wire shape is mirrored exactly
+between Go (`semanticaDecision` struct) and TS
+(`packages/core/api/schemas.ts::SemanticaDecisionRecordSchema`); keep
+them in sync.
+
+```json
+{
+  "id": "multica_<issue_uuid>",
+  "title": "<issue.title>",
+  "description": "<issue.description, ≤2000 runes>",
+  "status": "done | cancelled | closed",
+  "outcome": "Multica issue reached terminal status \"<status>\"",
+  "tags": ["multica", "lab:semantica"],
+  "provenance": {
+    "source": "multica",
+    "issue_id": "<issue_uuid>",
+    "workspace_id": "<workspace_uuid>",
+    "actor_type": "system | user | agent",
+    "actor_id": "<uuid-or-empty>",
+    "occurred_at": "<RFC3339 UTC>"
+  }
+}
+```
+
+Field rules (from the Go struct tags):
+
+- `id`: prefix `multica_` + issue UUID. Idempotent on the Semantica side
+  via upsert-on-id — repeated terminal-status fires collapse to one
+  record.
+- `description`: truncated to `semanticaDecisionDescriptionMax` (2000 runes)
+  upstream. Keeps the payload under the typical 10 KB upstream ceiling.
+- `tags`: stable set, used as a Semantica query filter.
+- `provenance.actor_id`: empty when the system fires the sync (no actor
+  UUID); populated for user/agent-driven syncs.
+
 ## Ontology
 
 | Verb | Method | Path | Required fields |

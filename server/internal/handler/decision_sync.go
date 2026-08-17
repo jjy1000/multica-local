@@ -23,8 +23,9 @@
 //     events that may all see the same terminal transition).
 //
 // Payload shape (matches Semantica's DecisionRecord schema at
-// vendor/semantica/semantica/decisions.py — keep in sync if that
-// schema changes upstream):
+// /api/decisions — see packages/core/api/schemas.ts::SemanticaDecisionRecordSchema
+// and the canonical reference in server/internal/service/builtin_skills/
+// multica-semantica-decision-advisor/references/api-source-map.md):
 //
 //	{
 //	  "id":          "multica_<issue_uuid>",

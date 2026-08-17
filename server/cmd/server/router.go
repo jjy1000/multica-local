@@ -794,6 +794,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			runtimeGC.Start()
 			h.RuntimeGC = runtimeGC
 			slog.Info("runtime_gc started")
+
+			// 0.5.30 P1-3 — synthesizer Round 7: Semantica
+			// provenance + api-key retention. Filesystem-only
+			// (no db.Queries); 24h tick + 90d cutoff. Defaults
+			// baked into NewSemanticaGC.
+			semanticaGC := experimental.NewSemanticaGC(experimental.SemanticaGCConfig{})
+			semanticaGC.Start()
+			h.SemanticaGC = semanticaGC
+			slog.Info("semantica_gc started")
 		}
 	}
 

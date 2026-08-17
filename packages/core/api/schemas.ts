@@ -1521,6 +1521,33 @@ export const LabContextSchema = z.object({
   server_time: z.string().default(""),
 }).loose();
 
+// SemanticaDecisionRecordSchema (0.5.30 P1-2 — synthesizer Round 7)
+// is the wire shape for POST /experimental/semantica/api/decisions,
+// consumed by decision_sync.go::buildSemanticaDecision. Mirrors the
+// Go-side `semanticaDecision` struct exactly; the server-side tag
+// list ("multica", "lab:semantica") is stable so Semantica queries
+// can filter the corpus. The Provenance envelope is required
+// (source/issue_id/workspace_id/actor_type/occurred_at are non-null;
+// actor_id may be empty when the system fires the sync).
+export const SemanticaDecisionProvenanceSchema = z.object({
+  source: z.string(),
+  issue_id: z.string(),
+  workspace_id: z.string(),
+  actor_type: z.string(),
+  actor_id: z.string().optional().default(""),
+  occurred_at: z.string(),
+}).loose();
+
+export const SemanticaDecisionRecordSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().default(""),
+  status: z.string(),
+  outcome: z.string(),
+  tags: z.array(z.string()).default([]),
+  provenance: SemanticaDecisionProvenanceSchema,
+}).loose();
+
 export const EMPTY_LAB_CONTEXT: LabContext = {
   issue: {
     id: "",
