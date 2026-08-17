@@ -368,6 +368,7 @@ function DetailHeader({
 }) {
   const { t } = useT("agents");
   const isArchived = !!agent.archived_at;
+  const hasMoreActions = !!onArchive;
   const av = presence
     ? { ...availabilityConfig[presence.availability], label: t(($) => $.availability[presence.availability]) }
     : null;
@@ -393,7 +394,7 @@ function DetailHeader({
         </>
       }
       actions={
-        !isArchived && canArchive ? (
+        !isArchived && canArchive && hasMoreActions ? (
           <DropdownMenu>
             <DropdownMenuTrigger
               render={<Button variant="ghost" size="icon-sm" />}
