@@ -14,8 +14,8 @@ Final round of the Semantica × Multica synthesizer (Round 7, all 4 verdicts shi
 - **0.5.28 P0-1** — cold-start timeout: `ready_timeout_ms` 120000 → 180000 + `READY_TIMEOUT_MS` env override (precedence over manifest, mirrors PATH_PY) + clamp [10s, 600s] + `isBlockedEnvKey` guard (F-005 belt-and-braces). Sub-fix `daemon.go` so a user-custom_env override cannot arm an adversarial timeout.
 - **0.5.29 P0-2** — per-workspace subprocess key + auth-chain rewire: `invoke()` accepts `payload?: { workspaceId?: string | null }`; pythia's legacy channels ignore it; semantica / code_canvas / llm_wiki_bridge consume it.
 - **0.5.29 P1-1** — X-API-Key INSIDE auth chain (out of scope for fork — no external API keys; verify only).
-- **0.5.30 P1-3** — 90d provenance GC: `task_provenance` rows past 90d are GC'd by `swarm_gc` (mirrors `runtime_gc` for `experimental_claude_runtime_session`).
-- **0.5.30 P1-2** — `DecisionRecord` schema migration: structured audit trail for swarm decisions.
+- **0.5.30 P1-3** — SemanticaGC (filesystem-only, mirrors `RuntimeGC` lifecycle): 24h tick + 90d cutoff. Sweeps per-workspace `semantica-graph*.provenance` (post-P0-2), legacy `~/.multica/semantica-graph*.provenance` (pre-P0-2 backup left by the P0-2 cp migration), and pre-P1-1 orphan `*.api-key` files (X-API-Key transport moved to in-memory IPC in P1-1).
+- **0.5.30 P1-2** — `DecisionRecord` schema: `packages/core/api/schemas.ts::SemanticaDecisionRecordSchema` (zod) + `server/internal/service/builtin_skills/multica-semantica-decision-advisor/references/api-source-map.md` "DecisionRecord shape" section. Closes the `decision_sync.go:25-27` dead-reference comment that cited a non-existent `vendor/semantica/semantica/decisions.py`.
 
 ### MUL-6254 — auth recovery UI (full port, upstream PR #7058)
 6 atomic commits (`08c0a2407` + `a390c9df7` + `20fe99050` + `a2d347c7b` + `68f682af1` + `565a049d8`):
