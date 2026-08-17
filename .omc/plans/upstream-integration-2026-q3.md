@@ -2,7 +2,7 @@
 name: upstream-integration-2026-q3
 description: 上游 multica-ai/multica v0.4.26 全谱 cherry-pick sweep final consolidated report (2026-08-17)
 created: 2026-08-17T10:00:00Z
-updated: 2026-08-17T05:00:00Z
+updated: 2026-08-17T06:43:34Z
 ---
 
 # Upstream Integration 2026 Q3 — Final Consolidated Report
@@ -187,3 +187,32 @@ slug/step-workspace tests: 14/14
 0d2dc44e3 MUL-6169 (13 文件 ~17 hunks 视觉打磨,page-header 结构与 MUL-6218 同源冲突)
 
 ## Final HEAD: `5fb079fe8 fix(views): adapt MUL-6040 board-card/hover-card to fork APIs`
+
+## 并行专家代理批次 3 (2026-08-17) — 3 项落地 + Wave 2 全收口
+
+用户指令「委托代理专家并行完成」→ 6 个代理 (2 研 + 4 写)。MUL-5979/6126 各 1 代理,
+MUL-6107 先研后写,Wave 2 1 个 sweep 代理。2 个写代理 (E/F) 中途撞 autocompact thrash
+被恢复(强制小 chunk 读 + copy-not-read 策略),最终全部完成。
+
+| 本地 SHA | Upstream | MUL | 主题 | 代理 |
+|---|---|---|---|---|
+| `d1e774b61` | `8cafe1d08` | MUL-5979 | fix(views) agent detail 空菜单隐藏 kebab — 本地已结构性免疫,port 防御性 `hasMoreActions` guard (2 行) | A (executor) |
+| `65eb8a0d8` | `6db6b235b` | MUL-6126 | fix(handlers) 私有 runtime owner-only — drop admin override, `canSetRuntimeVisibility` owner-only + PATCH-as-PUT no-op 容忍,ownerless 拒绝 (MUL-3292 token 铸造) | E (executor) |
+| `99c64bca2` | `6db6b235b` | MUL-6126 | fix(views) owner-only picker + visibility toggle — 新 `core/runtimes/access.ts` + runtime-detail 只读 tooltip + 8 locale 文件 | E |
+| `fac55a959`+`f21e8ce1f`+`97f25ec93`+`4d44357ce` | `96bf122f2` | MUL-6107 | **runtime GC 保留任务历史** — migration 247 (`agent_task_queue.runtime_id DROP NOT NULL` + NOT VALID CHECK,上游 251 最小 scope 半部) + 248 (agent(runtime_id) index,上游 309) + bounded per-runtime GC (`gcRuntimesWithBudget`/`gcRuntime`,preserve fork tick) + 6 新 query + 4 metric collector + 473 行 regression test | F (executor) |
+| — | `b86b1b6ba` | — | merge MUL-6107 branch (11 files,1038+/57-,零冲突) | 主线程 |
+
+**Wave 2 全收口 (B 代理)**: 6 候选全 N/A/ABORT — d77d676c1 browser tab names (fork `document.title` 驱动,tab-store 管道本地无) / 0d2dc44e3 page titles (collection-page.tsx 缺失,page-header 架构不同) / tab-bar 簇 (merged-tab 子系统本地无) / 2cd836d3d MUL-6218 (mobile-only trigger,fork 无移动端) / a3dfd2439 MUL-6082 (fork PickerWrapper+guard 已防) / 19155e41f prompt compress (无 `--no-start`) / b30a3ae55 MUL-6164 wiring (结构性,12 conflicts,fork 已有 #6963 诊断半部)。
+
+**设计级决策 (C/D 研究)**: 
+- MUL-6107 → **PORTED** (C 研究发现 251 前置缺口 + 0.5.25 RuntimeGC 零冲突)
+- MUL-6126 → **PORTED** (D 研究: 零 migration,与 fork 0.5.23-0.5.24 permission_mode 互补不冲突)
+- MUL-6053/6102 (Hermes session) → **DEFER** (fork 从不碰 HERMES_HOME,修的是不存在的失败模式)
+- MUL-5991 pair (ACP thinking effort) → **PORT-AFTER**,待用户决策 (jcode 是否在用)
+- 0c69f1f95 (Hermes resume-auth) → 条件性,待用户决策 (是否遇过 GH #6777 症状)
+
+**MUL-6107 关键发现**: fork `agent_task_queue.runtime_id` 仍 NOT NULL (004 迁移从未 drop) → 上游 `UnbindTasksFromRuntime` 的 `SET runtime_id = NULL` 会炸。port upstream 251 的 `agent_task_queue` 半部为 fork 247 (**最小 scope** — 不碰 `agent.runtime_id` 可空性/autopilot.pause_reason,缺 MUL-5559 完整 handler port 时弱化 agent 不变量是 scope violation)。`task_usage_daily` dirty-row edge 经 C/F 双验证 SAFE (inner-join miss → 空 recompute → bucket prune,无错误路径)。`DeleteStaleOfflineRuntimes` 零剩余调用方。2 fork 适配: fixture agent 绑独立 home-runtime (fork agent.runtime_id NOT NULL); race 断言接受 ErrNoRows 或 SQLSTATE 23503。
+
+**验证 (ship gate 全绿)**: `pnpm typecheck --force` 6/6 (0 cached,34s) / `go test -count=1 -timeout 600s ./internal/... ./pkg/agent/...` 全 package ok 0 fail (本批连 pre-existing flaky 都没触发) / `go build ./...` exit 0 / 247+248 migrations live 应用。
+
+## Final HEAD: `b86b1b6ba merge: MUL-6107 runtime GC preserve task history (upstream #6894)` — 29 个上游 commits 累计 (22+7 content)
