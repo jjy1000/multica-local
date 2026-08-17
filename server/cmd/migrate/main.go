@@ -67,6 +67,9 @@ var concurrentIndexCleanups = map[string]string{
 	"222_agent_task_queue_agent_terminal_latest_index": "idx_agent_task_queue_agent_terminal_latest",
 	"225_chat_session_project_index":                   "idx_chat_session_project",
 	"248_agent_runtime_id_index":                       "idx_agent_runtime_id",
+	"251_issue_status_pkey_index":                      "issue_status_pkey_uidx",
+	"253_issue_status_workspace_key_index":             "idx_issue_status_workspace_key",
+	"254_issue_status_workspace_name_index":            "idx_issue_status_workspace_name_active",
 }
 
 // preMigrationHooks wires migration version → hook. The version key is
