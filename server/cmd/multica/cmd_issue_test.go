@@ -2304,38 +2304,44 @@ func TestRunIssueCommentList_DoesNotPrintShowingPreamble(t *testing.T) {
 	}
 }
 
-func TestValidIssueStatuses(t *testing.T) {
-	expected := map[string]bool{
-		"backlog":     true,
-		"todo":        true,
-		"in_progress": true,
-		"in_review":   true,
-		"done":        true,
-		"blocked":     true,
-		"cancelled":   true,
-	}
-	for _, s := range validIssueStatuses {
-		if !expected[s] {
-			t.Errorf("unexpected status in validIssueStatuses: %q", s)
-		}
-	}
-	if len(validIssueStatuses) != len(expected) {
-		t.Errorf("validIssueStatuses has %d entries, expected %d", len(validIssueStatuses), len(expected))
-	}
-}
-
 func TestValidateIssueStatus(t *testing.T) {
-	for _, s := range validIssueStatuses {
+	// MUL-6243: validateIssueStatus is now format-only — the 7 built-ins are
+	// resolved server-side via the catalog, so the CLI accepts any well-formed
+	// key (a custom workspace status like "in_qa" passes locally and is then
+	// validated by the server's Resolve()).
+	valid := []string{
+		"backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled",
+		"in_qa", "ready_to_merge", "a", "x1", "01234567890123456789012345678901", // 32-char max
+	}
+	for _, s := range valid {
 		if err := validateIssueStatus(s); err != nil {
-			t.Errorf("status %q should be valid, got: %v", s, err)
+			t.Errorf("status %q should pass format validation, got: %v", s, err)
 		}
 	}
-	err := validateIssueStatus("active")
-	if err == nil {
-		t.Fatal("status \"active\" should be rejected")
+
+	// Malformed keys: must match issueStatusKeyPattern (lowercase alnum + underscore,
+	// start with [a-z0-9], max 32 chars). These must be rejected locally so the
+	// server never sees them.
+	invalid := []struct {
+		name string
+		key  string
+	}{
+		{"empty", ""},
+		{"contains space", "not a status"},
+		{"uppercase", "BadCase"},
+		{"starts with underscore", "_in_progress"},
+		{"starts with hyphen", "-todo"},
+		{"contains hyphen", "in-progress"},
+		{"contains punctuation", "in_progress!"},
+		{"too long (33 chars)", "012345678901234567890123456789012"},
+		{"contains unicode", "in_progress✓"},
 	}
-	if !strings.Contains(err.Error(), "backlog") {
-		t.Errorf("error should list valid statuses, got: %v", err)
+	for _, tc := range invalid {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateIssueStatus(tc.key); err == nil {
+				t.Errorf("status %q should fail format validation", tc.key)
+			}
+		})
 	}
 }
 
@@ -2370,13 +2376,17 @@ func TestValidateIssuePriority(t *testing.T) {
 func TestRunIssueCreateRejectsInvalidStatusBeforeRequest(t *testing.T) {
 	cmd := newIssueCreateTestCmd()
 	_ = cmd.Flags().Set("title", "Invalid status")
-	_ = cmd.Flags().Set("status", "active")
+	// MUL-6243: validateIssueStatus is now format-only. "active" was the
+	// pre-port rejection case (well-formed but not a built-in); under the
+	// new contract any well-formed key passes locally and the server's
+	// Resolve() decides. Use a malformed key to exercise the local guard.
+	_ = cmd.Flags().Set("status", "not a status")
 	err := runIssueCreate(cmd, nil)
 	if err == nil {
 		t.Fatal("runIssueCreate should reject invalid status")
 	}
-	if !strings.Contains(err.Error(), "valid values") {
-		t.Fatalf("expected valid values error, got: %v", err)
+	if !strings.Contains(err.Error(), "invalid status") {
+		t.Fatalf("expected invalid status error, got: %v", err)
 	}
 }
 
@@ -2397,13 +2407,14 @@ func TestRunIssueUpdateRejectsInvalidStatusBeforeRequest(t *testing.T) {
 	cmd := &cobra.Command{Use: "update"}
 	cmd.Flags().String("status", "", "")
 	cmd.Flags().String("priority", "", "")
-	_ = cmd.Flags().Set("status", "active")
+	// MUL-6243: see comment in TestRunIssueCreateRejectsInvalidStatusBeforeRequest.
+	_ = cmd.Flags().Set("status", "not a status")
 	err := runIssueUpdate(cmd, []string{"MUL-1"})
 	if err == nil {
 		t.Fatal("runIssueUpdate should reject invalid status")
 	}
-	if !strings.Contains(err.Error(), "valid values") {
-		t.Fatalf("expected valid values error, got: %v", err)
+	if !strings.Contains(err.Error(), "invalid status") {
+		t.Fatalf("expected invalid status error, got: %v", err)
 	}
 }
 

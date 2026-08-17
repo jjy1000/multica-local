@@ -87,13 +87,19 @@ func TestExtractTaskOutput(t *testing.T) {
 // flow depends on (a non-backlog status so the run dispatches). The core
 // validator itself is shared with the issue commands and covered there too.
 func TestLabDelegateValidateIssueStatus(t *testing.T) {
-	for _, ok := range []string{"backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled"} {
+	// MUL-6243: validateIssueStatus is now format-only. The 7 built-ins all
+	// pass (they're well-formed keys), and any custom well-formed key
+	// ("ready_to_merge", "in_qa") passes locally too — the server's Resolve()
+	// is the source of truth for "is this a known status in this workspace".
+	for _, ok := range []string{"backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled", "ready_to_merge", "in_qa"} {
 		if err := validateIssueStatus(ok); err != nil {
 			t.Errorf("validateIssueStatus(%q) = %v, want nil", ok, err)
 		}
 	}
-	if err := validateIssueStatus("nonsense"); err == nil {
-		t.Error("validateIssueStatus(nonsense) = nil, want error")
+	// A malformed key (contains a space) is the kind of input the local guard
+	// still rejects — the server never sees it.
+	if err := validateIssueStatus("not a status"); err == nil {
+		t.Error("validateIssueStatus(\"not a status\") = nil, want error")
 	}
 }
 

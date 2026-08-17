@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -265,16 +266,25 @@ var issueSearchCmd = &cobra.Command{
 	RunE:  runIssueSearch,
 }
 
-var validIssueStatuses = []string{
-	"backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled",
-}
+// issueStatusKeyPattern matches the SQL CHECK constraint on issue_status.key
+// (migration 338 / upstream `validate_format`). Custom statuses can use any
+// well-formed key — the 7 built-ins are resolved server-side via the catalog,
+// so the CLI only rejects malformed strings locally. Lowercase alnum + underscore,
+// must start with a letter or digit, max 32 chars (the server CHECK mirrors this).
+var issueStatusKeyPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_]{0,31}$`)
 
 var validIssuePriorities = []string{
 	"urgent", "high", "medium", "low", "none",
 }
 
 func validateIssueStatus(status string) error {
-	return validateIssueEnum("status", status, validIssueStatuses)
+	if status == "" {
+		return fmt.Errorf("invalid status %q; must be non-empty and match %s", status, issueStatusKeyPattern.String())
+	}
+	if !issueStatusKeyPattern.MatchString(status) {
+		return fmt.Errorf("invalid status %q; must match %s (lowercase letters, digits, underscores; 1-32 chars; no spaces or punctuation)", status, issueStatusKeyPattern.String())
+	}
+	return nil
 }
 
 func validateIssuePriority(priority string) error {
