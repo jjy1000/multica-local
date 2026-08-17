@@ -36,6 +36,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/featureflag"
 )
 
 // randomID returns a random 16-byte hex string used as a request ID for
@@ -122,10 +123,15 @@ type Handler struct {
 	LocalSkillListStore   LocalSkillListStore
 	LocalSkillImportStore LocalSkillImportStore
 	DaemonFeatureFlags    *featureflagdispatch.Evaluator
-	LivenessStore         LivenessStore
-	HeartbeatScheduler    HeartbeatScheduler
-	Storage               storage.Storage
-	Analytics             analytics.Client
+	// FeatureFlags is the framework-level toggle router for product flags
+	// (MUL-6243 custom issue statuses). Wired from RouterOptions.FeatureFlags
+	// in cmd/server/router.go. Nil is valid — pkg/featureflag.Service is
+	// nil-tolerant and reads every flag as its default (off).
+	FeatureFlags       *featureflag.Service
+	LivenessStore      LivenessStore
+	HeartbeatScheduler HeartbeatScheduler
+	Storage            storage.Storage
+	Analytics          analytics.Client
 	// ExperimentRegistry is the runtime wiring table for every
 	// experiment flag (0.3.19 P2). Boot wires the install/rollback
 	// handlers via RegisterInstallHandler / RegisterUnregisterHandler
@@ -147,7 +153,7 @@ type Handler struct {
 	// concurrent upstreamRegister / unregister calls from the
 	// desktop main process during a manager restart.
 	ExperimentalFlagAPIKeysMu sync.RWMutex
-	ExperimentalFlagAPIKeys    map[string]string
+	ExperimentalFlagAPIKeys   map[string]string
 	// MythosService (0.3.31) owns the enhancer-mode supervise
 	// goroutines. Boot wires it from cmd/server/router.go after
 	// h.Queries is available. Nil is acceptable (older builds or

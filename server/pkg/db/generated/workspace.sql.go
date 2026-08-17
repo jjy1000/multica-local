@@ -54,10 +54,15 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 const deleteWorkspace = `-- name: DeleteWorkspace :exec
 WITH deleted_pending_check_suites AS (
     DELETE FROM github_pending_check_suite WHERE workspace_id = $1
+), deleted_issue_statuses AS (
+    DELETE FROM issue_status WHERE workspace_id = $1
 )
-DELETE FROM workspace WHERE id = $1
+DELETE FROM workspace WHERE workspace.id = $1
 `
 
+// MUL-6243 fork adaptation: the issue_status catalog has no FK to workspace
+// (upstream relies on a manifest-based teardown this fork does not have), so
+// workspace teardown cleans it up here alongside the other explicit CTEs.
 func (q *Queries) DeleteWorkspace(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteWorkspace, id)
 	return err

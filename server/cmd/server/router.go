@@ -178,6 +178,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	h.Metrics = opts.BusinessMetrics
 	if opts.FeatureFlags != nil {
 		h.DaemonFeatureFlags = featureflagdispatch.NewEvaluator(opts.FeatureFlags)
+		h.FeatureFlags = opts.FeatureFlags
 	}
 	h.TaskService.Metrics = opts.BusinessMetrics
 	// Trust gate (0.5.2): wire the agent_self_optimization trust service so

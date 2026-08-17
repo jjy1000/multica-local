@@ -46,10 +46,15 @@ WHERE id = $1
 RETURNING issue_counter;
 
 -- name: DeleteWorkspace :exec
+-- MUL-6243 fork adaptation: the issue_status catalog has no FK to workspace
+-- (upstream relies on a manifest-based teardown this fork does not have), so
+-- workspace teardown cleans it up here alongside the other explicit CTEs.
 WITH deleted_pending_check_suites AS (
     DELETE FROM github_pending_check_suite WHERE workspace_id = $1
+), deleted_issue_statuses AS (
+    DELETE FROM issue_status WHERE workspace_id = $1
 )
-DELETE FROM workspace WHERE id = $1;
+DELETE FROM workspace WHERE workspace.id = $1;
 
 -- name: ListAllWorkspaceIDs :many
 -- 0.3.31: daemon bootstrap recovery helper for the Mythos supervise
