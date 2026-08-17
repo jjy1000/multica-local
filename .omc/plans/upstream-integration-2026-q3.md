@@ -216,3 +216,8 @@ MUL-6107 先研后写,Wave 2 1 个 sweep 代理。2 个写代理 (E/F) 中途撞
 **验证 (ship gate 全绿)**: `pnpm typecheck --force` 6/6 (0 cached,34s) / `go test -count=1 -timeout 600s ./internal/... ./pkg/agent/...` 全 package ok 0 fail (本批连 pre-existing flaky 都没触发) / `go build ./...` exit 0 / 247+248 migrations live 应用。
 
 ## Final HEAD: `b86b1b6ba merge: MUL-6107 runtime GC preserve task history (upstream #6894)` — 29 个上游 commits 累计 (22+7 content)
+
+## 用户决策 (2026-08-17, AskUserQuestion)
+- **Ship 0.5.26 → 授权** (29 commits, ship gate 全绿)
+- **MUL-5991 pair (ACP thinking effort) → SKIPPED** (用户不用 jcode,effort 拨盘是 no-op;fork thinking.go 结构分化是主要成本)
+- **0c69f1f95 (Hermes resume-auth) → DEFERRED** (用户没遇过 GH #6777 症状;将来遇到再 port inline-gate 适配)
