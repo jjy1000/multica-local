@@ -325,6 +325,23 @@ func writeWorkflowAutopilot(b *strings.Builder, ctx TaskContextForEnv) {
 }
 
 // writeWorkflowComment emits the comment-triggered workflow.
+//
+// Reply mode owns the same status arc as Ownership mode, but only for turns
+// that carry substantive work on this agent's own issue (MUL-6300). Two
+// invariants from the original "do NOT change status unless asked" rule
+// (PR #205, reinforced by Elon's blocking review on PR #2918) survive and are
+// pinned by guard tests:
+//
+//   - a purely conversational turn never writes status;
+//   - a turn on an issue not assigned to this agent never writes status
+//     (someone else's issue, or an unassigned one reached via @mention).
+//
+// Conversational turns include question / discussion / acknowledgement; the
+// "not assigned to you" wording is deliberate, so an @mention that lands on
+// an UNASSIGNED issue (triage) stays no-write, not just issues owned by
+// someone else. Whether this agent is the assignee is answerable on every
+// turn: step 1 already reads `assignee_id`, and `## Agent Identity` carries
+// this agent's own id.
 func writeWorkflowComment(b *strings.Builder, provider string, ctx TaskContextForEnv) {
 	b.WriteString("**This task was triggered by a NEW comment.** Your primary job is to respond to THIS specific comment, even if you have handled similar requests before in this session.\n\n")
 	fmt.Fprintf(b, "1. Run `multica issue get %s --output json` to understand the issue context — its JSON already carries the issue's `metadata` bag (empty `{}` is normal), so no separate metadata read is needed. See the `## Issue Metadata` section above for what to look for.\n", ctx.IssueID)
@@ -348,7 +365,11 @@ func writeWorkflowComment(b *strings.Builder, provider string, ctx TaskContextFo
 	b.WriteString("6. **If you reply, post it as a comment — this step is mandatory when you reply.** Text in your terminal or run logs is NOT delivered to the user. ")
 	b.WriteString(buildCommentReplyInstructionsSlim(provider, ctx.IssueID, ctx.TriggerCommentID))
 	b.WriteString("7. Before exiting: only if this run produced a fact that clears the high bar (important AND likely to be re-read by future runs on this same issue, e.g. a new PR URL or deploy URL), or you noticed a metadata key from entry that is now stale, pin or clear it via `multica issue metadata set`/`delete`. Most runs write nothing here — that is the expected outcome, not a gap. When in doubt, do not write. See the `## Issue Metadata` section above for the full bar.\n")
-	b.WriteString("8. Do NOT change the issue status unless the comment explicitly asks for it\n\n")
+	// MUL-6300: when this issue is assigned to this agent and this turn does
+	// substantive work on it, own the status arc as Ownership mode does. The
+	// two invariants below — no work, no status write; not yours, no status
+	// write — are pinned by runtime_config_test.go and reply_instructions_test.go.
+	b.WriteString("- Issue status: when this issue is assigned to you and this turn does substantive work on it, own the status arc as Ownership mode does — set `in_progress` when you start, and at turn end set the status the work has reached (delivered and awaiting acceptance = `in_review`; `done` stays human). Purely conversational turns (question, discussion, acknowledgement) never touch status; neither does any turn on an issue not assigned to you.\n\n")
 }
 
 // writeWorkflowAssignment emits the assignment-triggered workflow.
