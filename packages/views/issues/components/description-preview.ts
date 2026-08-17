@@ -1,17 +1,14 @@
-import { stripChannelMediaMarkers } from "@multica/core/types";
-
 /**
  * Flatten description Markdown into a one-line plain-text preview. Shared by
  * every surface that shows a description snippet next to an issue.
  *
- * Channel-media provenance is server-owned merge metadata, not authored
- * content, so it is stripped first: the image Markdown it annotates is removed
- * a line below, and without this the bare HTML comment survives every
- * remaining pass and becomes visible preview text.
+ * Fork note: upstream strips channel-media provenance markers first, but this
+ * single-user fork has no channel surfaces, so stripChannelMediaMarkers is
+ * not ported — the image/anchor Markdown is removed a line below regardless.
  */
 export function descriptionPreview(markdown: string): string {
   return (
-    stripChannelMediaMarkers(markdown)
+    markdown
       // Backslash-escaped punctuation is unescaped first, and the order is
       // load-bearing. The editor serializes a link as `\[label\](url)`, so the
       // link rule below sees `\[label\]` and its `[^\]]+` capture swallows the
