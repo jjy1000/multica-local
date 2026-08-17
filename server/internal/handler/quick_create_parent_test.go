@@ -37,6 +37,13 @@ func TestQuickCreateIssueParentTrustBoundary(t *testing.T) {
 	// runtime metadata to a CLI version that clears MinQuickCreateCLIVersion.
 	// The seed runtime uses metadata '{}'::jsonb which would otherwise trip
 	// the daemon-version gate before we ever reach the parent_issue_id check.
+	//
+	// Test isolation: parallel tests (agent_test.go:1051) flip the shared
+	// testRuntimeID to 'offline' and restore it via their own t.Cleanup.
+	// When their cleanup runs AFTER this test reads the runtime, the
+	// handler's isRuntimeOnline gate returns false → 422 agent_unavailable
+	// before we ever reach the parent_issue_id assertions. Pin the status
+	// to 'online' for the duration of this test so the gate is predictable.
 	var runtimeID, agentID string
 	if err := testPool.QueryRow(ctx,
 		`SELECT id FROM agent_runtime WHERE workspace_id = $1 LIMIT 1`,
@@ -51,12 +58,16 @@ func TestQuickCreateIssueParentTrustBoundary(t *testing.T) {
 		t.Fatalf("fetch agent: %v", err)
 	}
 	if _, err := testPool.Exec(ctx,
-		`UPDATE agent_runtime SET metadata = jsonb_build_object('cli_version', $1::text) WHERE id = $2`,
+		`UPDATE agent_runtime SET status = 'online', metadata = jsonb_build_object('cli_version', $1::text) WHERE id = $2`,
 		agent.MinQuickCreateCLIVersion, runtimeID,
 	); err != nil {
-		t.Fatalf("bump runtime cli_version: %v", err)
+		t.Fatalf("bump runtime status + cli_version: %v", err)
 	}
 	t.Cleanup(func() {
+		// Restore the harness default (online) so a subsequent
+		// test in the same package sees the same baseline. A
+		// parallel test that flips status to 'offline' owns its
+		// own restore via its own t.Cleanup; we do not undo that.
 		testPool.Exec(context.Background(),
 			`UPDATE agent_runtime SET metadata = '{}'::jsonb WHERE id = $1`, runtimeID)
 	})
