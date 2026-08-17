@@ -552,6 +552,15 @@ func main() {
 	if h.SemanticaGC != nil {
 		h.SemanticaGC.Stop()
 	}
+	// 0.5.31: stop the auth_token_gc goroutine before process exit.
+	// Same rationale as swarm_gc / runtime_gc / semantica_gc — the
+	// ticker loop should exit cleanly on Stop rather than be
+	// SIGKILL'd mid-sweep. No partial-write concern for DELETE
+	// statements, but keeping the contract uniform across all 4
+	// background GCs.
+	if h.AuthTokenGC != nil {
+		h.AuthTokenGC.Stop()
+	}
 
 	// Join the channel supervisor's per-installation goroutines so the
 	// lease renewer can issue a final release before process exit;

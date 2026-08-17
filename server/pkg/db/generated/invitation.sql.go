@@ -99,6 +99,21 @@ func (q *Queries) DeclineInvitation(ctx context.Context, id pgtype.UUID) (Worksp
 	return i, err
 }
 
+const deleteExpiredWorkspaceInvitations = `-- name: DeleteExpiredWorkspaceInvitations :exec
+DELETE FROM workspace_invitation
+WHERE expires_at <= now()
+`
+
+// Hard-delete any workspace_invitation row whose expires_at is in the past,
+// regardless of status. AuthTokenGC (0.5.31 — see server/internal/experimental/
+// auth_token_gc.go) calls this on every tick; matches the convention used by
+// DeleteExpiredTaskTokens + DeleteExpiredDaemonTokens (those two queries were
+// already present pre-0.5.31 — only the workspace_invitation sweep was missing).
+func (q *Queries) DeleteExpiredWorkspaceInvitations(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteExpiredWorkspaceInvitations)
+	return err
+}
+
 const expireStalePendingInvitations = `-- name: ExpireStalePendingInvitations :exec
 UPDATE workspace_invitation
 SET status = 'expired', updated_at = now()

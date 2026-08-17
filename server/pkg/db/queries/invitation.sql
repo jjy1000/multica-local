@@ -60,3 +60,12 @@ WHERE workspace_id = $1
   AND invitee_email = $2
   AND status = 'pending'
   AND expires_at <= now();
+
+-- name: DeleteExpiredWorkspaceInvitations :exec
+-- Hard-delete any workspace_invitation row whose expires_at is in the past,
+-- regardless of status. AuthTokenGC (0.5.31 — see server/internal/experimental/
+-- auth_token_gc.go) calls this on every tick; matches the convention used by
+-- DeleteExpiredTaskTokens + DeleteExpiredDaemonTokens (those two queries were
+-- already present pre-0.5.31 — only the workspace_invitation sweep was missing).
+DELETE FROM workspace_invitation
+WHERE expires_at <= now();

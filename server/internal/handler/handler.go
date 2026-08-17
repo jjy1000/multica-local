@@ -184,6 +184,17 @@ type Handler struct {
 	// from cmd/server/main.go shutdown. Nil is acceptable — test-
 	// only builds skip it.
 	SemanticaGC *experimental.SemanticaGC
+	// AuthTokenGC (0.5.31) sweeps the three auth-token tables that
+	// have an `expires_at` column but no working retention GC:
+	// task_token (migration 108), workspace_invitation (041), and
+	// daemon_token (029). Same dormant-ladder bug class as
+	// RuntimeGC pre-0.5.25 — the migrations documented the ladder
+	// but no GC ever swept the rows. Default interval 6h, per-table
+	// 15s sub-context timeout. Wired alongside RuntimeGC +
+	// SemanticaGC + SwarmGC in cmd/server/router.go; Stop from
+	// cmd/server/main.go shutdown. Nil is acceptable — test-only
+	// builds skip it.
+	AuthTokenGC *experimental.AuthTokenGC
 	// RuntimeOnlineOverride (test-only, 0.5.25) — when non-nil, the
 	// isRuntimeOnline gate returns the dereferenced value instead of
 	// reading agent_runtime.status. Used by tests that need the gate

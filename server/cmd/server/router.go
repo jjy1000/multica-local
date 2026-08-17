@@ -803,6 +803,23 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			semanticaGC.Start()
 			h.SemanticaGC = semanticaGC
 			slog.Info("semantica_gc started")
+
+			// 0.5.31: AuthTokenGC sweeps the three auth-token
+			// tables that have an `expires_at` column but no
+			// working retention GC (task_token + workspace_invitation
+			// + daemon_token). Same dormant-ladder bug class as
+			// RuntimeGC pre-0.5.25 — the migrations documented the
+			// ladder but no GC ever swept the rows. Mirrors the
+			// RuntimeGC + SwarmGC pattern: store on the Handler so
+			// main.go's shutdown sequence can call Stop() before
+			// SIGKILL. Interval defaults to 6h inside
+			// NewAuthTokenGC; per-table sub-context timeout 15s.
+			authTokenGC := experimental.NewAuthTokenGC(experimental.AuthTokenGCConfig{
+				Queries: h.Queries,
+			})
+			authTokenGC.Start()
+			h.AuthTokenGC = authTokenGC
+			slog.Info("auth_token_gc started")
 		}
 	}
 
