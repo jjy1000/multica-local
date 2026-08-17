@@ -119,7 +119,7 @@ line 2537).
 | Stage barrier: notify+wake fire only when the lowest unfinished stage is all-terminal; unstaged set = one implicit stage | `server/internal/handler/issue_child_done.go:231` (`stageBarrierClosed`) |
 | Per-stage summary + next stage for the wake comment | `server/internal/handler/issue_child_done.go:254` (`stageProgressSummary`) |
 | `--stage` on `issue create` / `issue update` | `server/cmd/multica/cmd_issue.go:328,350` |
-| `multica issue children <id>` (sub-issues grouped by stage) | `server/cmd/multica/cmd_issue.go:114,678`; route `GET /api/issues/{id}/children` → `ListChildIssues` |
+| `multica issue children <id>` (sub-issues grouped by stage) | `server/cmd/multica/cmd_issue.go:114,678`; per-stage `done` counter at `server/cmd/multica/cmd_issue.go:802` still reads literal `status` (fork CLI area was scoped to `validateIssueStatus` — `status_category`-aware counting is deferred; the Go stage barrier at `server/internal/handler/issue_child_done.go:251` IS category-aware via `isTerminalChildStatus(issuestatus.Effective(...))`, MUL-6243); route `GET /api/issues/{id}/children` → `ListChildIssues` (response carries `status_category` via `server/internal/handler/issue.go:46`) |
 
 Advancement is agent-driven: the server only detects the closed barrier and
 wakes the parent assignee. Promoting the next stage's `backlog` sub-issues to
