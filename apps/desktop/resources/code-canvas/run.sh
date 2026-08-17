@@ -15,6 +15,11 @@
 # 0.3.51 lesson preserved: python3 runs in the FOREGROUND (no exec) so the
 # heredoc stays attached to stdin and the server keeps serving. The quoted
 # delimiter ('PY') blocks shell expansion inside the script.
+# MUST assign PORT (not `${PORT:-…}`-defaulted): BaseExperimentalManager.start
+# always passes the picked port as $1, so the manager's spawn-env's inherited
+# PORT=8080 leak (from the user's dev shell) is clobbered here. If this ever
+# becomes `${PORT:-"$1"}` or similar, the parent GUI's PORT leaks through
+# and code-canvas binds to the wrong port.
 if [ -n "$1" ]; then PORT="$1"; else PORT=8091; fi
 export PORT
 python3 - <<'PY'
