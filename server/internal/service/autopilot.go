@@ -16,6 +16,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/issueposition"
+	"github.com/multica-ai/multica/server/internal/issuestatus"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -181,11 +182,11 @@ func (s *AutopilotService) DispatchAutopilotForPlan(
 //   - It is in-flight in a state whose downstream side effect is
 //     observable:
 //
-//     * issue_created with a valid issue_id — the issue exists and
-//       the issue-event listener owns task creation from here.
+//   - issue_created with a valid issue_id — the issue exists and
+//     the issue-event listener owns task creation from here.
 //
-//     * running with a valid task_id — the task is queued, the
-//       listener will close the run when the task terminates.
+//   - running with a valid task_id — the task is queued, the
+//     listener will close the run when the task terminates.
 //
 // Anything else — most importantly issue_created/running with NULL
 // issue_id/task_id, or the brief 'pending' state — is a partial run:
@@ -629,7 +630,15 @@ func (s *AutopilotService) SyncRunFromIssue(ctx context.Context, issue db.Issue)
 
 	wsID := util.UUIDToString(issue.WorkspaceID)
 
-	switch issue.Status {
+	// A custom status finalizes the run exactly like the canonical status it
+	// inherits. Built-in keys resolve to themselves without a query, so this
+	// is a no-op for every workspace that has not defined a custom status.
+	// The failure reason below deliberately keeps issue.Status, not the
+	// normalized key, so the audit trail names the status a human actually
+	// chose. (MUL-6243)
+	effectiveStatus := issuestatus.Effective(ctx, s.Queries, issue.WorkspaceID, issue.Status)
+
+	switch effectiveStatus {
 	case "done", "in_review":
 		updatedRun, err := s.Queries.UpdateAutopilotRunCompleted(ctx, db.UpdateAutopilotRunCompletedParams{
 			ID: run.ID,

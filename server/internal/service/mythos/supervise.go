@@ -42,6 +42,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/multica-ai/multica/server/internal/issuestatus"
+
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -77,16 +79,16 @@ const (
 // shape grows (new tick stats), old rows still parse because the
 // decoder ignores unknown keys.
 type SupervisionState struct {
-	Phase               SupervisionPhase `json:"phase"`
-	StartedAt           time.Time         `json:"started_at"`
-	LastCheckAt         time.Time         `json:"last_check_at"`
-	LastTickDurationMs  int64             `json:"last_tick_duration_ms"`
-	TotalTicks          int               `json:"total_ticks"`
-	SubTasksTotal       int               `json:"sub_tasks_total"`
-	SubTasksDone        int               `json:"sub_tasks_done"`
-	LatestReflection    string            `json:"latest_reflection,omitempty"`
+	Phase                SupervisionPhase `json:"phase"`
+	StartedAt            time.Time        `json:"started_at"`
+	LastCheckAt          time.Time        `json:"last_check_at"`
+	LastTickDurationMs   int64            `json:"last_tick_duration_ms"`
+	TotalTicks           int              `json:"total_ticks"`
+	SubTasksTotal        int              `json:"sub_tasks_total"`
+	SubTasksDone         int              `json:"sub_tasks_done"`
+	LatestReflection     string           `json:"latest_reflection,omitempty"`
 	LatestReflectionIter int              `json:"latest_reflection_iter,omitempty"`
-	AbortReason         string            `json:"abort_reason,omitempty"`
+	AbortReason          string           `json:"abort_reason,omitempty"`
 }
 
 // isTerminalPhase reports whether the supervise goroutine should
@@ -198,11 +200,11 @@ func runSuperviseLoop(ctx context.Context, svc *Service, runID pgtype.UUID, cfg 
 // tickSupervision runs one supervision pass. The shape is intentionally
 // narrow so the test suite can stub each component independently:
 //
-//	1. Read the target assignee's issue row + comments.
-//	2. Count completed sub-tasks (rough heuristic: sub-issues with
-//	   status IN ('done','closed','cancelled')).
-//	3. If all done → flip phase to done.
-//	4. Otherwise write a short reflection row and stay in supervising.
+//  1. Read the target assignee's issue row + comments.
+//  2. Count completed sub-tasks (rough heuristic: sub-issues with
+//     status IN ('done','closed','cancelled')).
+//  3. If all done → flip phase to done.
+//  4. Otherwise write a short reflection row and stay in supervising.
 //
 // The reflection text is derived from the latest coda sub-task
 // list vs. the current done count — no LLM call. This is by design:
@@ -267,7 +269,12 @@ func (s *Service) tickSupervision(
 	// max-lifetime cap).
 	if run.FinalIssueID.Valid && run.FinalIssueID != rootIssueID {
 		issue, err := q.GetIssue(ctx, run.FinalIssueID)
-		if err == nil && isTerminalIssueStatus(issue.Status) {
+		// Fork deviation (MUL-6243): resolve to the canonical category — a
+		// custom status in the done/cancelled category terminates supervision
+		// exactly like Done/Cancelled. Uses s.queries (not the tick
+		// querier interface, which lacks the catalog queries); Effective is
+		// query-free for built-in statuses, so the common path is unchanged.
+		if err == nil && isTerminalIssueStatus(issuestatus.Effective(ctx, s.queries, issue.WorkspaceID, issue.Status)) {
 			state.SubTasksDone = state.SubTasksTotal
 			state.Phase = PhaseDone
 		}

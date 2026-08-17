@@ -20,6 +20,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/issuestatus"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/service"
@@ -2584,14 +2585,21 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 	// (not 'done' — 'done' is an issue.status value).
 	if task.IssueID.Valid && task.Status == "completed" {
 		issueRow, ierr := h.Queries.GetIssue(r.Context(), task.IssueID)
-		if ierr == nil && (issueRow.Status == "in_review" || issueRow.Status == "todo") {
-			if _, uerr := h.Queries.UpdateIssueStatus(r.Context(), db.UpdateIssueStatusParams{
-				ID:          task.IssueID,
-				Status:      "done",
-				WorkspaceID: issueRow.WorkspaceID,
-			}); uerr != nil {
-				slog.Warn("complete task: issue status to done failed",
-					"task_id", taskID, "issue", task.IssueID, "err", uerr)
+		// Fork deviation (MUL-6243): resolve to the canonical category so a
+		// custom status in the todo/in_review category still flips to done
+		// when the agent completes — the daemon-side mirror of the
+		// service-layer Effective normalization.
+		if ierr == nil {
+			effective := issuestatus.Effective(r.Context(), h.Queries, issueRow.WorkspaceID, issueRow.Status)
+			if effective == "in_review" || effective == "todo" {
+				if _, uerr := h.Queries.UpdateIssueStatus(r.Context(), db.UpdateIssueStatusParams{
+					ID:          task.IssueID,
+					Status:      "done",
+					WorkspaceID: issueRow.WorkspaceID,
+				}); uerr != nil {
+					slog.Warn("complete task: issue status to done failed",
+						"task_id", taskID, "issue", task.IssueID, "err", uerr)
+				}
 			}
 		}
 	}
@@ -3365,7 +3373,10 @@ func (h *Handler) GetIssueGCCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":     issue.Status,
+		// Normalize server-side so the daemon's terminal-status test stays
+		// correct against a custom status in the done/cancelled category.
+		// (MUL-6243)
+		"status":     issuestatus.Effective(r.Context(), h.Queries, issue.WorkspaceID, issue.Status),
 		"updated_at": issue.UpdatedAt.Time,
 	})
 }

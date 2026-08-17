@@ -12,6 +12,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/issueguard"
 	"github.com/multica-ai/multica/server/internal/issueposition"
+	"github.com/multica-ai/multica/server/internal/issuestatus"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -131,6 +132,12 @@ var ErrParentIssueNotFound = errors.New("parent issue not found in this workspac
 // having to remember it. Callers translate this into 400.
 var ErrProjectNotFound = errors.New("project not found in this workspace")
 
+// ErrIssueStatusUnavailable signals that the requested custom status was
+// archived between the caller's pre-flight validation and the create
+// transaction. Callers translate this into a 409 — the request was valid when
+// it arrived, so retrying against the refreshed catalog is the remedy.
+var ErrIssueStatusUnavailable = errors.New("issue status is no longer available")
+
 // ErrAttributionFailClosed is the typed sentinel returned by the comment-
 // merge attribution path when it cannot resolve a human originator for the
 // new trigger comment and the workspace forbids the owner_fallback degrade
@@ -179,6 +186,25 @@ func (s *IssueService) Create(ctx context.Context, p IssueCreateParams, opts Iss
 	}
 	defer tx.Rollback(ctx)
 	qtx := s.Queries.WithTx(tx)
+
+	// A create landing on a CUSTOM status takes the shared catalog lock AND
+	// re-resolves the status inside this transaction. The caller validated the
+	// status before the transaction opened, which is early enough to return a
+	// clean 400 but too early to be safe: an archive can commit in between.
+	// Re-checking under the lock is what makes the status provably active at
+	// the moment the row is written. Built-in statuses skip both — they can
+	// never be archived, so the common path is unchanged. (MUL-6243)
+	if !issuestatus.IsBuiltIn(p.Status) {
+		if err := qtx.LockIssueStatusCatalogShared(ctx, p.WorkspaceID); err != nil {
+			return IssueCreateResult{}, err
+		}
+		if _, err := issuestatus.Resolve(ctx, qtx, p.WorkspaceID, p.Status); err != nil {
+			if errors.Is(err, issuestatus.ErrUnknownStatus) {
+				return IssueCreateResult{}, ErrIssueStatusUnavailable
+			}
+			return IssueCreateResult{}, err
+		}
+	}
 
 	// Resolve and validate parent / project before reading from the
 	// duplicate guard so a forged parent or project ID is rejected
@@ -577,7 +603,7 @@ func (s *IssueService) maybeEnqueueOnAssign(ctx context.Context, issue db.Issue,
 // Mirrors handler.shouldEnqueueAgentTask; kept here to make the service
 // self-contained, since both code paths must move together.
 func (s *IssueService) shouldEnqueueAgentTask(ctx context.Context, issue db.Issue) bool {
-	if issue.Status == "backlog" {
+	if issuestatus.Effective(ctx, s.Queries, issue.WorkspaceID, issue.Status) == "backlog" {
 		return false
 	}
 	return s.isAgentAssigneeReady(ctx, issue)
@@ -595,7 +621,7 @@ func (s *IssueService) isAgentAssigneeReady(ctx context.Context, issue db.Issue)
 }
 
 func (s *IssueService) shouldEnqueueSquadLeaderOnAssign(ctx context.Context, issue db.Issue) bool {
-	if issue.Status == "backlog" {
+	if issuestatus.Effective(ctx, s.Queries, issue.WorkspaceID, issue.Status) == "backlog" {
 		return false
 	}
 	return s.isSquadLeaderReady(ctx, issue)

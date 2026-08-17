@@ -23,6 +23,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/issuestatus"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -941,7 +942,8 @@ func (h *Handler) handlePullRequestEvent(ctx context.Context, body []byte) {
 		// intent was ever delivered, the user should decide manually.
 		if state == "merged" || state == "closed" {
 			for _, issue := range reevalIssues {
-				if issue.Status == "done" || issue.Status == "cancelled" {
+				// A custom terminal status counts as terminal here. (MUL-6243)
+				if s := issuestatus.Effective(ctx, h.Queries, issue.WorkspaceID, issue.Status); s == "done" || s == "cancelled" {
 					continue
 				}
 				counts, err := h.Queries.GetIssuePullRequestCloseAggregate(ctx, issue.ID)

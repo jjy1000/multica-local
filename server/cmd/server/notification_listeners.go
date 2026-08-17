@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
+	"github.com/multica-ai/multica/server/internal/issuestatus"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -18,7 +19,6 @@ type mention struct {
 	Type string // "member", "agent", "issue", or "all"
 	ID   string // user_id, agent_id, issue_id, or "all"
 }
-
 
 // statusLabels maps DB status values to human-readable labels for notifications.
 var statusLabels = map[string]string{
@@ -78,19 +78,19 @@ var parentBubbleNotifTypes = map[string]bool{
 // notifTypeToGroup maps each InboxItemType to a user-configurable preference
 // group. Types not in this map are always delivered (not configurable).
 var notifTypeToGroup = map[string]string{
-	"issue_assigned":  "assignments",
-	"unassigned":      "assignments",
-	"assignee_changed": "assignments",
-	"status_changed":  "status_changes",
-	"new_comment":     "comments",
-	"mentioned":       "comments",
-	"priority_changed": "updates",
+	"issue_assigned":     "assignments",
+	"unassigned":         "assignments",
+	"assignee_changed":   "assignments",
+	"status_changed":     "status_changes",
+	"new_comment":        "comments",
+	"mentioned":          "comments",
+	"priority_changed":   "updates",
 	"start_date_changed": "updates",
-	"due_date_changed": "updates",
-	"task_completed":  "agent_activity",
-	"task_failed":     "agent_activity",
-	"agent_blocked":   "agent_activity",
-	"agent_completed": "agent_activity",
+	"due_date_changed":   "updates",
+	"task_completed":     "agent_activity",
+	"task_failed":        "agent_activity",
+	"agent_blocked":      "agent_activity",
+	"agent_completed":    "agent_activity",
 }
 
 // isNotifMuted returns true if the given notification type is muted for a user
@@ -289,6 +289,12 @@ func notifyIssueSubscribers(
 	details []byte,
 ) map[string]bool {
 	notified := map[string]bool{}
+
+	// Normalize a custom status to the canonical status it inherits, so the
+	// delegated tier's status allowlist below keys off behavior rather than a
+	// literal. A built-in key returns itself without a query, so the common
+	// path is unchanged. (MUL-6243)
+	issueStatus = issuestatus.Effective(ctx, queries, parseUUID(workspaceID), issueStatus)
 
 	subs, err := queries.ListIssueSubscribers(ctx, parseUUID(subscriberIssueID))
 	if err != nil {
@@ -676,7 +682,9 @@ func registerNotificationListeners(bus *events.Bus, queries *db.Queries) {
 			// cancelled), retire any stale task_failed inbox rows so the
 			// inbox reflects the current state of the work, not its history.
 			// The activity log keeps the full failure history for audit.
-			if terminalStatusForTaskFailedDismiss[issue.Status] {
+			if terminalStatusForTaskFailedDismiss[issuestatus.Effective(
+				ctx, queries, parseUUID(e.WorkspaceID), issue.Status,
+			)] {
 				archiveStaleTaskFailedInbox(ctx, queries, bus, e.WorkspaceID, issue.ID)
 			}
 		}
