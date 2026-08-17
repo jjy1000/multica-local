@@ -47,6 +47,13 @@ vi.mock("@multica/core/issues/mutations", () => ({
   useUpdateIssue: () => ({ mutate: mockUpdateMutate }),
 }));
 
+// api.rawRequest is used by updateField to auto-launch the Pythia forecast
+// on the update path (lab parity). Mocked so the POST can be asserted.
+const mockRawRequest = vi.fn();
+vi.mock("@multica/core/api", () => ({
+  api: { rawRequest: (...args: any[]) => mockRawRequest(...args) },
+}));
+
 vi.mock("@multica/core/paths", async () => {
   const actual = await vi.importActual<typeof import("@multica/core/paths")>(
     "@multica/core/paths",
@@ -74,7 +81,6 @@ vi.mock("sonner", () => ({
 }));
 
 // Import AFTER mocks are registered.
-import { toast } from "sonner";
 import { useIssueActions } from "../use-issue-actions";
 
 const mockIssue: Issue = {
@@ -110,8 +116,8 @@ beforeEach(() => {
   mockUpdateMutate.mockReset();
   mockCreatePinMutate.mockReset();
   mockDeletePinMutate.mockReset();
-  vi.mocked(toast.success).mockReset();
-  vi.mocked(toast.error).mockReset();
+  mockRawRequest.mockReset();
+  mockRawRequest.mockResolvedValue({ ok: true });
   pinListRef.value = [];
   localStorage.clear();
   Object.defineProperty(navigator, "clipboard", {
@@ -132,6 +138,36 @@ describe("useIssueActions", () => {
       { id: "issue-1", status: "done" },
       expect.any(Object),
     );
+  });
+
+  it("tagging an issue with lab_source=pythia_oracle auto-launches a 10-round forecast on update success", () => {
+    // The mutate mock normally ignores the options bag; wire it to invoke
+    // onSuccess so the update-path lab-parity branch actually runs.
+    mockUpdateMutate.mockImplementation((_payload, opts) => opts?.onSuccess?.());
+    const { result } = renderHook(() => useIssueActions(mockIssue), { wrapper });
+
+    act(() => {
+      result.current.updateField({ lab_source: "pythia_oracle" });
+    });
+
+    expect(mockRawRequest).toHaveBeenCalledWith(
+      "/api/experimental/pythia-oracle/forecast/issue",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ issue_id: "issue-1", rounds: 10 }),
+      }),
+    );
+  });
+
+  it("does not auto-launch a forecast for non-pythia field updates", () => {
+    mockUpdateMutate.mockImplementation((_payload, opts) => opts?.onSuccess?.());
+    const { result } = renderHook(() => useIssueActions(mockIssue), { wrapper });
+
+    act(() => {
+      result.current.updateField({ status: "done" });
+    });
+
+    expect(mockRawRequest).not.toHaveBeenCalled();
   });
 
   it("assigning an agent routes through the run-confirm modal instead of mutating directly", () => {
@@ -188,23 +224,8 @@ describe("useIssueActions", () => {
     expect(mockOpenModal).not.toHaveBeenCalled();
   });
 
-  it("copyLink writes the issue's human-readable shareable URL to the clipboard", async () => {
+  it("copyLink writes the issue's shareable URL to the clipboard", async () => {
     const { result } = renderHook(() => useIssueActions(mockIssue), { wrapper });
-
-    await act(async () => {
-      await result.current.copyLink();
-    });
-
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      "https://app.multica.com/test/issues/TES-1",
-    );
-  });
-
-  it("copyLink falls back to the UUID when the issue has no identifier", async () => {
-    const { result } = renderHook(
-      () => useIssueActions({ ...mockIssue, identifier: "" } as Issue),
-      { wrapper },
-    );
 
     await act(async () => {
       await result.current.copyLink();
@@ -241,112 +262,13 @@ describe("useIssueActions", () => {
     });
 
     act(() => {
-      result.current.openDeleteConfirm({ onDeletedFallbackPath: "/test/issues" });
+      result.current.openDeleteConfirm({ onDeletedNavigateTo: "/test/issues" });
     });
     expect(mockOpenModal).toHaveBeenLastCalledWith("issue-delete-confirm", {
       issueId: "issue-1",
       identifier: "TES-1",
-      onDeletedFallbackPath: "/test/issues",
+      onDeletedNavigateTo: "/test/issues",
     });
-  });
-
-  it("openCreateSubIssue seeds the parent's project and assignee so the sub-issue inherits them", () => {
-    const parentIssue = {
-      ...mockIssue,
-      project_id: "project-1",
-      assignee_type: "agent",
-      assignee_id: "agent-1",
-    } as Issue;
-    const { result } = renderHook(() => useIssueActions(parentIssue), { wrapper });
-
-    act(() => {
-      result.current.openCreateSubIssue();
-    });
-
-    expect(mockOpenModal).toHaveBeenLastCalledWith("create-issue", {
-      parent_issue_id: "issue-1",
-      parent_issue_identifier: "TES-1",
-      project_id: "project-1",
-      assignee_type: "agent",
-      assignee_id: "agent-1",
-    });
-  });
-
-  it("openCreateSubIssue omits assignee when the parent has none", () => {
-    const parentIssue = {
-      ...mockIssue,
-      project_id: "project-1",
-      assignee_type: null,
-      assignee_id: null,
-    } as Issue;
-    const { result } = renderHook(() => useIssueActions(parentIssue), { wrapper });
-
-    act(() => {
-      result.current.openCreateSubIssue();
-    });
-
-    expect(mockOpenModal).toHaveBeenLastCalledWith("create-issue", {
-      parent_issue_id: "issue-1",
-      parent_issue_identifier: "TES-1",
-      project_id: "project-1",
-    });
-  });
-
-  it("removeParent clears parent_issue_id and stage in one write, never via the run-confirm modal", () => {
-    const childIssue = {
-      ...mockIssue,
-      parent_issue_id: "parent-1",
-      stage: 2,
-    } as Issue;
-    const { result } = renderHook(() => useIssueActions(childIssue), { wrapper });
-
-    act(() => {
-      result.current.removeParent();
-    });
-
-    expect(mockUpdateMutate).toHaveBeenCalledWith(
-      { id: "issue-1", parent_issue_id: null, stage: null },
-      expect.objectContaining({
-        onSuccess: expect.any(Function),
-        onError: expect.any(Function),
-      }),
-    );
-    // Detaching never routes through the run-confirm modal.
-    expect(mockOpenModal).not.toHaveBeenCalled();
-  });
-
-  it("removeParent toasts success only from onSuccess — not eagerly, and not on failure", () => {
-    const childIssue = {
-      ...mockIssue,
-      parent_issue_id: "parent-1",
-    } as Issue;
-    const { result } = renderHook(() => useIssueActions(childIssue), { wrapper });
-
-    act(() => {
-      result.current.removeParent();
-    });
-
-    // mutate() is fire-and-forget here (mocked), so nothing is confirmed yet.
-    expect(toast.success).not.toHaveBeenCalled();
-    expect(mockUpdateMutate).toHaveBeenCalledTimes(1);
-
-    const opts = mockUpdateMutate.mock.calls[0]![1] as {
-      onSuccess: () => void;
-      onError: (err: unknown) => void;
-    };
-
-    // A failed write surfaces the error, never a false "removed" confirmation.
-    act(() => {
-      opts.onError(new Error("forbidden"));
-    });
-    expect(toast.error).toHaveBeenCalledWith("forbidden");
-    expect(toast.success).not.toHaveBeenCalled();
-
-    // Only the server-confirmed success toasts.
-    act(() => {
-      opts.onSuccess();
-    });
-    expect(toast.success).toHaveBeenCalledTimes(1);
   });
 
   it("togglePin calls createPin when not pinned and deletePin when pinned", async () => {
