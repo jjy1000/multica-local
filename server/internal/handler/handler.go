@@ -149,6 +149,16 @@ type Handler struct {
 	// acceptable — the GC goroutine is independent and only needs the
 	// Stop() hook at server shutdown to exit cleanly before SIGKILL.
 	SwarmGC *experimental.SwarmGC
+	// RuntimeGC (0.5.25) owns the runtime_gc background cleanup
+	// loop for experimental_claude_runtime_session rows
+	// (6h tick → 30d archive → 90d trash → 120d unlink). The GC
+	// existed in the codebase since 0.3.33 but was never wired at
+	// boot — migration 151 documented the ladder but Start() was
+	// orphaned, so expired sessions accumulated indefinitely. Boot
+	// wires it from cmd/server/router.go alongside SwarmGC; the Stop
+	// hook at server shutdown closes the ticker channel cleanly
+	// before SIGKILL. Nil is acceptable — test-only builds skip it.
+	RuntimeGC *experimental.RuntimeGC
 	// SelfOptService (0.3.45.1) owns the agent_self_optimization
 	// scheduler tickers + runner dispatch. Boot wires it from
 	// cmd/server/router.go. Nil is acceptable — the HTTP handlers

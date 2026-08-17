@@ -105,6 +105,37 @@ func TestRuntimeGC_Run_WithNilDB_StopsCleanly(t *testing.T) {
 	}
 }
 
+// TestRuntimeGC_RunSweepsBeforeExit pins the 2026-07-28 audit fix:
+// the Run() loop must invoke sweep() at least once when the ticker
+// fires. The pre-fix eager `stopOne.Do(close(g.stopped))` made the
+// first select hit `<-g.stopped` immediately and return — the GC
+// exited without ever sweeping. This test fails on the pre-fix code.
+//
+// We use a 20ms interval so a 60ms wait gives ≥2 ticks. With
+// Queries == nil (the test fixture), sweep() short-circuits at the
+// nil-DB guard without mutating the archive tree; the assertion is
+// that sweep was INVOKED (sweepCount ≥ 2), not that it archived
+// anything. runtime_gc.go exposes sweepCount as an atomic counter
+// specifically for this regression test.
+func TestRuntimeGC_RunSweepsBeforeExit(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	gc := NewRuntimeGC(RuntimeGCConfig{
+		BaseDir:  base,
+		Interval: 20 * time.Millisecond,
+	})
+
+	gc.Start()
+	// Wait ≥ 2 ticks at 20ms interval.
+	time.Sleep(60 * time.Millisecond)
+	gc.Stop()
+
+	if got := gc.sweepCount.Load(); got < 2 {
+		t.Fatalf("expected ≥2 sweep invocations within 60ms (Interval=20ms), got %d — Run() loop is exiting before the ticker fires", got)
+	}
+}
+
 // TestRuntimeGC_PathRefusesOutsideVault mirrors the writer's
 // hardening: a relPath containing a `..` segment or a path that
 // resolves outside the configured base must be rejected. The

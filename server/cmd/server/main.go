@@ -546,6 +546,9 @@ func main() {
 	if h.SwarmGC != nil {
 		h.SwarmGC.Stop()
 	}
+	if h.RuntimeGC != nil {
+		h.RuntimeGC.Stop()
+	}
 
 	// Join the channel supervisor's per-installation goroutines so the
 	// lease renewer can issue a final release before process exit;

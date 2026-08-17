@@ -770,6 +770,22 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// until the next boot re-adopts it).
 			h.SwarmGC = swarmGC
 			slog.Info("swarm_gc started")
+
+			// Launch runtime_gc — the 30/90/120-day retention ladder
+			// for experimental_claude_runtime_session rows. Pre-0.5.25
+			// this GC existed in the codebase (migration 151 documented
+			// it) but was never wired at boot, so expired sessions
+			// accumulated indefinitely. Mirrors the swarm_gc pattern:
+			// store on the Handler so main.go's shutdown sequence
+			// can call Stop() before SIGKILL. Interval defaults to
+			// 6h inside NewRuntimeGC; production cadence matches
+			// research tempo (a few sessions per day).
+			runtimeGC := experimental.NewRuntimeGC(experimental.RuntimeGCConfig{
+				Queries: h.Queries,
+			})
+			runtimeGC.Start()
+			h.RuntimeGC = runtimeGC
+			slog.Info("runtime_gc started")
 		}
 	}
 

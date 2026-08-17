@@ -69,6 +69,12 @@ type RuntimeGC struct {
 	running atomic.Bool
 	stopped chan struct{}
 	stopOne sync.Once
+	// sweepCount increments every time sweep() is invoked. Exposed
+	// for tests (TestRuntimeGC_RunSweepsBeforeExit) so a regression
+	// of the Run() loop's eager-close bug is caught — without this
+	// counter, the only observable signal is "GC exits", which the
+	// existing smoke tests already accept. Production code ignores it.
+	sweepCount atomic.Uint64
 }
 
 // NewRuntimeGC builds the GC with config defaults applied.
@@ -131,9 +137,6 @@ func (g *RuntimeGC) Stop() {
 // Run is the loop body. Exported so tests can drive it directly
 // without spawning a goroutine.
 func (g *RuntimeGC) Run() {
-	// Always close via sync.Once so the deferred close cannot
-	// race with Stop's earlier close.
-	g.stopOne.Do(func() { close(g.stopped) })
 	t := time.NewTicker(g.cfg.Interval)
 	defer t.Stop()
 
@@ -149,6 +152,7 @@ func (g *RuntimeGC) Run() {
 
 // sweep runs once and returns; safe to call from tests.
 func (g *RuntimeGC) sweep() {
+	g.sweepCount.Add(1)
 	if g.cfg.Queries == nil {
 		g.cfg.Logger.Debug("runtime_gc disabled; no queries wired")
 		return
