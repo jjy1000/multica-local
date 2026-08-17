@@ -15,6 +15,7 @@ import {
   IssueTriggerPreviewSchema,
   IssueStatusEntrySchema,
   ListIssueStatusesResponseSchema,
+  EMPTY_LIST_ISSUE_STATUSES_RESPONSE,
   LabContextSchema,
   ListIssuesResponseSchema,
   RuntimeHourlyActivityListSchema,
@@ -184,11 +185,18 @@ describe("ListIssueStatusesResponseSchema (MUL-6243)", () => {
     expect(parsed.categories).toHaveLength(7);
   });
 
-  it("falls back to an empty envelope on malformed JSON", () => {
-    const parsed = ListIssueStatusesResponseSchema.parse("not-an-object");
+  it("falls back to the built-in categories on a malformed response", () => {
+    const parsed = parseWithFallback(
+      { statuses: "not-an-array", categories: 7 },
+      ListIssueStatusesResponseSchema,
+      EMPTY_LIST_ISSUE_STATUSES_RESPONSE,
+      { endpoint: "GET /api/issue-statuses" },
+    );
+    expect(parsed).toEqual(EMPTY_LIST_ISSUE_STATUSES_RESPONSE);
+    // The fallback still names all 7 categories, so a client talking to a
+    // server that predates this endpoint can still render every built-in.
+    expect(parsed.categories).toHaveLength(7);
     expect(parsed.statuses).toEqual([]);
-    expect(parsed.categories).toEqual([]);
-    expect(parsed.total).toBe(0);
   });
 });
 

@@ -362,9 +362,11 @@ export const ListIssueStatusesResponseSchema = z.object({
   total: z.number().default(0),
 }).loose();
 
+// The fallback carries the 7 built-ins' keys as categories, so a client talking
+// to a server that predates this endpoint still has the canonical list.
 export const EMPTY_LIST_ISSUE_STATUSES_RESPONSE: ListIssueStatusesResponse = {
   statuses: [],
-  categories: [],
+  categories: ["backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled"],
   total: 0,
 };
 
