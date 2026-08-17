@@ -140,7 +140,7 @@ Test Files 3 passed / Tests 62 passed
 
 ## 完成判定
 
-✅ 8 (batch 1) + 5 (batch 2) + **8 (session 续 — Tier 1-3)** = **21 commits applied + verified**  
+✅ 8 (batch 1) + 5 (batch 2) + **9 (session 续 — Tier 1-3)** = **22 commits applied + verified**  
 ✅ N/A catalog 完整 (36 commits 验证不适用)  
 ✅ Wave 3 / 4 架构 analysis 完成  
 ✅ Backfill 3/3 (MUL-6168 ✓, sub-issue ✓ source-only, MUL-5979 仍待)  
@@ -175,4 +175,15 @@ keyboard-shortcuts tests: 30/30
 slug/step-workspace tests: 14/14
 ```
 
-## Final HEAD: `3426bf235 fix(desktop): add alt/isAutoRepeat to ShortcutInput`
+## Session 续 2 (Tier 3 续) — MUL-6040 mention hover preview
+
+- `8b0e8a5e2`+`14406392a`+`5fb079fe8` — MUL-6040 (05a01f068): issue mention hover preview
+  (issue-hover-card + description-preview + board-card wiring + mention-card)。适配:
+  stripChannelMediaMarkers 移除(本地无 channel)、ActorAvatar size px(非 'sm')、
+  AppLink 无 newTabTitle、board-card 去 custom-properties(本地无 @multica/core/properties)。
+  23/23 测试 + typecheck 6/6。
+
+**Aborted (本 session 2)**: 46527a1a7 MUL-6183 (依赖本地无的 @multica/core/agents 导出)、
+0d2dc44e3 MUL-6169 (13 文件 ~17 hunks 视觉打磨,page-header 结构与 MUL-6218 同源冲突)
+
+## Final HEAD: `5fb079fe8 fix(views): adapt MUL-6040 board-card/hover-card to fork APIs`
