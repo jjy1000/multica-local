@@ -135,7 +135,7 @@ function AppContent() {
   //
   // 2026-07-03 RACE-FIX: the previous version depended on `[]` to fire
   // exactly once on mount. The bug: `if (!user) return;` returned silently
-  // during the brief window between mount and `auth.initialize()` resolving
+  // during the brief window between mount and `AuthInitializer` resolving
   // to the logged-in user — and the mount-once effect never re-ran when
   // `user` finally settled. The daemon never auto-started, the cached PAT
   // went stale, and the user saw "agent's runtime is offline".

@@ -46,6 +46,19 @@ export interface AppConfigResponse {
   daemon_server_url?: string;
   daemon_app_url?: string;
   workspace_creation_disabled?: boolean;
+  // MUL-6254: self-host-only gate for the Git provider integration
+  // (Forgejo / Gitea / GitLab). Older servers omit; the fork's single-user
+  // default keeps it hidden.
+  vcs_integration_available?: boolean;
+  // MUL-6254: feature-flag snapshot returned by the server. The renderer
+  // merges this into configStore.featureFlags on every AuthInitializer pass
+  // (initial + retry attempts) so a server that comes back up between
+  // attempts gets its settings applied without waiting for a manual reload.
+  feature_flags?: Record<string, boolean>;
+  // MUL-6254: the running API build version, surfaced in the Help popover
+  // so self-hosted operators can confirm what's deployed. Empty for dev
+  // builds or servers older than this feature.
+  server_version?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +199,9 @@ export const AppConfigSchema = z.object({
   daemon_server_url: OptionalStringSchema,
   daemon_app_url: OptionalStringSchema,
   workspace_creation_disabled: BooleanWithDefaultSchema(false).optional(),
+  vcs_integration_available: BooleanWithDefaultSchema(false).optional(),
+  feature_flags: z.record(z.string(), z.boolean()).optional(),
+  server_version: OptionalStringSchema,
 }).loose();
 
 export const EMPTY_APP_CONFIG: AppConfigResponse = {

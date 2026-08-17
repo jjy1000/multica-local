@@ -1118,12 +1118,12 @@ async function bootstrapCli(): Promise<void> {
   // Main-process auto-start guard. The renderer-side useEffect in App.tsx
   // triggers IPC `daemon:auto-start` only when the `user` reference changes
   // (login / logout / user-switch). When the user is already logged in at
-  // GUI launch — localStorage holds a token and auth.initialize() resolves
-  // to an existing user — that effect's dependency does NOT change, so the
-  // daemon never starts on its own. Without this guard, every GUI relaunch
-  // leaves the agent runtime orphaned and agent_task_queue rows pile up as
-  // "queued" indefinitely. The renderer path remains as a fallback for
-  // scenarios where the token hasn't been synced to disk yet.
+  // GUI launch — localStorage holds a token and AuthInitializer's retry
+  // ladder resolves to an existing user — that effect's dependency does
+  // NOT change, so the daemon never starts on its own. Without this guard,
+  // every GUI relaunch leaves the agent runtime orphaned and agent_task_queue
+  // rows pile up as "queued" indefinitely. The renderer path remains as a
+  // fallback for scenarios where the token hasn't been synced to disk yet.
   void tryAutoStartFromMain();
 }
 
