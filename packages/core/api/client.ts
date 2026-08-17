@@ -2,8 +2,12 @@ import type {
   Issue,
   CreateIssueRequest,
   UpdateIssueRequest,
+  CreateIssueStatusRequest,
+  UpdateIssueStatusRequest,
+  IssueStatusEntry,
   GroupedIssuesResponse,
   ListIssuesResponse,
+  ListIssueStatusesResponse,
   SearchIssuesResponse,
   SearchProjectsResponse,
   UpdateMeRequest,
@@ -166,8 +170,10 @@ import {
   EMPTY_GROUPED_ISSUES_RESPONSE,
   EMPTY_INBOX_UNREAD_SUMMARY,
   EMPTY_ISSUE,
+  EMPTY_ISSUE_STATUS_ENTRY,
   EMPTY_LAB_CONTEXT,
   EMPTY_LIST_ISSUES_RESPONSE,
+  EMPTY_LIST_ISSUE_STATUSES_RESPONSE,
   EMPTY_SEARCH_ISSUES_RESPONSE,
   EMPTY_SEARCH_PROJECTS_RESPONSE,
   EMPTY_SQUAD,
@@ -181,10 +187,12 @@ import {
   type AppConfigResponse,
   GroupedIssuesResponseSchema,
   IssueSchema,
+  IssueStatusEntrySchema,
   LabContextSchema,
   ListAutopilotsResponseSchema,
   EMPTY_LIST_AUTOPILOTS_RESPONSE,
   ListIssuesResponseSchema,
+  ListIssueStatusesResponseSchema,
   ListWebhookDeliveriesResponseSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
@@ -685,6 +693,54 @@ export class ApiClient {
     return this.fetch(`/api/issues/${id}`, {
       method: "PUT",
       body: JSON.stringify(data),
+    });
+  }
+
+  // 0.5.34 (MUL-6243): per-workspace custom issue statuses. The four verbs
+  // mirror the backend `server/internal/handler/issue_status.go` surface.
+  // When the flag is off the backend returns the seven built-ins via the
+  // catalog fallback, so `listIssueStatuses` is safe to call regardless of
+  // FF_CUSTOM_ISSUE_STATUSES. Mutating verbs (create/update/archive) hit the
+  // owner/admin gate and may 403/404 — callers should treat those as user-
+  // facing signals, not as "the feature is missing".
+  async listIssueStatuses(): Promise<ListIssueStatusesResponse> {
+    const raw = await this.fetch<unknown>("/api/issue-statuses");
+    return parseWithFallback(
+      raw,
+      ListIssueStatusesResponseSchema,
+      EMPTY_LIST_ISSUE_STATUSES_RESPONSE,
+      { endpoint: "GET /api/issue-statuses" },
+    );
+  }
+
+  async createIssueStatus(
+    data: CreateIssueStatusRequest,
+  ): Promise<IssueStatusEntry> {
+    const raw = await this.fetch<unknown>("/api/issue-statuses", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, IssueStatusEntrySchema, EMPTY_ISSUE_STATUS_ENTRY, {
+      endpoint: "POST /api/issue-statuses",
+    });
+  }
+
+  async updateIssueStatus(
+    key: string,
+    data: UpdateIssueStatusRequest,
+  ): Promise<IssueStatusEntry> {
+    const raw = await this.fetch<unknown>(`/api/issue-statuses/${encodeURIComponent(key)}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(raw, IssueStatusEntrySchema, EMPTY_ISSUE_STATUS_ENTRY, {
+      endpoint: "PATCH /api/issue-statuses/:key",
+    });
+  }
+
+  async archiveIssueStatus(key: string): Promise<void> {
+    await this.fetch(`/api/issue-statuses/${encodeURIComponent(key)}`, {
+      method: "DELETE",
     });
   }
 

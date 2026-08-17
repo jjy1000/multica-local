@@ -13,6 +13,8 @@ import {
   ExperimentalFlagSchema,
   InboxUnreadSummarySchema,
   IssueTriggerPreviewSchema,
+  IssueStatusEntrySchema,
+  ListIssueStatusesResponseSchema,
   LabContextSchema,
   ListIssuesResponseSchema,
   RuntimeHourlyActivityListSchema,
@@ -95,6 +97,98 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
     const payload = { issues: [issueWithoutStage], total: 1 };
     const parsed = ListIssuesResponseSchema.parse(payload);
     expect(parsed.issues[0]?.stage).toBeNull();
+  });
+});
+
+// 0.5.34 (MUL-6243): per-workspace custom issue statuses. The five test cases
+// below pin the wire shape so a backend drift (or flag-off omission) degrades
+// to the EMPTY_* fallback rather than throw into the issue settings panel.
+describe("IssueStatusEntrySchema (MUL-6243)", () => {
+  const baseStatus = {
+    id: "22222222-2222-2222-2222-222222222222",
+    workspace_id: "ws-1",
+    key: "in_progress",
+    name: "In Progress",
+    description: "Work in flight",
+    category: "in_progress",
+    color: "#3b82f6",
+    is_system: true,
+    position: 0,
+    archived_at: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+
+  it("parses a full custom status entry", () => {
+    const parsed = IssueStatusEntrySchema.parse({
+      ...baseStatus,
+      key: "awaiting_review",
+      name: "Awaiting Review",
+      category: "in_review",
+      is_system: false,
+    });
+    expect(parsed.key).toBe("awaiting_review");
+    expect(parsed.category).toBe("in_review");
+    expect(parsed.is_system).toBe(false);
+  });
+
+  it("falls back to defaults when description / color / position are missing", () => {
+    const parsed = IssueStatusEntrySchema.parse({
+      id: baseStatus.id,
+      workspace_id: baseStatus.workspace_id,
+      key: "blocked",
+      name: "Blocked",
+      category: "blocked",
+      is_system: false,
+      archived_at: null,
+      created_at: baseStatus.created_at,
+      updated_at: baseStatus.updated_at,
+    });
+    expect(parsed.description).toBe("");
+    expect(parsed.color).toBe("");
+    expect(parsed.position).toBe(0);
+  });
+
+  it("accepts an unknown category string (drift tolerance)", () => {
+    // The server may add new categories before the client knows about them.
+    // The typed union catches this at the consumer; the parse must not throw.
+    const parsed = IssueStatusEntrySchema.parse({ ...baseStatus, category: "future_category" });
+    expect(parsed.category).toBe("future_category");
+  });
+
+  it("keeps unknown fields via .loose()", () => {
+    const parsed = IssueStatusEntrySchema.parse({ ...baseStatus, future_field: "x" });
+    expect(parsed.future_field).toBe("x");
+  });
+});
+
+describe("ListIssueStatusesResponseSchema (MUL-6243)", () => {
+  it("parses a full response with customs + categories", () => {
+    const parsed = ListIssueStatusesResponseSchema.parse({
+      statuses: [
+        {
+          id: "33333333-3333-3333-3333-333333333333",
+          workspace_id: "ws-1",
+          key: "in_progress",
+          name: "In Progress",
+          category: "in_progress",
+          is_system: true,
+          archived_at: null,
+        },
+      ],
+      categories: ["backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled"],
+      total: 1,
+    });
+    expect(parsed.total).toBe(1);
+    expect(parsed.statuses).toHaveLength(1);
+    expect(parsed.categories).toHaveLength(7);
+  });
+
+  it("falls back to an empty envelope on malformed JSON", () => {
+    const parsed = ListIssueStatusesResponseSchema.parse("not-an-object");
+    expect(parsed.statuses).toEqual([]);
+    expect(parsed.categories).toEqual([]);
+    expect(parsed.total).toBe(0);
   });
 });
 

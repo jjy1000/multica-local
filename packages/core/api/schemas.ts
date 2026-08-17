@@ -18,7 +18,9 @@ import type {
   InboxWorkspaceUnread,
   InvocationTarget,
   Issue,
+  IssueStatusEntry,
   LabContext,
+  ListIssueStatusesResponse,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
   MythosSuperviseState,
@@ -268,6 +270,10 @@ export const IssueSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   status: z.string(),
+  // 0.5.34 (MUL-6243): per-workspace custom issue statuses. Older backends
+  // that predate FF_CUSTOM_ISSUE_STATUSES omit the field; the UI should
+  // fall back to `status` (the canonical category key) when absent.
+  status_category: z.string().optional(),
   priority: z.string(),
   assignee_type: z.string().nullable(),
   assignee_id: z.string().nullable(),
@@ -304,6 +310,61 @@ export const ListIssuesResponseSchema = z.object({
 
 export const EMPTY_LIST_ISSUES_RESPONSE: ListIssuesResponse = {
   issues: [],
+  total: 0,
+};
+
+// ---------------------------------------------------------------------------
+// MUL-6243 per-workspace custom issue statuses (0.5.34).
+//
+// The server stamps each entry with its `category` (one of the 7 built-in
+// statuses — IssueStatusCategory is a typedef alias for IssueStatus) and a
+// `color` (`#rrggbb`). We keep `category` as plain `z.string()` so a future
+// server-side addition (or drift when the flag is off) doesn't fail the
+// parse — downstream code already defaults the field via the typed union.
+// `is_system` distinguishes the 7 built-ins from workspace-defined customs.
+// `.loose()` lets unknown fields through unchanged (the same pattern as
+// every other high-risk schema in this file).
+// ---------------------------------------------------------------------------
+
+export const IssueStatusEntrySchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  key: z.string(),
+  name: z.string(),
+  description: z.string().default(""),
+  category: z.string(),
+  color: z.string().default(""),
+  is_system: z.boolean().default(false),
+  position: z.number().default(0),
+  archived_at: z.string().nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const EMPTY_ISSUE_STATUS_ENTRY: IssueStatusEntry = {
+  id: "",
+  workspace_id: "",
+  key: "",
+  name: "",
+  description: "",
+  category: "todo",
+  color: "",
+  is_system: false,
+  position: 0,
+  archived_at: null,
+  created_at: "",
+  updated_at: "",
+};
+
+export const ListIssueStatusesResponseSchema = z.object({
+  statuses: z.array(IssueStatusEntrySchema).default([]),
+  categories: z.array(z.string()).default([]),
+  total: z.number().default(0),
+}).loose();
+
+export const EMPTY_LIST_ISSUE_STATUSES_RESPONSE: ListIssueStatusesResponse = {
+  statuses: [],
+  categories: [],
   total: 0,
 };
 
