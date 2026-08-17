@@ -9,6 +9,8 @@ export type ShortcutInput = {
   control: boolean;
   meta: boolean;
   shift: boolean;
+  alt: boolean;
+  isAutoRepeat: boolean;
 };
 
 // Subset of WebContents the zoom handler needs. Keeps the test mock tiny.
@@ -59,7 +61,7 @@ export function handleAppShortcut(
     return true;
   }
 
-  if (!cmdOrCtrl) return false;
+  if (!cmdOrCtrl || input.alt) return false;
 
   // Cmd/Ctrl + "=" (unshifted) or "+" (Shift+=) → zoom in.
   if (input.key === "=" || input.key === "+") {

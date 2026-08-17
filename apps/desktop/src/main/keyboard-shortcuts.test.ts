@@ -14,14 +14,16 @@ function makeWc(initialLevel = 0) {
 
 function key(
   k: string,
-  mods: Partial<Pick<ShortcutInput, "control" | "meta" | "shift">> = {},
+  mods: Partial<Pick<ShortcutInput, "control" | "meta" | "shift" | "alt">> = {},
 ): ShortcutInput {
   return {
     type: "keyDown",
     key: k,
     control: false,
     meta: false,
+    isAutoRepeat: false,
     shift: false,
+    alt: false,
     ...mods,
   };
 }
