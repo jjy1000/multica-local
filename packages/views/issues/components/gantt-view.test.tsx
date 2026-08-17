@@ -8,7 +8,6 @@ import {
 import { ViewStoreProvider } from "@multica/core/issues/stores/view-store-context";
 import type { Issue } from "@multica/core/types";
 import { renderWithI18n } from "../../test/i18n";
-import { IssueContextMenuProvider } from "../actions";
 
 vi.mock("@tanstack/react-query", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-query")>()),
@@ -81,9 +80,7 @@ function renderGantt(locale: "en" | "zh-Hans") {
   const store = createStore<IssueViewState>()(viewStoreSlice);
   return renderWithI18n(
     <ViewStoreProvider store={store}>
-      <IssueContextMenuProvider>
-        <GanttView issues={[ISSUE]} />
-      </IssueContextMenuProvider>
+      <GanttView issues={[ISSUE]} />
     </ViewStoreProvider>,
     { locale },
   );

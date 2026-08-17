@@ -31,7 +31,8 @@ import { useLogout } from "../../auth";
 import { StepHeader } from "../components/step-header";
 import { RadioMark } from "../components/option-card";
 import { WorkspaceAvatar } from "../../workspace/workspace-avatar";
-import { useLocale, useT } from "../../i18n";
+import { matchLocale } from "@multica/core/i18n";
+import { useT } from "../../i18n";
 import {
   WORKSPACE_SLUG_REGEX,
   isWorkspaceSlugConflict,
@@ -80,8 +81,8 @@ export function StepWorkspace({
   onCreated: (workspace: Workspace) => void | Promise<void>;
   onBack?: () => void;
 }) {
-  const { t } = useT("onboarding");
-  const locale = useLocale();
+  const { t, i18n } = useT("onboarding");
+  const locale = matchLocale([i18n.resolvedLanguage ?? i18n.language]);
   const mainRef = useRef<HTMLElement>(null);
   const fadeStyle = useScrollFade(mainRef);
   const workspaceCreationDisabled = useConfigStore((s) => s.workspaceCreationDisabled);
@@ -130,29 +131,13 @@ export function StepWorkspace({
   const canCreate =
     name.trim().length > 0 && slug.trim().length > 0 && !slugError;
 
-  // What the workspace will actually be created with. Clearing the prefix
-  // input reverts to the slug-derived default rather than blocking the CTA —
-  // the placeholder shows that default, so an empty field is never a
-  // surprise. Empty only while the slug is (a name that romanizes to nothing
-  // derives none), which is also exactly when `canCreate` is false, so submit
-  // always carries a real prefix.
-  const derivedPrefix = issuePrefix(slug);
-  const effectivePrefix = prefix || derivedPrefix;
-
-  // Every slug write goes through here so the untouched prefix can't drift
-  // out of sync with the slug it is derived from.
-  const applySlug = (value: string) => {
-    setSlug(value);
-    setSlugServerError(null);
-    if (!prefixTouched.current) setPrefix(issuePrefix(value));
-  };
-
   const handleNameChange = (value: string) => {
     setName(value);
     if (!slugTouched.current) {
       // Locale decides whether Han characters are read as Chinese; see
       // nameToWorkspaceSlug.
-      applySlug(nameToWorkspaceSlug(value, locale));
+      setSlug(nameToWorkspaceSlug(value, locale));
+      setSlugServerError(null);
     }
   };
 
@@ -280,8 +265,8 @@ export function StepWorkspace({
             }}
           />
         </div>
-        {slugError ? <FieldError>{slugError}</FieldError> : null}
-      </Field>
+        {slugError && <p className="text-caption text-destructive">{slugError}</p>}
+      </div>
       {/* Editable, pre-filled from the slug. Narrow input — the value is
           capped at 10 chars, so a full-width field would read as a mistake.
 
@@ -292,8 +277,8 @@ export function StepWorkspace({
           change exists to eliminate. Empty field plus a hint is the honest
           state; the user is picking a URL next anyway, and the prefix appears
           the moment they do. */}
-      <Field>
-        <FieldLabel htmlFor="ws-issue-prefix">
+      <div className="flex flex-col gap-1.5">
+        <div className="text-caption font-medium text-muted-foreground">
           {t(($) => $.step_workspace.issue_prefix_label)}
         </div>
         <div className="text-body leading-[1.55] text-muted-foreground">
