@@ -78,6 +78,35 @@ function readManifestRuntime(
   }
 }
 
+// READY_TIMEOUT_MIN/MAX (s) — clamp window for both the manifest value and the
+// READY_TIMEOUT_MS env override. Below 10s starves first cold start (sentence-
+// transformers + torch import ≈30s on warm caches; first model download up to
+// 180s on a fresh disk). Above 600s holds the managers.get(flagKey) singleton
+// forever — every ensure-up blocks the IPC dispatcher until the spawn
+// resolves, so an unbounded upper bound is a per-flag DoS (R4 P0-1 attack).
+const READY_TIMEOUT_MIN_MS = 10_000;
+const READY_TIMEOUT_MAX_MS = 600_000;
+
+function clampReadyTimeoutMs(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return 30_000;
+  }
+  if (value < READY_TIMEOUT_MIN_MS) return READY_TIMEOUT_MIN_MS;
+  if (value > READY_TIMEOUT_MAX_MS) return READY_TIMEOUT_MAX_MS;
+  return value;
+}
+
+// parseReadyTimeoutFromEnv reads the READY_TIMEOUT_MS env override (millis).
+// Returns undefined when unset / not a positive integer. Mirrors the PATH_PY
+// pattern in apps/desktop/vendor/semantica/run.sh:85 (the desktop main process
+// honors the same env the upstream script honors).
+function parseReadyTimeoutFromEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === "") return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n;
+}
+
 const managers = new Map<string, BaseExperimentalManager>();
 
 // resolveGenericSubprocessManager returns a cached BaseExperimentalManager
@@ -90,6 +119,16 @@ const managers = new Map<string, BaseExperimentalManager>();
 // The binary path in the manifest is relative to resources/ (e.g.
 // "code-canvas/run.sh"); we split it into (resourceSubdir, binName)
 // because BaseExperimentalManager joins them via resolveResourcePath.
+//
+// ready_timeout_ms precedence (0.5.28, P0-1 — synthesizer Round 7):
+//   1. READY_TIMEOUT_MS env override (parsed + clamped)
+//   2. manifest runtime.ready_timeout_ms
+//   3. 30_000 fallback
+// All three paths are clamped to [10s, 600s] so a too-small manifest value
+// (e.g. 1000) or an unbounded env override (=999999999) cannot wedge the
+// singleton manager. The env key is also added to daemon.go's
+// isBlockedEnvKey (F-005 belt-and-braces) so a user-custom_env override
+// cannot arm the agent subprocess env with an adversarial timeout.
 export function resolveGenericSubprocessManager(
   flagKey: string,
 ): ExperimentalManager | null {
@@ -109,13 +148,19 @@ export function resolveGenericSubprocessManager(
   const binName = binary.slice(slash + 1);
   const loopbackService = spec.loopbackService;
 
+  const envOverrideMs = parseReadyTimeoutFromEnv(process.env.READY_TIMEOUT_MS);
+  const manifestMs = spec.runtime.ready_timeout_ms;
+  const readyTimeoutMs = clampReadyTimeoutMs(
+    envOverrideMs ?? manifestMs ?? 30_000,
+  );
+
   const manager = new BaseExperimentalManager({
     name: flagKey,
     resourceSubdir,
     binName,
     args: spec.runtime.args ?? [],
     healthPath: spec.runtime.health_path ?? "/health",
-    readyTimeoutMs: spec.runtime.ready_timeout_ms ?? 30_000,
+    readyTimeoutMs,
     stopGraceMs: spec.runtime.stop_grace_ms ?? 5_000,
     onReady: (url) => {
       void registerExperimentalUpstream(loopbackService, url);

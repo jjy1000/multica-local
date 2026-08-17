@@ -33,7 +33,7 @@
       "binary": "experiments/semantica/run.sh",
       "args": [],
       "health_path": "/api/health",
-      "ready_timeout_ms": 120000,
+      "ready_timeout_ms": 180000,
       "stop_grace_ms": 10000,
       "on_missing": "service not bundled — install Semantica (pip install -e $SEMANTICA_REPO_PATH) and set SEMANTICA_REPO_PATH in the desktop env"
     },

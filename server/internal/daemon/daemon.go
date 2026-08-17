@@ -4826,6 +4826,14 @@ func isBlockedEnvKey(key string) bool {
 	// processes.
 	case "BASH_ENV", "ENV", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "NODE_OPTIONS", "NODE_EXTRA_CA_CERTS":
 		return true
+	// READY_TIMEOUT_MS (0.5.28, P0-1 — synthesizer Round 7) — desktop main
+	// process reads this env to clamp the subprocess-manager spawn timeout
+	// for manifest-driven Labs (semantica etc.). Belt-and-braces block here:
+	// even if a future code path passes the value through to an agent
+	// subprocess env, a user-custom_env override cannot arm an adversarial
+	// timeout (=1 → DoS; =999999999 → forever-held singleton per R4 P0-1).
+	case "READY_TIMEOUT_MS":
+		return true
 	}
 	return false
 }
