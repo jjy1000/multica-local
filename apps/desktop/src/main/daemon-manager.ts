@@ -912,6 +912,19 @@ async function startDaemon(): Promise<{ success: boolean; error?: string }> {
   sendStatus({ state: "starting" });
 
   const args = ["daemon", "start", ...profileArgs(active)];
+  // Pass --server-url explicitly so the daemon's URL resolution does not fall
+  // back to ws://localhost:8080/ws (DefaultServerURL) when MULTICA_SERVER_URL
+  // is unset. That fallback pointed GUI-launched daemons at SearXNG on 8080
+  // whenever the user's shell leaked PORT=8080 into the GUI process — the
+  // daemon crashed, the watchdog wrote `~/.multica/daemon-needs-spawn.txt`,
+  // and every agent stayed in "queued". targetApiBaseUrl is the
+  // F-027-allowlisted URL the GUI's renderer wired from desktop.json's
+  // apiUrl, so passing it through makes the daemon use the same server the
+  // GUI is talking to. (Fix for the "PORT env leak → all agents queued"
+  // regression documented in memory 0.5.26.)
+  if (targetApiBaseUrl) {
+    args.push("--server-url", targetApiBaseUrl);
+  }
 
   return new Promise((resolve) => {
     execFile(
