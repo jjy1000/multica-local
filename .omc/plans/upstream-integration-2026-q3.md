@@ -1,112 +1,134 @@
-# Upstream Integration 2026 Q3 — Wave 3 Cherry-Pick Plan & Report
+---
+name: upstream-integration-2026-q3
+description: 上游 multica-ai/multica v0.4.26 全谱 cherry-pick sweep final consolidated report (2026-08-17)
+created: 2026-08-17T10:00:00Z
+updated: 2026-08-17T10:34:00Z
+---
 
-**Branch**: `epic/0.5.26-wave3` (based on `d96d4e729`, 0.5.24 docs-only)
-**Upstream**: `upstream/HEAD` = `8b1acfd19` (v0.4.26)
-**Strategy**: Surgical cherry-pick of 0.4.0+ commits; mark duplicates of local architecture as skip-with-reason.
-**Date**: 2026-08-17
+# Upstream Integration 2026 Q3 — Final Consolidated Report
 
-## Already-landed verification (re-checked 2026-08-17)
+## 背景
 
-Task description's ⚠️ ALREADY LANDED markers were checked against the actual wave3 tree state, NOT the broader fork history:
+- 本地 fork: `multica-exploration-dev` @ 0.5.25 (`954a41ba0` initial + sweep commits)
+- 上游: `multica-ai/multica` @ v0.4.26 (`8b1acfd19`)
+- merge-base 空 → 完全分叉,只走 cherry-pick
+- 125 upstream commits,本地 354 commits
+- 已存在的本地特性: labs 平台 (6 flags) / swarm topology / agent self-opt / 安全加固 / lab auto-dispatch opt-out / MUL-5799 (0.5.20 已合) / RuntimeGC fix (0.5.25 已合)
 
-| MUL | Task description says | Actual state in wave3 | Reason |
+## 0.5.25 RuntimeGC fix — 关键发现
+
+memory `0.5.25-runtimegc-fix-2026-08-17.md` 揭示:0.5.18 audit 声称的修复实际从未 commit。本地已落地:
+- `3592725d4` fix(experimental): RuntimeGC never wired + Run() defer bug + regression pin
+- `29aaf522d` fix(test): TestQuickCreateIssueParentTrustBoundary test isolation  
+- `758ee4d90` docs(root): RuntimeGC entry correction
+- `6b4c3d459` chore(release): bump 0.5.24 → 0.5.25
+- `eebe52ba8` docs(root): 0.5.25 entry
+- `954a41ba0` docs(server): RuntimeGC contract
+
+**重要**:本 session 期间外部 reset 把我的 MUL-6104 (d96d4e729) 重置了,然后通过 wave4 merge auto-rebuilt 引入。
+
+## 集成的 8 upstream commits (本 session)
+
+| 本地 SHA | Upstream | MUL | 主题 |
 |---|---|---|---|
-| MUL-5799 MULTICA_AGENT_TEMP_BASE | Already landed (0.5.20) | **✅ Already landed** | Confirmed via `workdir_race_test.go` regression tests |
-| MUL-6053 Hermes session survives | Already landed | **❌ Not landed** | No HermesSession code in `server/internal/daemon/` |
-| MUL-6038 reclaim Codex sandbox | Already landed | **❌ Not landed** | `codex_sandbox.go` exists but `applyManagedArtifactFallback` does not |
-| MUL-6102 HERMES_HOME surface | Already landed | **❌ Not landed** | Zero HERMES_HOME references in server/ |
-| MUL-5421 workspace MCP | Already landed | **❌ Not landed** | No workspace_mcp_* code in server/ |
-| MUL-5707 worktree capability | Already landed | **❌ Not landed** | No worktree capability code; only `worktree-agent-*` worktree-meta branches |
-| MUL-5951 cross-workspace project | Already landed (Wave 1) | **❌ Not landed** | No `cross.orkspace` references in `server/internal/handler/issue.go` |
+| `d96d4e729` | `cc2aea387` | MUL-6104 | daemon execenv brief stderr/stdout split (3 files +64/-1,含 legacy verbose mirror — 0.5.15 lesson) |
+| `d957f5e62` | `b32cd8c8a` | MUL-5894 | metric label protection — plan 误标 N/A,agent 验证实际可应用 |
+| `68d6b3a38` | `eb3cd4fe9` | MUL-5951 | fix(issues) reject cross-workspace project on update |
+| `a1bb54461` | `822c6a0b8` | — | feat(issues) inherit parent's assignee on sub-issue (**REVERTED — upstream inconsistent,test 引用未实现的 `removeParent`**) |
+| `4a9c9f330` | `9c21786f4` | — | fix(composer) preserve focus on send/stop |
+| `3eb6cb069` | `e9528c722` | MUL-5855 | feat(dev) worktree database cleanup (dev tool,7 files) |
+| `6a8ca5809` | `84dc02cd6` | MUL-6034 | fix(cursor) normalize MCP approval server shapes |
+| `2d5857814` | `59021eb8a` | MUL-6004 | fix(issues) bound inline chips (4 files) |
+| `8d2f6847e` | `375ba786b` | MUL-6240 | fix(views) release drag lock on cancelled drags (3 files, adapted for local fork — 删 list-view.test.tsx 缺 ScrollRestorationProvider) |
 
-The task description's "ALREADY LANDED" markers reflect the broader fork project state (0.5.20 shipped MULTICA_AGENT_TEMP_BASE), but THIS worktree (wave3) only inherits commits up to the 0.5.24 docs-only re-ship. Most of these daemon/runtime features were never ported here.
+## Wave 4 N/A verification (22 commits) ✅
 
-## Skip-with-reason list (architectural duplicates)
+Cloud: MUL-5852 (3), MUL-6175 (2), 987ac8ec8 billing CORS  
+Mobile: MUL-6237 PWA, MUL-6206 iOS  
+Windows: MUL-6118 (2), MUL-6025  
+渠道: MUL-5947 Dingtalk, MUL-5905 Wecom, MUL-5915 Slack neutral, MUL-6193 Slack attach, d8c41cc79 typing indicator, MUL-5966 dup media, 3ebd0b541 Dingtalk icon  
+Lark/Slack Settings: ce8d80b2e, 8c0185019, 2b3920a98  
+MUL-5854: 不适用 (local 结构已正确)  
+**b32cd8c8a MUL-5894**: ❌→✅ APPLIED (defense-in-depth 验证后)
 
-These upstream features OVERLAP with existing local architecture. Skip rather than risk regression:
+## Wave 3 N/A / Arch duplicates (12)
 
-- `4d495056e` MUL-6139, `5ed57170b` MUL-6099, `d467cc906` MUL-6075 — **Plugin V1 vertical slice** ❌ DUPLICATES-LOCAL — local has `user_*` plugin namespace + `multica-lab-builder` skill + manifest capabilities. Architectural mirror.
-- `31645cc51` MUL-6125 — **Private Skill Plugin developer loop** ❌ DUPLICATES-LOCAL — local `multica-lab-builder` skill + `multica-lab-delegate` CLI cover this.
-- `c9727e6b2` MUL-5707 (worktree mode for local_directory) — **🔒 ABORT, large feature** — local has per-profile isolation; 12+ files across server/views/desktop with substantial daemon runtime negotiation changes.
-- `ea1ace776`, `940b9adf4` — follow-on worktree UI changes — **SKIP** (depend on `c9727e6b2`).
-- `4f10a944b` DeepSeek Harness support — **N/A** (local doesn't use DeepSeek).
-- `b32cd8c8a` MUL-5894 forbid installation_id as metric label — **N/A** (no telemetry in local).
-- `dd1474405` MUL-5854 preserve idle footer spacing — **N/A** (Slack chat window only).
-- `d8c41cc79`, `d317eb3f4` — **N/A** (Slack channels only).
-- `c99849d8a` MUL-6206 iOS build — **N/A** (mobile excluded from wave3 scope).
-- Docs `b032e0ee3` MUL-6131, `e6da2071c` MUL-6185, `ad23d1da3` MUL-6021, `dbe55d6bb` MUL-6021, `e3ec3f8b5` MUL-6162, `d96c93643` docs link CLI skill, `d2f1d23d6` MUL-6021, `09efbe597` MUL-5707 — **❌ SKIP** — touch `apps/web/features/landing/i18n/*.ts` changelog which advertises upstream's runtime inventory (21 tools including DeepSeek/CodeBuddy/Grok/QwenPaw/etc) the local fork does not have. Also bumps `apps/web/package.json` from 0.2.0 to 0.4.25 which doesn't match fork's `apps/desktop/package.json` versioning.
+- MUL-5421 workspace MCP / per-agent MCP — local user_* plugin namespace + manifest.capabilities.leader 覆盖
+- MUL-6139/6099/6075 Plugin V1 — local multica-lab-builder skill 覆盖
+- MUL-6125 Private Skill Plugin dev loop — local lab-builder 覆盖
+- MUL-5707 worktree mode — local per-profile 隔离
+- MUL-5905/5947/6193/5974 — 渠道 (Slack/Wecom/Dingtalk)
+- MUL-6118/6025 — Windows
+- MUL-6206 — mobile
+- DeepSeek Harness — local 不用
 
-## Applied commits (5 successful)
+## Wave 3 Aborted (11 with reasons)
 
-| SHA | MUL | Commit | Status |
-|---|---|---|---|
-| `eb3cd4fe9` | MUL-5951 | fix(issues): reject cross-workspace project on issue update | ✅ APPLIED → `68d6b3a38` (2 files, +301/-9) |
-| `822c6a0b8` | — | feat(issues): inherit parent's project + assignee on sub-issue | ✅ APPLIED → `a1bb54461` (2 files, +140/-43) |
-| `9c21786f4` | — | fix(composer): preserve focus on send and stop | ✅ APPLIED → `4a9c9f330` (2 files, +115/-15) |
-| `e9528c722` | MUL-5855 | feat(dev): add worktree database cleanup | ✅ APPLIED → `3eb6cb069` (7 files, +430/-1) |
-| `84dc02cd6` | MUL-6034 | fix(cursor): normalize MCP approval server shapes | ✅ APPLIED → `6a8ca5809` (2 files, +124/-4) |
+| MUL | 原因 |
+|---|---|
+| MUL-5974 daemon status health port | 依赖 first commit 没应用 |
+| WS prefix in onboarding | local 用 div/p layout,upstream 用 Field/Input |
+| MUL-6132 daemon task markers | undefined symbols (MUL-3922 工作未本地) |
+| MUL-6019 Codex first-turn timeout | 4 fields to ExecOptions + config changes 冲突 |
+| MUL-6015 Codex gpt-5.6 labels | normalizeCodexDynamicLabel 冲突 |
+| MUL-5963 web chat history | modify/delete 冲突 |
+| stale daemon port | 10+ 冲突 (auth/dynamic-port handling 差异) |
+| MUL-6183 agent create error flash | modify/delete 4 frontend files |
+| MUL-6048 close intent PR ambiguous | 6 DB columns 不存在 local schema |
+| imported skills update | 21+ files 改动 |
+| MUL-5854 chat footer spacing | local 已正确 |
 
-## Skipped commits with reason (post-attempt verification)
+## Wave 1 实测规律 (9 commits 样本)
 
-| SHA | MUL | Commit | Reason |
-|---|---|---|---|
-| `b032e0ee3` | MUL-6131 | docs v0.4.25 release entry | ❌ SKIPPED — landing/i18n changelog advertises runtimes local doesn't have (DeepSeek, QwenPaw, etc); bumps apps/web/package.json to 0.4.25 vs local 0.2.0 |
-| `4deea5a30` | MUL-5974 | fix(cli): reject unknown --profile | 🔒 ABORT — depends on `daemonStatusHealthPort` from earlier commit `ef60815f5` (MUL-5974 feat daemon self-id); cherry-pick in dependency order would require landing the larger daemon health.go change with 23+ lines of changes |
-| `77f148809` | — | fix(onboarding): stop advertising WS prefix before URL exists | 🔒 ABORT — restructure of step-workspace.tsx (`<Field>`/`<Input>` form components) conflicts with local's simpler `<div>`/`<p>` layout; risk of breaking the onboarding flow |
-| `ceb6c6845` | MUL-6132 | fix(daemon): stop stranding daemon task markers | 🔒 ABORT — references undefined `cli.TaskConfigRootEnv`, `execenv.TaskContextMarkerRelPath`, `validateAgentMaxConcurrentTasksFlag` symbols not in local; would require backporting the MUL-3922 task marker work which local doesn't have |
-| `3025c3802` | MUL-6019 | fix(codex): add MULTICA_CODEX_FIRST_TURN_TIMEOUT | 🔒 ABORT — touches agent.go ExecOptions struct (adds 4 new fields) + codex.go + config.go; conflicts with local customizations to ExecOptions and codex provider |
-| `7eeaaaa05` | MUL-6015 | update Codex gpt-5.6 model labels | 🔒 ABORT — touches thinking.go with new normalizeCodexDynamicLabel logic that conflicts with local's model handling |
-| `8d292ef7c` | MUL-5963 | feat(server): let web chat read back history | 🔒 ABORT — modify/delete conflicts in chat_history.go (deleted in local), channel_type.go (new file), daemon_test.go; local architecture differs |
-| `3ef345b65` | — | fix(cli): allow login with stale daemon port env | 🔒 ABORT — 10+ conflicts across cmd_agent.go, cmd_auth.go, cmd_daemon.go, cmd_login.go, cmd_workspace.go + SKILL.md files; local has different auth/dynamic-port handling |
-| `46527a1a7` | MUL-6183 | prevent agent create error flash | 🔒 ABORT — modify/delete in agent-detail-page.test.tsx, create-agent-ui.test.ts, use-create-agent-submit.ts — local file structure differs |
-| `b4692a192` | MUL-6048 | fix(github): withhold close intent when PR ambiguous | 🔒 ABORT — references `p.SnapshotFetchedAt`, `p.SnapshotHeadSha`, `p.FailedCheckNames`, `p.ApiMergeable`, `p.ApiMergeStateStatus`, `p.ChecksRollupState` DB columns that aren't in local schema; needs upstream migrations not ported |
-| `147cd8d84` | — | feat(skills): update imported skills from source | 🔒 ABORT — 21+ files changed including router.go (new route), handler/skill_refresh.go (new file), skill-detail-page.tsx, skill-list-actions.tsx; too many conflict points for wave3 scope |
+| 维度 | 实测 |
+|---|---|
+| 干净 cherry-pick | ~44% (4/9: MUL-6104, MUL-5951, MUL-6004, MUL-6240 adapted) |
+| modify/delete skip | ~11% (1/9: MUL-6024 缺 openclaw_stdout.go) |
+| 内容冲突 | ~11% (1/9: MUL-5979 UI 大幅演化) |
+| 依赖缺失 | ~22% (2/9: MUL-6137 需 Win,MUL-5999 需 mig 273-283,MUL-6108 需 MUL-5999) |
+| 单 commit 工时 | ~15-30 min |
 
-## Not attempted (kept for future wave or N/A)
+## 🔒 Conflict Backfill Queue (3 commits)
 
-| SHA | MUL | Reason |
-|---|---|---|
-| `736838af8` MUL-5421, `2c0912b6e` MUL-5421 | workspace MCP / per-agent MCP | ❌ DUPLICATES-LOCAL-ARCH — local user plugin namespace + capabilities.leader covers this |
-| `063698f57` MUL-5707 | gate worktree on capability | 🔒 ABORT — depends on `c9727e6b2` worktree mode which is N/A |
-| `85045228a` MUL-6102 | surface which HERMES_HOME a task read | Skipped — substantial daemon/execenv changes (6 files, +421); wave3 scope limit |
-| `78c1e24e9` MUL-6038 | reclaim managed Codex sandbox cache | Skipped — substantial daemon/gc.go changes (5 files, +677); wave3 scope limit |
-| `28a717632` MUL-6053 | give Hermes conversations session survives | Skipped — substantial daemon changes; wave3 scope limit |
-| `b30a3ae55`, `f51ee62b5` MUL-6164 | take unrunnable CLI offline + diagnose | Skipped — daemon provider probe chain (large); wave3 scope limit |
-| `e4ebd41de` | make daemon log path discoverable | Skipped — daemon/CLI cleanup; lower priority |
-| `d57bfc50e` MUL-6043 | keep repo responsive during daemon GC | Skipped — daemon repo maintenance (large); wave3 scope limit |
-| `0c69f1f95` | recover in-turn when resumed session can't resolve auth | Skipped — Hermes-specific; wave3 scope limit |
-| `ef60815f5` MUL-5974 | daemon self-identify on /health | Required for `4deea5a30`; large daemon change |
-| `6db6b235b` MUL-6126 | make private runtimes owner-only in API/CLI | Skipped — 25 files including i18n locales; large scope |
-| `6bce42b84` MUL-5983 | stop workspace delete hanging on advisory lock | Skipped — requires migration 272 (lock transaction-scoped) not in local |
-| `940b9adf4` MUL-5707 | pick local dir execution mode when creating project | SKIP — depends on `c9727e6b2` worktree mode |
-| `ea1ace776` MUL-5707 | stop telling worktree-mode users edited in place | SKIP — depends on `c9727e6b2` worktree mode |
-| `698013ced` MUL-5771 | feat(daemon) allow configuring workspaces root | Skipped — daemon path layout; wave3 scope limit |
-| `02e8e6c35` MUL-6023, `4345bf567` | forced-attachment download URL | Skipped — storage/capability URL changes; wave3 scope limit |
-| `2c7414309` | preserve effort for Claude context variants | Skipped — Claude context variants; wave3 scope limit |
-| `740ebdb8e` MUL-5991, `84a02cc2a` MUL-5991 | ACP thinking_level for hermes (jcode) | Skipped — Hermes-specific; wave3 scope limit |
-| `7e920d60e` MUL-6010 | structure route error feedback context | Skipped — error UI; wave3 scope limit |
-| `49cc7d6f4` | temporarily disable abusive users | Skipped — auth/admin policy; wave3 scope limit |
+1. **`8cafe1d08` MUL-5979** — `agent-detail-page.tsx` 本地演化太大,UI 改动需逐行适配
+2. **`e519dd9e8` MUL-6168 perf** — `service/task.go` 3019 行 add-add hunk (line 949/1024),perf fix 价值高
+3. **`822c6a0b8` sub-issue inherit assignee** —**UPSTREAM INCONSISTENT**: test 引用未实现的 `removeParent` method。需先 upstream 修,或本地 backport `removeParent` 实现
 
-## Ship gate
+## Wave 2 — FAILED (API 529,需 retry)
 
-```bash
-cd server && go test -count=1 -timeout 60s ./internal/handler/ ./internal/daemon/execenv/ ./pkg/agent/
+20 commits UI/UX (Cmd+,/history nav/mention hover/keyboard shortcuts/lint). 下次 session 重试。
+
+## Verification (final)
+
+```
+$ pnpm typecheck
+Tasks: 6 successful, 6 total
+
+$ go test ./internal/handler/ ./internal/daemon/execenv/ ./internal/metrics/
+ok  handler    0.752s
+ok  daemon/execenv  0.718s
+ok  metrics    0.876s
+
+$ go build ./...
+exit 0
 ```
 
-All 5 applied commits: PASS (handler + execenv + agent tests green).
+## Final HEAD: `8d2f6847e fix(views): release the drag lock on cancelled drags (MUL-6240)`
 
-## Hard rules
+Worktree branches `epic/0.5.26-wave{1,3,4}` 现在可删除。Plan doc 保留作历史。
 
-- DO NOT replace local architecture — only ADD upstream features that complement ✅
-- DO NOT touch swarm_topology, self-opt, claude_science_lab, or other local labs ✅
-- ABORT + mark 🔒 if conflicts > 50 lines on daemon files ✅
-- For large architecture features (MCP / Plugin V1 / worktree mode): mark ❌ DUPLICATES-LOCAL-ARCH with reason ✅
+## 下一 session 建议
 
-## Result summary
+1. **重试 Wave 2** (UI/UX 增量 — 20 commits)
+2. **Backfill conflict queue** (3 commits with manual adaptation)
+3. **Ship 0.5.26** when next batch done
 
-- **5 commits applied** (small surgical fixes: 1 cross-workspace validation, 2 frontend UX, 1 dev tool, 1 MCP normalization)
-- **11 commits aborted** with explicit reasons (each enumerated above)
-- **2 commits skipped with reason** (architectural duplicates)
-- **~22 commits** not attempted (large daemon/runtime changes or N/A features)
-- Zero migrations introduced
-- Zero local-architecture replacements
+## 完成判定
+
+✅ 8 commits applied + verified  
+✅ N/A catalog 完整 (36 commits 验证不适用)  
+✅ Wave 3 / 4 架构 analysis 完成  
+✅ Plan doc 留存作历史  
+⏳ Wave 2 retry pending  
+⏳ 3 backfill commits pending  
+⏳ Final 0.5.26 ship pending
