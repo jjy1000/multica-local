@@ -3959,9 +3959,9 @@ func TestInjectRuntimeConfigAssignmentTriggerMentionsRecent(t *testing.T) {
 
 // TestInjectRuntimeConfigIssueMetadataSectionScope locks in MUL-2017:
 // the `## Issue Metadata` section (semantic guide + recommended keys +
-// pin/clear rules) and the `metadata list` workflow step are emitted only
-// when the task carries a real issue id (comment-triggered or
-// assignment-triggered). Chat / quick-create / run-only autopilot don't
+// pin/clear rules) and the metadata-read guidance on the issue-get step
+// are emitted only when the task carries a real issue id (comment-triggered
+// or assignment-triggered). Chat / quick-create / run-only autopilot don't
 // have an issue, so injecting the section there would just guarantee a
 // failed CLI call on every entry. The discovery line in Available
 // Commands → Core is global and must appear everywhere so that the agent
@@ -4056,7 +4056,7 @@ func TestInjectRuntimeConfigIssueMetadataSectionScope(t *testing.T) {
 			provider: "claude",
 			filename: "CLAUDE.md",
 			workflowStepPresent: []string{
-				"multica issue metadata list issue-md-1 --output json",
+				"its JSON already carries the issue's `metadata` bag",
 				"See the `## Issue Metadata` section above",
 				// Exit step must show both write and delete, not just
 				// "set" — stale-key cleanup is the half that keeps
@@ -4064,6 +4064,11 @@ func TestInjectRuntimeConfigIssueMetadataSectionScope(t *testing.T) {
 				"multica issue metadata set",
 				"multica issue metadata delete",
 				"Before exiting",
+			},
+			// The redundant standalone read was folded into the
+			// issue-get step (upstream #7016) — it must not come back.
+			workflowAbsent: []string{
+				"multica issue metadata list issue-md-1 --output json",
 			},
 			want: withSection,
 		},
@@ -4073,11 +4078,16 @@ func TestInjectRuntimeConfigIssueMetadataSectionScope(t *testing.T) {
 			provider: "claude",
 			filename: "CLAUDE.md",
 			workflowStepPresent: []string{
-				"multica issue metadata list issue-md-2 --output json",
+				"its JSON already carries the issue's `metadata` bag",
 				"See the `## Issue Metadata` section above",
 				"multica issue metadata set",
 				"multica issue metadata delete",
 				"Before exiting",
+			},
+			// The redundant standalone read was folded into the
+			// issue-get step (upstream #7016) — it must not come back.
+			workflowAbsent: []string{
+				"multica issue metadata list issue-md-2 --output json",
 			},
 			want: withSection,
 		},
@@ -4187,8 +4197,13 @@ func TestInjectRuntimeConfigIssueMetadataCodexFormattingUnchanged(t *testing.T) 
 		if !strings.Contains(s, "## Issue Metadata") {
 			t.Fatalf("Issue Metadata section missing\n---\n%s", s)
 		}
-		if !strings.Contains(s, "multica issue metadata list issue-md-codex --output json") {
-			t.Fatalf("metadata list step missing\n---\n%s", s)
+		if !strings.Contains(s, "its JSON already carries the issue's `metadata` bag") {
+			t.Fatalf("metadata-in-issue-get guidance missing\n---\n%s", s)
+		}
+		// The standalone read step folded into issue-get (upstream #7016)
+		// must not reappear.
+		if strings.Contains(s, "multica issue metadata list issue-md-codex --output json") {
+			t.Fatalf("redundant metadata list step present\n---\n%s", s)
 		}
 		// ...AND the post-#4182 file-first rule is still emitted on Linux.
 		if !strings.Contains(s, "always write the comment body to a UTF-8 file with your file-write tool first, then post it with `--content-file <path>`") {
