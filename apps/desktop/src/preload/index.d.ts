@@ -52,6 +52,12 @@ interface DesktopAPI {
   onNavigationGesture: (callback: (gesture: NavigationGesture) => void) => () => void;
   /** Report the renderer's memory-router path for recovery diagnostics. */
   setRendererRouteContext: (context: RendererRouteContextInput) => void;
+  /** Report the resolved account identity so stale issue windows can close.
+   *  Optional in the fork: the preload does not implement it (fork has no
+   *  main-process consumer for the auth-session signal), but the renderer
+   *  bridge still calls it via optional-chain to keep upstream parity with
+   *  MUL-6254 (#7058). */
+  reportAuthSession?: (userId: string | null) => void;
   /** Open the OS folder picker and return the chosen absolute path.
    *  Used by the Project settings "Add local directory" flow. */
   pickDirectory: (

@@ -52,10 +52,13 @@ export function WorkspaceRouteLayout() {
     if (!isAuthLoading && !user) navigate(paths.login(), { replace: true });
   }, [isAuthLoading, user, navigate]);
 
-  const { data: workspace, isFetched: listFetched } = useQuery({
+  const { data: workspace } = useQuery({
     ...workspaceBySlugOptions(workspaceSlug ?? ""),
     enabled: !!user && !!workspaceSlug,
   });
+  // A failed background refetch retains the last authoritative selection.
+  // Only undefined means the shared workspace list has never resolved.
+  const listReady = workspace !== undefined;
 
   const { data: wsList } = useQuery({
     ...workspaceListOptions(),
@@ -80,17 +83,17 @@ export function WorkspaceRouteLayout() {
   // inconsistent "tab in group X with path /" state.
   useEffect(() => {
     if (!user) return;
-    if (!listFetched) return;
+    if (!listReady) return;
     if (workspace) return;
     if (hasBeenSeen) return; // active eviction in flight — let the other path win
     if (!wsList) return;
     const validSlugs = new Set(wsList.map((w) => w.slug));
     useTabStore.getState().validateWorkspaceSlugs(validSlugs);
-  }, [user, listFetched, workspace, hasBeenSeen, wsList]);
+  }, [user, listReady, workspace, hasBeenSeen, wsList]);
 
   if (isAuthLoading) return null;
   if (!workspaceSlug) return null;
-  if (!listFetched) return null;
+  if (!listReady) return null;
   if (!workspace) return null; // auto-heal effect above handles the cleanup
 
   return (
