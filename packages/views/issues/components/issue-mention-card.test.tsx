@@ -56,13 +56,14 @@ describe("IssueMentionCard", () => {
     expect(openInNewTab).not.toHaveBeenCalled();
   });
 
-  it("cmd-click opens a background tab labeled with the issue identifier (desktop)", () => {
+  it("cmd-click opens a background tab (desktop)", () => {
     const push = vi.fn();
     const openInNewTab = vi.fn();
     renderCard(makeAdapter({ push, openInNewTab }));
 
     fireEvent.click(screen.getByTestId("issue-chip"), { metaKey: true });
-    expect(openInNewTab).toHaveBeenCalledWith("/acme/issues/issue-1", "MUL-7");
+    // Fork AppLink's openInNewTab takes only the href (no new-tab title).
+    expect(openInNewTab).toHaveBeenCalledWith("/acme/issues/issue-1");
     expect(push).not.toHaveBeenCalled();
   });
 
