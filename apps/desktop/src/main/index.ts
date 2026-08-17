@@ -5,7 +5,7 @@ import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import fixPath from "fix-path";
 import { setupAutoUpdater } from "./updater";
 import { setupServerManager, ensureServerUp, getServerStatus } from "./server-manager";
-import { setupDaemonManager, stopDaemon } from "./daemon-manager";
+import { setupDaemonManager, stopDaemon, initTargetApiUrl } from "./daemon-manager";
 import { stopServerManager } from "./server-manager";
 import {
   setupPythiaIPC,
@@ -703,6 +703,13 @@ if (!gotTheLock) {
         console.error("[server-manager] ensureServerUp threw:", err);
       }
     })();
+    // Seed targetApiBaseUrl from desktop.json so the main-process auto-start
+    // path (which fires before the renderer IPC) gets the canonical URL too.
+    // Without this the fix in commit e4a69d314 (0.5.27) is conditional —
+    // cold-launch with prefs.autoStart on can still hit the SearXNG-on-8080
+    // fallback. Renderer IPC (daemon:set-target-api-url) still wins because
+    // initTargetApiUrl is a no-op when targetApiBaseUrl is already set.
+    if (runtimeConfigResult.ok) initTargetApiUrl(runtimeConfigResult.config.apiUrl);
     setupDaemonManager(() => mainWindow);
     // Experimental flag IPC. Brings the Pythia subprocess up on demand
     // when the pythia_oracle flag is enabled; sees no traffic when the

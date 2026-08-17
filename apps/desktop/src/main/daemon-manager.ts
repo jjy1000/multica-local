@@ -1329,6 +1329,28 @@ function isPrivateIPv4(host: string): boolean {
   return false;
 }
 
+/**
+ * Seed `targetApiBaseUrl` from the canonical desktop.json `apiUrl` so the
+ * main-process auto-start path (which fires before the renderer IPC handler
+ * `daemon:set-target-api-url` ever runs) gets the correct URL. Without this
+ * seed the renderer-conditional fix in commit e4a69d314 (0.5.27) is a no-op
+ * on cold launch: `targetApiBaseUrl === null` → `resolveActiveProfile()`
+ * returns `DEFAULT_HEALTH_PORT` → the daemon falls back to
+ * `daemon.DefaultServerURL = "ws://localhost:8080/ws"` (the SearXNG-on-8080
+ * bug this whole class of fix was meant to prevent).
+ *
+ * Renderer IPC still wins — it calls `setTargetApiUrl` later and overwrites
+ * this seed. We only seed when currently null so we never clobber a
+ * renderer-provided value.
+ *
+ * Same F-027 allowlist as the renderer IPC: only loopback / private LAN
+ * http(s) URLs are accepted.
+ */
+export function initTargetApiUrl(url: string): void {
+  if (!isAllowedTargetApiUrl(url)) return;
+  if (targetApiBaseUrl === null) targetApiBaseUrl = url;
+}
+
 export function setupDaemonManager(
   windowGetter: () => BrowserWindow | null,
 ): void {
