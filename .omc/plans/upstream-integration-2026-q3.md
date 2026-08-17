@@ -2,7 +2,7 @@
 name: upstream-integration-2026-q3
 description: 上游 multica-ai/multica v0.4.26 全谱 cherry-pick sweep final consolidated report (2026-08-17)
 created: 2026-08-17T10:00:00Z
-updated: 2026-08-17T04:41:40Z
+updated: 2026-08-17T05:00:00Z
 ---
 
 # Upstream Integration 2026 Q3 — Final Consolidated Report
@@ -140,9 +140,39 @@ Test Files 3 passed / Tests 62 passed
 
 ## 完成判定
 
-✅ 8 (batch 1) + 5 (batch 2) = **13 commits applied + verified**  
+✅ 8 (batch 1) + 5 (batch 2) + **8 (session 续 — Tier 1-3)** = **21 commits applied + verified**  
 ✅ N/A catalog 完整 (36 commits 验证不适用)  
 ✅ Wave 3 / 4 架构 analysis 完成  
 ✅ Backfill 3/3 (MUL-6168 ✓, sub-issue ✓ source-only, MUL-5979 仍待)  
 ⏳ Wave 2 17/20 pending (429 配额限制)  
 ⏳ Final 0.5.26 ship pending (需 user 授权 `make ship-mac`)
+
+## Session 续 (2026-08-17, Tier 1-3) — 8 commits
+
+Tier 1 (Go bug/perf):
+| 本地 SHA | Upstream | 主题 |
+|---|---|---|
+| `21ef71a24` | `8b1acfd19` | execenv metadata fold — 双路径(slim+legacy verbose)适配,0.5.15 lesson 重演 |
+| `4de64b083`+`611f75430` | `e4ebd41de` | daemon log 绝对路径 + 本地测试 pin |
+| `449b6b605` | `f51ee62b5` | MUL-6164 exec_format core (ExplainExecError + ReasonAgentRuntimeMissingExecutable + 4 locale) |
+
+Tier 2 (i18n — 本地化定位): `12a286d47` (date-i18n useLocale, gantt source)、heatmap localize 600c5a8 (source)、`4dd89d616` (MUL-6050 slug 拼音化,含 celestial-workspace-names dep + step-workspace matchLocale 适配)
+
+Tier 3 (UI/UX): `561f1daf9` (MUL-6233 Cmd+, 设置 — ShortcutInput 加 alt/isAutoRepeat + preload ipcRenderer.on 适配)、`a4b362e70` (16f9f2522 inbox archive "E" 快捷键 — 只 wire handleArchive,去 handleUnarchive)
+
+**Aborted (原因)**: 19155e41f prompt compress (本地 Available Commands 已演化)、a954dec8e test-only (525 行测试冲突)、b30a3ae55 MUL-6164 wiring (18 文件冲突)、a077ace2f/1ddc3812a/367e7ee6e tab-bar 簇 (本地 tab-bar 演化 + MRU)、2cd836d3d MUL-6218 (本地 sidebar 有 resize,upstream 用 hasExternalTrigger — 不同 context 设计)、a3dfd2439 MUL-6082 (同上)
+**N/A**: 49cc7d6f4 auth 封禁滥用 (单用户 fork 无滥用向量)
+**Deferred (设计级移植)**: MUL-6107 runtime GC 保留历史 (migration 缺口 246→309 + sqlc)、MUL-6126 私有 runtime (25 文件)、MUL-6053/6102 Hermes 系列 (482 行新文件 + Hermes 专有)
+
+**Pre-existing flaky 确认**: `TestQuickCreateIssueParentTrustBoundary` 在 batch-2 基线 (6ec1b4959) 同样失败 — `daemon_version_unsupported` metadata race,非本 session 回归。0.5.25 fix 只修了 isRuntimeOnline race,metadata 竞争仍存。
+
+## Verification (session 续)
+
+```
+pnpm typecheck: 6/6 全绿
+go test ./internal/... ./pkg/agent/... ./cmd/multica/: 全过(除上述 pre-existing flaky)
+keyboard-shortcuts tests: 30/30
+slug/step-workspace tests: 14/14
+```
+
+## Final HEAD: `3426bf235 fix(desktop): add alt/isAutoRepeat to ShortcutInput`
