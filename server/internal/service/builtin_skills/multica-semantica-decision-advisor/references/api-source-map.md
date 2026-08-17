@@ -61,9 +61,17 @@ Record-decision body shape:
 | Load from URL | POST | `/ontology/load` | `url` (optional: `format`) |
 | Create ontology | POST | `/ontology/create` | `source` (text / data) |
 | Ontology health | GET | `/ontology/health` | — |
+| Suggest alignments | POST | `/ontology/suggest-alignments` | `source_uri`, `target_uri` |
 | List alignments | GET | `/ontology/alignments?uri={uri}` | `uri` |
 | Save alignment | POST | `/ontology/alignments` | `source_uri`, `target_uri`, `relation` |
+| SHACL generate | POST | `/ontology/shacl/generate` | `uri`, `source` |
+| SHACL list shapes | GET | `/ontology/shacl/shapes` | — |
+| SHACL validate | POST | `/ontology/shacl/validate` | `uri`, `graph_id` |
+| SKOS schemes | GET | `/ontology/skos/schemes` | — |
+| SKOS search | POST | `/ontology/skos/search` | `query`, optional `scheme` |
+| SKOS concept | GET | `/ontology/skos/concept/{uri}` | `uri` |
 | Draft versions | GET | `/ontology/drafts/{uri}` | `uri` |
+| Save draft | POST | `/ontology/draft` | `uri`, `payload` |
 
 ## SPARQL + Import/Export
 
