@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { FlaskConical, Loader2 } from "lucide-react";
 import { useExperimentalFlag } from "@multica/core/experimental";
+import { getCurrentWsId } from "@multica/core/platform";
 import { useT } from "@multica/views/i18n";
 import { DragStrip } from "@multica/views/platform";
 
@@ -37,8 +38,13 @@ export function SemanticaExplorerView() {
     let cancelled = false;
 
     async function bootAndPoll() {
+      // 0.5.29 P0-2: per-workspace subprocess key. The IPC dispatcher
+      // validates wsId against WS_ID_REGEX before any path
+      // interpolation; a null wsId (pre-workspace login screen)
+      // fails the boot with a clear error.
+      const payload = { workspaceId: getCurrentWsId() };
       try {
-        await window.experimentalAPI.invoke("semantica", "ensure-up");
+        await window.experimentalAPI.invoke("semantica", "ensure-up", payload);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
@@ -49,10 +55,12 @@ export function SemanticaExplorerView() {
         const nextStatus = (await window.experimentalAPI.invoke(
           "semantica",
           "get-status",
+          payload,
         )) as string | null;
         const nextUrl = (await window.experimentalAPI.invoke(
           "semantica",
           "get-url",
+          payload,
         )) as string | null;
         setStatus(nextStatus ?? "idle");
         if (nextUrl) {

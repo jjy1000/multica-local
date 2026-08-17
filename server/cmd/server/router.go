@@ -504,12 +504,20 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	r.Get("/healthz", health.readyHandler)
 
 	// Experimental / Labs same-origin proxies (0.3.12).
-	// Mounted on the public router because the desktop iframe is
-	// only reachable from inside the app, which is itself gated by
-	// username-only login. The proxies reverse-traffic to the
-	// loopback URL the desktop main process sets via
-	// handler.SetExperimentalLoopbackURL whenever a manager boots.
-	handler.MountExperimentalProxies(r, h)
+	// 0.5.29 P1-1 — synthesizer Round 7: moved INSIDE the auth
+	// chain (see `r.Group(middleware.Auth...)` below). The proxies
+	// used to be mounted on the public router because the iframe
+	// "is only reachable from inside the app" — but R4 surfaced the
+	// pre-auth credential oracle: MountExperimentalProxies mounted
+	// before the auth chain meant any caller that could reach
+	// /experimental/semantica/* (an X-API-Key set on the request
+	// line) got the proxy to forward that key verbatim while
+	// Cookie/Authorization were stripped, yielding an
+	// unauthenticated credential grant. The iframe stays
+	// same-origin, so cookies are auto-attached; gating on
+	// middleware.Auth closes the pre-auth reachability without
+	// changing the renderer's call shape.
+	// handler.MountExperimentalProxies(r, h) -- see below, in the auth group
 
 	// 0.3.19 P2: bind install handlers to the experiment registry.
 	// The dispatcher in experimental_resources.go reads
@@ -947,6 +955,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// Protected API routes
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(queries, patCache))
+		// 0.5.29 P1-1 — synthesizer Round 7: MountExperimentalProxies
+		// lives INSIDE the auth chain. Pre-0.5.29 it was mounted on
+		// the public router "because the iframe is only reachable
+		// from inside the app" — but R4 surfaced the pre-auth
+		// credential oracle (MountExperimentalProxies sits before
+		// the auth chain, and reverseProxyTo.Director does NOT
+		// strip caller-supplied X-API-Key). Moving it INSIDE the
+		// auth group closes the pre-auth reachability. The iframe
+		// stays same-origin, so cookies are auto-attached; gating
+		// on middleware.Auth is transparent to the renderer.
+		handler.MountExperimentalProxies(r, h)
 		// middleware.RefreshCloudFrontCookies removed with cloud-billing.
 
 		// --- Experimental Labs surfaces (per-request, per-user gated) ---

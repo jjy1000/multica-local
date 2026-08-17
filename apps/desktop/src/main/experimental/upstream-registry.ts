@@ -37,9 +37,17 @@ import { app } from "electron";
 // subprocess flag (e.g. code_canvas) can register without editing a
 // TS union here. The desktop side only forwards; the server is the
 // authority on which services may register.
+//
+// 0.5.29 P1-1 — synthesizer Round 7: `key` is the per-launch
+// X-API-Key the subprocess-manager generated and threaded through
+// SEMANTICA_API_KEY. Empty when the subprocess opted into
+// SEMANTICA_ALLOW_ANONYMOUS=true (anonymous mode); the server's
+// reverse-proxy Director still runs the unconditional Del so a
+// caller-supplied key never reaches the upstream.
 interface UpstreamRegistryEntry {
   service: string;
   url: string;
+  key?: string;
 }
 
 // apiBaseURL resolves the desktop's notion of the local server URL.
@@ -81,13 +89,14 @@ async function apiBaseURL(): Promise<string> {
 export async function registerExperimentalUpstream(
   service: UpstreamRegistryEntry["service"],
   url: string,
+  key: string = "",
 ): Promise<void> {
   const base = await apiBaseURL();
   try {
     const res = await fetch(`${base}/__experimental/upstream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ service, url } satisfies UpstreamRegistryEntry),
+      body: JSON.stringify({ service, url, key } satisfies UpstreamRegistryEntry),
     });
     if (!res.ok) {
       process.stderr.write(

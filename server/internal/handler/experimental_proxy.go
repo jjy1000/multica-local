@@ -113,7 +113,17 @@ func AttachExperimentalRegistry(reg *experimental.Registry) {
 // reverseProxyTo forwards the request to upstream after stripping
 // the routing prefix. Shared logic so Claude Science and Pythia
 // don't each maintain their own director.
-func reverseProxyTo(w http.ResponseWriter, r *http.Request, upstream, prefix string) {
+//
+// 0.5.29 P1-1 — synthesizer Round 7: apiKey is the per-flag X-API-Key
+// the subprocess-manager threads via upstreamRegister IPC for
+// SEMANTICA_REQUIRE_AUTH=1. The Director UNCONDITIONALLY deletes the
+// caller's X-API-Key header before setting the in-memory value —
+// without the unconditional Del, a renderer-supplied (or
+// unproxied-direct-call) X-API-Key would survive the conditional Set
+// path and turn the proxy into an unauthenticated credential oracle
+// (R4 TOP-1 attack). An empty apiKey means "anonymous mode
+// (SEMANTICA_ALLOW_ANONYMOUS=true)" — the Del still runs, no Set.
+func reverseProxyTo(w http.ResponseWriter, r *http.Request, upstream, prefix, apiKey string) {
 	target, err := url.Parse(upstream)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "invalid upstream URL")
@@ -136,6 +146,14 @@ func reverseProxyTo(w http.ResponseWriter, r *http.Request, upstream, prefix str
 		// session — see the loopback-only guard in upstreamRegister.
 		req.Header.Del("Cookie")
 		req.Header.Del("Authorization")
+		// 0.5.29 P1-1: unconditional X-API-Key replace. R4 TOP-1
+		// attack: a conditional `if apiKey != ""` plus no Del would
+		// forward the caller's X-API-Key verbatim, turning the
+		// proxy into an unauthenticated credential oracle.
+		req.Header.Del("X-API-Key")
+		if apiKey != "" {
+			req.Header.Set("X-API-Key", apiKey)
+		}
 		// Carry workspace context (no-op today, future-proofing).
 		if ws := r.Header.Get("X-Workspace-ID"); ws != "" {
 			req.Header.Set("X-Workspace-ID", ws)
@@ -219,6 +237,12 @@ func MountExperimentalProxies(r chi.Router, h *Handler) {
 // loopback URL keyed by the flag's LoopbackService. Generated
 // rather than written by hand so a new subprocess flag lights up
 // without touching this file.
+//
+// 0.5.29 P1-1 — synthesizer Round 7: lookup the per-flag API key
+// from h.ExperimentalFlagAPIKeys (in-memory, populated by
+// upstreamRegister's body.key field). The lookup happens at request
+// time so a fresh upstreamRegister after a manager restart is picked
+// up on the next request without a remount.
 func mountExperimentalProxy(exp chi.Router, h *Handler, p experimental.ProxyRoute) {
 	prefix := experimental.NormalizeProxyPrefix(p.Prefix)
 	if prefix == "" {
@@ -231,7 +255,14 @@ func mountExperimentalProxy(exp chi.Router, h *Handler, p experimental.ProxyRout
 				p.LoopbackService+" manager is not running — open the sidebar entry to start it")
 			return
 		}
-		reverseProxyTo(w, r, upstream, prefix)
+		// Read-lock so a concurrent upstreamRegister doesn't tear
+		// the map mid-lookup. The lock window is one map access; we
+		// do NOT hold it across the proxy call (which would block
+		// every other prox call on every restart).
+		h.ExperimentalFlagAPIKeysMu.RLock()
+		apiKey := h.ExperimentalFlagAPIKeys[p.LoopbackService]
+		h.ExperimentalFlagAPIKeysMu.RUnlock()
+		reverseProxyTo(w, r, upstream, prefix, apiKey)
 	}
 	exp.HandleFunc(prefix+"/*", handler)
 	exp.HandleFunc(prefix, handler)
@@ -284,20 +315,33 @@ func injectExperimentalFlagHeader(reg *experimental.Registry) func(http.Handler)
 // bug; the burst middleware tests pin the value at the source.
 const experimentalHeader = "X-Experimental-Flag"
 
-// upstreamRegister accepts a {"service": "...", "url": "..."} body
-// from the desktop main process and stores it in the in-process
-// registry. Idempotent — a fresh spawn on a new port simply
-// overwrites the previous entry.
+// upstreamRegister accepts a {"service": "...", "url": "...", "key": "..."}
+// body from the desktop main process and stores it in the in-process
+// registry. Idempotent — a fresh spawn on a new port simply overwrites
+// the previous entry.
 //
 // 0.3.20: the service allowlist is registry-driven. A subprocess
 // flag is accepted when its LoopbackService appears in the
 // registry's ProxyRoutes(). The hard-coded {claude_science,
 // pythia_oracle} pair is the only valid set when the registry is
 // not wired (older boot paths, tests).
+//
+// 0.5.29 P1-1 — synthesizer Round 7: the optional `key` field carries
+// the subprocess's X-API-Key (generated in vendor/semantica/run.sh
+// when SEMANTICA_REQUIRE_AUTH=1, threaded over IPC by the desktop
+// main process). Stored in h.ExperimentalFlagAPIKeys (in-memory,
+// process-local); the pre-0.5.29 file path
+// ($GRAPH_PATH.api-key, 0600) is no longer the source of truth —
+// that file path is reachable by any user-plugin `python3 -I`
+// child, an F-013-class surface. Empty key → anonymous mode
+// (SEMANTICA_ALLOW_ANONYMOUS=true) — Director still runs the
+// unconditional Del so a caller-supplied key never reaches the
+// upstream.
 func (h *Handler) upstreamRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Service string `json:"service"`
 		URL     string `json:"url"`
+		Key     string `json:"key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -324,6 +368,18 @@ func (h *Handler) upstreamRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	SetExperimentalLoopbackURL(body.Service, body.URL)
+	// 0.5.29 P1-1: in-memory key transport. An empty key clears any
+	// previous entry (callers doing unregister send empty key).
+	h.ExperimentalFlagAPIKeysMu.Lock()
+	if h.ExperimentalFlagAPIKeys == nil {
+		h.ExperimentalFlagAPIKeys = make(map[string]string, 4)
+	}
+	if body.Key == "" {
+		delete(h.ExperimentalFlagAPIKeys, body.Service)
+	} else {
+		h.ExperimentalFlagAPIKeys[body.Service] = body.Key
+	}
+	h.ExperimentalFlagAPIKeysMu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 

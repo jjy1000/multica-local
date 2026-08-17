@@ -24,6 +24,11 @@ vi.mock("electron", () => ({
 
 import { resolveGenericSubprocessManager } from "./subprocess-manager";
 
+// Stable UUID used by the existing subprocess-manager tests. 0.5.29
+// P0-2 made wsId mandatory for the per-workspace cache key — every
+// call site below threads WS_ID through.
+const WS_ID = "00000000-0000-0000-0000-000000000001";
+
 function stageManifest(appPath: string, flagKey: string, manifest: unknown): void {
   const dir = join(appPath, "resources", "experiments", flagKey);
   mkdirSync(dir, { recursive: true });
@@ -48,9 +53,9 @@ describe("resolveGenericSubprocessManager", () => {
           surface: { loopback_service: "code_canvas_ok" },
         },
       });
-      const m = resolveGenericSubprocessManager("code_canvas_ok");
+      const m = resolveGenericSubprocessManager("code_canvas_ok", WS_ID);
       expect(m).not.toBeNull();
-      expect(m?.name).toBe("code_canvas_ok");
+      expect(m?.name).toBe(`code_canvas_ok@${WS_ID}`);
       // Not started yet → idle, no URL.
       expect(m?.status()).toBe("idle");
       expect(m?.url()).toBeNull();
@@ -66,8 +71,8 @@ describe("resolveGenericSubprocessManager", () => {
       stageManifest(tmp, "cache_flag", {
         spec: { runtime: { kind: "subprocess", binary: "x/run.sh" } },
       });
-      const a = resolveGenericSubprocessManager("cache_flag");
-      const b = resolveGenericSubprocessManager("cache_flag");
+      const a = resolveGenericSubprocessManager("cache_flag", WS_ID);
+      const b = resolveGenericSubprocessManager("cache_flag", WS_ID);
       expect(a).toBe(b);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
@@ -78,7 +83,7 @@ describe("resolveGenericSubprocessManager", () => {
     const tmp = mkdtempSync(join(tmpdir(), "generic-mgr-missing-"));
     (globalThis as { __TEST_APP_PATH__?: string }).__TEST_APP_PATH__ = tmp;
     try {
-      expect(resolveGenericSubprocessManager("no_such_flag")).toBeNull();
+      expect(resolveGenericSubprocessManager("no_such_flag", WS_ID)).toBeNull();
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -91,7 +96,7 @@ describe("resolveGenericSubprocessManager", () => {
       stageManifest(tmp, "inline_flag", {
         spec: { runtime: { kind: "inline" } },
       });
-      expect(resolveGenericSubprocessManager("inline_flag")).toBeNull();
+      expect(resolveGenericSubprocessManager("inline_flag", WS_ID)).toBeNull();
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -104,7 +109,7 @@ describe("resolveGenericSubprocessManager", () => {
       stageManifest(tmp, "flat_binary", {
         spec: { runtime: { kind: "subprocess", binary: "run.sh" } },
       });
-      expect(resolveGenericSubprocessManager("flat_binary")).toBeNull();
+      expect(resolveGenericSubprocessManager("flat_binary", WS_ID)).toBeNull();
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

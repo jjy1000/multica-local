@@ -164,7 +164,13 @@ export interface ResolvedManager {
 //     the desktop does not spawn anything for it.
 //   - none / unknown → return null so the dispatcher can throw a
 //     clean error rather than a partial handler.
-export function resolveManager(flagKey: string): ResolvedManager | null {
+//
+// 0.5.29, P0-2 — synthesizer Round 7: wsId is mandatory for the generic
+// subprocess path (semantica / code_canvas / llm_wiki_bridge). The IPC
+// dispatcher passes the current workspace UUID from the renderer; pythia
+// keeps its global singleton (workspace-agnostic). Passing null returns
+// null so the caller's wsId plumbing is observable in tests.
+export function resolveManager(flagKey: string, wsId: string | null = null): ResolvedManager | null {
   const desc = descriptorFor(flagKey);
   if (!desc || desc.kind === "none") return null;
   if (desc.kind === "subprocess") {
@@ -241,7 +247,10 @@ export function resolveManager(flagKey: string): ResolvedManager | null {
     // manifest-driven manager. This spawns the bundled binary,
     // health-checks it, and registers the loopback URL so the reverse
     // proxy serves it — no per-flag TypeScript needed.
-    const generic = resolveGenericSubprocessManager(flagKey);
+    //
+    // 0.5.29 P0-2: wsId is mandatory; resolveGenericSubprocessManager
+    // returns null when the IPC dispatcher forgot to validate.
+    const generic = resolveGenericSubprocessManager(flagKey, wsId);
     if (generic !== null) {
       return {
         flagKey,

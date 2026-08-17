@@ -384,8 +384,9 @@ const experimentalAPI = {
   invoke: (
     flagKey: string,
     verb: "get-status" | "get-url" | "ensure-up" | "stop",
+    payload?: { workspaceId?: string | null },
   ): Promise<unknown> =>
-    ipcRenderer.invoke(`experimental:${flagKey}:${verb}`),
+    ipcRenderer.invoke(`experimental:${flagKey}:${verb}`, payload ?? null),
   // 0.3.18 Labs safety net: list broken flags on Labs open, clear an
   // entry when the user clicks Restore. Mirrors the JSON wire shape
   // in server/internal/experimental/safety.go.

@@ -28,6 +28,7 @@
 import { ipcMain, type BrowserWindow } from "electron";
 import { resolveManager, descriptorsForKind, loadFlagDescriptors } from "./manager-factory";
 import { loadBrokenFlagKeys } from "../experimental-safety";
+import { isValidWorkspaceId } from "./subprocess-manager";
 
 // Re-export so index.ts can call the boot-time catalog loader
 // without importing manager-factory directly.
@@ -46,6 +47,28 @@ type RuntimeKind = "subprocess" | "inline" | "headless" | "none";
 // preload bridge (see apps/desktop/src/preload/* in a follow-up).
 function channelFor(flagKey: string, verb: string): string {
   return `${LabsChannelPrefix}${flagKey}:${verb}`;
+}
+
+// ExperimentalInvokePayload is the optional second-arg shape the
+// renderer passes alongside verb. Today only workspaceId is
+// consumed (semantica / code_canvas / llm_wiki_bridge per-workspace
+// subprocess keys).
+type ExperimentalInvokePayload = {
+  workspaceId?: string | null;
+};
+
+// extractWorkspaceId normalizes the payload's workspaceId to either
+// a validated UUID string or null. Returns null when the field is
+// absent (pre-workspace login screen, legacy renderer call site)
+// or invalid (renderer bug). Per P0-2 we re-validate the UUID
+// regex at the IPC boundary even though the renderer side is
+// expected to pass a clean UUID — defense-in-depth against a
+// renderer-side bug or future XSS / extension injection.
+function extractWorkspaceId(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const v = (payload as ExperimentalInvokePayload).workspaceId;
+  if (typeof v !== "string") return null;
+  return isValidWorkspaceId(v) ? v : null;
 }
 
 // setupExperimentalIPC registers the four generic IPC channels for
@@ -95,10 +118,27 @@ export async function setupExperimentalIPC(_windowGetter: () => BrowserWindow | 
         );
       });
     } else {
-      ipcMain.handle(channelFor(key, "ensure-up"), async () => m.ensureUp());
+      // 0.5.29 P0-2: per-workspace subprocess keys. The renderer
+      // passes the active wsId in payload.workspaceId; the
+      // dispatcher forwards to resolveManager() so
+      // subprocess-manager caches by (flagKey, wsId). pythia (its
+      // own dedicated manager) ignores the second arg.
+      ipcMain.handle(channelFor(key, "ensure-up"), async (_event, payload) => {
+        const wsId = extractWorkspaceId(payload);
+        const fresh = resolveManager(key, wsId) ?? m;
+        if (fresh.getStatus() === "idle" || fresh.getStatus() === "stopped") {
+          await fresh.ensureUp();
+        }
+        return fresh.ensureUp();
+      });
     }
-    ipcMain.handle(channelFor(key, "stop"), async () => {
-      await m.stop();
+    // stop() also re-resolves so a stale wsId never tears down
+    // the current workspace's manager. Pre-0.5.29 the singleton
+    // was global and one stop() killed every active workspace.
+    ipcMain.handle(channelFor(key, "stop"), async (_event, payload) => {
+      const wsId = extractWorkspaceId(payload);
+      const fresh = resolveManager(key, wsId) ?? m;
+      await fresh.stop();
     });
   }
 }

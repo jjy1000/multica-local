@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -132,6 +133,21 @@ type Handler struct {
 	// dispatcher in experimental_resources.go consults this registry
 	// instead of the historical installableSources allowlist.
 	ExperimentRegistry *experimental.Registry
+	// ExperimentalFlagAPIKeys (0.5.29, P1-1 — synthesizer Round 7)
+	// is the per-flag X-API-Key the subprocess-manager threads via
+	// upstreamRegister IPC when SEMANTICA_REQUIRE_AUTH=1. Keyed by
+	// LoopbackService (e.g. "semantica"). The reverse proxy reads
+	// the value in `reverseProxyTo.Director` and unconditionally
+	// replaces any caller-supplied X-API-Key with the in-memory
+	// value — R4 P1-1's unauthenticated-credential-oracle mitigation.
+	// Pre-0.5.29 the key traveled via the $GRAPH_PATH.api-key file
+	// on disk (0600), which any user-plugin `python3 -I` child could
+	// read; in-memory transport (process-local, no FS read) closes
+	// that F-013-class surface. The mutex protects against
+	// concurrent upstreamRegister / unregister calls from the
+	// desktop main process during a manager restart.
+	ExperimentalFlagAPIKeysMu sync.RWMutex
+	ExperimentalFlagAPIKeys    map[string]string
 	// MythosService (0.3.31) owns the enhancer-mode supervise
 	// goroutines. Boot wires it from cmd/server/router.go after
 	// h.Queries is available. Nil is acceptable (older builds or

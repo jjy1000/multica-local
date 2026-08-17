@@ -251,9 +251,14 @@ interface ExperimentalAPI {
   // 0.3.20: generic Labs invoke. Routes to the
   // `experimental:<flagKey>:<verb>` channel namespace. Use for
   // catalog-only flags without a dedicated manager surface.
+  //
+  // 0.5.29 P0-2: optional payload carries the active workspace UUID
+  // for per-workspace subprocess keys (semantica / code_canvas /
+  // llm_wiki_bridge). pythia's legacy channels ignore it.
   invoke(
     flagKey: string,
     verb: "get-status" | "get-url" | "ensure-up" | "stop",
+    payload?: { workspaceId?: string | null },
   ): Promise<unknown>;
 }
 
