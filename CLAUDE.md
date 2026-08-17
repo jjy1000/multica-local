@@ -2,7 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.33 (committed 2026-08-18, shipped + installed at /Applications/Multica.app).**
+> **Current release: 0.5.34 (committed 2026-08-18, shipped + installed at /Applications/Multica.app).**
+> MUL-6243 per-workspace custom issue statuses is now **end-to-end shippable**. Closes the deferred frontend half from 0.5.33. 4 atomic commits:
+> 1. `feat(core)` `18198caf4` — TS: `packages/core/types/issue-status.ts` (new: `IssueStatusCategory` 7-key union + `IssueStatusEntry` + `ListIssueStatusesResponse` envelope) + `packages/core/api/schemas.ts` (`IssueStatusEntrySchema` with `.loose()` + defaults; `ListIssueStatusesResponseSchema` + `EMPTY_LIST_ISSUE_STATUSES_RESPONSE` seeded with 7 built-ins) + `packages/core/api/client.ts` (4 methods: `listIssueStatuses` / `createIssueStatus` / `updateIssueStatus` / `archiveIssueStatus` with bearer + workspace headers) + `packages/core/api/schemas.test.ts` (+8 tests).
+> 2. `feat(cli)` `394a53cb0` — `validateIssueStatus` → format-only (lowercase + `[a-z0-9_]+` + 1-64 chars; server's `issuestatus.Resolve()` is the workspace-truth source); `cmd_issue_test.go` (+3 tests); `cmd_lab.go` `multica lab delegate --status` flag (default `todo`); `cmd_lab_test.go` `TestLabDelegateValidateIssueStatus` (7 built-ins + 2 customs + 1 malformed).
+> 3. `docs(skills)` `da1225de8` — `multica-working-on-issues/SKILL.md` + reference `working-on-issues-source-map.md`: documents `status_category` (children sub-issue per-stage done counter is category-aware via `issuestatus.Effective()`).
+> 4. `fix(core)` `f0eb6bd6c` — `EMPTY_LIST_ISSUE_STATUSES_RESPONSE.categories` seeded with 7 canonical built-ins so a client talking to a pre-0.5.34 backend still has the canonical list. Test switched to `parseWithFallback` (zod `.loose()` only allows extra fields on objects — non-object inputs still throw; matches upstream `446080bd5:1480-1494`).
+> **End-to-end usage** (after `launchctl setenv FF_CUSTOM_ISSUE_STATUSES true`):
+> - `GET /api/issue-statuses?include_archived=` → 7 built-ins + workspace customs
+> - `POST /api/issue-statuses` → create custom status (format-valid key + category)
+> - `PATCH /api/{id}` / `DELETE /api/{id}` (archive) → owner/admin only
+> - CLI: `multica issue create --status in_qa` accepts any format-valid key (server resolves against catalog)
+> - Frontend: `IssueSchema.status_category` carries the canonical category; picker works against older backends via the fallback
+> **Known limitation** (matches upstream scope): no settings UI for catalog CRUD. API + CLI are the only surfaces. Follow-up UI commit when needed.
+> Verification: `pnpm typecheck --force` 6/6 (34.6s) + `go build ./...` 0 + `go test ./cmd/multica/` ok (1.0s) + `vitest api/schemas.test.ts` 63/63 + ship chain 4a/7 PASS + cold-start PASS, server 0.5.34.
+> Process lesson: **small-scope briefings (≤600 LOC, tightly-scoped file list) avoided the autocompact thrash that 4 backend agents hit**. For ports >1500-2000 LOC, the main thread does the commit + ship chain; the agent does reading + editing only.
+> Release note `.omc/release-notes-0.5.34.md`. Memory `0.5.34-mul6243-frontend-2026-08-18.md`.
+> Deferred: MUL-6286 (actor/multi_actor properties — needs `@multica/core/properties` base), MUL-5991 (jcode), 0c69f1f95 (Hermes resume-auth), upstream new-commit scan (last: `9d6c0c81e` + 12 commits), MUL-6243 settings UI.
+>
+> **0.5.33 (committed 2026-08-18, shipped + installed at /Applications/Multica.app).**
 > MUL-6243 per-workspace custom issue statuses BACKEND + MUL-6291 jsdom removal. 3 atomic MUL-6243 commits + 1 MUL-6291 commit:
 > 1. `chore(migrations)` `b7da0f3f5` — 9 fork migrations 250–258 (verbatim upstream 332–340): `issue_status` catalog + 3 CONCURRENTLY indexes + drops the inline `issue_status_check` to a format-only CHECK + seeds 7 built-in statuses per existing workspace + installs `issue_effective_status(UUID, TEXT)` SQL function. 255 deliberately fails down if any custom status exists (refuse, don't destroy data). 3 concurrent-index cleanup entries added to MUL-6288 registry.
 > 2. `feat(issue-status)` `0800b5bdf` — `server/internal/issuestatus/` package (model + Resolve/Effective/Ensure with per-workspace cache, fail-open for built-ins, fail-closed for archived customs) + `handler/issue_status.go` (GET/POST/PATCH/DELETE, owner/admin only) + featureflag key (FF_CUSTOM_ISSUE_STATUSES, fork-divergence on `pkg/featureflag`).
