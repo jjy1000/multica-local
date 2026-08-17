@@ -323,15 +323,100 @@ UPDATE agent_runtime
 SET legacy_daemon_id = COALESCE(legacy_daemon_id, $2)
 WHERE id = $1;
 
--- name: DeleteStaleOfflineRuntimes :many
--- Deletes runtimes that have been offline for longer than the TTL and have
--- no agents bound (active or archived). The FK constraint on agent.runtime_id
--- is ON DELETE RESTRICT, so we must exclude all agent references.
-DELETE FROM agent_runtime
+-- name: CountUndrainedTasksByRuntimeOrAgent :one
+-- Belt-and-braces gate for the runtime-delete transaction: after cancelling,
+-- every task on this runtime OR owned by an agent being unbound must be terminal
+-- (completed_at IS NOT NULL) before the unbind UPDATE runs. The agent-side
+-- predicate must mirror CancelAgentTasksByRuntimeOrAgent: a task can remain
+-- pinned to another runtime after its agent moves. Non-zero means some
+-- non-terminal status escaped the cancel query — the handler aborts with 409
+-- runtime_delete_not_drained rather than letting the CHECK constraint turn it
+-- into an opaque 500, and rather than deleting rows to make it go away.
+SELECT count(*) FROM agent_task_queue
+WHERE (runtime_id = ANY(@runtime_ids::uuid[]) OR agent_id = ANY(@agent_ids::uuid[]))
+  AND completed_at IS NULL;
+
+-- name: UnbindTasksFromRuntime :execrows
+-- Detaches this runtime's task history so deleting the runtime row cannot
+-- cascade it away (agent_task_queue.runtime_id is ON DELETE CASCADE, and
+-- task_message / task_usage / task_token cascade from the task in turn).
+-- Restricted to terminal rows: an active task must keep its runtime, per
+-- agent_task_queue_active_requires_runtime. The caller runs
+-- CancelAgentTasksByRuntimeOrAgent +
+-- CountUndrainedTasksByRuntimeOrAgent first, so at this point "terminal" is
+-- every row on the runtime.
+UPDATE agent_task_queue
+SET runtime_id = NULL
+WHERE runtime_id = $1 AND completed_at IS NOT NULL;
+
+-- name: ListStaleOfflineRuntimeGCCandidates :many
+-- Bounded gather for runtime GC. Non-terminal task owners are deliberately
+-- excluded here so one permanently-deferred task cannot monopolise the front
+-- of every batch and starve otherwise-drainable runtimes. The per-runtime
+-- transaction re-checks every predicate after taking FOR UPDATE, so this is an
+-- efficiency filter rather than the correctness boundary.
+SELECT id FROM agent_runtime
 WHERE status = 'offline'
   AND last_seen_at < now() - make_interval(secs => @stale_seconds::double precision)
-  AND id NOT IN (SELECT DISTINCT runtime_id FROM agent)
-RETURNING id, workspace_id;
+  AND NOT EXISTS (
+    SELECT 1
+    FROM agent
+    WHERE agent.runtime_id = agent_runtime.id
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM agent_task_queue
+    WHERE agent_task_queue.runtime_id = agent_runtime.id
+      AND agent_task_queue.completed_at IS NULL
+  )
+ORDER BY last_seen_at ASC, id ASC
+LIMIT @max_per_tick::int;
+
+-- name: IsAgentRuntimeEligibleForGC :one
+-- Re-checks the mutable GC predicates after the caller has locked the runtime
+-- row FOR UPDATE. Agent inserts/updates and task ownership writes take FOR KEY
+-- SHARE on that row, so no new dependency can commit between this check and
+-- DeleteAgentRuntime in the same transaction.
+SELECT EXISTS (
+  SELECT 1 FROM agent_runtime
+  WHERE agent_runtime.id = @id
+    AND status = 'offline'
+    AND last_seen_at < now() - make_interval(secs => @stale_seconds::double precision)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM agent
+      WHERE agent.runtime_id = agent_runtime.id
+    )
+) AS eligible;
+
+-- name: CountTasksByRuntime :one
+-- Final fail-closed assertion after UnbindTasksFromRuntime. A non-zero result
+-- aborts the transaction instead of relying on the legacy ON DELETE CASCADE.
+SELECT count(*) FROM agent_task_queue WHERE runtime_id = $1;
+
+-- name: CountStaleOfflineRuntimesBlockedByTasks :one
+-- Bounded observability sample of runtimes that are otherwise GC-eligible but
+-- retain a non-terminal task. In particular, deferred tasks have no generic
+-- TTL, so silently filtering them from the candidate batch would hide a
+-- permanently-starved runtime. The count saturates at max_rows so this
+-- recurring safety signal cannot become an unbounded backlog scan.
+SELECT count(*) FROM (
+  SELECT 1 FROM agent_runtime
+  WHERE status = 'offline'
+    AND last_seen_at < now() - make_interval(secs => @stale_seconds::double precision)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM agent
+      WHERE agent.runtime_id = agent_runtime.id
+    )
+    AND EXISTS (
+      SELECT 1
+      FROM agent_task_queue
+      WHERE agent_task_queue.runtime_id = agent_runtime.id
+        AND agent_task_queue.completed_at IS NULL
+    )
+  LIMIT @max_rows::int
+) AS blocked_runtimes;
 
 -- name: GetOnlineRuntimeByWorkspace :one
 -- Returns the most-recently-active online runtime for the given
