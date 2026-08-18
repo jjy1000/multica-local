@@ -2,7 +2,7 @@
 
 import { statusCategoryOfKey } from "@multica/core/issues";
 import { Eye, MoreHorizontal } from "lucide-react";
-import type { IssueStatus } from "@multica/core/types";
+import type { IssueStatusCategory } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import {
   DropdownMenu,
@@ -19,23 +19,23 @@ import { useT } from "../../i18n";
  * the kanban-style views (board and swimlane).
  *
  * Each consumer renders its own per-row count via the {@link renderRow} slot —
- * the board uses `useLoadMoreByStatus` to fetch the workspace-wide aggregate,
- * while the swimlane uses an in-memory total derived from already-loaded
- * issues. Centralising the chrome here keeps a future view (calendar /
- * timeline / etc.) from forking yet another copy.
+ * the board reads the server status facet's exact total, while the swimlane
+ * uses an in-memory total derived from already-loaded issues. Centralising
+ * the chrome here keeps a future view (calendar / timeline / etc.) from
+ * forking yet another copy.
  */
 export function HiddenColumnsPanel({
   hiddenStatuses,
   renderRow,
 }: {
-  hiddenStatuses: IssueStatus[];
-  renderRow: (status: IssueStatus) => React.ReactNode;
+  hiddenStatuses: IssueStatusCategory[];
+  renderRow: (status: IssueStatusCategory) => React.ReactNode;
 }) {
   const { t } = useT("issues");
   return (
     <div className="flex w-[240px] shrink-0 flex-col">
       <div className="mb-2 flex items-center gap-2 px-1">
-        <span className="text-sm font-medium text-muted-foreground">
+        <span className="text-body font-medium text-muted-foreground">
           {t(($) => $.board.hidden_columns_label)}
         </span>
       </div>
@@ -54,8 +54,8 @@ export function HiddenColumnRow({
   status,
   total,
 }: {
-  status: IssueStatus;
-  total: number;
+  status: IssueStatusCategory;
+  total?: number;
 }) {
   const { t } = useT("issues");
   const viewStoreApi = useViewStoreApi();
@@ -66,7 +66,9 @@ export function HiddenColumnRow({
         <span className="text-body">{t(($) => $.status[statusCategoryOfKey(status)])}</span>
       </div>
       <div className="flex items-center gap-1.5">
-        <span className="text-xs text-muted-foreground">{total}</span>
+        {total !== undefined && (
+          <span className="text-caption text-muted-foreground">{total}</span>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={

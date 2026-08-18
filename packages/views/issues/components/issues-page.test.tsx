@@ -62,6 +62,134 @@ vi.mock("../../workspace/workspace-avatar", () => ({
 // Mock api (queries use api internally)
 const mockListIssues = vi.hoisted(() => vi.fn().mockResolvedValue({ issues: [], total: 0 }));
 const mockListGroupedIssues = vi.hoisted(() => vi.fn().mockResolvedValue({ groups: [] }));
+const mockListIssueTableGroups = vi.hoisted(() =>
+  vi.fn(async (request: any) => {
+    if (request.group.kind !== "assignee") {
+      return {
+        query_fingerprint: "test",
+        total: 0,
+        groups: [],
+        next_cursor: null,
+      };
+    }
+    const response = await mockListGroupedIssues();
+    return {
+      query_fingerprint: "test",
+      total: response.groups.reduce(
+        (total: number, group: any) => total + group.total,
+        0,
+      ),
+      groups: response.groups.map((group: any) => ({
+        key: group.id,
+        value: {
+          kind: "assignee" as const,
+          actor:
+            group.assignee_type && group.assignee_id
+              ? { type: group.assignee_type, id: group.assignee_id }
+              : null,
+        },
+        count: group.total,
+      })),
+      next_cursor: null,
+    };
+  }),
+);
+const mockListIssueTableRows = vi.hoisted(() =>
+  vi.fn(async (request: any) => {
+    if (request.group.kind === "assignee") {
+      const response = await mockListGroupedIssues();
+      const group = response.groups.find(
+        (candidate: any) => candidate.id === request.group_key,
+      );
+      const issues = group?.issues ?? [];
+      return {
+        query_fingerprint: "test",
+        group_key: request.group_key,
+        parent_id: null,
+        total: 0,
+        rows: issues.map((issue: Issue) => ({
+          issue,
+          direct_child_count: 0,
+        })),
+        branch_total: issues.length,
+        next_cursor: null,
+      };
+    }
+    // Board / list surfaces page by CATEGORY since MUL-6243. This fixture
+    // holds only built-in statuses, where a key IS its own category.
+    const status = request.group_key?.replace(/^status(_category)?:/, "");
+    const response = await mockListIssues({
+      status,
+      limit: 50,
+      offset: 0,
+      ...(request.query.scope.assignee_types
+        ? { assignee_types: request.query.scope.assignee_types }
+        : {}),
+    });
+    return {
+      query_fingerprint: "test",
+      group_key: request.group_key,
+      parent_id: null,
+      total: 0,
+      rows: response.issues.map((issue: Issue) => ({
+        issue,
+        direct_child_count: 0,
+      })),
+      branch_total: response.issues.length,
+      next_cursor: null,
+    };
+  }),
+);
+const mockListIssueTableFacets = vi.hoisted(() =>
+  vi.fn(async (request: any) => {
+    const statuses = [
+      "backlog",
+      "todo",
+      "in_progress",
+      "in_review",
+      "done",
+      "blocked",
+      "cancelled",
+    ];
+    // Only sweep the legacy endpoint for a status facet. Every surface also
+    // requests an always-on `working_agents` facet to label its activity chip,
+    // and that must not look like the legacy status sweep these tests forbid.
+    const wantsStatus = request.facets.some(
+      (facet: any) => facet.kind === "status",
+    );
+    const groups = wantsStatus
+      ? await Promise.all(
+          statuses.map(async (status) => ({
+            status,
+            response: await mockListIssues({
+              status,
+              limit: 50,
+              offset: 0,
+              ...(request.query.scope.assignee_types
+                ? { assignee_types: request.query.scope.assignee_types }
+                : {}),
+            }),
+          })),
+        )
+      : [];
+    return {
+      query_fingerprint: "test",
+      total: groups.reduce((sum, group) => sum + group.response.issues.length, 0),
+      facets: request.facets.map((facet: any) => ({
+        ...facet,
+        values:
+          facet.kind === "status"
+            ? groups
+                .filter((group) => group.response.issues.length > 0)
+                .map((group) => ({
+                  key: group.status,
+                  count: group.response.issues.length,
+                }))
+            : [],
+      })),
+    };
+  }),
+);
 const mockListMembers = vi.hoisted(() =>
   vi.fn().mockResolvedValue([
     {
@@ -174,6 +302,7 @@ const mockViewState = {
   sortDirection: "asc" as const,
   cardProperties: { priority: true, description: true, assignee: true, dueDate: true, project: true, childProgress: true, labels: true },
   listCollapsedStatuses: [] as string[],
+  hiddenStatusCategories: [] as string[],
   setViewMode: vi.fn(),
   setGrouping: vi.fn(),
   toggleStatusFilter: vi.fn(),

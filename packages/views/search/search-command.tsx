@@ -1,5 +1,6 @@
 "use client";
 
+import { issueStatusCategory } from "@multica/core/issues";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
@@ -120,6 +121,109 @@ function IssueAssigneeAvatar({
       profileLink={false}
       className="shrink-0"
     />
+  );
+}
+
+// Project / issue rows are rendered from three groups (Projects, Issues,
+// Cancelled — see the partition note on the results list), so the row markup
+// lives in one component each instead of being duplicated per group.
+function ProjectResultRow({
+  project,
+  query,
+  disabled,
+  onSelect,
+}: {
+  project: SearchProjectResult;
+  query: string;
+  disabled?: boolean;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <CommandPrimitive.Item
+      key={`project:${project.id}`}
+      value={`project:${project.id}`}
+      disabled={disabled}
+      onSelect={onSelect}
+      className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
+    >
+      <div className="flex items-center gap-2.5">
+        <ProjectIcon project={project} size="md" />
+        <span className="truncate">
+          <HighlightText text={project.title} query={query} />
+        </span>
+        <span
+          className={`ml-auto text-caption shrink-0 ${PROJECT_STATUS_CONFIG[project.status as ProjectStatus]?.color ?? "text-muted-foreground"}`}
+        >
+          {PROJECT_STATUS_CONFIG[project.status as ProjectStatus]?.label ?? project.status}
+        </span>
+      </div>
+      {project.match_source === "description" && project.matched_snippet && (
+        <div className="flex items-start gap-2 pl-[26px]">
+          <span className="text-caption text-muted-foreground truncate">
+            <HighlightText text={project.matched_snippet} query={query} />
+          </span>
+        </div>
+      )}
+    </CommandPrimitive.Item>
+  );
+}
+
+function IssueResultRow({
+  issue,
+  query,
+  disabled,
+  onSelect,
+}: {
+  issue: SearchIssueResult;
+  query: string;
+  disabled?: boolean;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <CommandPrimitive.Item
+      key={issue.id}
+      value={issue.id}
+      disabled={disabled}
+      onSelect={onSelect}
+      className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
+    >
+      <div className="flex items-center gap-2.5">
+        <StatusIcon
+          status={issue.status}
+          category={issueStatusCategory(issue) ?? undefined}
+          className="size-4 shrink-0"
+        />
+        <span className="text-caption text-muted-foreground shrink-0">
+          {issue.identifier}
+        </span>
+        <span className="min-w-0 flex-1 truncate">
+          <HighlightText text={issue.title} query={query} />
+        </span>
+        <IssueAssigneeAvatar
+          assigneeType={issue.assignee_type}
+          assigneeId={issue.assignee_id}
+        />
+      </div>
+      {issue.matched_description_snippet && (
+        <div className="flex items-start gap-2 pl-[26px]">
+          <FileText className="size-3 shrink-0 text-muted-foreground mt-0.5" />
+          <span className="text-caption text-muted-foreground truncate">
+            <HighlightText
+              text={issue.matched_description_snippet}
+              query={query}
+            />
+          </span>
+        </div>
+      )}
+      {issue.matched_comment_snippet && (
+        <div className="flex items-start gap-2 pl-[26px]">
+          <MessageSquare className="size-3 shrink-0 text-muted-foreground mt-0.5" />
+          <span className="text-caption text-muted-foreground truncate">
+            <HighlightText text={issue.matched_comment_snippet} query={query} />
+          </span>
+        </div>
+      )}
+    </CommandPrimitive.Item>
   );
 }
 
@@ -766,6 +870,7 @@ export function SearchCommand() {
                   >
                     <StatusIcon
                       status={item.status}
+                      category={issueStatusCategory(item) ?? undefined}
                       className="size-4 shrink-0"
                     />
                     <span className="text-caption text-muted-foreground shrink-0">

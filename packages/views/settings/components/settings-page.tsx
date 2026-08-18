@@ -9,6 +9,7 @@ import {
   FolderGit2,
   FlaskConical,
   Bell,
+  CircleDot,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@multica/ui/components/ui/tabs";
 import { useCurrentWorkspace } from "@multica/core/paths";
@@ -20,6 +21,7 @@ import { WorkspaceTab } from "./workspace-tab";
 import { RepositoriesTab } from "./repositories-tab";
 import { LabsTab } from "./labs-tab";
 import { NotificationsTab } from "./notifications-tab";
+import { IssueStatusesTab } from "./issue-statuses-tab";
 import { useT } from "../../i18n";
 
 const ACCOUNT_TAB_KEYS = ["profile", "preferences", "notifications", "tokens"] as const;
@@ -43,16 +45,19 @@ const WORKSPACE_TAB_KEYS = [
   "general",
   "repositories",
   "labs",
+  "issue_statuses",
 ] as const;
 const WORKSPACE_TAB_VALUES = {
   general: "workspace",
   repositories: "repositories",
   labs: "labs",
+  issue_statuses: "issue-statuses",
 } as const;
 const WORKSPACE_TAB_ICONS = {
   general: Settings,
   repositories: FolderGit2,
   labs: FlaskConical,
+  issue_statuses: CircleDot,
 } as const;
 
 const DEFAULT_TAB = "profile";
@@ -163,8 +168,10 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
       </div>
 
       {/* Right content */}
-      <div className="flex-1 min-w-0 md:overflow-y-auto">
-        <div className="w-full max-w-3xl mx-auto p-4 md:p-6">
+      <div className="min-w-0 flex-1 md:overflow-y-auto">
+        <div className={`mx-auto w-full p-4 sm:p-6 md:p-8 ${activeTab === "issue-statuses"
+              ? "max-w-5xl"
+              : "max-w-3xl"}`}>
           <TabsContent value="profile"><AccountTab /></TabsContent>
           <TabsContent value="preferences"><PreferencesTab /></TabsContent>
           <TabsContent value="notifications"><NotificationsTab /></TabsContent>
@@ -172,6 +179,7 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
           <TabsContent value="workspace"><WorkspaceTab /></TabsContent>
           <TabsContent value="repositories"><RepositoriesTab /></TabsContent>
           <TabsContent value="labs"><LabsTab /></TabsContent>
+          <TabsContent value="issue-statuses"><IssueStatusesTab /></TabsContent>
           {extraAccountTabs?.map((tab) => (
             <TabsContent key={tab.value} value={tab.value}>{tab.content}</TabsContent>
           ))}

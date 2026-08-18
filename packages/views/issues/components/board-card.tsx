@@ -28,6 +28,7 @@ import { IssueActionsContextMenu } from "../actions";
 import { LabelChip } from "../../labels/label-chip";
 import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
 import { LabBadge } from "./lab-badge";
+import { CustomStatusChip, useIsCustomStatus } from "./custom-status-chip";
 import { useT } from "../../i18n";
 
 function formatDate(date: string): string {
@@ -95,6 +96,9 @@ export const BoardCardContent = memo(function BoardCardContent({
   const showProject = storeProperties.project && project;
   const showChildProgress = storeProperties.childProgress && childProgress;
   const showLabels = storeProperties.labels && labels.length > 0;
+  // Keeps the chip row from rendering an empty flex container when the status
+  // chip is the only thing in it and it decides to render nothing.
+  const showCustomStatus = useIsCustomStatus(issue.status);
 
   const showAssigneeName = showAssigneeSection && hasAssignee && !showStartDate && !showDueDate;
   const showUpdatedHint = showAssigneeName && !showChildProgress;
@@ -197,12 +201,12 @@ export const BoardCardContent = memo(function BoardCardContent({
         );
       })()}
 
-      {/* Chip row: project + labels. Lab badge already shows next to
-          the priority/identifier row above (LabBadge), so we don't
-          also render a generic "Lab" pill here — that would double
-          the chrome for every issue with a lab_source. */}
-      {(showProject || showLabels) && (
+      {/* Chip row: status + project + labels. The status chip renders only for
+          a CUSTOM status — the column header already names the category. (MUL-6243)
+          Fork deviation: cardCustomProperties dropped (MUL-6286 not ported). */}
+      {(showCustomStatus || showProject || showLabels) && (
         <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+          <CustomStatusChip status={issue.status} />
           {showProject && (
             <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground max-w-[160px]">
               <ProjectIcon project={project} size="sm" />

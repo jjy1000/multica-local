@@ -18,6 +18,7 @@ import {
 import type { Issue, UpdateIssueRequest } from "@multica/core/types";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
 import { commonIssueFields } from "@multica/core/issues/batch";
+import { issueBehavesAs } from "@multica/core/issues";
 import { useBatchUpdateIssues, useBatchDeleteIssues } from "@multica/core/issues/mutations";
 import { useModalStore } from "@multica/core/modals";
 import { StatusPicker, PriorityPicker, AssigneePicker } from "./pickers";
@@ -119,8 +120,10 @@ export function BatchActionToolbar({
       // circuit. A mixed selection still routes through the modal: the non-backlog
       // issues will trigger and need confirmation. An empty intersection (selected
       // ids not in `issues`) falls through to the modal — safer than skipping.
+      // Category, not key: a custom status in the backlog category is a parking
+      // lot too, and assigning into it never starts a run. (MUL-6243)
       const selected = issues.filter((i) => selectedIds.has(i.id));
-      const allBacklog = selected.length > 0 && selected.every((i) => i.status === "backlog");
+      const allBacklog = selected.length > 0 && selected.every((i) => issueBehavesAs(i, "backlog"));
       if (!allBacklog) {
         openModal("issue-run-confirm", {
           issueIds: ids,

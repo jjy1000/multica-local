@@ -1,5 +1,6 @@
 "use client";
 
+import { issueStatusCategory } from "@multica/core/issues";
 import { useState, useRef, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "../navigation";
@@ -669,7 +670,11 @@ export function ManualCreatePanel({
               <span className="text-body font-medium">{tModals(($) => $.create_issue.toast_created)}</span>
             </div>
             <div className="flex items-center gap-2 text-body text-muted-foreground ml-7">
-              <StatusIcon status={issue.status} className="size-3.5 shrink-0" />
+              <StatusIcon
+                status={issue.status}
+                category={issueStatusCategory(issue) ?? undefined}
+                className="size-3.5 shrink-0"
+              />
               <span className="truncate">{issue.identifier} – {issue.title}</span>
             </div>
             <button

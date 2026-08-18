@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { cloneElement, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -81,6 +81,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import type { Issue } from "@multica/core/types";
 import { useT } from "../../i18n";
+import { useStatusOptions } from "../utils/status-options";
 import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 import { FILTER_ITEM_CLASS, HoverCheck } from "../../common/hover-check";
 import { WorkspaceAgentWorkingChip } from "./workspace-agent-working-chip";
@@ -802,6 +803,8 @@ export function IssueDisplayControls({
   const swimlaneGrouping = useViewStore((s) => s.swimlaneGrouping);
   const cardProperties = useViewStore((s) => s.cardProperties);
   const act = useViewStoreApi().getState();
+  const wsId = useWorkspaceId();
+  const { groups: statusGroups, hasCustom: showStatusGroupLabels } = useStatusOptions(wsId);
 
   const counts = useIssueCounts(scopedIssues);
   const showDateFilter = !!onDateFilterChange;
@@ -921,27 +924,46 @@ export function IssueDisplayControls({
                 )}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-auto min-w-48">
-                {ALL_STATUSES.map((s) => {
-                  const checked = statusFilters.includes(s);
-                  const count = counts.status.get(s) ?? 0;
-                  return (
-                    <DropdownMenuCheckboxItem
-                      key={s}
-                      checked={checked}
-                      onCheckedChange={() => act.toggleStatusFilter(s)}
-                      className={FILTER_ITEM_CLASS}
-                    >
-                      <HoverCheck checked={checked} />
-                      <StatusIcon status={s} className="h-3.5 w-3.5" />
-                      {t(($) => $.status[s])}
-                      {count > 0 && (
-                        <span className="ml-auto text-caption text-muted-foreground">
-                          {t(($) => $.filters.issue_count, { count })}
-                        </span>
-                      )}
-                    </DropdownMenuCheckboxItem>
-                  );
-                })}
+                {/* Options come from the workspace catalog, so a custom status
+                    is filterable — otherwise an issue moved onto one could not
+                    be narrowed to. Grouped by category, and headings appear
+                    only once a category holds more than one status, so a
+                    workspace that never customized anything sees the same flat
+                    7-row list. (MUL-6243) */}
+                {statusGroups.map((group) => (
+                  <Fragment key={group.category}>
+                    {showStatusGroupLabels && (
+                      <DropdownMenuLabel className="text-caption text-muted-foreground">
+                        {t(($) => $.status[group.category])}
+                      </DropdownMenuLabel>
+                    )}
+                    {group.options.map((option) => {
+                      const checked = statusFilters.includes(option.key);
+                      const count = counts.status.get(option.key) ?? 0;
+                      return (
+                        <DropdownMenuCheckboxItem
+                          key={option.key}
+                          checked={checked}
+                          onCheckedChange={() => act.toggleStatusFilter(option.key)}
+                          className={FILTER_ITEM_CLASS}
+                        >
+                          <HoverCheck checked={checked} />
+                          <StatusIcon
+                            status={option.key}
+                            category={group.category}
+                            className="h-3.5 w-3.5"
+                          />
+                          {option.label}
+                          {count > 0 && (
+                            <span className="ml-auto text-caption text-muted-foreground">
+                              {t(($) => $.filters.issue_count, { count })}
+                            </span>
+                          )}
+                        </DropdownMenuCheckboxItem>
+                      );
+                    })}
+                  </Fragment>
+                ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
 

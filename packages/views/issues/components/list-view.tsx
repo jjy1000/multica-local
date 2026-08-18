@@ -15,12 +15,10 @@ import {
   type DragOverEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import type { Issue, IssueStatusCategory } from "@multica/core/types";
+import type { IssueSortParam, MyIssuesFilter } from "@multica/core/issues/queries";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { Button } from "@multica/ui/components/ui/button";
-import type { Issue, IssueStatus } from "@multica/core/types";
-import { useLoadMoreByStatus } from "@multica/core/issues/mutations";
-import type { IssueSortParam, MyIssuesFilter } from "@multica/core/issues/queries";
-import { useModalStore } from "@multica/core/modals";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
 import { StatusHeading } from "./status-heading";
@@ -44,7 +42,7 @@ import type { BoardColumnGroup } from "./board-column";
 const EMPTY_PROGRESS_MAP = new Map<string, ChildProgress>();
 const EMPTY_IDS: string[] = [];
 
-function buildListGroups(visibleStatuses: IssueStatus[]): BoardColumnGroup[] {
+function buildListGroups(visibleStatuses: IssueStatusCategory[]): BoardColumnGroup[] {
   return visibleStatuses.map((status) => ({
     id: statusGroupId(status),
     title: status,
@@ -64,7 +62,7 @@ export function ListView({
   sort,
 }: {
   issues: Issue[];
-  visibleStatuses: IssueStatus[];
+  visibleStatuses: IssueStatusCategory[];
   childProgressMap?: Map<string, ChildProgress>;
   myIssuesScope?: string;
   myIssuesFilter?: MyIssuesFilter;
@@ -316,7 +314,7 @@ export function ListView({
           const wasExpanded = expandedStatuses.includes(status);
           const isExpanded = value.includes(status);
           if (wasExpanded !== isExpanded) {
-            toggleListCollapsed(status as IssueStatus);
+            toggleListCollapsed(status as IssueStatusCategory);
           }
         }
       }}
@@ -387,7 +385,7 @@ function StatusAccordionItem({
   sortLabel,
   sort,
 }: {
-  status: IssueStatus;
+  status: IssueStatusCategory;
   issueIds: string[];
   issueMap: Map<string, Issue>;
   childProgressMap: Map<string, ChildProgress>;

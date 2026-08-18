@@ -1,12 +1,11 @@
 "use client";
 
-import { statusCategoryOfKey } from "@multica/core/issues";
 import { memo, useMemo, type ReactNode } from "react";
 import { EyeOff, MoreHorizontal, Plus, UserMinus } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import type { Issue, IssueAssigneeType, IssueStatus } from "@multica/core/types";
+import type { Issue, IssueAssigneeType, IssueStatusCategory } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import {
   DropdownMenu,
@@ -34,7 +33,8 @@ export const BOARD_CARD_WIDTH = BOARD_COL_WIDTH - 16 - 8; // col(280) - col p-2(
 export interface BoardColumnGroup {
   id: string;
   title: string;
-  status?: IssueStatus;
+  /** Board columns are CATEGORIES, never raw status keys. (MUL-6243) */
+  status?: IssueStatusCategory;
   assigneeType?: IssueAssigneeType | null;
   assigneeId?: string | null;
   totalCount?: number;
@@ -62,7 +62,7 @@ export const BoardColumn = memo(function BoardColumn({
   sortLabel?: string | null;
 }) {
   const status = group.status;
-  const cfg = status ? STATUS_CONFIG[statusCategoryOfKey(status)] : null;
+  const cfg = status ? STATUS_CONFIG[status] : null;
   const { setNodeRef, isOver } = useDroppable({ id: group.id });
   const viewStoreApi = useViewStoreApi();
   const { t } = useT("issues");

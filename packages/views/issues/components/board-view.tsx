@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/core";
 import type { QueryKey } from "@tanstack/react-query";
 import { arrayMove } from "@dnd-kit/sortable";
-import type { Issue, IssueAssigneeGroup, IssueStatus } from "@multica/core/types";
+import type { Issue, IssueAssigneeGroup, IssueStatusCategory } from "@multica/core/types";
 import { useLoadMoreByAssigneeGroup, useLoadMoreByStatus } from "@multica/core/issues/mutations";
 import type { AssigneeGroupedIssuesFilter, IssueSortParam, MyIssuesFilter } from "@multica/core/issues/queries";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";
@@ -42,13 +42,13 @@ import {
 
 function isStatusGroup(
   group: BoardColumnGroup,
-): group is BoardColumnGroup & { status: IssueStatus } {
+): group is BoardColumnGroup & { status: IssueStatusCategory } {
   return group.status !== undefined;
 }
 
 function buildGroups(
   issues: Issue[],
-  visibleStatuses: IssueStatus[],
+  visibleStatuses: IssueStatusCategory[],
   grouping: IssueGrouping,
   getActorName: (type: string, id: string) => string,
   noAssigneeLabel: string,
@@ -129,8 +129,8 @@ export function BoardView({
   assigneeGroups?: IssueAssigneeGroup[];
   assigneeGroupQueryKey?: QueryKey;
   assigneeGroupFilter?: AssigneeGroupedIssuesFilter;
-  visibleStatuses: IssueStatus[];
-  hiddenStatuses: IssueStatus[];
+  visibleStatuses: IssueStatusCategory[];
+  hiddenStatuses: IssueStatusCategory[];
   onMoveIssue: (issueId: string, updates: DragMoveUpdates, onSettled?: () => void) => void;
   childProgressMap?: Map<string, ChildProgress>;
   /** When set, per-status load-more targets the scoped cache instead of the workspace one. */
@@ -613,7 +613,7 @@ function BoardHiddenColumnsPanel({
   myIssuesOpts,
   sort,
 }: {
-  hiddenStatuses: IssueStatus[];
+  hiddenStatuses: IssueStatusCategory[];
   myIssuesOpts?: { scope: string; filter: MyIssuesFilter };
   sort?: IssueSortParam;
 }) {
