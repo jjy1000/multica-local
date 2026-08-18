@@ -15,24 +15,13 @@ import {
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  Inbox,
-  ListTodo,
-  Bot,
-  Monitor,
   ChevronDown,
   ChevronRight,
-  Settings,
   LogOut,
   Plus,
   Check,
   SquarePen,
-  CircleUser,
-  FolderKanban,
-  BarChart3,
   X,
-  Zap,
-  Users,
-  BookOpenText,
   FlaskConical,
   Network,
   Code2,
@@ -91,6 +80,7 @@ import { useLogout } from "../auth";
 import { ProjectIcon } from "../projects/components/project-icon";
 import { useT } from "../i18n";
 import { useExperimentalFlag, useExperimentalFlags, useExperimentalNav } from "@multica/core/experimental";
+import { NAV_PAGE_REGISTRY } from "./nav-registry";
 
 // Top-level nav items stay active when the user is on a child route
 // (e.g. "Projects" stays lit on /:slug/projects/:id). Pinned items keep
@@ -110,55 +100,9 @@ const EMPTY_WORKSPACES: Awaited<ReturnType<typeof api.listWorkspaces>> = [];
 const EMPTY_INVITATIONS: Awaited<ReturnType<typeof api.listMyInvitations>> = [];
 const EMPTY_INBOX: Awaited<ReturnType<typeof api.listInbox>> = [];
 
-// Nav items reference WorkspacePaths method names so they can be resolved
-// against the current workspace slug at render time (see AppSidebar body).
-// Only parameterless paths are valid nav destinations.
-type NavKey =
-  | "inbox"
-  | "myIssues"
-  | "issues"
-  | "projects"
-  | "autopilots"
-  | "agents"
-  | "squads"
-  | "usage"
-  | "runtimes"
-  | "skills"
-  | "settings";
-
-// Static schema (key + icon) — labels resolved at render via useT("layout").
-type NavLabelKey =
-  | "inbox"
-  | "my_issues"
-  | "issues"
-  | "projects"
-  | "autopilots"
-  | "agents"
-  | "squads"
-  | "usage"
-  | "runtimes"
-  | "skills"
-  | "settings";
-
-const personalNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
-  { key: "inbox", labelKey: "inbox", icon: Inbox },
-  { key: "myIssues", labelKey: "my_issues", icon: CircleUser },
-];
-
-const workspaceNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
-  { key: "issues", labelKey: "issues", icon: ListTodo },
-  { key: "projects", labelKey: "projects", icon: FolderKanban },
-  { key: "autopilots", labelKey: "autopilots", icon: Zap },
-  { key: "agents", labelKey: "agents", icon: Bot },
-  { key: "squads", labelKey: "squads", icon: Users },
-  { key: "usage", labelKey: "usage", icon: BarChart3 },
-];
-
-const configureNav: { key: NavKey; labelKey: NavLabelKey; icon: typeof Inbox }[] = [
-  { key: "runtimes", labelKey: "runtimes", icon: Monitor },
-  { key: "skills", labelKey: "skills", icon: BookOpenText },
-  { key: "settings", labelKey: "settings", icon: Settings },
-];
+const personalNav = NAV_PAGE_REGISTRY.filter((page) => page.group === "personal");
+const workspaceNav = NAV_PAGE_REGISTRY.filter((page) => page.group === "workspace");
+const configureNav = NAV_PAGE_REGISTRY.filter((page) => page.group === "configure");
 
 // Experimental sidebar items. 0.3.19 P3: the per-flag list is now
 // read from `useExperimentalNav()` (which lives in
