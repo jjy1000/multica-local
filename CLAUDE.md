@@ -699,6 +699,22 @@ Do not claim verification passed unless you ran it. If you skip checks because t
 - **DMG creation hangs on create-dmg 1.2.3** (`electron-builder --mac` produces no `.dmg` on this fork). Use `pnpm exec electron-builder --mac --dir` to produce `dist/mac-arm64/Multica.app` directly and ship that. Every 0.3.x release ships via the `--dir` path. **Mandatory**: `pnpm build` does NOT run electron-builder; the asar replacement is silent if this step is skipped. Verify with `grep -c rawRequest apps/desktop/dist/mac-arm64/Multica.app/Contents/Resources/app.asar` after each build.
 - Bump patch by default unless the user specifies a version.
 
+### Cherry-pick verification (0.5.36 lesson — catch wholesale adoption)
+
+After ANY agent-assisted cherry-pick or conflict resolution, compare each resolved file's diff size against upstream's per-file stat before committing:
+
+```bash
+git show <upstream-commit> --stat | head -60   # upstream's per-file sizes
+git diff --stat HEAD                           # what the resolution produced
+```
+
+- Files whose diff is 5-50x larger than upstream's = the resolution replaced the fork's file with upstream's ENTIRE current file (`git checkout --theirs` wholesale adoption). This silently imports unrelated upstream evolution (new client methods, table-view surfaces, plugin schemas...) — 0.5.36's T7 produced 22767 insertions vs upstream's 5186.
+- Fix: revert that file to the **pre-cherry-pick commit** (`git checkout <base> -- <file>` — NOT `HEAD`, which already contains the bad commit) and re-apply only the semantic change.
+- Also delete test files that pin code paths the fork dropped (surface tests, table-view tests referencing fork-missing handlers).
+- When a subagent dies mid-port (API 429 quota, autocompact), the main thread's tool calls continue fine: assess the worktree state, revert trapped files, finish surgically.
+
+**Pre-existing test bisect**: to prove a failing test predates a port, `git worktree add /tmp/wt-check <base-commit>` + `ln -s <main>/node_modules /tmp/wt-check/node_modules` (+ per-package) and run the test there — cheap and definitive.
+
 ## Ship chain (canonical order)
 
 > **Prefer the enforced script:** `make ship-mac` (or `bash scripts/ship-mac.sh`)
@@ -712,6 +728,8 @@ Do not claim verification passed unless you ran it. If you skip checks because t
 Mandatory steps in order. Skipping any step risks data loss or a broken `.app`:
 
 **Pre-ship checks** — both must be green before running step 1:
+- **Verify the app's backend is alive**: `lsof -nP -iTCP:5432 -sTCP:LISTEN` + `lsof -nP -iTCP:8090 -sTCP:LISTEN` + `curl -s http://localhost:8090/health`. The app can die mid-session (0.5.36 lesson: PG + server were down before ship; step 2/7 `migrate up` aborts with connection-refused). Recovery: `pkill -f "multica daemon" ; pkill -f "Multica.app/Contents/MacOS/Multica" ; open /Applications/Multica.app` and wait ~10s for PG bootstrap, then re-run the ship.
+- The two standard gates below (typecheck + go test).
 
 ```bash
 pnpm typecheck                                                  # full turbo pipeline, catches TS breakage
