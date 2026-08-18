@@ -1,4 +1,5 @@
 import {
+  type LucideIcon,
   BarChart3,
   BookOpenText,
   Bot,
@@ -15,8 +16,8 @@ import {
 export type NavGroup = "personal" | "workspace" | "configure";
 
 export interface NavPageDefinition {
-  key: (typeof NAV_PAGE_REGISTRY)[number]["key"];
-  labelKey: (typeof NAV_PAGE_REGISTRY)[number]["labelKey"];
+  key: string;
+  labelKey: string;
   icon: LucideIcon;
   group: NavGroup;
 }
