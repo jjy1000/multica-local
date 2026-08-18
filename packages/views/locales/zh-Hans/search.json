@@ -11,6 +11,16 @@
     "recent": "最近",
     "cancelled": "已取消"
   },
+  "pages": {
+    "inbox": "收件箱",
+    "my_issues": "我的 issue",
+    "issues": "Issues",
+    "projects": "项目",
+    "agents": "智能体",
+    "runtimes": "运行时",
+    "skills": "Skills",
+    "settings": "设置"
+  },
   "commands": {
     "current_theme_aria": "当前主题",
     "new_issue": "新建 issue",

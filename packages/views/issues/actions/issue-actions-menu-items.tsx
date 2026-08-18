@@ -11,24 +11,21 @@ import {
   ExternalLink,
   FolderOpen,
   Link2,
-  Network,
+  MoreHorizontal,
   Pin,
   PinOff,
   Plus,
   Trash2,
-  Unlink,
   UserMinus,
 } from "lucide-react";
 import type { AgentTask, Issue } from "@multica/core/types";
 import { todayDateOnly, addDaysDateOnly } from "@multica/core/issues/date";
 import { api } from "@multica/core/api";
 import {
-  PRIORITY_DISPLAY_ORDER,
+  ALL_STATUSES,
+  PRIORITY_ORDER,
   PRIORITY_CONFIG,
 } from "@multica/core/issues/config";
-import { useWorkspaceId } from "@multica/core/hooks";
-import { useIssueStatuses } from "@multica/core/issue-statuses/hooks";
-import { useStatusOptions } from "../utils/status-options";
 import { issueKeys } from "@multica/core/issues/queries";
 import { StatusIcon } from "../components/status-icon";
 import { PriorityIcon } from "../components/priority-icon";
@@ -89,11 +86,8 @@ interface IssueActionsMenuItemsProps {
    *  Decoupled this way so the same item can drive both the dropdown
    *  (3-dot button) and the context menu (right-click) wrappers. */
   onOpenAssignee: () => void;
-  /** If set, leave the page after the issue is deleted (used by the detail
-   *  page, which renders the issue being deleted). The delete modal goes back
-   *  to the list the user came from and only falls back to this path when
-   *  there is no in-app history. List surfaces leave it unset and stay put. */
-  onDeletedFallbackPath?: string;
+  /** If set, navigate here after the issue is deleted (used by the detail page). */
+  onDeletedNavigateTo?: string;
 }
 
 export function IssueActionsMenuItems({
@@ -101,12 +95,9 @@ export function IssueActionsMenuItems({
   actions,
   primitives: P,
   onOpenAssignee,
-  onDeletedFallbackPath,
+  onDeletedNavigateTo,
 }: IssueActionsMenuItemsProps) {
   const { t } = useT("issues");
-  const wsId = useWorkspaceId();
-  const { options: statusOptions } = useStatusOptions(wsId);
-  const { categoryOf, entryOf } = useIssueStatuses(wsId);
   const {
     isPinned,
     updateField,
@@ -115,7 +106,6 @@ export function IssueActionsMenuItems({
     copyLink,
     openCreateSubIssue,
     openSetParent,
-    removeParent,
     openAddChild,
     openDeleteConfirm,
   } = actions;
@@ -156,33 +146,15 @@ export function IssueActionsMenuItems({
       {/* Status */}
       <P.Sub>
         <P.SubTrigger>
-          <StatusIcon
-            status={issue.status}
-            category={categoryOf(issue.status)}
-            color={entryOf(issue.status)?.color}
-            className="h-3.5 w-3.5"
-          />
+          <StatusIcon status={issue.status} className="h-3.5 w-3.5" />
           {t(($) => $.actions.status)}
         </P.SubTrigger>
         <P.SubContent>
-          {/* Catalog-driven, like the picker and the filter: every entry point
-              that can change a status must offer the same set, or a custom
-              status is unreachable from the board's right-click menu. Flat
-              rather than grouped — these primitives have no label item — but
-              already in canonical category order. (MUL-6243) */}
-          {statusOptions.map((option) => (
-            <P.Item
-              key={option.key}
-              onClick={() => updateField({ status: option.key })}
-            >
-              <StatusIcon
-                status={option.key}
-                category={categoryOf(option.key)}
-                color={option.color}
-                className="h-3.5 w-3.5"
-              />
-              {option.label}
-              {issue.status === option.key && (
+          {ALL_STATUSES.map((s) => (
+            <P.Item key={s} onClick={() => updateField({ status: s })}>
+              <StatusIcon status={s} className="h-3.5 w-3.5" />
+              {t(($) => $.status[s])}
+              {issue.status === s && (
                 <span className="ml-auto text-caption text-muted-foreground">{"✓"}</span>
               )}
             </P.Item>
@@ -197,7 +169,7 @@ export function IssueActionsMenuItems({
           {t(($) => $.actions.priority)}
         </P.SubTrigger>
         <P.SubContent>
-          {PRIORITY_DISPLAY_ORDER.map((p) => (
+          {PRIORITY_ORDER.map((p) => (
             <P.Item key={p} onClick={() => updateField({ priority: p })}>
               <span
                 className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-caption font-medium ${PRIORITY_CONFIG[p].badgeBg} ${PRIORITY_CONFIG[p].badgeText}`}
@@ -305,14 +277,12 @@ export function IssueActionsMenuItems({
 
       <P.Separator />
 
-      {/* Relationship actions live under "Relations" — a semantically explicit
-          label (unlike the old "More") so the first level tells you what the
-          submenu does. Holds parent/sub-issue links today, and will grow
-          (blocks, duplicates, related) as we add more relation types. */}
+      {/* Relationship actions live under "More" — they're lower-frequency and
+          will grow (blocks, duplicates, related) as we add more relation types. */}
       <P.Sub>
         <P.SubTrigger>
-          <Network className="h-3.5 w-3.5" />
-          {t(($) => $.actions.relations)}
+          <MoreHorizontal className="h-3.5 w-3.5" />
+          {t(($) => $.actions.more)}
         </P.SubTrigger>
         <P.SubContent>
           <P.Item onClick={openCreateSubIssue}>
@@ -323,12 +293,6 @@ export function IssueActionsMenuItems({
             <ArrowUp className="h-3.5 w-3.5" />
             {t(($) => $.actions.set_parent_issue)}
           </P.Item>
-          {issue.parent_issue_id && (
-            <P.Item onClick={removeParent}>
-              <Unlink className="h-3.5 w-3.5" />
-              {t(($) => $.actions.remove_parent_issue)}
-            </P.Item>
-          )}
           <P.Item onClick={openAddChild}>
             <ArrowDown className="h-3.5 w-3.5" />
             {t(($) => $.actions.add_sub_issue)}
@@ -340,7 +304,7 @@ export function IssueActionsMenuItems({
 
       <P.Item
         variant="destructive"
-        onClick={() => openDeleteConfirm({ onDeletedFallbackPath })}
+        onClick={() => openDeleteConfirm({ onDeletedNavigateTo })}
       >
         <Trash2 className="h-3.5 w-3.5" />
         {t(($) => $.actions.delete_issue)}

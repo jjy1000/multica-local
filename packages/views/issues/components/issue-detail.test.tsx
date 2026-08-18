@@ -203,6 +203,11 @@ const mockApiObj = vi.hoisted(() => ({
   getIssue: vi.fn(),
   listTimeline: vi.fn().mockResolvedValue([]),
   listComments: vi.fn().mockResolvedValue([]),
+  listIssueStatuses: vi.fn().mockResolvedValue({
+    statuses: [],
+    categories: ["backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled"],
+    total: 0,
+  }),
   createComment: vi.fn(),
   updateComment: vi.fn(),
   deleteComment: vi.fn(),

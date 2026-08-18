@@ -16,7 +16,9 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
 import type { Issue, IssueStatusCategory } from "@multica/core/types";
+import { useLoadMoreByStatus } from "@multica/core/issues/mutations";
 import type { IssueSortParam, MyIssuesFilter } from "@multica/core/issues/queries";
+import { useModalStore } from "@multica/core/modals";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { Button } from "@multica/ui/components/ui/button";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";

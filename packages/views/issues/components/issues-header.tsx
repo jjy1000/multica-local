@@ -1,6 +1,6 @@
 "use client";
 
-import { cloneElement, Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -46,10 +46,7 @@ import {
 } from "@multica/ui/components/ui/popover";
 import { Calendar } from "@multica/ui/components/ui/calendar";
 import { Switch } from "@multica/ui/components/ui/switch";
-import {
-  ALL_STATUSES,
-  PRIORITY_ORDER,
-} from "@multica/core/issues/config";
+import { PRIORITY_ORDER } from "@multica/core/issues/config";
 import { StatusIcon, PriorityIcon } from ".";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";

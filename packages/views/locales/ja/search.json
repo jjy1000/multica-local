@@ -11,6 +11,16 @@
     "recent": "最近の項目",
     "cancelled": "キャンセル済み"
   },
+  "pages": {
+    "inbox": "インボックス",
+    "my_issues": "マイイシュー",
+    "issues": "イシュー",
+    "projects": "プロジェクト",
+    "agents": "エージェント",
+    "runtimes": "ランタイム",
+    "skills": "スキル",
+    "settings": "設定"
+  },
   "commands": {
     "current_theme_aria": "現在のテーマ",
     "new_issue": "新規イシュー",

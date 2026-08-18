@@ -1,4 +1,4 @@
-import type { IssueStatus, IssueStatusCategory } from "../../types";
+import type { IssueStatusCategory } from "../../types";
 
 // These three are keyed on CATEGORY, not on status key. A workspace can define
 // any number of custom statuses, but every one of them belongs to exactly one
@@ -28,7 +28,7 @@ export const ALL_STATUSES: IssueStatusCategory[] = [
 ];
 
 /** Statuses shown as board columns (excludes cancelled). */
-export const BOARD_STATUSES: IssueStatus[] = [
+export const BOARD_STATUSES: IssueStatusCategory[] = [
   "backlog",
   "todo",
   "in_progress",

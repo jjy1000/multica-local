@@ -1,6 +1,5 @@
 "use client";
 
-import { issueStatusCategory } from "@multica/core/issues";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
@@ -12,9 +11,16 @@ import {
   MessageSquare,
   Plus,
   SearchIcon,
+  Inbox,
+  CircleUser,
+  ListTodo,
+  FolderKanban,
+  Bot,
   Monitor,
   Moon,
   Sun,
+  BookOpenText,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import { Command as CommandPrimitive } from "cmdk";
@@ -56,33 +62,28 @@ import { useTheme } from "@multica/ui/components/common/theme-provider";
 import { copyText } from "@multica/ui/lib/clipboard";
 import { useNavigation } from "../navigation";
 import { useT } from "../i18n";
-import { NAV_PAGE_REGISTRY, type NavPageKey } from "../layout/nav-registry";
 import { matchesPinyin } from "../editor/extensions/pinyin-match";
 import { HighlightText } from "./highlight-text";
 import { useSearchStore } from "@multica/core/search/search-store";
 
-// The Pages group is generated from the same registry used by the sidebar.
-// Adding a top-level page to that registry automatically adds it here.
-const PAGE_KEYWORDS: Record<NavPageKey, string[]> = {
-  inbox: ["inbox", "notifications", "收件箱", "通知"],
-  myIssues: ["my", "issues", "assigned", "mine", "我的", "任务"],
-  issues: ["issues", "tasks", "bugs", "任务"],
-  projects: ["projects", "kanban", "项目"],
-  autopilots: ["autopilot", "autopilots", "automation", "schedule", "cron", "webhook", "自动化", "定时"],
-  agents: ["agents", "bots", "ai", "智能体"],
-  squads: ["squads", "teams", "小队", "团队"],
-  usage: ["usage", "analytics", "stats", "metrics", "统计", "分析", "用量"],
-  runtimes: ["runtimes", "environments", "machines", "运行时"],
-  skills: ["skills", "library", "技能"],
-  settings: ["settings", "config", "preferences", "设置", "配置"],
-};
+// Nav items reference WorkspacePaths method names so they can be resolved
+// against the current workspace slug at render time (see SearchCommand body).
+// Only parameterless paths are valid nav destinations.
+type NavKey =
+  | "inbox"
+  | "myIssues"
+  | "issues"
+  | "projects"
+  | "agents"
+  | "runtimes"
+  | "skills"
+  | "settings";
 
-function matchesRow(label: string, keywords: string[], query: string) {
-  return (
-    label.toLowerCase().includes(query) ||
-    keywords.some((keyword) => keyword.startsWith(query)) ||
-    matchesPinyin(label, query)
-  );
+interface NavPage {
+  key: NavKey;
+  label: string;
+  icon: LucideIcon;
+  keywords: string[];
 }
 
 type ThemeValue = "light" | "dark" | "system";
@@ -124,109 +125,6 @@ function IssueAssigneeAvatar({
   );
 }
 
-// Project / issue rows are rendered from three groups (Projects, Issues,
-// Cancelled — see the partition note on the results list), so the row markup
-// lives in one component each instead of being duplicated per group.
-function ProjectResultRow({
-  project,
-  query,
-  disabled,
-  onSelect,
-}: {
-  project: SearchProjectResult;
-  query: string;
-  disabled?: boolean;
-  onSelect: (value: string) => void;
-}) {
-  return (
-    <CommandPrimitive.Item
-      key={`project:${project.id}`}
-      value={`project:${project.id}`}
-      disabled={disabled}
-      onSelect={onSelect}
-      className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
-    >
-      <div className="flex items-center gap-2.5">
-        <ProjectIcon project={project} size="md" />
-        <span className="truncate">
-          <HighlightText text={project.title} query={query} />
-        </span>
-        <span
-          className={`ml-auto text-caption shrink-0 ${PROJECT_STATUS_CONFIG[project.status as ProjectStatus]?.color ?? "text-muted-foreground"}`}
-        >
-          {PROJECT_STATUS_CONFIG[project.status as ProjectStatus]?.label ?? project.status}
-        </span>
-      </div>
-      {project.match_source === "description" && project.matched_snippet && (
-        <div className="flex items-start gap-2 pl-[26px]">
-          <span className="text-caption text-muted-foreground truncate">
-            <HighlightText text={project.matched_snippet} query={query} />
-          </span>
-        </div>
-      )}
-    </CommandPrimitive.Item>
-  );
-}
-
-function IssueResultRow({
-  issue,
-  query,
-  disabled,
-  onSelect,
-}: {
-  issue: SearchIssueResult;
-  query: string;
-  disabled?: boolean;
-  onSelect: (value: string) => void;
-}) {
-  return (
-    <CommandPrimitive.Item
-      key={issue.id}
-      value={issue.id}
-      disabled={disabled}
-      onSelect={onSelect}
-      className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
-    >
-      <div className="flex items-center gap-2.5">
-        <StatusIcon
-          status={issue.status}
-          category={issueStatusCategory(issue) ?? undefined}
-          className="size-4 shrink-0"
-        />
-        <span className="text-caption text-muted-foreground shrink-0">
-          {issue.identifier}
-        </span>
-        <span className="min-w-0 flex-1 truncate">
-          <HighlightText text={issue.title} query={query} />
-        </span>
-        <IssueAssigneeAvatar
-          assigneeType={issue.assignee_type}
-          assigneeId={issue.assignee_id}
-        />
-      </div>
-      {issue.matched_description_snippet && (
-        <div className="flex items-start gap-2 pl-[26px]">
-          <FileText className="size-3 shrink-0 text-muted-foreground mt-0.5" />
-          <span className="text-caption text-muted-foreground truncate">
-            <HighlightText
-              text={issue.matched_description_snippet}
-              query={query}
-            />
-          </span>
-        </div>
-      )}
-      {issue.matched_comment_snippet && (
-        <div className="flex items-start gap-2 pl-[26px]">
-          <MessageSquare className="size-3 shrink-0 text-muted-foreground mt-0.5" />
-          <span className="text-caption text-muted-foreground truncate">
-            <HighlightText text={issue.matched_comment_snippet} query={query} />
-          </span>
-        </div>
-      )}
-    </CommandPrimitive.Item>
-  );
-}
-
 interface CommandItem {
   key: string;
   label: string;
@@ -237,28 +135,12 @@ interface CommandItem {
 }
 
 interface SearchResults {
-  query: string;
   issues: SearchIssueResult[];
   projects: SearchProjectResult[];
 }
 
-const NO_RESULTS: SearchResults = { query: "", issues: [], projects: [] };
-const GROUP_CLASS =
-  "p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground";
-
 export function SearchCommand() {
   const { t } = useT("search");
-  const { t: tNav } = useT("layout");
-  const navPages = useMemo(
-    () =>
-      NAV_PAGE_REGISTRY.map((page) => ({
-        key: page.key,
-        label: tNav(($) => $.nav[page.labelKey]),
-        icon: page.icon,
-        keywords: PAGE_KEYWORDS[page.key],
-      })),
-    [tNav],
-  );
   const { push, pathname, getShareableUrl } = useNavigation();
   const open = useSearchStore((s) => s.open);
   const setOpen = useSearchStore((s) => s.setOpen);
@@ -273,9 +155,7 @@ export function SearchCommand() {
   // if not, this triggers a lookup per id so Recent never depends on whether
   // the issue falls inside the paginated list cache.
   const recentDetailQueries = useQueries({
-    queries: open
-      ? recentItems.map((item) => issueDetailOptions(wsId, item.id))
-      : [],
+    queries: recentItems.map((item) => issueDetailOptions(wsId, item.id)),
   });
   const recentIssues = useMemo(
     () =>
@@ -284,7 +164,7 @@ export function SearchCommand() {
   );
 
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SearchResults>(NO_RESULTS);
+  const [results, setResults] = useState<SearchResults>({ issues: [], projects: [] });
   const [isLoading, setIsLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -300,17 +180,30 @@ export function SearchCommand() {
       partitionAggregatedSearchResults({
         issues: results.issues,
         projects: results.projects,
-        query: results.query,
+        query,
       }),
-    [results],
+    [results, query],
   );
-  const resultsAreStale = results.query !== query.trim();
 
   const filteredPages = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
-    return navPages.filter((page) => matchesRow(page.label, page.keywords, q));
-  }, [navPages, query]);
+    const navPages: NavPage[] = [
+      { key: "inbox", label: t(($) => $.pages.inbox), icon: Inbox, keywords: ["inbox", "notifications", "收件箱"] },
+      { key: "myIssues", label: t(($) => $.pages.my_issues), icon: CircleUser, keywords: ["my", "issues", "assigned", "我的"] },
+      { key: "issues", label: t(($) => $.pages.issues), icon: ListTodo, keywords: ["issues", "tasks", "bugs"] },
+      { key: "projects", label: t(($) => $.pages.projects), icon: FolderKanban, keywords: ["projects", "kanban", "项目"] },
+      { key: "agents", label: t(($) => $.pages.agents), icon: Bot, keywords: ["agents", "bots", "ai"] },
+      { key: "runtimes", label: t(($) => $.pages.runtimes), icon: Monitor, keywords: ["runtimes", "environments"] },
+      { key: "skills", label: t(($) => $.pages.skills), icon: BookOpenText, keywords: ["skills", "library"] },
+      { key: "settings", label: t(($) => $.pages.settings), icon: Settings, keywords: ["settings", "config", "preferences", "设置"] },
+    ];
+    return navPages.filter(
+      (page) =>
+        page.label.toLowerCase().includes(q) ||
+        page.keywords.some((kw) => kw.includes(q)),
+    );
+  }, [query, t]);
 
   // Detect if current route is an issue detail page — /{slug}/issues/{id}.
   // Falls back to null on any other route; used to gate issue-specific commands.
@@ -430,9 +323,11 @@ export function SearchCommand() {
     // No query: only surface the primary creation action. Other commands
     // (theme switches, copy actions, New Project) are revealed as the user
     // types, leaving the empty-state space to Recent.
-    if (!q) return commands.filter((command) => command.key === "new-issue");
-    return commands.filter((command) =>
-      matchesRow(command.label, command.keywords, q),
+    if (!q) return commands.filter((c) => c.key === "new-issue");
+    return commands.filter(
+      (c) =>
+        c.label.toLowerCase().includes(q) ||
+        c.keywords.some((kw) => kw.includes(q)),
     );
   }, [commands, query]);
 
@@ -493,7 +388,7 @@ export function SearchCommand() {
   useEffect(() => {
     if (!open) {
       setQuery("");
-      setResults(NO_RESULTS);
+      setResults({ issues: [], projects: [] });
       setIsLoading(false);
     }
   }, [open]);
@@ -503,7 +398,7 @@ export function SearchCommand() {
     if (abortRef.current) abortRef.current.abort();
 
     if (!q.trim()) {
-      setResults(NO_RESULTS);
+      setResults({ issues: [], projects: [] });
       setIsLoading(false);
       return;
     }
@@ -529,7 +424,6 @@ export function SearchCommand() {
         ]);
         if (!controller.signal.aborted) {
           setResults({
-            query: q.trim(),
             issues: issueRes.issues,
             projects: projectRes.projects,
           });
@@ -537,7 +431,6 @@ export function SearchCommand() {
         }
       } catch {
         if (!controller.signal.aborted) {
-          setResults({ query: q.trim(), issues: [], projects: [] });
           setIsLoading(false);
         }
       }
@@ -566,7 +459,7 @@ export function SearchCommand() {
   );
 
   const handlePageSelect = useCallback(
-    (key: NavPageKey) => {
+    (key: NavKey) => {
       setOpen(false);
       push(p[key]());
     },
@@ -616,10 +509,10 @@ export function SearchCommand() {
           <CommandPrimitive.List className="max-h-[min(400px,50vh)] overflow-y-auto overflow-x-hidden">
             {/* Pages section — only shown when query matches */}
             {filteredPages.length > 0 && (
-              <CommandPrimitive.Group
-                heading={t(($) => $.groups.pages)}
-                className={GROUP_CLASS}
-              >
+              <CommandPrimitive.Group className="p-2">
+                <div className="px-3 py-1.5 text-caption font-medium text-muted-foreground">
+                  {t(($) => $.groups.pages)}
+                </div>
                 {filteredPages.map((page) => (
                   <CommandPrimitive.Item
                     key={page.key}
@@ -638,10 +531,10 @@ export function SearchCommand() {
 
             {/* Commands section — New Issue / New Project / Copy link / Theme, only shown when query matches */}
             {filteredCommands.length > 0 && (
-              <CommandPrimitive.Group
-                heading={t(($) => $.groups.commands)}
-                className={GROUP_CLASS}
-              >
+              <CommandPrimitive.Group className="p-2">
+                <div className="px-3 py-1.5 text-caption font-medium text-muted-foreground">
+                  {t(($) => $.groups.commands)}
+                </div>
                 {filteredCommands.map((cmd) => (
                   <CommandPrimitive.Item
                     key={cmd.key}
@@ -660,10 +553,10 @@ export function SearchCommand() {
             )}
 
             {filteredMembers.length > 0 && (
-              <CommandPrimitive.Group
-                heading={t(($) => $.groups.members)}
-                className={GROUP_CLASS}
-              >
+              <CommandPrimitive.Group className="p-2">
+                <div className="px-3 py-1.5 text-caption font-medium text-muted-foreground">
+                  {t(($) => $.groups.members)}
+                </div>
                 {filteredMembers.map((member) => (
                   <CommandPrimitive.Item
                     key={member.user_id}
@@ -690,7 +583,7 @@ export function SearchCommand() {
               </CommandPrimitive.Group>
             )}
 
-            {isLoading && !hasResults && (
+            {isLoading && (
               <div className="flex items-center justify-center py-10">
                 <Loader2 className="size-5 animate-spin text-muted-foreground" />
               </div>
@@ -706,23 +599,22 @@ export function SearchCommand() {
                 </CommandPrimitive.Empty>
               )}
 
-            {partitionedResults.liveProjects.length > 0 && (
+            {!isLoading && partitionedResults.liveProjects.length > 0 && (
               <CommandPrimitive.Group
                 heading={t(($) => $.groups.projects)}
-                className={GROUP_CLASS}
+                className="p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
               >
                 {partitionedResults.liveProjects.map((project) => (
                   <CommandPrimitive.Item
                     key={`project:${project.id}`}
                     value={`project:${project.id}`}
-                    disabled={resultsAreStale}
                     onSelect={handleSelect}
                     className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
                   >
                     <div className="flex items-center gap-2.5">
                       <ProjectIcon project={project} size="md" />
                       <span className="truncate">
-                        <HighlightText text={project.title} query={results.query} />
+                        <HighlightText text={project.title} query={query} />
                       </span>
                       <span
                         className={`ml-auto text-caption shrink-0 ${PROJECT_STATUS_CONFIG[project.status as ProjectStatus]?.color ?? "text-muted-foreground"}`}
@@ -746,16 +638,15 @@ export function SearchCommand() {
               </CommandPrimitive.Group>
             )}
 
-            {partitionedResults.liveIssues.length > 0 && (
+            {!isLoading && partitionedResults.liveIssues.length > 0 && (
               <CommandPrimitive.Group
                 heading={t(($) => $.groups.issues)}
-                className={GROUP_CLASS}
+                className="p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
               >
                 {partitionedResults.liveIssues.map((issue) => (
                   <CommandPrimitive.Item
                     key={issue.id}
                     value={issue.id}
-                    disabled={resultsAreStale}
                     onSelect={handleSelect}
                     className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
                   >
@@ -768,7 +659,7 @@ export function SearchCommand() {
                         {issue.identifier}
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        <HighlightText text={issue.title} query={results.query} />
+                        <HighlightText text={issue.title} query={query} />
                       </span>
                       <IssueAssigneeAvatar
                         assigneeType={issue.assignee_type}
@@ -802,23 +693,22 @@ export function SearchCommand() {
               </CommandPrimitive.Group>
             )}
 
-            {partitionedResults.hasCancelled && (
+            {!isLoading && partitionedResults.hasCancelled && (
               <CommandPrimitive.Group
                 heading={t(($) => $.groups.cancelled)}
-                className={GROUP_CLASS}
+                className="p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-caption [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
               >
                 {partitionedResults.cancelledProjects.map((project) => (
                   <CommandPrimitive.Item
                     key={`cancelled-project:${project.id}`}
                     value={`project:${project.id}`}
-                    disabled={resultsAreStale}
                     onSelect={handleSelect}
                     className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
                   >
                     <div className="flex items-center gap-2.5">
                       <ProjectIcon project={project} size="md" />
                       <span className="truncate">
-                        <HighlightText text={project.title} query={results.query} />
+                        <HighlightText text={project.title} query={query} />
                       </span>
                       <span className="ml-auto text-caption shrink-0 text-muted-foreground">
                         {t(($) => $.groups.cancelled)}
@@ -830,7 +720,6 @@ export function SearchCommand() {
                   <CommandPrimitive.Item
                     key={`cancelled-issue:${issue.id}`}
                     value={issue.id}
-                    disabled={resultsAreStale}
                     onSelect={handleSelect}
                     className="flex cursor-default select-none flex-col gap-1 rounded-lg px-3 py-2.5 text-body outline-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent"
                   >
@@ -843,7 +732,7 @@ export function SearchCommand() {
                         {issue.identifier}
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        <HighlightText text={issue.title} query={results.query} />
+                        <HighlightText text={issue.title} query={query} />
                       </span>
                     </div>
                   </CommandPrimitive.Item>
@@ -851,16 +740,12 @@ export function SearchCommand() {
               </CommandPrimitive.Group>
             )}
 
-            {!query.trim() && recentIssues.length > 0 && (
-              <CommandPrimitive.Group
-                heading={
-                  <>
-                    <Clock className="size-3" />
-                    <span>{t(($) => $.groups.recent)}</span>
-                  </>
-                }
-                className={`${GROUP_CLASS} [&_[cmdk-group-heading]]:flex [&_[cmdk-group-heading]]:items-center [&_[cmdk-group-heading]]:gap-2`}
-              >
+            {!isLoading && !query.trim() && recentIssues.length > 0 && (
+              <CommandPrimitive.Group className="p-2">
+                <div className="flex items-center gap-2 px-3 py-1.5 text-caption font-medium text-muted-foreground">
+                  <Clock className="size-3" />
+                  <span>{t(($) => $.groups.recent)}</span>
+                </div>
                 {recentIssues.map((item) => (
                   <CommandPrimitive.Item
                     key={item.id}
@@ -870,7 +755,6 @@ export function SearchCommand() {
                   >
                     <StatusIcon
                       status={item.status}
-                      category={issueStatusCategory(item) ?? undefined}
                       className="size-4 shrink-0"
                     />
                     <span className="text-caption text-muted-foreground shrink-0">

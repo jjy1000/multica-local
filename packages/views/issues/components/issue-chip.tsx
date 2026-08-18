@@ -1,7 +1,7 @@
 "use client";
 
 import { issueStatusCategory } from "@multica/core/issues";
-import type { ReactNode } from "react";
+
 import { useQuery } from "@tanstack/react-query";
 import { issueListOptions, issueDetailOptions } from "@multica/core/issues/queries";
 import { useWorkspaceId } from "@multica/core/hooks";

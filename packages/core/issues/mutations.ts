@@ -1,4 +1,4 @@
-import { normalizeStatusPatch } from "./status-category";
+import { normalizeStatusPatch, statusCategoryOfKey } from "./status-category";
 import { useState, useCallback } from "react";
 import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { api } from "../api";
@@ -82,7 +82,7 @@ export function useLoadMoreByStatus(
     ? issueKeys.myListSorted(wsId, myIssues.scope, myIssues.filter, sort)
     : issueKeys.listSorted(wsId, sort);
   const cache = qc.getQueryData<ListIssuesCache>(activeKey);
-  const bucket = cache?.byStatus[status];
+  const bucket = cache?.byStatus[statusCategoryOfKey(status)];
   const loaded = bucket?.issues.length ?? 0;
   const total = bucket?.total ?? 0;
   const hasMore = loaded < total;
@@ -100,10 +100,10 @@ export function useLoadMoreByStatus(
       });
       qc.setQueryData<ListIssuesCache>(activeKey, (old) => {
         if (!old) return old;
-        const prev = getBucket(old, status);
+        const prev = getBucket(old, statusCategoryOfKey(status));
         const existingIds = new Set(prev.issues.map((i) => i.id));
         const appended = res.issues.filter((i) => !existingIds.has(i.id));
-        return setBucket(old, status, {
+        return setBucket(old, statusCategoryOfKey(status), {
           issues: [...prev.issues, ...appended],
           total: res.total,
         });

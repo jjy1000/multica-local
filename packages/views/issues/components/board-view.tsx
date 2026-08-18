@@ -13,7 +13,8 @@ import {
 } from "@dnd-kit/core";
 import type { QueryKey } from "@tanstack/react-query";
 import { arrayMove } from "@dnd-kit/sortable";
-import type { Issue, IssueAssigneeGroup, IssueStatusCategory } from "@multica/core/types";
+import type { Issue, IssueAssigneeGroup, IssueStatus, IssueStatusCategory } from "@multica/core/types";
+import { statusCategoryOfKey } from "@multica/core/issues";
 import { useLoadMoreByAssigneeGroup, useLoadMoreByStatus } from "@multica/core/issues/mutations";
 import type { AssigneeGroupedIssuesFilter, IssueSortParam, MyIssuesFilter } from "@multica/core/issues/queries";
 import { useViewStore } from "@multica/core/issues/stores/view-store-context";
@@ -605,7 +606,7 @@ function BoardHiddenColumnRow({
   sort?: IssueSortParam;
 }) {
   const { total } = useLoadMoreByStatus(status, myIssuesOpts, sort);
-  return <HiddenColumnRow status={status} total={total} />;
+  return <HiddenColumnRow status={statusCategoryOfKey(status)} total={total} />;
 }
 
 function BoardHiddenColumnsPanel({

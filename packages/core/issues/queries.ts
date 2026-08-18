@@ -195,11 +195,11 @@ async function fetchAllMyFirstPages(userId: string, sort?: IssueSortParam): Prom
     fetchFirstPages({ involves_user_id: userId }, sort),
   ]);
   const byStatus: ListIssuesCache["byStatus"] = {};
-  for (const status of PAGINATED_STATUSES) {
+  for (const category of PAGINATED_CATEGORIES) {
     const seen = new Set<string>();
     const merged: Issue[] = [];
     for (const cache of [byAssignee, byCreator, byInvolves]) {
-      const bucket = cache.byStatus[status];
+      const bucket = cache.byStatus[category];
       if (!bucket) continue;
       for (const issue of bucket.issues) {
         if (seen.has(issue.id)) continue;
@@ -207,7 +207,7 @@ async function fetchAllMyFirstPages(userId: string, sort?: IssueSortParam): Prom
         merged.push(issue);
       }
     }
-    byStatus[status] = { issues: merged, total: merged.length };
+    byStatus[category] = { issues: merged, total: merged.length };
   }
   return { byStatus };
 }

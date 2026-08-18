@@ -1,6 +1,5 @@
 "use client";
 
-import { useIssueStatuses } from "@multica/core/issue-statuses/hooks";
 import { StatusIcon } from "../../issues/components";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { Archive } from "lucide-react";
@@ -39,19 +38,6 @@ export function InboxListItem({
 }) {
   const { t } = useT("inbox");
   const timeAgo = useTimeAgo();
-  // Inbox is a cross-workspace surface, so the catalog is read against the
-  // item's OWN workspace rather than the route's. (MUL-6243)
-  const { categoryOf: statusCategoryOf } = useIssueStatuses(item.workspace_id);
-  const openContextMenu = useInboxContextMenu();
-  // Null-safe slug (not useWorkspacePaths, which throws): the row renders in
-  // tests and could render outside a workspace route; without a slug the
-  // modifier-click affordance simply stays off.
-  const slug = useWorkspaceSlug();
-  const issueHref =
-    slug && item.issue_id
-      ? paths.workspace(slug).issueDetail(item.issue_id)
-      : null;
-  const intentNavigate = useIntentNavigate();
   const displayTitle = getInboxDisplayTitle(item);
 
   return (
@@ -100,11 +86,7 @@ export function InboxListItem({
               <Archive className="h-3.5 w-3.5" />
             </span>
             {item.issue_status && (
-              <StatusIcon
-                status={item.issue_status}
-                category={statusCategoryOf(item.issue_status)}
-                className="h-3.5 w-3.5 shrink-0"
-              />
+              <StatusIcon status={item.issue_status} className="h-3.5 w-3.5 shrink-0" />
             )}
           </div>
         </div>

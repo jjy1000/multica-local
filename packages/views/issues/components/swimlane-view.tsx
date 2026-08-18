@@ -1,7 +1,7 @@
 "use client";
 
 import { issueStatusCategory, statusCategoryOfKey } from "@multica/core/issues";
-import { memo, useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import {
   DndContext,
   DragOverlay,
