@@ -650,7 +650,7 @@ func openclawResolvedFullConfig(bin string, timeout time.Duration) (map[string]a
 	defer cancel()
 	out, err := openclawExec(ctx, bin, "config", "get", "--json")
 	if err != nil {
-		return nil, err
+		return nil, annotateOpenclawJSONError(err, out)
 	}
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "" || trimmed == "null" {
@@ -685,13 +685,13 @@ func openclawResolvedAgentsList(bin string, timeout time.Duration) ([]any, bool,
 	defer cancel()
 	out, err := openclawExec(ctx, bin, "config", "get", "agents.list", "--json")
 	if err != nil {
-		if isOpenclawKeyMissing(err) {
+		if isOpenclawKeyMissingResult(out, err) {
 			// New schema: the config path is gone; the agents live in the
 			// sqlite registry. Resolve them via the subcommand instead.
 			list, rerr := openclawRegistryAgentsList(bin, timeout)
 			return list, true, rerr
 		}
-		return nil, false, err
+		return nil, false, annotateOpenclawJSONError(err, out)
 	}
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "" || trimmed == "null" {
@@ -735,7 +735,7 @@ func openclawRegistryAgentsList(bin string, timeout time.Duration) ([]any, error
 		if isOpenclawKeyMissing(err) || isOpenclawUnknownSubcommand(err) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, annotateOpenclawJSONError(err, out)
 	}
 	trimmed := strings.TrimSpace(out)
 	if trimmed == "" || trimmed == "null" {
@@ -766,14 +766,15 @@ func execOpenclawCLI(ctx context.Context, bin string, args ...string) (string, e
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	raw, err := cmd.Output()
+	stdout := string(raw)
 	if err != nil {
 		stderrMsg := strings.TrimSpace(stderr.String())
 		if stderrMsg != "" {
-			return "", fmt.Errorf("openclaw %s: %w (stderr: %s)", strings.Join(args, " "), err, stderrMsg)
+			return stdout, fmt.Errorf("openclaw %s: %w (stderr: %s)", strings.Join(args, " "), err, stderrMsg)
 		}
-		return "", fmt.Errorf("openclaw %s: %w", strings.Join(args, " "), err)
+		return stdout, fmt.Errorf("openclaw %s: %w", strings.Join(args, " "), err)
 	}
-	return string(raw), nil
+	return stdout, nil
 }
 
 // openclawManagedMcpServers parses the agent's `mcp_config` JSON and returns
@@ -840,6 +841,15 @@ func isOpenclawKeyMissing(err error) bool {
 	if err == nil {
 		return false
 	}
+	return isOpenclawKeyMissingMessage(err.Error())
+}
+
+// isOpenclawKeyMissingMessage decides whether a single error text — extracted
+// from either stderr or a JSON envelope's `error` field — names a missing
+// agents.list path. Phrases such as "not set" can match many unrelated
+// structured errors, so the JSON-aware caller requires the message to also
+// name "agents.list" before relying on this verdict.
+func isOpenclawKeyMissingMessage(msg string) bool {
 	// Match case-insensitively: the CLI's "key not found" wording has drifted
 	// across versions and capitalization is not stable. Pre-2026.6 emitted
 	// "Path not found"; OpenClaw 2026.6.x emits "Config path not found:
@@ -847,11 +857,73 @@ func isOpenclawKeyMissing(err error) bool {
 	// strings.Contains on "Path not found" silently stopped matching the
 	// 2026.6.x string, turning the intended graceful-skip into a fail-closed
 	// error that broke every OpenClaw 2026.6.x runtime (see upstream #3028).
-	msg := strings.ToLower(err.Error())
+	msg = strings.ToLower(msg)
 	return strings.Contains(msg, "no value at ") ||
 		strings.Contains(msg, "not set") ||
 		strings.Contains(msg, "missing key") ||
 		strings.Contains(msg, "path not found")
+}
+
+const openclawJSONErrorMaxRunes = 1024
+
+// openclawJSONErrorMessage parses the JSON error envelope some OpenClaw
+// releases emit on stdout when a config command fails. Returns the
+// whitespace-normalized `error` field, or "" with ok=false if the payload is
+// not a JSON object with an `error` string.
+func openclawJSONErrorMessage(stdout string) (string, bool) {
+	var envelope struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(stdout)), &envelope) != nil {
+		return "", false
+	}
+	message := strings.Join(strings.Fields(envelope.Error), " ")
+	return message, message != ""
+}
+
+// annotateOpenclawJSONError restores diagnostics for JSON-mode commands whose
+// CLI errors are written to stdout. Only the envelope's `error` string is
+// included: sibling fields may contain resolved configuration or secrets. The
+// message is whitespace-normalized for single-line logs and rune-bounded to
+// keep persisted task errors finite while preserving valid UTF-8.
+func annotateOpenclawJSONError(err error, stdout string) error {
+	if err == nil {
+		return nil
+	}
+	message, ok := openclawJSONErrorMessage(stdout)
+	if !ok {
+		return err
+	}
+	runes := []rune(message)
+	if len(runes) > openclawJSONErrorMaxRunes {
+		message = string(runes[:openclawJSONErrorMaxRunes]) + "…"
+	}
+	return fmt.Errorf("%w (json error: %s)", err, message)
+}
+
+// isOpenclawKeyMissingResult recognizes the JSON error envelope observed in
+// OpenClaw 2026.7.2-beta.7 for `config get ... --json` failures. It first
+// preserves the historical stderr/error-text matching, then parses only the
+// explicit `error` field and requires it to name agents.list; broad historical
+// phrases such as "not set" cannot reclassify an unrelated structured error.
+// Cancellation and timeout keep their original meaning even if a child emitted
+// a partial missing-path envelope before it stopped.
+func isOpenclawKeyMissingResult(stdout string, err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if isOpenclawKeyMissing(err) {
+		return true
+	}
+	message, ok := openclawJSONErrorMessage(stdout)
+	if !ok {
+		return false
+	}
+	return strings.Contains(strings.ToLower(message), "agents.list") &&
+		isOpenclawKeyMissingMessage(message)
 }
 
 // isOpenclawUnknownSubcommand returns true when the CLI error indicates the
