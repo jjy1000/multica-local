@@ -137,6 +137,13 @@ type Config struct {
 	ExecutablePath string            // path to CLI binary (claude, codebuddy, codex, copilot, opencode, openclaw, hermes, pi, cursor, kimi, kiro-cli, agy, qodercli)
 	Env            map[string]string // extra environment variables
 	Logger         *slog.Logger
+	// BuiltinRuntime marks a backend launched from the fork's own built-in
+	// provider binary rather than a custom runtime profile. Custom profiles
+	// select the backend by protocol_family (e.g. a `protocol_family: hermes`
+	// profile running jcode), so the backend cannot otherwise tell them apart.
+	// It fences vendor-verified compatibility exceptions that only hold for the
+	// real built-in binary; unset callers fail closed.
+	BuiltinRuntime bool
 }
 
 // New creates a Backend for the given agent type.

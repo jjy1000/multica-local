@@ -3568,7 +3568,9 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// resolves to, paired with the path by resolveAgentEntry so a just-upgraded
 	// codex is never launched under the previous version's policy (MUL-4486).
 	var resolvedVersion string
+	isCustomRuntime := false
 	if customSpec, isCustom := d.customProfileLaunchForRuntime(task.RuntimeID); isCustom {
+		isCustomRuntime = true
 		entry.Path = customSpec.path
 		profileFixedArgs = customSpec.fixedArgs
 		ok = true
@@ -3933,6 +3935,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		ExecutablePath: entry.Path,
 		Env:            agentEnv,
 		Logger:         d.logger,
+		BuiltinRuntime: !isCustomRuntime,
 	})
 	if err != nil {
 		return TaskResult{}, fmt.Errorf("create agent backend: %w", err)
