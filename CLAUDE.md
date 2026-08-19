@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **TL;DR**: **localized single-user fork** of Multica (no telemetry, no OAuth, no cloud, username-only login — see **Localized Fork** below). Memory: `~/.claude/projects/-Users-jiangjianyan-jjy-multica-exploration-dev/memory/`. Backup: `.omc/backups/<date>/<release>-ship/` (auto per `ship-mac`). Single-command ship: `bash scripts/ship-mac.sh --yes`. Below: current release → key contracts → routing → ship chain → deferred/SKIPs.
+>
 > **Current release: 0.5.42 (committed + shipped 2026-08-19, installed at /Applications/Multica.app, server PID 50859).**
 > 13 atomic commits on epic/0.5.13-integration (19115a4b6…98b19c4f9) across three batches:
 > - **0.5.40 batch (5 commits)**: CVE-2026-9277 shell-quote dep bump + MUL-6330 exact-prefix skill picker + MUL-6362 redact secrets from provider command logs (with NEW fork-local `launch.go`/`launch_test.go` + 13 runtime edits + Config.LaunchPrefix field + structural regression guard) + release-prep + post-ship docs
@@ -249,6 +251,8 @@ Pinned versions — do not bump casually:
 ## Commands
 
 `make` (or `make help`) prints the full target list — `make` defaults to `help`, not to a destructive target. The one-command bootstrap is `make dev`: auto-detects main vs worktree, creates env file, installs deps, runs migrations, starts backend + frontend.
+
+> **Single-command release**: `bash scripts/ship-mac.sh --yes` runs every ship-chain step end-to-end (snapshot → bundle-cli → build → package → nested-binary signing → cold-start verify), aborts on first failure, and is the canonical ship entry point per **Ship chain** below. `--build-only` stops before `/Applications` overwrite.
 
 ```bash
 make dev              # auto-setup and start the app
@@ -539,6 +543,8 @@ git diff --stat HEAD                           # what the resolution produced
 **Pre-existing test bisect**: to prove a failing test predates a port, `git worktree add /tmp/wt-check <base-commit>` + `ln -s <main>/node_modules /tmp/wt-check/node_modules` (+ per-package) and run the test there — cheap and definitive.
 
 ## Ship chain (canonical order)
+
+> **Auto-backup protocol**: every ship-mac invocation writes a per-release snapshot to `.omc/backups/<YYYY-MM-DD-HHMM>/<release>-ship/` (HEAD pointer + dirty flag + manifest + log). Each release also pairs with `.omc/release-notes-<ver>.md` and `.omc/<ver>-ship-<date>.md`. This makes ship state recoverable even if `git` history is lost; treat `.omc/` as the durable cross-session archive for releases.
 
 > **Prefer the enforced script:** `make ship-mac` (or `bash scripts/ship-mac.sh`)
 > runs every step below in order, aborts on the first failure, verifies the
