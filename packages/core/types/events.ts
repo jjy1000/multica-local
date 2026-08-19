@@ -238,6 +238,9 @@ export interface TaskMessagePayload {
   input?: Record<string, unknown>;
   output?: string;
   created_at?: string;
+  /** MUL-6396: tool input/output were clipped for the realtime fanout;
+   *  the full text exists in the persisted row and is one GET away. */
+  truncated?: boolean;
 }
 
 export interface TaskQueuedPayload {
