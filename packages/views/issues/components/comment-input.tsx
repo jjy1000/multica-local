@@ -20,10 +20,12 @@ interface CommentInputProps {
   /** Resolves true on success, false on failure. The composer keeps the text
    *  (editor locked + button spinning) until this settles, then clears only on
    *  success — a failed send must not silently discard the user's draft. */
-  onSubmit: (content: string, attachmentIds?: string[], suppressAgentIds?: string[]) => Promise<boolean>;
+  onSubmit: (content: string, attachmentIds?: string[], suppressAgentIds?: string[]) => Promise<string | boolean>;
+  /** Called after the server accepts the comment and the composer is cleared. */
+  onAccepted?: (commentId: string) => void;
 }
 
-function CommentInput({ issueId, onSubmit }: CommentInputProps) {
+function CommentInput({ issueId, onSubmit, onAccepted }: CommentInputProps) {
   const { t } = useT("issues");
   const editorRef = useRef<ContentEditorRef>(null);
   // Read the persisted draft once on mount. ContentEditor only honors
@@ -37,6 +39,12 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
   const [submitting, setSubmitting] = useState(false);
   const [suppressedAgentIds, setSuppressedAgentIds] = useState<Set<string>>(() => new Set());
   const triggerPreview = useCommentTriggerPreview({ issueId, content });
+  // Comment id of the most recently accepted send. Captured by the
+  // `.then(...)` wrapper around `onSubmit` and read by the onAccepted
+  // branch of this composer's submission lifecycle, so the parent can react
+  // (e.g. scroll the freshly posted comment into view) once the editor is
+  // cleared and the round-trip with the server has actually committed.
+  const acceptedCommentIdRef = useRef<string | null>(null);
   // Attachments uploaded in this composer session. Drives both:
   //  - submit-time `attachment_ids` payload (filtered to URLs still in markdown)
   //  - the editor's AttachmentDownloadProvider, so file-card Eye buttons can
@@ -120,7 +128,10 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
         content,
         activeIds.length > 0 ? activeIds : undefined,
         suppressAgentIds.length > 0 ? suppressAgentIds : undefined,
-      );
+      ).then((commentId) => {
+        acceptedCommentIdRef.current = typeof commentId === "string" ? commentId : null;
+        return !!commentId;
+      });
       if (ok) {
         editorRef.current?.clearContent();
         setContent("");
@@ -128,6 +139,7 @@ function CommentInput({ issueId, onSubmit }: CommentInputProps) {
         setSuppressedAgentIds(new Set());
         setPendingAttachments([]);
         clearDraft(draftKey);
+        if (acceptedCommentIdRef.current) onAccepted?.(acceptedCommentIdRef.current);
       }
     } finally {
       setSubmitting(false);

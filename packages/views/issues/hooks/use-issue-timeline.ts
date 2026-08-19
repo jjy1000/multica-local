@@ -264,11 +264,11 @@ export function useIssueTimeline(issueId: string, userId?: string) {
   // on success — so a slow send no longer leaves the box full next to an
   // already-posted comment, and a failed send keeps the draft.
   const submitComment = useCallback(
-    async (content: string, attachmentIds?: string[], suppressAgentIds?: string[]): Promise<boolean> => {
+    async (content: string, attachmentIds?: string[], suppressAgentIds?: string[]): Promise<string | false> => {
       if (!content.trim() || !userId) return false;
       try {
-        await createComment({ content, attachmentIds, suppressAgentIds });
-        return true;
+        const comment = await createComment({ content, attachmentIds, suppressAgentIds });
+        return comment.id;
       } catch (err) {
         toast.error(
           err instanceof Error && err.message
@@ -282,17 +282,17 @@ export function useIssueTimeline(issueId: string, userId?: string) {
   );
 
   const submitReply = useCallback(
-    async (parentId: string, content: string, attachmentIds?: string[], suppressAgentIds?: string[]): Promise<boolean> => {
+    async (parentId: string, content: string, attachmentIds?: string[], suppressAgentIds?: string[]): Promise<string | false> => {
       if (!content.trim() || !userId) return false;
       try {
-        await createComment({
+        const comment = await createComment({
           content,
           type: "comment",
           parentId,
           attachmentIds,
           suppressAgentIds,
         });
-        return true;
+        return comment.id;
       } catch (err) {
         toast.error(
           err instanceof Error && err.message

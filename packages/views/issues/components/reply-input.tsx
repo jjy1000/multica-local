@@ -28,7 +28,9 @@ interface ReplyInputProps {
   avatarId: string;
   /** Resolves true on success, false on failure — the reply box keeps its text
    *  (locked + spinning) until then, clearing only on success. */
-  onSubmit: (content: string, attachmentIds?: string[], suppressAgentIds?: string[]) => Promise<boolean>;
+  onSubmit: (content: string, attachmentIds?: string[], suppressAgentIds?: string[]) => Promise<string | boolean>;
+  /** Called after the server accepts the reply and the composer is cleared. */
+  onAccepted?: (commentId: string) => void;
   size?: "sm" | "default";
   /** When set, hydrates/persists the in-progress reply via the draft store.
    *  Required for replies inside virtualized timeline threads, where the
@@ -47,6 +49,7 @@ function ReplyInput({
   avatarType,
   avatarId,
   onSubmit,
+  onAccepted,
   size = "default",
   draftKey,
 }: ReplyInputProps) {
@@ -65,6 +68,12 @@ function ReplyInput({
   const [submitting, setSubmitting] = useState(false);
   const [suppressedAgentIds, setSuppressedAgentIds] = useState<Set<string>>(() => new Set());
   const triggerPreview = useCommentTriggerPreview({ issueId, parentId, content });
+  // Comment id of the most recently accepted reply. Captured by the
+  // `.then(...)` wrapper around `onSubmit` and read by the onAccepted branch
+  // of this composer's submission lifecycle, so the parent (typically the
+  // enclosing CommentCard) can react — e.g. scroll the freshly posted reply
+  // into view — once the editor is cleared and the server has committed.
+  const acceptedCommentIdRef = useRef<string | null>(null);
   // Attachments uploaded in this composer session — see CommentInput for the
   // rationale (drives both submit-time attachment_ids and editor previews).
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
@@ -138,7 +147,10 @@ function ReplyInput({
         content,
         activeIds.length > 0 ? activeIds : undefined,
         suppressAgentIds.length > 0 ? suppressAgentIds : undefined,
-      );
+      ).then((commentId) => {
+        acceptedCommentIdRef.current = typeof commentId === "string" ? commentId : null;
+        return !!commentId;
+      });
       if (ok) {
         editorRef.current?.clearContent();
         setContent("");
@@ -146,6 +158,7 @@ function ReplyInput({
         setSuppressedAgentIds(new Set());
         setPendingAttachments([]);
         if (draftKey) clearDraft(draftKey);
+        if (acceptedCommentIdRef.current) onAccepted?.(acceptedCommentIdRef.current);
       }
     } finally {
       setSubmitting(false);
