@@ -103,6 +103,47 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
 - **Lab leader rewrite.** Code paths that flip `issue.lab_source` must go through
   `handler/issue.go::shouldRewriteAssigneeForLabLeader` + `assignDefaultLabAgentOnUpdate`
   (4-case contract; tests in `issue_lab_dispatch_test.go`), not a re-derived gate.
+- **Lab auto-dispatch opt-out (0.5.22).** `experimental.Flag.AutoDispatch *bool`
+  flags a catalog entry to skip the service-layer auto-dispatch path
+  (`IssueService.maybeEnqueueOnAssign` in service/issue.go + `WillEnqueueRun`
+  in service/issue_trigger.go — the single chokepoint for UpdateIssue +
+  BatchUpdateIssues). Nil/true = unchanged 0.3.46 behaviour; **false**
+  (currently only `claude_science_lab`) means the assignee is still
+  written (leader-rewrite still applies) but no `agent_task_queue` row
+  is created until the user explicitly clicks "Run research" on the lab
+  workbench's IssueContextBar (`apps/desktop/.../claude-lab-view.tsx`).
+  That trigger fires via
+  `POST /api/experimental/claude-science/issues/{id}/run`
+  (handler/claude_science_run.go), which calls
+  `TaskService.EnqueueTaskForIssue` directly — bypassing both service
+  gates because the endpoint IS the manual opt-in. The route is mounted
+  inside the existing `RequireExperimentalFlag("claude_science_lab")`
+  chi group in cmd/server/router.go. Reading code goes through
+  `experimental.AutoDispatch(key)` (true when pointer is nil/unknown,
+  returns the dereferenced value otherwise). Adding a second opt-out lab
+  is a 3-line catalog edit — no service-layer or router changes needed.
+  Tests: `TestAutoDispatchFlagBehavior` in
+  `internal/experimental/registry_test.go`.
+- **Experimental runtime GC for `experimental_claude_runtime_session` (0.5.25).**
+  `experimental.RuntimeGC` is the 30/90/120-day retention ladder for claude
+  science research sessions (migration 151). Three contracts: (1) `Run()`
+  never closes `g.stopped` itself — `Stop()` owns the close-once contract
+  via `stopOne`. The pre-0.5.25 code called `g.stopOne.Do(close(g.stopped))`
+  *eagerly* at the top of `Run()`, so the first `select` evaluated
+  `<-g.stopped` immediately and the GC exited without ever ticking.
+  (2) `Start()` is wired at boot in `cmd/server/router.go` alongside
+  `swarm_gc.Start()`. Pre-0.5.25 it was orphaned — the comment "parallel
+  to runtime_gc.Start pattern" had never been realized on the runtime_gc
+  side. Store the GC on `Handler.RuntimeGC` so `cmd/server/main.go`'s
+  shutdown can call `Stop()` before SIGKILL. (3) The loop body is
+  regression-pinned by `TestRuntimeGC_RunSweepsBeforeExit` (asserts
+  `sweepCount >= 2` in 60ms at 20ms Interval; FAILS on pre-fix code
+  with "got 0 sweep invocations", PASSES with fix). `sweepCount` is an
+  `atomic.Uint64` field on `RuntimeGC` that `sweep()` increments —
+  production ignores it, tests read it. **Before touching this GC:**
+  read memory `0.5.25-runtimegc-fix-2026-08-17.md` and add a sweep-
+  execution assertion to the test (do not assume the loop body runs
+  just because the code looks right).
 - **`lab_managed` DTO stamp.** `agent.go::ListAgents` / `squad.go::ListSquads` AND the single-fetch `GetAgent` / `GetSquad` (0.5.18 SEC-P1-7 closed the single-fetch gap)
   derive `lab_managed?: boolean` from `experimental_resource_visibility` (not a
   column). Row-level `filterLabsHiddenByDefault` is one layer; selection surfaces
