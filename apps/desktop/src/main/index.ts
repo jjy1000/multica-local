@@ -32,6 +32,7 @@ import {
 import { installContextMenu } from "./context-menu";
 import { handleAppShortcut } from "./keyboard-shortcuts";
 import { installNavigationGestures } from "./navigation-gestures";
+import { writeRendererConsoleLine } from "./renderer-log";
 import { getAppVersion } from "./app-version";
 import { loadRuntimeConfig } from "./runtime-config-loader";
 import type { RuntimeConfigResult } from "../shared/runtime-config";
@@ -340,23 +341,34 @@ function createWindow(): void {
   // disposed before WebFrameMain could be accessed`) which is a downstream
   // symptom, not the cause.
   //
-  // Gated by `is.dev` to keep production stderr clean — packaged builds
-  // don't have a terminal anyway, and we ship to crash-reporting separately.
+  // Production captures renderer console to ~/.multica/profiles/<active>/renderer.log
+  // (see renderer-log.ts) so silent renderer errors leave a breadcrumb.
+  // Dev keeps the old stderr sink for live debugging. The listener itself
+  // is attached unconditionally — gating by `is.dev` would re-introduce the
+  // silent-window regression.
+  const log = (tag: string, ...args: unknown[]) => {
+    const line = `[renderer ${tag}] ${args.map(String).join(" ")}\n`;
+    if (is.dev) {
+      process.stderr.write(line);
+    } else {
+      writeRendererConsoleLine(line);
+    }
+  };
+
+  // Forward every renderer-side console.* call. The detail object also
+  // carries source URL + line — included so a thrown stack trace from
+  // window.onerror is traceable back to a file.
+  window.webContents.on("console-message", (details) => {
+    const { level, message, sourceId, lineNumber } = details;
+    log(level, `${message} (${sourceId}:${lineNumber})`);
+  });
+
+  // Fires when loadURL / loadFile can't reach its target (dev server
+  // not up yet, network blip, file missing). Dev-only — production has no
+  // dev server, and renderer-load failures surface through the renderer
+  // console listener above anyway. errorCode is a Chromium net error
+  // number; -3 = ABORTED is normal during HMR and skipped.
   if (is.dev) {
-    const log = (tag: string, ...args: unknown[]) =>
-      process.stderr.write(`[renderer ${tag}] ${args.map(String).join(" ")}\n`);
-
-    // Forward every renderer-side console.* call. The detail object also
-    // carries source URL + line — included so a thrown stack trace from
-    // window.onerror is traceable back to a file.
-    window.webContents.on("console-message", (details) => {
-      const { level, message, sourceId, lineNumber } = details;
-      log(level, `${message} (${sourceId}:${lineNumber})`);
-    });
-
-    // Fires when loadURL / loadFile can't reach its target (dev server
-    // not up yet, network blip, file missing). errorCode is a Chromium
-    // net error number; -3 = ABORTED is normal during HMR and skipped.
     window.webContents.on(
       "did-fail-load",
       (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {

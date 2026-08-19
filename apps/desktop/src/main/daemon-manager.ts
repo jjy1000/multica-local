@@ -19,6 +19,7 @@ import { homedir, hostname } from "os";
 import type { DaemonStatus, DaemonPrefs } from "../shared/daemon-types";
 import { daemonStatusAlive } from "../shared/daemon-types";
 import { ensureManagedCli, managedCliPath } from "./cli-bootstrap";
+import { setRendererLogPath } from "./renderer-log";
 import { decideVersionAction } from "./version-decision";
 import {
   daemonLifecycleUnreachable,
@@ -329,6 +330,12 @@ async function resolveActiveProfile(): Promise<ActiveProfile> {
 async function ensureActiveProfile(): Promise<ActiveProfile> {
   if (activeProfile) return activeProfile;
   activeProfile = await resolveActiveProfile();
+  // First profile resolution pins the renderer-console capture path so any
+  // later console-message from the BrowserWindow can stream to
+  // ~/.multica/profiles/<active>/renderer.log (production safety net — see
+  // renderer-log.ts). Idempotent: ensureActiveProfile returns the cached
+  // profile on repeat calls, so this runs exactly once per session.
+  setRendererLogPath(join(profileDir(activeProfile.name), "renderer.log"));
   return activeProfile;
 }
 
@@ -890,7 +897,27 @@ function desktopSpawnEnv(): NodeJS.ProcessEnv {
   return { ...process.env, MULTICA_LAUNCHED_BY: "desktop" };
 }
 
+// Single-flight guard for startDaemon. Without it, two near-simultaneous
+// callers — bootstrapCli + tryAutoStartFromMain + syncToken IPC + a user-
+// triggered `daemon:auto-start` — each spawn their own CLI supervisor and
+// race for port 19545; the losing one logs "bind: address already in use"
+// (10 events in 13h in daemon.log per the 0.5.36 client-log audit).
+//
+// The wrapper returns the in-flight promise to re-entrant callers instead
+// of firing a second execFile, and clears the slot on settle so a later
+// restartDaemon / explicit user "Start" can still launch a fresh daemon.
+let startInFlight: Promise<{ success: boolean; error?: string }> | null = null;
 async function startDaemon(): Promise<{ success: boolean; error?: string }> {
+  if (startInFlight) return startInFlight;
+  startInFlight = startDaemonImpl();
+  try {
+    return await startInFlight;
+  } finally {
+    startInFlight = null;
+  }
+}
+
+async function startDaemonImpl(): Promise<{ success: boolean; error?: string }> {
   const bin = await resolveCliBinary();
   if (!bin) return { success: false, error: "multica CLI is not installed" };
 
