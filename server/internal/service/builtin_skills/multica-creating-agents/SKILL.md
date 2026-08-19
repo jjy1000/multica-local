@@ -111,6 +111,12 @@ rejects any non-empty value with a 400.
 documented CLI guidance, not a server-enforced invariant; nothing in the create
 handler inspects `custom_args` for a model flag.
 
+Never put credentials or other secrets in `custom_args`. Daemon command logs
+redact argument values, but the values still live in the provider process's
+argv and may be visible to other local processes through `ps` or `/proc`. Put
+provider credentials in `custom_env` instead, using its stdin or 0600 file
+input where possible.
+
 ## Env & secrets
 
 `custom_env` is secret material. The CLI offers three input channels; two keep

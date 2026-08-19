@@ -144,6 +144,19 @@ type Config struct {
 	// It fences vendor-verified compatibility exceptions that only hold for the
 	// real built-in binary; unset callers fail closed.
 	BuiltinRuntime bool
+	// provider is the runtime/provider identity used in safe launch logs. New
+	// fills it from the protocol family; NewRuntime preserves the concrete
+	// built-in runtime identity instead (for example omp rather than pi).
+	provider string
+	// LaunchPrefix is the argv prefix that belongs to ExecutablePath itself —
+	// a custom runtime profile's fixed_args. It is spliced in directly after
+	// the executable, ahead of every argument a backend builds, because a
+	// wrapper like `ccms start q36` only reaches the real Claude binary after
+	// its `start` subcommand has been selected. Fork-local: this stays nil
+	// for built-in providers; only custom runtime profiles set it. The
+	// redaction helpers (see launch.go) still match the trailing argv
+	// suffix against the original invocation when LaunchPrefix is empty.
+	LaunchPrefix []string
 }
 
 // New creates a Backend for the given agent type.
@@ -185,6 +198,9 @@ func IsSupportedType(agentType string) bool {
 func New(agentType string, cfg Config) (Backend, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
+	}
+	if cfg.provider == "" {
+		cfg.provider = agentType
 	}
 
 	switch agentType {
