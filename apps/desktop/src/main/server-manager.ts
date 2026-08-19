@@ -40,7 +40,7 @@
 
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as net from "node:net";
@@ -220,6 +220,24 @@ function profileDir(profile: string): string {
 
 function serverLogPath(profile: string): string {
   return join(profileDir(profile), "server.log");
+}
+
+// 50 MB log-rotation threshold (0.5.37 audit issues #2/#8: prevent unbounded growth).
+const LOG_ROTATE_THRESHOLD_BYTES = 50 * 1024 * 1024;
+
+// Rotate logPath → logPath.1 via POSIX-atomic rename when the live file exceeds
+// the threshold. Existing `.1` is overwritten (fork's single-rotation retention).
+async function rotateLogIfNeeded(logPath: string): Promise<void> {
+  try {
+    const stats = await stat(logPath);
+    if (stats.size > LOG_ROTATE_THRESHOLD_BYTES) {
+      await rename(logPath, `${logPath}.1`);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn(`[server-manager] log rotation check failed for ${logPath}:`, err);
+    }
+  }
 }
 
 function serverEnvPath(profile: string): string {
@@ -500,6 +518,8 @@ async function startServer(profile: string, port: number): Promise<void> {
     ...env,
     MULTICA_RESOURCES_DIR: manifestRoot,
   };
+  // 0.5.37 audit: rotate server.log if it exceeds 50 MB before opening the fd.
+  await rotateLogIfNeeded(serverLogPath(profile));
   const logFd = await require("node:fs/promises").open(serverLogPath(profile), "a");
   // P2 fix (memory multica-0.3.2): the previous build opened the log but
   // never wrote a startup marker, so users (and us) couldn't tell whether

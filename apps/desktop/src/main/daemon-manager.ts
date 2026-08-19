@@ -4,6 +4,7 @@ import {
   readFile,
   writeFile,
   mkdir,
+  rename,
   rm,
   open,
   stat,
@@ -107,6 +108,26 @@ function profileConfigPath(profile: string): string {
 
 function profileLogPath(profile: string): string {
   return join(profileDir(profile), "daemon.log");
+}
+
+// 50 MB log-rotation threshold (0.5.37 audit issues #2/#8: prevent unbounded growth).
+const LOG_ROTATE_THRESHOLD_BYTES = 50 * 1024 * 1024;
+
+// Rotate logPath → logPath.1 via POSIX-atomic rename when the live file exceeds
+// the threshold. The renderer's log tail watcher (startLogTail) already handles
+// "file rotated/truncated → restart from 0"; the in-flight Go daemon's open fd
+// keeps writing to the .1 inode until the next daemon restart reopens daemon.log.
+async function rotateLogIfNeeded(logPath: string): Promise<void> {
+  try {
+    const stats = await stat(logPath);
+    if (stats.size > LOG_ROTATE_THRESHOLD_BYTES) {
+      await rename(logPath, `${logPath}.1`);
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.warn(`[daemon-manager] log rotation check failed for ${logPath}:`, err);
+    }
+  }
 }
 
 // Sidecar file that records which Multica user the cached PAT in config.json
@@ -953,6 +974,8 @@ async function startDaemonImpl(): Promise<{ success: boolean; error?: string }> 
     args.push("--server-url", targetApiBaseUrl);
   }
 
+  // 0.5.37 audit: rotate daemon.log if it exceeds 50 MB before spawning the CLI.
+  await rotateLogIfNeeded(profileLogPath(active.name));
   return new Promise((resolve) => {
     execFile(
       bin,
