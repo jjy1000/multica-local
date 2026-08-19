@@ -82,7 +82,8 @@ import type {
   ChatMessage,
   ChatPendingTask,
   ChatMessagesPage,
-  InvitationCreatedPayload,
+  // InvitationCreatedPayload removed in 0.5.36 — the user-scoped invitations
+  // path was retired alongside the WS handler that used it.
 } from "../types";
 
 const chatWsLogger = createLogger("chat.ws");
@@ -780,7 +781,6 @@ export function useRealtimeSync(
       const myUserId = authStore.getState().user?.id;
       if (member.user_id === myUserId) {
         qc.invalidateQueries({ queryKey: workspaceKeys.list() });
-        qc.invalidateQueries({ queryKey: workspaceKeys.myInvitations() });
         onToast?.(
           `You joined ${workspace_name ?? "a workspace"}`,
           "info",
@@ -788,17 +788,11 @@ export function useRealtimeSync(
       }
     });
 
-    // invitation:created — notify the invitee of a new pending invitation
-    const unsubInvitationCreated = ws.on("invitation:created", (p) => {
-      const { workspace_name } = p as InvitationCreatedPayload;
-      qc.invalidateQueries({ queryKey: workspaceKeys.myInvitations() });
-      onToast?.(
-        `You were invited to ${workspace_name ?? "a workspace"}`,
-        "info",
-      );
-    });
+    // invitation:created handler removed in 0.5.36 — the localized build has
+    // no user-scoped invitations endpoint, so the only effect (invalidate
+    // workspaceKeys.myInvitations + invite toast) was dead.
 
-    // invitation:accepted / declined / revoked — refresh invitation lists
+    // invitation:accepted / declined — refresh invitation lists
     const unsubInvitationAccepted = ws.on("invitation:accepted", () => {
       const currentWsId = getCurrentWsId();
       if (currentWsId) {
@@ -812,9 +806,8 @@ export function useRealtimeSync(
         qc.invalidateQueries({ queryKey: workspaceKeys.invitations(currentWsId) });
       }
     });
-    const unsubInvitationRevoked = ws.on("invitation:revoked", () => {
-      qc.invalidateQueries({ queryKey: workspaceKeys.myInvitations() });
-    });
+    // invitation:revoked handler removed in 0.5.36 — only effect was a no-op
+    // myInvitations invalidation.
 
     // --- Chat / task events (global, survives ChatWindow unmount) ---
     //
@@ -1141,10 +1134,8 @@ export function useRealtimeSync(
       unsubWsDeleted();
       unsubMemberRemoved();
       unsubMemberAdded();
-      unsubInvitationCreated();
       unsubInvitationAccepted();
       unsubInvitationDeclined();
-      unsubInvitationRevoked();
       unsubTaskMessage();
       unsubChatMessage();
       unsubChatDone();

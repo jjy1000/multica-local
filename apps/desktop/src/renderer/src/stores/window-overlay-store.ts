@@ -15,7 +15,9 @@ import { create } from "zustand";
 export type WindowOverlay =
   | { type: "new-workspace" }
   | { type: "invite"; invitationId: string }
-  | { type: "invitations" }
+  // { type: "invitations" } removed in 0.5.36 — see CLAUDE.md "Localized Fork"
+  // for the full invitation retirement. Deep-link invites still work via the
+  // "invite" variant above (single-token accept flow).
   | { type: "onboarding" };
 
 interface WindowOverlayStore {

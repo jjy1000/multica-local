@@ -7,7 +7,8 @@ export const workspaceKeys = {
   list: () => ["workspaces", "list"] as const,
   members: (wsId: string) => ["workspaces", wsId, "members"] as const,
   invitations: (wsId: string) => ["workspaces", wsId, "invitations"] as const,
-  myInvitations: () => ["invitations", "mine"] as const,
+  // myInvitations key removed in 0.5.36: localized build has no user-scoped
+  // invitations endpoint, so the key would never be populated.
   agents: (wsId: string) => ["workspaces", wsId, "agents"] as const,
   squads: (wsId: string) => ["workspaces", wsId, "squads"] as const,
   // Per-squad member status. Lives under the workspace key tree so
@@ -127,13 +128,6 @@ export function invitationListOptions(wsId: string) {
   return queryOptions({
     queryKey: workspaceKeys.invitations(wsId),
     queryFn: () => api.listWorkspaceInvitations(wsId),
-  });
-}
-
-export function myInvitationListOptions() {
-  return queryOptions({
-    queryKey: workspaceKeys.myInvitations(),
-    queryFn: () => api.listMyInvitations(),
   });
 }
 

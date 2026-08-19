@@ -65,13 +65,8 @@ function tryRouteToOverlay(path: string, router?: DataRouter): boolean {
     }
     return true;
   }
-  if (path === "/invitations") {
-    overlay.open({ type: "invitations" });
-    if (router && router.state.location.pathname !== "/") {
-      router.navigate("/", { replace: true });
-    }
-    return true;
-  }
+  // /invitations handler removed in 0.5.36 — the localized build has no
+  // user-scoped invitations overlay (see window-overlay-store.ts).
   if (path.startsWith("/invite/")) {
     let id = "";
     try {

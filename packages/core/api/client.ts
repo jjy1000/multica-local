@@ -1746,25 +1746,11 @@ export class ApiClient {
     });
   }
 
-  async listMyInvitations(): Promise<Invitation[]> {
-    return this.fetch("/api/invitations");
-  }
-
-  async getInvitation(invitationId: string): Promise<Invitation> {
-    return this.fetch(`/api/invitations/${invitationId}`);
-  }
-
-  async acceptInvitation(invitationId: string): Promise<MemberWithUser> {
-    return this.fetch(`/api/invitations/${invitationId}/accept`, {
-      method: "POST",
-    });
-  }
-
-  async declineInvitation(invitationId: string): Promise<void> {
-    await this.fetch(`/api/invitations/${invitationId}/decline`, {
-      method: "POST",
-    });
-  }
+  // User-scoped invitation methods removed (localized build: invitations disabled).
+  // Server-side /api/invitations routes were dropped in router.go; the client
+  // wrappers here would have produced 166 /api/invitations 404 WRN per day
+  // (see 0.5.36 client-log audit, issue #6). Use listWorkspaceInvitations above
+  // for the workspace-scoped admin view if needed.
 
   async deleteWorkspace(workspaceId: string): Promise<void> {
     await this.fetch(`/api/workspaces/${workspaceId}`, {

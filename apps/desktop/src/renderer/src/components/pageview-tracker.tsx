@@ -138,7 +138,7 @@ function overlayPath(overlay: WindowOverlay): string {
       return "/onboarding";
     case "invite":
       return `/invite/${overlay.invitationId}`;
-    case "invitations":
-      return "/invitations";
+    // "invitations" case removed in 0.5.36 — overlay variant retired
+    // alongside the user-scoped invitations endpoint.
   }
 }

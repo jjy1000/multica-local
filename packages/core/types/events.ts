@@ -3,7 +3,7 @@ import type { Agent } from "./agent";
 import type { InboxItem } from "./inbox";
 import type { Comment, Reaction } from "./comment";
 import type { TimelineEntry } from "./activity";
-import type { Workspace, MemberWithUser, Invitation } from "./workspace";
+import type { Workspace, MemberWithUser } from "./workspace";
 import type { Project } from "./project";
 import type { Label } from "./label";
 
@@ -71,7 +71,9 @@ export type WSEventType =
   | "pin:created"
   | "pin:deleted"
   | "pin:reordered"
-  | "invitation:created"
+  // "invitation:created" removed in 0.5.36 — user-scoped invitations endpoint
+  // was retired; the remaining invitation events still drive the workspace-
+  // scoped admin list.
   | "invitation:accepted"
   | "invitation:declined"
   | "invitation:revoked"
@@ -369,11 +371,6 @@ export interface ProjectDeletedPayload {
   project_id: string;
 }
 
-export interface InvitationCreatedPayload {
-  invitation: Invitation;
-  workspace_name?: string;
-}
-
 export interface InvitationAcceptedPayload {
   invitation_id: string;
   member: MemberWithUser;
@@ -450,7 +447,6 @@ export interface WSEventPayloadMap {
   "project:created": ProjectCreatedPayload;
   "project:updated": ProjectUpdatedPayload;
   "project:deleted": ProjectDeletedPayload;
-  "invitation:created": InvitationCreatedPayload;
   "invitation:accepted": InvitationAcceptedPayload;
   "invitation:declined": InvitationDeclinedPayload;
   "invitation:revoked": InvitationRevokedPayload;
