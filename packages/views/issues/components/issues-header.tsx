@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -801,7 +801,7 @@ export function IssueDisplayControls({
   const cardProperties = useViewStore((s) => s.cardProperties);
   const act = useViewStoreApi().getState();
   const wsId = useWorkspaceId();
-  const { groups: statusGroups, hasCustom: showStatusGroupLabels } = useStatusOptions(wsId);
+  const { options: statusOptions } = useStatusOptions(wsId);
 
   const counts = useIssueCounts(scopedIssues);
   const showDateFilter = !!onDateFilterChange;
@@ -923,44 +923,36 @@ export function IssueDisplayControls({
               <DropdownMenuSubContent className="w-auto min-w-48">
                 {/* Options come from the workspace catalog, so a custom status
                     is filterable — otherwise an issue moved onto one could not
-                    be narrowed to. Grouped by category, and headings appear
-                    only once a category holds more than one status, so a
-                    workspace that never customized anything sees the same flat
-                    7-row list. (MUL-6243) */}
-                {statusGroups.map((group) => (
-                  <Fragment key={group.category}>
-                    {showStatusGroupLabels && (
-                      <DropdownMenuLabel className="text-caption text-muted-foreground">
-                        {t(($) => $.status[group.category])}
-                      </DropdownMenuLabel>
-                    )}
-                    {group.options.map((option) => {
-                      const checked = statusFilters.includes(option.key);
-                      const count = counts.status.get(option.key) ?? 0;
-                      return (
-                        <DropdownMenuCheckboxItem
-                          key={option.key}
-                          checked={checked}
-                          onCheckedChange={() => act.toggleStatusFilter(option.key)}
-                          className={FILTER_ITEM_CLASS}
-                        >
-                          <HoverCheck checked={checked} />
-                          <StatusIcon
-                            status={option.key}
-                            category={group.category}
-                            className="h-3.5 w-3.5"
-                          />
-                          {option.label}
-                          {count > 0 && (
-                            <span className="ml-auto text-caption text-muted-foreground">
-                              {t(($) => $.filters.issue_count, { count })}
-                            </span>
-                          )}
-                        </DropdownMenuCheckboxItem>
-                      );
-                    })}
-                  </Fragment>
-                ))}
+                    be narrowed to. One flat list in category order: the icon
+                    already carries the category, and a heading per category
+                    doubled the menu's height for no added information
+                    (MUL-6243, MUL-6399). */}
+                {statusOptions.map((option) => {
+                  const checked = statusFilters.includes(option.key);
+                  const count = counts.status.get(option.key) ?? 0;
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={option.key}
+                      checked={checked}
+                      onCheckedChange={() => act.toggleStatusFilter(option.key)}
+                      className={FILTER_ITEM_CLASS}
+                    >
+                      <HoverCheck checked={checked} />
+                      <StatusIcon
+                        status={option.key}
+                        category={option.category}
+                        color={option.color}
+                        className="h-3.5 w-3.5"
+                      />
+                      {option.label}
+                      {count > 0 && (
+                        <span className="ml-auto text-caption text-muted-foreground">
+                          {t(($) => $.filters.issue_count, { count })}
+                        </span>
+                      )}
+                    </DropdownMenuCheckboxItem>
+                  );
+                })}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
 

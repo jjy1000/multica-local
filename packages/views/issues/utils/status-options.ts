@@ -11,6 +11,8 @@ export interface StatusOption {
   label: string;
   /** `#rrggbb` for a custom status; null for a built-in, which keeps its token color. */
   color: string | null;
+  /** Resolved category — needed by StatusIcon when the surface lost the grouping context (MUL-6399). */
+  category: IssueStatusCategory;
 }
 
 export interface StatusOptionGroup {
@@ -49,11 +51,12 @@ export function useStatusOptions(wsId: string): {
               key: e.key as IssueStatus,
               label: labelOf(e.key),
               color: e.is_system ? null : e.color,
+              category,
             }))
           : // No catalog row for this category: the fetch is still in flight,
             // or this workspace predates the seed. Offer the built-in, whose
             // key IS the category, so a lifecycle step is never missing.
-            [{ key: category as IssueStatus, label: labelOf(category), color: null }];
+            [{ key: category as IssueStatus, label: labelOf(category), color: null, category }];
       return { category, options };
     });
 
