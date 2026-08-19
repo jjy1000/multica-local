@@ -1,6 +1,6 @@
 # Release Notes — 0.5.40
 
-**Prepared 2026-08-19** (branch `epic/0.5.13-integration`, 3 atomic commits on top of 0.5.39: `19115a4b6` … `2317e2c19`). **NOT yet shipped** — this is the docs + version prep phase. The destructive ship chain (`pre-update-snapshot → bundle-cli → electron-vite build → electron-builder --dir → install → desktop-sign-nested-binaries → verify-desktop-cold-start`) is **NOT yet run** and is pending the user's go-ahead.
+**Shipped 2026-08-19** (branch `epic/0.5.13-integration`, 4 atomic commits on top of 0.5.39: `19115a4b6` → `e42b2883e` → `2317e2c19` → `0d1cf2582`). Destructive ship chain (`pre-update-snapshot → bundle-cli → electron-vite build → electron-builder --dir → install → desktop-sign-nested-binaries → verify-desktop-cold-start`) ran end-to-end at 21:42 local via `bash scripts/ship-mac.sh --yes`. /Applications/Multica.app = **0.5.40 (commit: 0d1cf2582, built: 2026-08-19T13:41:47Z)**, server PID 88073, cold start ~4s, row parity 7/346/2469/119 (vs 0.5.39 7/346/2396/119; +73 comment is natural agent activity during the ship window).
 
 ## Summary
 
