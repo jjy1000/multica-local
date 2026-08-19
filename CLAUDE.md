@@ -2,8 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Current release: 0.5.41 (committed 2026-08-19, installed at /Applications/Multica.app — pending ship chain).**
-> 7 atomic commits on epic/0.5.13-integration (19115a4b6…ec06e1eff). Headlines: **0.5.40 batch (3 commits)** [CVE-2026-9277 shell-quote dep bump + MUL-6330 exact-prefix skill picker + MUL-6362 redact secrets from provider command logs] + **0.5.41 batch (3 functional commits)** [MUL-6413 timeline status glyph custom identity + MUL-7214 inbox row status glyph custom identity + MUL-6399 drop category headings from status filter list]. Verification: `pnpm typecheck` 6/6 + 0.5.40 ship chain PASS (server PID 88073, cold start ~4s) + 0.5.41 functional typecheck/tests clean. 3 new SKIP-NO-SURFACE entries added (MUL-6264/6394 already deferred; new MUL-6363 + 109b67790 SKIP-DEPENDENCY).
+> **Current release: 0.5.41 (committed + shipped 2026-08-19, installed at /Applications/Multica.app, server PID 18423).**
+> 8 atomic commits on epic/0.5.13-integration (19115a4b6…696f5c71c) across two batches:
+> - **0.5.40 batch (4 commits)**: CVE-2026-9277 shell-quote dep bump + MUL-6330 exact-prefix skill picker + MUL-6362 redact secrets from provider command logs (with NEW fork-local `launch.go`/`launch_test.go` + 13 runtime edits + Config.LaunchPrefix field + structural regression guard) + release-prep
+> - **0.5.41 batch (4 commits)**: MUL-6413 timeline status glyph custom identity + MUL-7214 inbox row status glyph custom identity + MUL-6399 drop category headings from status filter + release-prep
+>
+> Verification: `pnpm typecheck` 6/6 + 0.5.40 ship chain PASS (server PID 88073) + 0.5.41 ship chain PASS (server PID 18423). Both cold starts ~4s, row parity 7/346/2469/119 unchanged. Pre-existing mythos panic confirmed pre-existing via worktree on 0.5.39 HEAD; unrelated.
 >
 > Key contracts (the load-bearing reasons this release is non-trivial):
 > - **0.5.40 MUL-6362 launch.go NEW file** (`server/pkg/agent/launch.go`, 158 LOC): fork had no `launch.go` (upstream patch modified an existing one), so fork's port is a net-new file. Holds the redaction helpers (`Config.logAgentCommand`, `Config.logAgentCommandWithPrompt`, `redactAgentCommandArgs`, `safeAgentCommandFlagName`, `isASCIIAlpha`). Trust model: `agentCommandLogArgs` records adapter's invocation argv + optional trusted positionals; trust is only honored if `LaunchPrefix + invocationArgs` match the final exec.Cmd argv suffix — mismatch fails closed. `Config.LaunchPrefix []string` is a NEW field in fork (tolerates nil for built-in providers; future custom-runtime-profile fixed-args can set it).
