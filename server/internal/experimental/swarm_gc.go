@@ -76,10 +76,11 @@ type SwarmGCConfig struct {
 // tick. Call Start once at server boot; Run is the inner loop
 // (exported for tests).
 type SwarmGC struct {
-	cfg     SwarmGCConfig
-	running atomic.Bool
-	stopped chan struct{}
-	stopOne sync.Once
+	cfg        SwarmGCConfig
+	running    atomic.Bool
+	stopped    chan struct{}
+	stopOne    sync.Once
+	sweepCount atomic.Uint64
 }
 
 // NewSwarmGC builds the GC with config defaults applied.
@@ -116,15 +117,23 @@ func NewSwarmGC(cfg SwarmGCConfig) *SwarmGC {
 }
 
 // Start launches the GC goroutine. Idempotent — re-calling is a
-// no-op (the running flag short-circuits). The Stop channel is the
-// graceful shutdown hook; the daemon's shutdown sequence closes
-// it (mirrors runtime_gc.Start pattern).
-func (g *SwarmGC) Start(ctx context.Context) {
+// no-op (the running flag short-circuits). Mirrors runtime_gc.Start:
+// Start takes NO context. The loop owns context.Background internally
+// (see Run), so it can never be bound to a boot-scoped caller context.
+// The Stop channel is the graceful shutdown hook; main.go's shutdown
+// sequence closes it.
+//
+// 0.5.39 fix: Start previously took a context and router.go passed the
+// boot-scoped bootCtx (30s timeout + defer cancel). Run exited on
+// ctx.Done() ~8ms after router setup and swarm cleanup never ran —
+// the same dormant-GC class as the 0.5.25 runtime_gc fix. The context
+// parameter is removed entirely.
+func (g *SwarmGC) Start() {
 	if !g.running.CompareAndSwap(false, true) {
 		g.cfg.Logger.Debug("swarm_gc already running")
 		return
 	}
-	go g.Run(ctx)
+	go g.Run()
 	g.cfg.Logger.Info("swarm_gc started",
 		"interval", g.cfg.Interval.String(),
 		"archive_ttl", g.cfg.ArchiveTTL.String(),
@@ -149,26 +158,39 @@ func (g *SwarmGC) Stop() {
 //      squad hard-delete + visibility removal + lock release +
 //      message TTL sweep)
 //   3. trashSweep tarballs + final-unlinks anything past TrashTTL
-func (g *SwarmGC) Run(ctx context.Context) {
+//
+// Exit paths are g.stopped (main.go shutdown Stop) and running=false.
+// There is NO context argument — sweep owns context.Background via a
+// per-sweep timeout, so the loop cannot be bound to a short-lived
+// caller context (0.5.39 fix; pre-fix the ctx.Done() branch made the
+// goroutine exit at router-boot completion).
+func (g *SwarmGC) Run() {
 	defer g.Stop()
 	ticker := time.NewTicker(g.cfg.Interval)
 	defer ticker.Stop()
 
-	for {
+	for g.running.Load() {
 		select {
-		case <-ctx.Done():
-			return
 		case <-g.stopped:
 			return
 		case <-ticker.C:
-			g.sweep(ctx)
+			g.sweep()
 		}
 	}
 }
 
 // sweep lists terminal swarm_run rows past the archive TTL and
 // archives each one. Mirrors runtime_gc.sweep structure.
-func (g *SwarmGC) sweep(ctx context.Context) {
+func (g *SwarmGC) sweep() {
+	g.sweepCount.Add(1)
+	if g.cfg.Queries == nil {
+		g.cfg.Logger.Debug("swarm_gc disabled; no queries wired")
+		return
+	}
+	// Per-sweep timeout context owned internally (mirrors
+	// runtime_gc.sweep) so the loop itself needs no external context.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	rows, err := g.cfg.Queries.ListCompletedSwarmRunsForGC(ctx, int32(100))
 	if err != nil {
 		g.cfg.Logger.Warn("swarm_gc list failed", "err", err.Error())

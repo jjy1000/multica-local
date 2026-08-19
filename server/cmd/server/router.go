@@ -770,7 +770,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			swarmGC := experimental.NewSwarmGC(experimental.SwarmGCConfig{
 				Queries: h.Queries,
 			})
-			swarmGC.Start(bootCtx)
+			// 0.5.39 fix: Start() takes NO context. Passing bootCtx
+			// here previously killed the loop at router-setup
+			// completion (Run exited on ctx.Done() ~8ms after boot,
+			// so swarm cleanup never ran). The GC owns
+			// context.Background internally; shutdown is via
+			// h.SwarmGC.Stop() in main.go.
+			swarmGC.Start()
 			// 0.5.22 audit fix (P2): store the GC on the Handler so
 			// the shutdown sequence in cmd/server/main.go can call
 			// Stop() — the GC goroutine otherwise outlives the
