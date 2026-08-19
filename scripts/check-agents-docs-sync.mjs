@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 // Single-source-of-truth gate for the two root agent guides.
 //
+// NOTE (2026-08-19): the root AGENTS.md is a hand-maintained Qoder
+// (qoder.com) derivation — different banner, version-history section
+// dropped — while CLAUDE.md stays the Claude Code source of truth. The
+// checks below are token-based (not byte-based) on purpose so that
+// derivation stays legal. Do NOT "repair" AGENTS.md back to a verbatim
+// mirror; that would destroy the Qoder parallel.
+//
 // CLAUDE.md is the authoritative rules file; AGENTS.md is a derived digest of
 // it. This check fails when the two files drift on any of the five shared
 // constraint categories, or when either file drifts from the real pins:
