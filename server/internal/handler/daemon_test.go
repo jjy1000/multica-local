@@ -2785,6 +2785,103 @@ func TestCompleteTask_FlipsIssueInReviewToDoneOnCompletion(t *testing.T) {
 	}
 }
 
+// 0.5.38 regression: an agent-completed child issue flips to done via the
+// daemon CompleteTask path, which bypasses the HTTP UpdateIssue handler. The
+// platform-driven parent notification (notifyParentOfChildDone) therefore
+// never fired for daemon-completed children — the parent agent got no system
+// comment and no wake-up task, and had to be polled manually. This pins the
+// complete chain: child flips to done, parent receives the system comment,
+// parent assignee is enqueued with a mention task triggered by it.
+func TestCompleteTask_ChildDone_NotifiesParent(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	var agentID, runtimeID string
+	if err := testPool.QueryRow(ctx, `
+		SELECT a.id, a.runtime_id FROM agent a
+		WHERE a.workspace_id = $1 AND a.runtime_id IS NOT NULL
+		LIMIT 1
+	`, testWorkspaceID).Scan(&agentID, &runtimeID); err != nil {
+		t.Fatalf("setup: get agent: %v", err)
+	}
+
+	var parentID, childID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO issue (workspace_id, title, status, priority, creator_id, creator_type, number, position, assignee_type, assignee_id)
+		VALUES ($1, 'child-done parent fixture', 'in_progress', 'none', $2, 'member', 900200, 0, 'agent', $3)
+		RETURNING id
+	`, testWorkspaceID, testUserID, agentID).Scan(&parentID); err != nil {
+		t.Fatalf("setup: create parent issue: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, parentID) })
+
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO issue (workspace_id, parent_issue_id, title, status, priority, creator_id, creator_type, number, position)
+		VALUES ($1, $2, 'child-done child fixture', 'in_review', 'none', $3, 'member', 900201, 0)
+		RETURNING id
+	`, testWorkspaceID, parentID, testUserID).Scan(&childID); err != nil {
+		t.Fatalf("setup: create child issue: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, childID) })
+
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, status, priority, started_at)
+		VALUES ($1, $2, $3, 'running', 0, now())
+		RETURNING id
+	`, agentID, runtimeID, childID).Scan(&taskID); err != nil {
+		t.Fatalf("setup: create task: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(context.Background(), `DELETE FROM agent_task_queue WHERE id = $1`, taskID) })
+
+	w := httptest.NewRecorder()
+	req := newDaemonTokenRequest("POST", "/api/daemon/tasks/"+taskID+"/complete",
+		map[string]any{"output": ""},
+		testWorkspaceID, "legit-daemon")
+	req = withURLParam(req, "taskId", taskID)
+
+	testHandler.CompleteTask(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("CompleteTask: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 1. The child flipped to done.
+	var got string
+	if err := testPool.QueryRow(ctx, `SELECT status FROM issue WHERE id = $1`, childID).Scan(&got); err != nil {
+		t.Fatalf("read child status: %v", err)
+	}
+	if got != "done" {
+		t.Fatalf("child status = %q, want %q", got, "done")
+	}
+
+	// 2. The parent got a system comment announcing the completion.
+	var commentID, commentContent string
+	if err := testPool.QueryRow(ctx, `
+		SELECT id, content FROM comment
+		WHERE issue_id = $1 AND author_type = 'system'
+		ORDER BY created_at DESC LIMIT 1
+	`, parentID).Scan(&commentID, &commentContent); err != nil {
+		t.Fatalf("parent system comment missing: %v", err)
+	}
+	if !strings.Contains(commentContent, "sub-issues are complete") {
+		t.Fatalf("system comment does not announce completion: %q", commentContent)
+	}
+
+	// 3. The parent assignee was woken with a task triggered by that comment.
+	var wokenAgent string
+	if err := testPool.QueryRow(ctx, `
+		SELECT agent_id FROM agent_task_queue
+		WHERE issue_id = $1 AND trigger_comment_id = $2 AND status IN ('queued', 'dispatched')
+	`, parentID, commentID).Scan(&wokenAgent); err != nil {
+		t.Fatalf("parent assignee wake task missing: %v", err)
+	}
+	if wokenAgent != agentID {
+		t.Fatalf("woken agent = %q, want %q", wokenAgent, agentID)
+	}
+}
+
 // Companion to the above: when the agent DID post its own comment during the
 // run, CompleteTask must not synthesize a duplicate. Guards against the
 // common case where the fix is over-eager and creates two comments per task.

@@ -2599,6 +2599,20 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 				}); uerr != nil {
 					slog.Warn("complete task: issue status to done failed",
 						"task_id", taskID, "issue", task.IssueID, "err", uerr)
+				} else {
+					// 0.5.38 (fork-local): the flip above bypasses the HTTP
+					// UpdateIssue handler, so the platform-driven parent
+					// notification (notifyParentOfChildDone) never fired for
+					// agent-completed child issues — a parent agent whose
+					// sub-issues finished via the daemon completion path got no
+					// system comment and no wake-up, and had to be polled
+					// manually. Re-read the flipped row and notify exactly like
+					// the UpdateIssue path does. The stage-barrier + parent
+					// guards inside make this a no-op for non-children and for
+					// completions that do not close a stage.
+					if updated, ierr := h.Queries.GetIssue(r.Context(), task.IssueID); ierr == nil {
+						h.notifyParentOfChildDone(r.Context(), issueRow, updated)
+					}
 				}
 			}
 		}
