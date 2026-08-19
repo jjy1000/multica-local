@@ -9,6 +9,8 @@ import (
 
 var taskDurationBuckets = []float64{1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1200, 3600, 7200}
 
+var chatClaimResumeQueryDurationBuckets = []float64{0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5}
+
 type activeTaskLabels struct {
 	source      string
 	runtimeMode string
@@ -37,6 +39,10 @@ type BusinessMetrics struct {
 	runtimeGCFailed                   prometheus.Counter
 	runtimeGCBlocked                  prometheus.Gauge
 	runtimeGCBlockedObservationFailed prometheus.Counter
+
+	chatClaimSessionFallbackNeeded prometheus.Counter
+	chatClaimSessionFallbackResult *prometheus.CounterVec
+	chatClaimResumeQueryDuration   *prometheus.HistogramVec
 
 	activeMu    sync.Mutex
 	activeTasks map[string]activeTaskLabels
@@ -173,6 +179,25 @@ func NewBusinessMetrics() *BusinessMetrics {
 			Name:      "blocked_observation_failed_total",
 			Help:      "Total failures while observing stale runtimes blocked from garbage collection.",
 		}),
+		chatClaimSessionFallbackNeeded: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: "multica",
+			Subsystem: "chat_claim",
+			Name:      "session_fallback_needed_total",
+			Help:      "Total chat claims whose session pointer lacked a provider session or workdir.",
+		}),
+		chatClaimSessionFallbackResult: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "multica",
+			Subsystem: "chat_claim",
+			Name:      "session_fallback_result_total",
+			Help:      "Total chat-claim session fallback query results (hit, miss, or error).",
+		}, metricLabels("multica_chat_claim_session_fallback_result_total")),
+		chatClaimResumeQueryDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "multica",
+			Subsystem: "chat_claim",
+			Name:      "resume_query_duration_seconds",
+			Help:      "Duration of chat-claim resume-history queries by fixed query name.",
+			Buckets:   chatClaimResumeQueryDurationBuckets,
+		}, metricLabels("multica_chat_claim_resume_query_duration_seconds")),
 		activeTasks: map[string]activeTaskLabels{},
 		events:      newBusinessEventMetrics(),
 	}
@@ -202,6 +227,9 @@ func (m *BusinessMetrics) Collectors() []prometheus.Collector {
 		m.runtimeGCFailed,
 		m.runtimeGCBlocked,
 		m.runtimeGCBlockedObservationFailed,
+		m.chatClaimSessionFallbackNeeded,
+		m.chatClaimSessionFallbackResult,
+		m.chatClaimResumeQueryDuration,
 	}, m.events.collectors()...)
 }
 
@@ -308,6 +336,49 @@ func (m *BusinessMetrics) RecordTaskLeaseExpired(source string) {
 		return
 	}
 	m.taskLeaseExpired.WithLabelValues(NormalizeTaskSource(source)).Inc()
+}
+
+func (m *BusinessMetrics) RecordChatClaimSessionFallbackNeeded() {
+	if m == nil {
+		return
+	}
+	m.chatClaimSessionFallbackNeeded.Inc()
+}
+
+func (m *BusinessMetrics) RecordChatClaimSessionFallbackHit() {
+	if m == nil {
+		return
+	}
+	m.chatClaimSessionFallbackResult.WithLabelValues("hit").Inc()
+}
+
+func (m *BusinessMetrics) RecordChatClaimSessionFallbackMiss() {
+	if m == nil {
+		return
+	}
+	m.chatClaimSessionFallbackResult.WithLabelValues("miss").Inc()
+}
+
+func (m *BusinessMetrics) RecordChatClaimSessionFallbackError() {
+	if m == nil {
+		return
+	}
+	m.chatClaimSessionFallbackResult.WithLabelValues("error").Inc()
+}
+
+func (m *BusinessMetrics) ObserveChatClaimLastSessionQuery(seconds float64) {
+	m.observeChatClaimResumeQuery("last_session", seconds)
+}
+
+func (m *BusinessMetrics) ObserveChatClaimRolloutMissingQuery(seconds float64) {
+	m.observeChatClaimResumeQuery("rollout_missing", seconds)
+}
+
+func (m *BusinessMetrics) observeChatClaimResumeQuery(query string, seconds float64) {
+	if m == nil {
+		return
+	}
+	m.chatClaimResumeQueryDuration.WithLabelValues(query).Observe(seconds)
 }
 
 func (m *BusinessMetrics) RecordLLMUsage(source, runtimeMode, rawProvider, modelAlias string, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens int64) {

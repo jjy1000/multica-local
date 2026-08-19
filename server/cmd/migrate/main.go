@@ -37,7 +37,7 @@ type preMigrationHook func(ctx context.Context, pool *pgxpool.Pool) error
 // rebuilds cleanly.
 //
 // MUL-6288 (upstream #7073) — the registry covers all 24 concurrent up
-// builds in the fork's own migrations (035–248; fork numbering diverges
+// builds in the fork's own migrations (035–260; fork numbering diverges
 // from upstream, so every key/value pair is verified against the fork's
 // migration files by TestEveryConcurrentUpBuildHasCleanup). No fork
 // migration's down file rebuilds an index with CREATE INDEX
@@ -70,6 +70,8 @@ var concurrentIndexCleanups = map[string]string{
 	"251_issue_status_pkey_index":                      "issue_status_pkey_uidx",
 	"253_issue_status_workspace_key_index":             "idx_issue_status_workspace_key",
 	"254_issue_status_workspace_name_index":            "idx_issue_status_workspace_name_active",
+	"259_agent_task_queue_chat_terminal_resume_index":  "idx_agent_task_queue_chat_terminal_resume",
+	"260_agent_task_queue_chat_retired_session_index":  "idx_agent_task_queue_chat_retired_session",
 }
 
 // preMigrationHooks wires migration version → hook. The version key is

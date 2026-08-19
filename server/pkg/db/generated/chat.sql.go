@@ -335,6 +335,11 @@ type GetLastChatTaskSessionRow struct {
 // fallback when chat_session.session_id is NULL. Resume-unsafe failures are
 // excluded because replaying those sessions deterministically reproduces the
 // same terminal state.
+//
+// The plan depends on idx_agent_task_queue_chat_terminal_resume for the
+// terminal/cutoff scans and idx_agent_task_queue_chat_retired_session for the
+// retired set. Keep their partial predicates broad enough for every CTE here,
+// especially the NULL-session resume_overflow_at rows.
 func (q *Queries) GetLastChatTaskSession(ctx context.Context, chatSessionID pgtype.UUID) (GetLastChatTaskSessionRow, error) {
 	row := q.db.QueryRow(ctx, getLastChatTaskSession, chatSessionID)
 	var i GetLastChatTaskSessionRow

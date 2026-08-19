@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
@@ -1231,6 +1232,16 @@ func requestHasDaemonCapability(r *http.Request, capability string) bool {
 	return false
 }
 
+// chatSessionResumeFallbackNeeded reports whether the chat claim response
+// needs a fallback lookup against agent_task_queue to recover a missing
+// session_id / work_dir pointer. Returns true when at least one pointer is
+// empty, so the fallback query only fires when there's something to recover.
+// MUL-6324: most claims land in the chat_session.fast-path (both fields
+// populated), and this guard keeps GetLastChatTaskSession off the hot path.
+func chatSessionResumeFallbackNeeded(priorSessionID, priorWorkDir string) bool {
+	return priorSessionID == "" || priorWorkDir == ""
+}
+
 // ClaimTaskByRuntime atomically claims the next queued task for a runtime.
 // The response includes the agent's name and skills, fetched fresh from the DB.
 func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
@@ -1627,12 +1638,24 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 				if cs.WorkDir.Valid {
 					resp.PriorWorkDir = cs.WorkDir.String
 				}
-				if prior, err := h.Queries.GetLastChatTaskSession(r.Context(), cs.ID); err == nil && prior.SessionID.Valid {
-					if resp.PriorSessionID == "" && prior.RuntimeID == task.RuntimeID {
-						resp.PriorSessionID = prior.SessionID.String
-					}
-					if prior.WorkDir.Valid && resp.PriorWorkDir == "" {
-						resp.PriorWorkDir = prior.WorkDir.String
+				if chatSessionResumeFallbackNeeded(resp.PriorSessionID, resp.PriorWorkDir) {
+					h.Metrics.RecordChatClaimSessionFallbackNeeded()
+					started := time.Now()
+					prior, err := h.Queries.GetLastChatTaskSession(r.Context(), cs.ID)
+					h.Metrics.ObserveChatClaimLastSessionQuery(time.Since(started).Seconds())
+					switch {
+					case err == nil && prior.SessionID.Valid:
+						h.Metrics.RecordChatClaimSessionFallbackHit()
+						if resp.PriorSessionID == "" && prior.RuntimeID == task.RuntimeID {
+							resp.PriorSessionID = prior.SessionID.String
+						}
+						if prior.WorkDir.Valid && resp.PriorWorkDir == "" {
+							resp.PriorWorkDir = prior.WorkDir.String
+						}
+					case errors.Is(err, pgx.ErrNoRows), err == nil:
+						h.Metrics.RecordChatClaimSessionFallbackMiss()
+					default:
+						h.Metrics.RecordChatClaimSessionFallbackError()
 					}
 				}
 			}

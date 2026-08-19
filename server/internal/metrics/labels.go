@@ -30,6 +30,7 @@ const (
 	labelEventKind    = "event_kind"
 	labelAction       = "action"
 	labelResult       = "result"
+	labelQuery        = "query"
 	labelOp           = "op"
 )
 
@@ -78,6 +79,9 @@ var businessMetricLabels = map[string][]string{
 	"multica_webhook_delivery_total":                   {labelProvider, labelStatus},
 	"multica_github_event_received_total":              {labelEventKind, labelAction},
 	"multica_github_pr_review_total":                   {labelResult},
+	"multica_chat_claim_session_fallback_needed_total": {},
+	"multica_chat_claim_session_fallback_result_total": {labelResult},
+	"multica_chat_claim_resume_query_duration_seconds": {labelQuery},
 	"multica_cloudruntime_request_total":               {labelOp, labelStatus},
 	"multica_cloudruntime_request_duration_seconds":    {labelOp},
 	"multica_feedback_submitted_total":                 {labelKind, labelPlatform},
