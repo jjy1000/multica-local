@@ -20,6 +20,7 @@ import { canAssignAgent } from "@multica/views/issues/components";
 import { api } from "@multica/core/api";
 import { useAgentPresenceDetail, useWorkspaceAgentAvailability } from "@multica/core/agents";
 import { useFileUpload } from "@multica/core/hooks/use-file-upload";
+import { isImeComposing } from "@multica/core/utils";
 import { ActorAvatar } from "../../common/actor-avatar";
 import {
   PickerEmpty,
@@ -1603,6 +1604,9 @@ function SessionRenameInput({
         // Keep editing keys inside the input instead of letting the row
         // selection keyboard handler consume them.
         e.stopPropagation();
+        // MUL-6387: during IME composition the Enter key confirms the
+        // candidate, not the rename — don't submit the partial pinyin.
+        if (isImeComposing(e)) return;
         if (e.key === "Enter") {
           e.preventDefault();
           onSubmit(value);
