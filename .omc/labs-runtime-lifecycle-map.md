@@ -1,11 +1,19 @@
 ---
 name: labs-runtime-lifecycle-map
 created: 2026-07-22T12:42:05Z
-updated: 2026-07-30T00:00:00Z
+updated: 2026-08-20T16:25:28Z
 ---
 
 # Experimental Labs — Runtime Lifecycle & Install/Rollback Infrastructure
 
+> **2026-08-21 addendum (0.5.21+ drift + 0.5.46 state + semantica cp-block fix 17f4cc2a9).** Since 2026-07-30:
+>
+> - `swarm_topology` flag added 2026-08-16 (0.5.21) — headless 5-phase machine (research→design→implement→review→done), orchestrator in-process (`server/internal/service/swarm/orchestrator.go` 1193 lines); mutex sole-mode (Active Contract #5); max 6 roles/swarm (#7); `swarm_gc` 6h retention
+> - `semantica` flag added 2026-08-17 (0.5.29) — subprocess Knowledge Graph + SPARQL; `vendor/semantica/{run.sh, requirements.txt}`; FastAPI/uvicorn/pydantic; 0.5.43 cp-block fix `17f4cc2a9` mirrors code-canvas 0.3.29.2 lesson (without the bundle-cli cp block, enabling semantica fell through to BINARY_NOT_BUNDLED)
+> - `llm_wiki_bridge` RuntimeKind: `inline` → `subprocess` — bespoke stdio MCP manager in `apps/desktop/src/main/experimental/manager-factory.ts:75` (NOT the generic subprocess-manager path); LoopbackService `llm-wiki` (stdin/stdout bridge to user's `/Applications/LLM Wiki.app`)
+> - 8 flag catalog at 0.5.46: `chat_pin_ui / claude_science_lab / pythia_oracle / mythos_swarm / swarm_topology / llm_wiki_bridge / code_canvas / semantica`. Retired keys (`agent_self_optimization`/`agent_creation_studio`/`claude_science`/`claude_science_runtime`/`constitution_agent`) still ship install handlers for product-level use but no longer appear in this 8.
+> - `vendor/openscience-bin/openscience` native binary still missing (CLAUDE.md "Known Stability" line 1059); bundle-cli's `claude_science flag will show 'service not bundled'` warning persists every build
+>
 > **2026-07-30 addendum (0.3.60–0.3.68 drift + audit fixes).** The body below is the 2026-07-22 snapshot; the following has changed since:
 >
 > - **User plugin layer (0.3.60+)**: `user_*` namespace flags backed by the `user_plugin` table (mig 166, soft-delete partial unique index mig 168), hot-registered via `RegisterUserPlugins()` + `MergeUserPlugins()`. Catalog stays 8 built-ins; `AllFlagKeys()` / `IsKnownKey()` cover both layers.
@@ -51,18 +59,25 @@ Manifest is **declarative metadata only** — it does NOT provision DB rows. Pro
 
 `Flag` struct: `Key`, `DefaultVal`, `Title/Description (LocalizedString)`, `ManifestPath`, `RuntimeKind`, `ProxyPrefix`, `LoopbackService`, `HideFromIssueLabPicker`, `HidesDeliverableInIssueTimeline`, `Sidebar []SidebarRow`. **No `Installable` field** — installability is runtime-determined by bound handlers + a legacy allowlist.
 
-8 flags:
+8 catalog flags (canonical 0.5.46 — supersedes 0.3.33 + 0.5.6 retire of `agent_self_optimization`/`agent_creation_studio`/`constitution_agent` + 0.3.22 consolidation of `claude_science`+`claude_science_runtime`):
 
 | Key | RuntimeKind | ProxyPrefix | Loopback | Installable | Picker-hidden |
 |---|---|---|---|---|---|
 | chat_pin_ui | none | — | — | no | no |
-| claude_science_lab | inline | — | — | **yes** | no |
+| claude_science_lab | inline | — | — | **yes** | no (AutoDispatch=false since 0.5.22) |
 | pythia_oracle | subprocess | /experimental/pythia | pythia_oracle | **yes** | no |
-| mythos_swarm | headless | — | — | **yes** | no |
-| llm_wiki_bridge | inline | — | — | no | yes |
+| mythos_swarm | headless | — | — | **yes** | no (sole-mode mutex w/ assignee) |
+| swarm_topology | headless | — | — | **yes** | no (0.5.21 mutex Active Contract #5) |
+| llm_wiki_bridge | subprocess | — | llm-wiki (stdio MCP to LLM Wiki app) | no | yes |
 | code_canvas | subprocess | /experimental/code-canvas | code_canvas | **yes** | no |
-| agent_self_optimization | inline | — | — | **yes** | yes |
-| agent_creation_studio | inline | — | — | no | no |
+| semantica | subprocess | — | semantica | **yes** | no |
+
+Retired catalog keys (install handlers may still ship for product-level use, but no longer appear in this 8):
+
+- `agent_self_optimization` — promoted to product-level 0.5.5-0.5.6; control surface is the 2 self-opt autopilot rows' `enabled` field (`service/agent_self_optimization/flag.go` always-true shim); catalog entry deleted
+- `agent_creation_studio` — retired 0.5.6; `multica-creating-agents` skill remains as product-level authoring tool
+- `claude_science` + `claude_science_runtime` — consolidated into `claude_science_lab` 0.3.22 (single sidebar entry, single runtime gate); vendor binary at `vendor/openscience-bin/openscience` still MISSING — see CLAUDE.md Known Stability line 1059
+- `constitution_agent` — retired 0.3.57 (migration 165 cleared rows; CHECK constraint kept per Claude coding style — do not "tidy" without forward-only justification)
 
 Helpers: `IsKnownKey` (lab_source validation), `AllFlagKeys`, `DefaultFor` (flag state; gated by `IsBroken` on-disk blacklist from the 0.3.18 panic/5xx/init-timeout safety net).
 
