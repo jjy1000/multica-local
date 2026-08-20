@@ -2551,3 +2551,18 @@ export class ApiClient {
     });
   }
 }
+
+// clientErrorMessage returns the server's error message only when the error
+// is a CLIENT error (4xx). Handlers write those for the user —
+// "autopilot is not active", "Idempotency-Key is too long" — so they are
+// worth rendering. A 5xx message is internal detail (Go error chains,
+// pgx table/constraint names, internal ids) that must never reach a toast
+// (MUL-6472), and a non-ApiError is a transport failure whose message
+// ("Failed to fetch") says nothing a user can act on. Both return undefined
+// so the caller falls back to its own localized sentence.
+export function clientErrorMessage(err: unknown): string | undefined {
+  if (err instanceof ApiError && err.status >= 400 && err.status < 500) {
+    return err.message || undefined;
+  }
+  return undefined;
+}

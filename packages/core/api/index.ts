@@ -3,6 +3,7 @@ export {
   ApiError,
   PreviewTooLargeError,
   PreviewUnsupportedError,
+  clientErrorMessage,
 } from "./client";
 export type { ApiClientOptions } from "./client";
 export { parseWithFallback, setSchemaLogger } from "./schema";
