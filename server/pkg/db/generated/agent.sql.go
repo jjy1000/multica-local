@@ -4049,6 +4049,60 @@ func (q *Queries) RestoreAgent(ctx context.Context, id pgtype.UUID) (Agent, erro
 	return i, err
 }
 
+const setAgentTaskBranchName = `-- name: SetAgentTaskBranchName :exec
+UPDATE agent_task_queue
+SET branch_name = $1
+WHERE id = $2 AND status = 'cancelled'
+`
+
+type SetAgentTaskBranchNameParams struct {
+	BranchName pgtype.Text `json:"branch_name"`
+	ID         pgtype.UUID `json:"id"`
+}
+
+// Records the delivered branch on a CANCELLED task. Needed because the daemon
+// finalizes its worktree (committing whatever the agent produced) BEFORE it
+// learns the task was cancelled, so the branch exists but the cancel path has
+// no result payload to carry it. Without this the branch is real and
+// completely undiscoverable from the UI.
+//
+// Never overwrites a name already recorded by a complete/fail callback, and
+// never touches any OTHER terminal state: the daemon acks on every terminal
+// status it observes, and a late ack from a stale run must not stamp its
+// branch onto a completed/failed row whose own callback is the authoritative
+// channel. A status='cancelled' CAS keeps the dedup correct without
+// competing with the claim gate.
+func (q *Queries) SetAgentTaskBranchName(ctx context.Context, arg SetAgentTaskBranchNameParams) error {
+	_, err := q.db.Exec(ctx, setAgentTaskBranchName, arg.BranchName, arg.ID)
+	return err
+}
+
+const setAgentTaskErrorIfEmpty = `-- name: SetAgentTaskErrorIfEmpty :exec
+UPDATE agent_task_queue
+SET error = $1,
+    failure_reason = COALESCE(failure_reason, $2)
+WHERE id = $3 AND (error IS NULL OR error = '') AND status = 'cancelled'
+`
+
+type SetAgentTaskErrorIfEmptyParams struct {
+	Error         pgtype.Text `json:"error"`
+	FailureReason pgtype.Text `json:"failure_reason"`
+	ID            pgtype.UUID `json:"id"`
+}
+
+// Companion to SetAgentTaskBranchName for the cancel-ack path. A cancelled
+// worktree task whose Finalize ABORTED has no branch to deliver — the error
+// text carrying the preserved-worktree path is the only pointer to the agent's
+// work, and the cancel flow discarded the rest of the result. A user-initiated
+// cancel leaves error NULL, so filling it here never overwrites a reason
+// recorded by a fail callback or the claim gate; the status CAS keeps a late
+// ack from stamping an error onto a completed/failed row (see
+// SetAgentTaskBranchName above).
+func (q *Queries) SetAgentTaskErrorIfEmpty(ctx context.Context, arg SetAgentTaskErrorIfEmptyParams) error {
+	_, err := q.db.Exec(ctx, setAgentTaskErrorIfEmpty, arg.Error, arg.FailureReason, arg.ID)
+	return err
+}
+
 const setTaskDeliveredCommentIDs = `-- name: SetTaskDeliveredCommentIDs :one
 UPDATE agent_task_queue
 SET delivered_comment_ids = $1::uuid[]

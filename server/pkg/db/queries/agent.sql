@@ -1054,3 +1054,34 @@ WITH cancelled AS (
     RETURNING fallback.*
 )
 SELECT * FROM cancelled;
+
+-- name: SetAgentTaskBranchName :exec
+-- Records the delivered branch on a CANCELLED task. Needed because the daemon
+-- finalizes its worktree (committing whatever the agent produced) BEFORE it
+-- learns the task was cancelled, so the branch exists but the cancel path has
+-- no result payload to carry it. Without this the branch is real and
+-- completely undiscoverable from the UI.
+--
+-- Never overwrites a name already recorded by a complete/fail callback, and
+-- never touches any OTHER terminal state: the daemon acks on every terminal
+-- status it observes, and a late ack from a stale run must not stamp its
+-- branch onto a completed/failed row whose own callback is the authoritative
+-- channel. A status='cancelled' CAS keeps the dedup correct without
+-- competing with the claim gate.
+UPDATE agent_task_queue
+SET branch_name = sqlc.arg('branch_name')
+WHERE id = sqlc.arg('id') AND status = 'cancelled';
+
+-- name: SetAgentTaskErrorIfEmpty :exec
+-- Companion to SetAgentTaskBranchName for the cancel-ack path. A cancelled
+-- worktree task whose Finalize ABORTED has no branch to deliver — the error
+-- text carrying the preserved-worktree path is the only pointer to the agent's
+-- work, and the cancel flow discarded the rest of the result. A user-initiated
+-- cancel leaves error NULL, so filling it here never overwrites a reason
+-- recorded by a fail callback or the claim gate; the status CAS keeps a late
+-- ack from stamping an error onto a completed/failed row (see
+-- SetAgentTaskBranchName above).
+UPDATE agent_task_queue
+SET error = sqlc.arg('error'),
+    failure_reason = COALESCE(failure_reason, sqlc.arg('failure_reason'))
+WHERE id = sqlc.arg('id') AND (error IS NULL OR error = '') AND status = 'cancelled';
