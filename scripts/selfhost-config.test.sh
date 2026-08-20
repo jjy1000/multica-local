@@ -4,6 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# docker-compose.selfhost.yml requires JWT_SECRET (${JWT_SECRET:?...}) and
+# .env.example ships an empty value. Direct `docker compose config` calls in
+# this script let the calling environment outrank the env file, so one
+# throwaway export covers them. The make-driven recipes below additionally
+# include .env and bare-`export` it to the recipe environment, clobbering
+# this value, so run_recipe seeds it into the recipe .env as well.
+export JWT_SECRET=test-secret-for-config-test
+
 require_config() {
   local config=$1
   local expected=$2

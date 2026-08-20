@@ -28,8 +28,16 @@ These are the core variables you must think about before deploying — some have
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_MAX_CONNS` | `25` | pgxpool max connections. The daemon polls frequently (every 3s) and uses connections; larger deployments may need a higher value |
-| `DATABASE_MIN_CONNS` | `5` | Minimum idle connections |
+| `DATABASE_URL` | local `multica` database | PostgreSQL connection string |
+| `DATABASE_MAX_CONNS` | `25` | Maximum database connections per API process |
+| `DATABASE_MIN_CONNS` | `5` | Minimum connections each API process keeps |
+| `PORT` | `8080` | API listen port |
+| `JWT_SECRET` | required in production | Secret for sign-in JWTs and some signing flows; production refuses to boot on empty or known placeholders |
+| `APP_ENV` | empty | Set to `production` in production |
+| `AUTH_TOKEN_TTL` | `720h` (30 days) | Lifetime of browser JWTs and cookies; accepts a Go duration or a positive integer of seconds |
+| `LOG_LEVEL` | application default | Log level |
+| `MULTICA_SHUTDOWN_HOLD_DURATION` | `0` | How long to wait after a termination signal before graceful shutdown begins |
+| `MULTICA_RUNTIME_RECONNECT_GRACE` | `3h` | How long an offline runtime may reconnect before its in-flight tasks fail; values below `150s` are clamped |
 
 **When unset**, the values above are used — **not** pgx's built-in 4/NumCPU defaults, which previously caused pool exhaustion in production.
 

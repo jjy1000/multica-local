@@ -28,8 +28,16 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 | 変数 | デフォルト | 説明 |
 |---|---|---|
-| `DATABASE_MAX_CONNS` | `25` | pgxpool の最大接続数。デーモンは頻繁に（3 秒ごとに）ポーリングして接続を使用するため、規模の大きいデプロイではより高い値が必要になる場合があります |
-| `DATABASE_MIN_CONNS` | `5` | 最小アイドル接続数 |
+| `DATABASE_URL` | ローカルの `multica` データベース | PostgreSQL 接続文字列 |
+| `DATABASE_MAX_CONNS` | `25` | API プロセスあたりの最大データベース接続数 |
+| `DATABASE_MIN_CONNS` | `5` | API プロセスが保持する最小接続数 |
+| `PORT` | `8080` | API のリッスンポート |
+| `JWT_SECRET` | 本番環境で必須 | ログイン JWT と一部の署名フローに使うシークレット。本番では空または既知のプレースホルダーだと起動を拒否 |
+| `APP_ENV` | 空 | プロダクションでは `production` を設定 |
+| `AUTH_TOKEN_TTL` | `720h`（30 日） | ブラウザ JWT と cookie の有効期間。Go duration または正の整数秒を受け付けます |
+| `LOG_LEVEL` | アプリのデフォルト | ログレベル |
+| `MULTICA_SHUTDOWN_HOLD_DURATION` | `0` | 終了シグナル受信後、グレースフルシャットダウンを開始するまでの待機時間 |
+| `MULTICA_RUNTIME_RECONNECT_GRACE` | `3h` | オフラインのランタイムが処理中の作業を失敗させずに再接続できる猶予時間。`150s` 未満は `150s` に補正されます |
 
 **設定しない場合**、上記の値が使われます — 以前プロダクションでプール枯渇を引き起こした pgx 組み込みの 4/NumCPU デフォルトでは**ありません**。
 
