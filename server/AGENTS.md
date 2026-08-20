@@ -52,6 +52,36 @@ Most are additive — new code can import them; existing fork code is untouched.
   repairer. Standalone; NOT yet integrated into fork's `readonly-content.tsx`
   pipeline (deferred).
 
+## 0.5.51 MUL-6471 — opencode/pi custom-provider qualification (landed)
+
+`pkg/agent` gained two fork-local helpers + the daemon uses them to let
+opencode reach custom gateway providers (MUL-6471, GH #7300):
+
+- `ModelSelectorMustBeProviderQualified(providerType string) bool` —
+  opencode-only in this fork (no deveco/omp/`ProtocolFamily` registry). True
+  where the CLI refuses a bare model id (opencode's `provider/model` contract);
+  deliberately false for pi, whose resolver accepts every id shape.
+- `QualifyModelID(models []Model, model string) (string, bool)` — promotes a
+  persisted model id to the catalog's canonical selector ONLY when exactly one
+  provider claims it; every uncertain case passes the input through untouched.
+  Operates on `[]Model` (fork's `ListModels` return), not the upstream
+  `Catalog`/`Fallback` wrapper.
+- `daemon.go` model flow: after two-tier resolution (agent.model → env-tier)
+  and BEFORE thinking-level validation (which matches on the catalog's
+  canonical id), opencode pinned models are qualified against
+  `agent.ListModels(ctx, provider, entry.Path)`. The `starting agent` log shows
+  the resolved model, not `entry.Model`.
+- **pi fix**: `buildPiArgs` passes the model selector whole to `--model` and
+  never synthesizes `--provider` (a slash-shaped id like `claude/claude-opus-5`
+  used to become `--provider claude` → pi hard-errors `Unknown provider`).
+  `splitPiModel` is gone.
+
+Not ported: the upstream single-read loader refactor
+(`ValidateThinkingLevelWith`/`ValidateServiceTierWith`) — the fork's
+healthy-runtime catalog reads are memoized by `cachedDiscovery`, so a second
+read is cheap. If a future port needs the at-most-once contract, port that
+refactor alongside.
+
 ## Localized fork contract (do NOT re-add)
 
 - **No telemetry.** `analytics.NewFromEnv()` always returns `NoopClient{}`. The

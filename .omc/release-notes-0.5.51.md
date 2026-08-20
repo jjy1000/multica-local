@@ -1,6 +1,6 @@
 # Release Notes — 0.5.51
 
-**2026-08-21** (branch `epic/0.5.13-integration`, 3 commits on top of 0.5.50: protocol align + taskfailure comment fix + NUL regression test port). `go build` + `go vet` clean; 3 DB-backed handler tests pass.
+**2026-08-21** (branch `epic/0.5.13-integration`, 5 commits on top of 0.5.50: MUL-6310 closure — protocol align + taskfailure comment fix + NUL regression test port — plus the MUL-6471 opencode/pi custom-provider fix). `go build` + `go vet` clean; `pkg/agent` + `internal/daemon` suites + 3 DB-backed NUL handler tests pass. Ship not run (user paused porting after MUL-6471).
 
 ## Summary
 
@@ -26,6 +26,16 @@ The fork's sanitization (`util.SanitizeTextForPostgres`/`SanitizeJSONForPostgres
 
 **Verified**: `go vet ./internal/handler/` clean; all 3 tests pass against the running PG (handler package 1.133s).
 
+### 4. `feat(agent)` `603c0765d` — let opencode reach custom providers + pass pi model selectors whole (MUL-6471)
+
+Minimal fork-style port of upstream #7312. Gateway-style providers register model ids that themselves contain a slash (`claude/claude-opus-5` under provider `multica-anthropic`); both runtimes treated that slash as a provider boundary and failed before any provider call (GH #7300). **The user's opencode runtime is actively used (online in the local DB), so this is directly load-bearing.**
+
+- **pi** (`buildPiArgs`): the selector now goes to `--model` WHOLE and `--provider` is never synthesized. Pi's own resolver accepts `provider/id`, a bare id, and an id containing a slash — passing less is strictly more capable. Removed the now-dead `splitPiModel`.
+- **opencode** (daemon): `--model` is `provider/model` and a bare id is rejected outright. Added `agent.ModelSelectorMustBeProviderQualified` (opencode-only in this fork; no deveco/omp/`ProtocolFamily` registry) + `agent.QualifyModelID` (fork-local, operates on `[]Model` since `ListModels` returns `[]Model`, not the upstream `Catalog` wrapper). The daemon qualifies a pinned model against the runtime catalog after two-tier resolution and **before** thinking-level validation (which matches on the catalog's canonical id). The `starting agent` log now shows the resolved model instead of `entry.Model`.
+- **Not ported** (fork lacks the foundation): `Catalog.Fallback`, `BuiltinRuntimeByID`/`ProtocolFamily`, the loader-sharing single-read refactor (`ValidateThinkingLevelWith`/`ValidateServiceTierWith`), and the pi-RPC `piModelsFromRPC`/`piThinkingSupports` tests. The fork's healthy-runtime catalog reads are memoized by `cachedDiscovery`, so the double-read concern that drove the upstream refactor is negligible here.
+
+**Verified**: gofmt/vet clean; `pkg/agent` 13.3s + `internal/daemon` 23.5s pass incl. new `TestQualifyModelID` / `TestModelSelectorMustBeProviderQualifiedIsAnExecutionContract` / `TestBuildPiArgsSlashShapedModelStaysWhole`.
+
 ## MUL-6310 verdict (corrected record)
 
 | Piece | Status |
@@ -50,28 +60,36 @@ The fork's sanitization (`util.SanitizeTextForPostgres`/`SanitizeJSONForPostgres
 | MUL-6472 dispatch leak | LANDED 0.5.47 | ✅ cleared |
 | MUL-6310 NUL bytes | sanitization LANDED + regression-pinned; remaining blockers SKIP-DEAD-CASE | ✅ **closed** (security fix complete; architectural remainder intentionally not ported) |
 | CJK markdown | LANDED 0.5.48 | ✅ cleared |
-| MUL-6417 follow-ups | No progress (daemon API drift: `ChatChannelType`, `kindIssue`) | blocked — next candidate |
+| MUL-6417 follow-ups | **Assessed and deferred** — fork's `runtime_config_sections.go` is 817 lines divergent from upstream pre-MUL-6417, lacks `ChatChannelType`/`kindIssue` (fork uses `kindCommentTriggered`/`kindAssignmentTriggered`). A manual rewrite, not a port. | ⏸️ deferred (highest effort/lowest ROI of the remaining batch) |
 
 ## Verification
 
 | Gate | Result |
 |---|---|
 | `go build ./...` | PASS |
-| `go vet ./internal/handler/` | PASS |
+| `go vet ./internal/handler/` + `./pkg/agent/` + `./internal/daemon/` | PASS |
 | NUL regression tests (DB-backed) | PASS (3 tests, 1.133s) |
-| `scripts/check-agents-docs-sync.mjs` | not re-run (no docs/CLAUDE.md change this batch) |
+| `pkg/agent` suite (incl. new QualifyModelID / provider-qualification / slash-shaped pi tests) | PASS (13.3s) |
+| `internal/daemon` suite | PASS (23.5s) |
+| `scripts/check-agents-docs-sync.mjs` | PASS (5 guarded categories, re-run after header edits) |
+| `pnpm typecheck` | not re-run this batch — MUL-6471 is Go-only, no TS changed |
 
-## Files changed (3 commits)
+## Files changed (5 commits)
 
 | Commit | Files | Insertions |
 |---|---:|---:|
 | `6c092cd54` protocol + taskfailure stubs + migration sync | 26 | 204 |
 | `36dbddecf` upstream alignment | 2 | 43 |
 | `915f2f937` NUL regression tests | 1 | 261 |
-| **Total** | **29** | **508** |
+| `603c0765d` MUL-6471 opencode/pi custom providers | 5 | 289 |
+| `010ea1a3c` 0.5.51 release notes + 0.5.50 correction | 2 | 78 |
+| **Total** | **36** | **875** |
 
 ## Strategic significance
 
-MUL-6310 is now **honestly closed** — the security fix is complete and regression-pinned; the architectural remainder is documented as SKIP-DEAD-CASE rather than falsely "in progress." The 0.5.50 notes' "caller integration is close" framing is corrected: the remaining blockers were never close, they were architecturally incompatible.
+Two threads closed this release:
 
-Next batch candidates (from 0.5.49 retrospective): MUL-6417 follow-ups (daemon API drift), MUL-6471 pi/opencode custom providers, MUL-6458 realtime status catalog sync, MUL-6146 rerun cancel.
+1. **MUL-6310 honestly closed** — the security fix is complete and regression-pinned; the architectural remainder is SKIP-DEAD-CASE (upstream chat direct-input subsystem + daemon cancel-ack/worktree, both absent in the fork).
+2. **MUL-6471 landed** — the user's actively-used opencode runtime now reaches custom gateway providers (bare model ids qualified against the runtime catalog), and pi passes model selectors whole. This is the first port this release line that fixes the user's actual running runtime.
+
+**Candidate assessment (research complete)**: the remaining upstream batch has converged to a small high-value subset. MUL-6368 (cross-agent contamination, security, 858 lines, daemon/execenv divergence) is the next worth-doing item. MUL-6463 (run-confirm gate, partial — drop the fork-missing table-view surface) is medium value. MUL-6458 (realtime status sync) has ~zero single-user value. MUL-6146 (rerun cancel) needs the rerun-queue/successor sqlc foundation the fork lacks. **Full upstream parity is a moving target (579 unported commits, upstream 0.4.31 vs fork 0.5.51) and is deliberately not chased** — the fork's own release line is the source of truth.
