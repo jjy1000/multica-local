@@ -204,3 +204,15 @@ type DaemonHeartbeatPendingLocalSkillImport struct {
 	ID       string `json:"id"`
 	SkillKey string `json:"skill_key"`
 }
+
+// ChatCancelFinalizedPayload is broadcast when a cancelled chat task's
+// deferred finalization settles (#5219). The cancel HTTP response cannot
+// carry this outcome — it is only known after the daemon's transcript flush.
+// Status writes that hit this type are produced by TaskService
+// .FinalizeDeferredCancelledChat and TaskService.RebroadcastCancelledTask.
+type ChatCancelFinalizedPayload struct {
+	TaskID      string `json:"task_id"`
+	WorkflowID  string `json:"workflow_id"`
+	Outcome     string `json:"outcome"`            // "stopped" or "restored"
+	StreamedMsg string `json:"streamed_msg,omitempty"`
+}

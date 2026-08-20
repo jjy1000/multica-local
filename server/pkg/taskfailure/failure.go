@@ -99,6 +99,15 @@ const (
 	// resume lookup. Written by classifyPoisonedError in daemon/poisoned.go.
 	ReasonAPIInvalidRequest Reason = "api_invalid_request"
 
+// ReasonSkillBundleUnavailable: the daemon could not download the
+	// agent\'s skill bundles from the control plane during task preparation
+	// — the agent process was never launched. Fork port of upstream value:
+	// the upstream code in MUL-6310 references this constant but the
+	// upstream migration that names it is not on main. Status writes
+	// that hit this regression are written by handler.daemon.go\'s
+	// classifySkillBundleUnavailable branch.
+	ReasonSkillBundleUnavailable Reason = "skill_bundle_unavailable"
+
 	// Agent process side: failure surfaced by the agent CLI / SDK as
 	// an error string. Classify(rawError) is responsible for picking
 	// the right sub-reason from the string. IsAgentError returns true
