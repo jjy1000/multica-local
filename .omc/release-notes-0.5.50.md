@@ -71,7 +71,7 @@ The MUL-6310 caller integration is now closer to landing (3 of 5+ prerequisites 
 - `protocol.ChatCancelFinalizedPayload` type (definition unknown upstream)
 - `taskfailure.ReasonSkillBundleUnavailable` (fork has `taskfailure` package but not this constant)
 
-These are the focus of 0.5.51+.
+> **CORRECTED in 0.5.51** (see `.omc/release-notes-0.5.51.md`): the protocol type + taskfailure constant landed (upstream-aligned), but the other two "blockers" are **SKIP-DEAD-CASE**, not close-to-landing — the deferred chat-cancel chain requires the upstream direct-chat claim/ownership subsystem (fork `chat.sql` is 219 vs upstream 1491 lines), and `AckTaskCancelled` requires a daemon→server cancel-ack + worktree branch production the fork lacks. MUL-6310's security fix (NUL sanitization) is complete and now regression-pinned.
 
 ## 0.5.50 install
 
