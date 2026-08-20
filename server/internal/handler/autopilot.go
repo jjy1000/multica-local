@@ -1549,7 +1549,20 @@ func (h *Handler) TriggerAutopilot(w http.ResponseWriter, r *http.Request) {
 
 	run, err := h.AutopilotService.DispatchAutopilot(r.Context(), autopilot, pgtype.UUID{}, "manual", nil)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to trigger autopilot: "+err.Error())
+		// MUL-6472: an unclassified dispatch failure's error chain carries
+		// pgx table/constraint names and internal ids. Any workspace member
+		// can reach "run now", so the detail stays in the log and the response
+		// is the same fixed 5xx string the rest of this file returns.
+		//
+		// Fork port note: the upstream commit also adds a quota branch above
+		// this (using *service.AutopilotQuotaExceededError). Fork's quota
+		// subsystem is not ported (0.5.46 batch: sentinel-only); the quota
+		// branch is deferred to 0.5.48.
+		slog.Error("trigger autopilot failed",
+			"error", err,
+			"autopilot_id", uuidToString(autopilot.ID),
+		)
+		writeError(w, http.StatusInternalServerError, "failed to trigger autopilot")
 		return
 	}
 

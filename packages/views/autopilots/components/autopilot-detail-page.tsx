@@ -18,7 +18,7 @@ import {
   useRotateAutopilotTriggerWebhookToken,
 } from "@multica/core/autopilots/mutations";
 import { buildAutopilotWebhookUrl } from "@multica/core/autopilots";
-import { api } from "@multica/core/api";
+import { api, clientErrorMessage } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useActorName } from "@multica/core/workspace/hooks";
@@ -799,7 +799,10 @@ export function AutopilotDetailPage({ autopilotId }: { autopilotId: string }) {
       await triggerAutopilot.mutateAsync(autopilotId);
       toast.success(t(($) => $.detail.toast_triggered));
     } catch (e: any) {
-      toast.error(e?.message || t(($) => $.detail.toast_trigger_failed));
+      // MUL-6472: never leak server 5xx body to a toast. Only 4xx messages
+      // are user-facing (e.g. "autopilot is not active"); 5xx message is
+      // internal server detail (Go error chains, pgx table/constraint names).
+      toast.error(clientErrorMessage(e) || t(($) => $.detail.toast_trigger_failed));
     }
   };
 
