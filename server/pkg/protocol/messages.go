@@ -205,14 +205,41 @@ type DaemonHeartbeatPendingLocalSkillImport struct {
 	SkillKey string `json:"skill_key"`
 }
 
+// Outcome values carried by ChatCancelFinalizedPayload.
+const (
+	// ChatCancelOutcomeStopped: the transcript turned out non-empty, so a
+	// "Stopped." assistant message was persisted.
+	ChatCancelOutcomeStopped = "stopped"
+	// ChatCancelOutcomeRestored: the transcript stayed empty, so the
+	// triggering user message was deleted and its content should be
+	// restored into the composer as a draft.
+	ChatCancelOutcomeRestored = "restored"
+)
+
 // ChatCancelFinalizedPayload is broadcast when a cancelled chat task's
 // deferred finalization settles (#5219). The cancel HTTP response cannot
-// carry this outcome — it is only known after the daemon's transcript flush.
-// Status writes that hit this type are produced by TaskService
-// .FinalizeDeferredCancelledChat and TaskService.RebroadcastCancelledTask.
+// carry this outcome — it is only known after the daemon's transcript flush —
+// so clients react to this event instead: outcome "stopped" inserts the
+// assistant message (MessageID/Content/... describe the new row, shaped like
+// ChatDonePayload), outcome "restored" removes the deleted user message from
+// caches and prompts the initiator's client to fetch the durable draft
+// restore from the creator-authorized endpoint. The restored prompt's content
+// and attachments deliberately never ride this workspace-wide broadcast.
 type ChatCancelFinalizedPayload struct {
-	TaskID      string `json:"task_id"`
-	WorkflowID  string `json:"workflow_id"`
-	Outcome     string `json:"outcome"`            // "stopped" or "restored"
-	StreamedMsg string `json:"streamed_msg,omitempty"`
+	Outcome       string `json:"outcome"`
+	ChatSessionID string `json:"chat_session_id"`
+	TaskID        string `json:"task_id"`
+	// InitiatorUserID is the human who triggered the cancelled task. Only
+	// this user's client needs to fetch the draft restore (the endpoint is
+	// creator-authorized regardless); clients treat a missing value as
+	// "not me".
+	InitiatorUserID string `json:"initiator_user_id,omitempty"`
+	MessageID       string `json:"message_id,omitempty"`
+	// Content/MessageKind/CreatedAt/ElapsedMs describe the persisted
+	// "Stopped." assistant row and are set only for outcome "stopped" —
+	// the same exposure surface as chat:done.
+	Content     string `json:"content,omitempty"`
+	MessageKind string `json:"message_kind,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	ElapsedMs   int64  `json:"elapsed_ms,omitempty"`
 }
