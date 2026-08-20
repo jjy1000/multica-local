@@ -528,3 +528,45 @@ if (await exists(codeCanvasSrc)) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 0.5.43: semantica runtime (FastAPI / uvicorn / pydantic).
+//
+// semantica is the only subprocess-kind experiment that survives a vendor
+// copy but no cp block in this fork — pythia / llm-wiki-bridge /
+// claude-science / code-canvas all ship, but semantica's run.sh +
+// requirements.txt never got a cp. catalog.go LoopbackService="semantica"
+// + manager-factory resolve to apps/desktop/resources/semantica/run.sh
+// at spawn time; without this cp the enable-time spawn falls through to
+// "BINARY_NOT_BUNDLED" (memory labs-flag-enable-breaks-2026-07-14).
+//
+// Mirror the code-canvas pattern (block above); source is
+// apps/desktop/vendor/ (NOT resources/, because bundle-cli wipes
+// resources/ on each run).
+// ---------------------------------------------------------------------------
+const semanticaSrc = join(
+  repoRoot,
+  "apps",
+  "desktop",
+  "vendor",
+  "semantica",
+);
+const semanticaDest = join(destDir, "..", "semantica");
+if (await exists(semanticaSrc)) {
+  try {
+    await rm(semanticaDest, { recursive: true, force: true });
+  } catch {
+    // dest missing — fine.
+  }
+  await mkdir(semanticaDest, { recursive: true });
+  await cp(semanticaSrc, semanticaDest, { recursive: true });
+  console.log(`[bundle-cli] bundled semantica runtime → ${semanticaDest}`);
+} else {
+  console.warn(
+    "[bundle-cli] semantica runtime not vendored at " +
+      "apps/desktop/vendor/semantica — semantica flag will show " +
+      "'resources not packaged' when enabled. Drop run.sh + requirements.txt into " +
+      "apps/desktop/vendor/semantica/ before bundle-cli if you want " +
+      "the bundled fallback shipped in the DMG.",
+  );
+}
+
