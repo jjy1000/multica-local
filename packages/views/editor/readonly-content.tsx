@@ -26,6 +26,7 @@ import rehypeKatex from "rehype-katex";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { remarkRepairCjkStrongTrailingWhitespace } from "../rich-content/cjk-emphasis";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { createLowlight, common } from "lowlight";
@@ -433,6 +434,7 @@ export const ReadonlyContent = memo(function ReadonlyContent({
             [remarkMath, { singleDollarTextMath: false }],
             remarkBreaks,
             [remarkGfm, { singleTilde: false }],
+            remarkRepairCjkStrongTrailingWhitespace,
           ]}
           rehypePlugins={[rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex]}
           urlTransform={urlTransform}
