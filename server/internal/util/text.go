@@ -81,7 +81,7 @@ func SanitizeTextForPostgres(s string) string {
 	if !strings.ContainsRune(s, 0) && utf8.ValidString(s) {
 		return s
 	}
-	return strings.ReplaceAll(strings.ToValidUTF8(s, "�"), "\x00", "")
+	return strings.ReplaceAll(strings.ToValidUTF8(s, "\uFFFD"), "\x00", "")
 }
 
 // SanitizeJSONForPostgres walks a decoded JSON value — the `any` tree

@@ -40,12 +40,12 @@ func TestSanitizeTextForPostgres(t *testing.T) {
 		{
 			name: "invalid UTF-8 becomes U+FFFD rather than vanishing",
 			in:   string([]byte{'b', 'a', 'd', 0xff, 'b', 'y', 't', 'e'}),
-			want: "bad�byte",
+			want: "bad\uFFFDbyte",
 		},
 		{
 			name: "NUL removal and UTF-8 repair compose",
 			in:   string([]byte{'a', 0x00, 'b', 0xff, 'c'}),
-			want: "ab�c",
+			want: "ab\uFFFDc",
 		},
 		{
 			name: "empty stays empty",
@@ -71,7 +71,7 @@ func TestSanitizeTextForPostgres(t *testing.T) {
 func TestSanitizeTextForPostgresToValidUTF8IsNotEnough(t *testing.T) {
 	poisoned := "worker failed\x00 diagnostic"
 
-	if !strings.ContainsRune(strings.ToValidUTF8(poisoned, "�"), 0) {
+	if !strings.ContainsRune(strings.ToValidUTF8(poisoned, "\uFFFD"), 0) {
 		t.Fatal("premise broken: strings.ToValidUTF8 now strips NUL on its own")
 	}
 	if strings.ContainsRune(SanitizeTextForPostgres(poisoned), 0) {
