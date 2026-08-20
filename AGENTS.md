@@ -4,48 +4,7 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 > **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. **Guarded sections** — toolchain versions, package boundaries, verification commands, and the Critical Constraints tokens (localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) — are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook. **Unguarded sections** (Quick Reference, Architecture, Sub-domain Guides, Testing Strategy, Dependency Management prose) are not machine-checked — verify them against `CLAUDE.md` before relying on them.
 
-> **Current release: 0.5.18 (dev, committed 2026-08-13 — not yet packaged).**
-> Lab environment batch (plan `.omc/plans/lab-environment-0.5.18-plan.md` 阶段 0–5 全部落地, 26 atomic commits). 阶段 0 reliability/security P1: Pythia proxy allowlist +`/agent/events`+`/scorecard/resolve`, IPC `ensure-up` gated on safety-net blacklist, `user_` flag-key prefix deduped via `experimental.UserPluginPrefix`, `lab_managed` stamped on single-fetch `GetAgent`/`GetSquad`. 阶段 1 (G1 core): user-plugin `runtime_kind: subprocess` now executes `manifest.runtime.command`+`args` (argv, no shell) — was 501. 阶段 2 (G1 verify): `multica lab delegate` tests + `multica-lab-builder` SKILL updates + `scripts/lab-plugin-smoke.sh`. 阶段 3 (G2): `code_canvas` real stdlib-only `/render` service + view + i18n. Zero migrations. Next: 阶段 4 (LabOutputPanel + iframe auth proxy spec) + 阶段 5 (6 HIGH vulns).
->
-> **0.5.17 (shipped 2026-08-12).**
-> Lab usability batch (continuation of 0.5.16 Phase 1 lab P0 fixes). 5 atomic commits land per-flag install button on Labs tab (B1a — pythia + any installable flag now installable from GUI), real stdio verbs + spawn cwd fix + env injection for llm_wiki_bridge subprocess (B1b — `~/Documents/llm wiki` cwd + MULTICA_API_URL/TOKEN 注入 + vault_read/vault_write 真转发 backend), visibility seed regression tests for all 4 install handlers (B1d — claude_science 新加 + 2 new files for mythos/pythia + code_canvas 已有覆盖), web `/experimental/*` 6 stub routes + app-sidebar gate removal (B2c — web 端能发现实验室 + 引导到 desktop download), version bump (`bda25997c`). `pnpm typecheck --force`: 6/6 ok. `go test -count=1 ./internal/... ./pkg/agent/...`: 32 packages ok, 0 fail. Cold-start verified: 2 s, server PID 61258, Info.plist = 0.5.17. Zero migrations. **Lessons**: (1) audit 验证不能跳过 — B1c (zh-Hant) + B2a (Chat/Knowledge) + B2b (DEFAULT_TABS) 都是 audit 误报,先 verify 再动手;每个 agent prompt 要求"先确认 audit 是否成立";(2) packaging 必须从 `apps/desktop/` 跑 — 0.5.16 noted lesson,本 ship 又踩一次(从 repo root 跑撞到 `multica-main` 旧项目名 stale symlink ENOENT,切 `cd apps/desktop` 通过);未来 ship-mac.sh 加 pre-flight cwd 检查;(3) LabOutputPanel / iframe auth proxy 真缺但需 spec,scope discipline 拒绝造组件 — 0.5.18+ 跟 design doc 再做。Next ship (0.5.18 候选): LabOutputPanel / iframe auth proxy / code_canvas Phase 3 OR sec-first 8 项 fork-applicable HIGH vuln。Full ship log at `.omc/0.5.17-ship-2026-08-12.md`.
-
-> **0.5.16 (shipped 2026-08-12).**
-> Phase 1 lab P0 fixes ship — 7 P0 blockers closed across 5 lab surfaces (`llm_wiki_bridge` flag-gate + DTO drift, `chat_pin_ui` SQL list-sort, `claude_science_lab` dead-skill + forecast PRNG→LLM, `code_canvas` skill binding, daemon auto-start docs). 11 atomic fix commits + 1 version bump (`ab3a71cd2`) + 1 ship log (`905fd6df9`) = 13 commits landed on top of 0.5.15 baseline. `pnpm typecheck` (full turbo): 6/6 tasks, 0 errors. `go test -count=1 ./internal/... ./pkg/agent/...`: 32 packages ok, 0 fail. Cold-start verified: 2 s launch, server PID up, `multica --help` exit 0 (signed nested binaries), row parity skipped (`psql` client not in PATH, non-blocker). Zero migrations. Phase 2 (P1 UX closure) + Phase 3 (stub replacement: `code_canvas` Monaco + `claude_science_lab` Knowledge tab) scheduled for 0.5.17 / 0.5.18. Full ship log at `.omc/0.5.16-ship-2026-08-12.md`.
-
-> **0.5.15 (shipped 2026-08-10, physically deployed 2026-08-11).**
-> Surgical upstream cherry-pick batch — 13 `fix(*)` PRs ported as plain
-> `git cherry-pick` drops. Filter pipeline: 1,594 → 829 → 632 → 394 → 270
-> → 150 attempts → 14 succeeded, 144 conflicts auto-aborted, 1 follow-up
-> revert (`#5980` referenced `itemArgs` helper from `#4790` which the
-> fork has not back-ported), 1 follow-up fixup (`da1cc2003` wired
-> `writeIssueBodyFormatting` into the fork's legacy verbose brief path
-> — cherry-pick of `#6199` only touched the slim path).
-> `pnpm typecheck` (full turbo): 6/6 tasks, 0 errors.
-> `go test -count=1 ./internal/...` `./pkg/...`: all green after
-> `da1cc2003`. Process gap closed: ship gate must include `go test` in
-> addition to `pnpm typecheck`. Physical ship verified: cold launch 6s,
-> `multica --help` exit 0 (signed nested binaries), row parity confirmed
-> (`workspace=1` baseline-stable; `issue=310` / `comment=2138` /
-> `agent=105` reflect user activity since the 0.5.13 baseline, not
-> schema drift). Zero migrations. Zero product-level behaviour change.
-> 0.5.14 (shipped 2026-08-10): Fork-local cleanup batch —
-> no upstream cherry-picks this cycle. Repo hygiene only: `.threat-model-state/`,
-> `.triage-state/`, `.vuln-scan-state/` added to `.gitignore`; three pre-existing
-> `.omc/` planning docs committed as historical reference for 0.5.15+. A systematic
-> survey of `v0.4.13..upstream/main` (258 distinct PRs) confirmed zero small,
-> zero-conflict Class A candidates remain — every surgical fix is already
-> integrated through 0.5.8 → 0.5.13; the remaining missing PRs are full-feature
-> blocks (saved views, channel framework, runtime catalog expansion, font
-> overhaul, ACP backends) that exceed fork-local cleanup scope. Zero migrations.
-> 0.5.13 (shipped 2026-08-09): Upstream integration
-> ship: daemon fail-fast re-introduced (#5674, fork-local fusion),
-> search cancelled-demotion (#6515), CLI `--compact` (#6546), audit
-> closes (custom_args writer + subscriber filter), backup slim via
-> `pg_dump -Fc` (24 MB vs ~1.5 GB). Baseline `epic/0.5.12-cherry-pick`
-> carries #6194 rollup, #5406 ErrNoRows, #6095 WCAG, #5355 self-heal,
-> #6124 open-tab. For the full release history read the root
-> `CLAUDE.md` header.
+> **Current release: 0.5.42** (2026-08-19, head `98b19c4f9` on `epic/0.5.13-integration`, 13 atomic commits across 3 batches 0.5.40/0.5.41/0.5.42, installed at `/Applications/Multica.app`, server PID 50859, `pnpm typecheck` 6/6, row parity 7/346/2469/119 unchanged). Historical release notes (0.5.12 → 0.5.41) archived at [`.omc/_legacy/release-notes-archive.md`](.omc/_legacy/release-notes-archive.md); load-bearing contracts from those releases live in the root [`CLAUDE.md`](CLAUDE.md) sections Known Stability Surfaces / Active Contracts / Fork-Applicable HIGH Vuln Contracts. This digest is a hand-maintained Qoder parallel — it is NOT a verbatim mirror of `CLAUDE.md`; the 5 guarded constraint categories (toolchain versions, package boundaries, verification commands, critical-constraint tokens, sub-domain guides) are token-enforced by `scripts/check-agents-docs-sync.mjs`.
 
 ## Quick Reference
 
