@@ -13,10 +13,42 @@ read the whole root file to work here.
 - `internal/handler/` — HTTP/WS handlers (request boundary; UUID rules below).
 - `internal/service/` — business services (`mythos/`, autopilot, builtin skills…).
 - `internal/experimental/` — Labs catalog/registry/visibility/locks (see below).
-- `internal/{auth,daemon,daemonws,events,realtime,scheduler,skill,storage,util,middleware}/`.
+- `internal/{auth,attribution,daemon,daemonws,entitlement,entitlementtest,events,featureflags,realtime,runtimeapps,scheduler,skill,storage,util,middleware}/`.
 - `pkg/` — reusable across binaries: `agent`, `db` (sqlc output), `featureflag`,
-  `protocol`, `redact`, `skillbundle`, `taskfailure`.
+  `plugincontract`, `protocol`, `redact`, `skillbundle`, `taskfailure`.
 - `migrations/` — forward-only SQL. `sqlc.yaml` drives codegen into `pkg/db`.
+
+## 0.5.45-0.5.46 audit-batch abstractions (ported from upstream, mostly additive)
+
+These landed in the 0.5.45 foundation batch + 0.5.46 infra batch. They are the
+upstream packages the fork was missing when 6 of the 0.5.44 cherry-picks SKIP'd.
+Most are additive — new code can import them; existing fork code is untouched.
+
+- `internal/attribution/` — accountable-human resolution contract (MUL-4302):
+  `Source`, `EvidenceKind`, `TriggerKind` + `Classify*` pure functions. "On
+  behalf of", never blame/authz. Fork already has `originator_user_id` +
+  `accountable_user_id` columns (migration 240); this package labels provenance.
+- `internal/entitlement/` (+ `entitlementtest/`) — cloud entitlement cache/client/
+  types/stub. Dormant in fork (no billing subsystem); CLAUDE.md previously
+  SKIP-DEAD-CASE'd it, decision reversed to port standalone. Activating it needs
+  the upstream autopilot_quota schema (migrations 261-374 + sqlc regen).
+- `internal/runtimeapps/` — plugin host connected-app registration.
+- `internal/featureflags/keys.go` — upstream flag-key vocabulary (Billing,
+  Composio, PluginsV1, CustomIssueStatuses). Parallel to `featureflagdispatch`
+  (fork-local evaluator). Constants only — no consumers in fork yet.
+- `pkg/plugincontract/` — plugin manifest schema (key, name, scopes, contributes).
+  `examples_test.go` dropped — fork has no `examples/plugins/` dir.
+- `internal/util/text.go` — `SanitizeTextForPostgres` + `SanitizeJSONForPostgres`
+  (NUL/UTF-8 persistence guards; `strings.ToValidUTF8` alone does NOT strip NUL).
+  All 11 tests pass. Callers NOT yet wired (upstream handler migration blocked on
+  sqlc queries the fork lacks: `LockAutopilotForUpdate`,
+  `SetAutopilotTriggerPublishersByAutopilot`, `ListDaemonCustomNames`, etc.).
+- `internal/service/autopilot_quota.go` — `AutopilotQuotaExceededError` sentinel
+  ONLY (32 LOC). Full quota subsystem NOT ported — needs upstream migrations
+  261-374 + sqlc regen + service refactor.
+- `packages/views/rich-content/cjk-emphasis.ts` — CJK-adjacent strong-emphasis
+  repairer. Standalone; NOT yet integrated into fork's `readonly-content.tsx`
+  pipeline (deferred).
 
 ## Localized fork contract (do NOT re-add)
 
