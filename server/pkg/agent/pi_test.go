@@ -29,15 +29,47 @@ func TestBuildPiArgsBasicFlags(t *testing.T) {
 	}, slog.Default())
 
 	joined := strings.Join(args, " ")
-	for _, want := range []string{"-p", "--mode json", "--session /tmp/s.jsonl", "--provider anthropic", "--model claude-sonnet-4-20250514", "--append-system-prompt"} {
+	for _, want := range []string{"-p", "--mode json", "--session /tmp/s.jsonl", "--model anthropic/claude-sonnet-4-20250514", "--append-system-prompt"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("expected %q in args, got: %v", want, args)
+		}
+	}
+	// --provider is never synthesized: the selector goes to --model whole and
+	// pi's own resolver accepts `provider/id`, a bare id, and an id containing
+	// a slash (MUL-6471, GH #7300).
+	for _, arg := range args {
+		if arg == "--provider" {
+			t.Fatalf("buildPiArgs emits --provider; the model selector must stay whole: %v", args)
 		}
 	}
 
 	// Prompt must be the last positional argument.
 	if args[len(args)-1] != "hello world" {
 		t.Errorf("prompt should be last arg, got %q", args[len(args)-1])
+	}
+}
+
+// TestBuildPiArgsSlashShapedModelStaysWhole is the GH #7300 regression: a
+// gateway-style provider persists a model id that itself contains a slash
+// (`claude/claude-opus-5` under provider `multica-anthropic`). Splitting it to
+// fill --provider would hand pi a provider name it has never heard of; the
+// whole selector must reach --model verbatim (MUL-6471).
+func TestBuildPiArgsSlashShapedModelStaysWhole(t *testing.T) {
+	args := buildPiArgs("hello world", "/tmp/s.jsonl", ExecOptions{
+		Model: "claude/claude-opus-5",
+	}, slog.Default())
+
+	var modelArgs []string
+	for i, arg := range args {
+		if arg == "--provider" {
+			t.Fatalf("buildPiArgs emits --provider for a slash-shaped model: %v", args)
+		}
+		if arg == "--model" && i+1 < len(args) {
+			modelArgs = append(modelArgs, args[i+1])
+		}
+	}
+	if len(modelArgs) != 1 || modelArgs[0] != "claude/claude-opus-5" {
+		t.Errorf("--model = %v, want exactly [claude/claude-opus-5] (whole): %v", modelArgs, args)
 	}
 }
 

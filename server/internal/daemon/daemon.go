@@ -3949,28 +3949,6 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		return TaskResult{}, fmt.Errorf("create agent backend: %w", err)
 	}
 
-	taskLog.Info("starting agent",
-		"provider", provider,
-		"workdir", env.WorkDir,
-		"model", entry.Model,
-		"reused", reused,
-	)
-	if task.PriorSessionID != "" {
-		taskLog.Info("resuming session", "session_id", task.PriorSessionID)
-	}
-
-	taskStart := time.Now()
-
-	var customArgs []string
-	extraArgs := defaultArgsForProvider(d.cfg, provider)
-	if len(profileFixedArgs) > 0 {
-		extraArgs = append(append([]string{}, profileFixedArgs...), extraArgs...)
-	}
-	var mcpConfig json.RawMessage
-	if task.Agent != nil {
-		customArgs = task.Agent.CustomArgs
-		mcpConfig = task.Agent.McpConfig
-	}
 	// Two-tier model resolution: an explicit agent.model wins,
 	// then the daemon-wide MULTICA_<PROVIDER>_MODEL env var. If
 	// both are empty we deliberately pass "" through — each
@@ -3986,6 +3964,31 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	}
 	if model == "" {
 		model = entry.Model
+	}
+	// opencode's `--model` is `provider/model`, and a bare id is rejected
+	// outright (UnknownError, MUL-6471 GH #7300). The daemon cannot invent the
+	// missing segment, so it asks the runtime's own catalog: a bare id that
+	// exactly one provider claims is promoted to the catalog's canonical
+	// selector, and anything uncertain passes through untouched for the CLI to
+	// judge. Qualification runs BEFORE the thinking-level check below because
+	// that check matches on the catalog's canonical id — an unqualified id
+	// silently fails every lookup and drops a perfectly valid level.
+	if model != "" && agent.ModelSelectorMustBeProviderQualified(provider) {
+		models, err := agent.ListModels(ctx, provider, entry.Path)
+		if err != nil {
+			taskLog.Warn("model qualification: catalog lookup failed; passing through",
+				"provider", provider,
+				"model", model,
+				"error", err,
+			)
+		} else if qualified, ok := agent.QualifyModelID(models, model); ok {
+			taskLog.Info("model qualified against runtime catalog",
+				"provider", provider,
+				"from", model,
+				"to", qualified,
+			)
+			model = qualified
+		}
 	}
 	thinkingLevel := ""
 	if task.Agent != nil {
@@ -4018,6 +4021,29 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			)
 			thinkingLevel = ""
 		}
+	}
+
+	taskLog.Info("starting agent",
+		"provider", provider,
+		"workdir", env.WorkDir,
+		"model", model,
+		"reused", reused,
+	)
+	if task.PriorSessionID != "" {
+		taskLog.Info("resuming session", "session_id", task.PriorSessionID)
+	}
+
+	taskStart := time.Now()
+
+	var customArgs []string
+	extraArgs := defaultArgsForProvider(d.cfg, provider)
+	if len(profileFixedArgs) > 0 {
+		extraArgs = append(append([]string{}, profileFixedArgs...), extraArgs...)
+	}
+	var mcpConfig json.RawMessage
+	if task.Agent != nil {
+		customArgs = task.Agent.CustomArgs
+		mcpConfig = task.Agent.McpConfig
 	}
 	execOpts := agent.ExecOptions{
 		Cwd:                       env.WorkDir,

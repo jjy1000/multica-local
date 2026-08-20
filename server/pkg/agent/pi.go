@@ -485,8 +485,7 @@ var piBlockedArgs = map[string]blockedArgMode{
 //	-p                          non-interactive mode (prompt is positional)
 //	--mode json                 emit one JSON event per line on stdout
 //	--session <path>            session log file (created upfront, reused on resume)
-//	--provider <name>           provider, when Model is "provider/id"
-//	--model <id>                model identifier
+//	--model <selector>          model selector, passed through verbatim
 //	--append-system-prompt <s>  extra system instructions
 //
 // Custom args appended before the positional prompt. The prompt is a
@@ -499,14 +498,18 @@ func buildPiArgs(prompt, sessionPath string, opts ExecOptions, logger *slog.Logg
 	if sessionPath != "" {
 		args = append(args, "--session", sessionPath)
 	}
-	if opts.Model != "" {
-		provider, model := splitPiModel(opts.Model)
-		if provider != "" {
-			args = append(args, "--provider", provider)
-		}
-		if model != "" {
-			args = append(args, "--model", model)
-		}
+	// The selector goes to --model whole, and --provider is never synthesized.
+	// Pi's own resolver already accepts every shape we hold: a canonical
+	// `provider/id`, a bare id, and — crucially — an id that itself contains a
+	// slash, which is the normal case for gateway-style providers whose model
+	// ids look like `claude/claude-opus-5`. Splitting on the first slash to
+	// fill --provider turns that id into a provider name Pi has never heard of,
+	// and an unknown --provider is a hard error ("Unknown provider ...") rather
+	// than something Pi can recover from — whereas --model alone falls back to
+	// matching the full string as a raw model id. Passing less is strictly more
+	// capable here (MUL-6471, GH #7300).
+	if model := strings.TrimSpace(opts.Model); model != "" {
+		args = append(args, "--model", model)
 	}
 	// Note: we intentionally do NOT pass --tools here. Omitting it lets
 	// Pi use its full tool registry, including user-installed extension
@@ -519,16 +522,6 @@ func buildPiArgs(prompt, sessionPath string, opts ExecOptions, logger *slog.Logg
 	args = append(args, filterCustomArgs(opts.CustomArgs, piBlockedArgs, logger)...)
 	args = append(args, prompt)
 	return args
-}
-
-// splitPiModel parses a "provider/model" string into its parts. Plain
-// "model" strings pass through as (provider="", model="model").
-func splitPiModel(s string) (provider, model string) {
-	s = strings.TrimSpace(s)
-	if i := strings.Index(s, "/"); i >= 0 {
-		return strings.TrimSpace(s[:i]), strings.TrimSpace(s[i+1:])
-	}
-	return "", s
 }
 
 // ── Session path ──

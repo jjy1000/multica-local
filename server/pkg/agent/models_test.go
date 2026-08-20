@@ -1011,3 +1011,130 @@ func TestCachedDiscovery(t *testing.T) {
 		t.Errorf("expected 1 underlying call due to cache, got %d", calls)
 	}
 }
+
+// TestQualifyModelID covers MUL-6471 (GH #7300): a persisted model id that
+// omits its provider must be promoted to the catalog's canonical selector,
+// but only when exactly one provider claims it. opencode rejects an
+// unqualified id outright, and every capability lookup keyed on the model id
+// misses until the two agree. Adapted from upstream — the fork's ListModels
+// returns []Model (no Catalog/Fallback wrapper).
+func TestQualifyModelID(t *testing.T) {
+	t.Parallel()
+
+	gateway := []Model{
+		{ID: "multica-anthropic/claude/claude-opus-5", Provider: "multica-anthropic"},
+		{ID: "multica-anthropic/claude/claude-sonnet-5", Provider: "multica-anthropic"},
+		{ID: "multica-codex/codex/gpt-5.6-sol", Provider: "multica-codex"},
+	}
+
+	tests := []struct {
+		name          string
+		models        []Model
+		model         string
+		want          string
+		wantRewritten bool
+	}{
+		{
+			name:          "slash-shaped id gains its provider",
+			models:        gateway,
+			model:         "claude/claude-opus-5",
+			want:          "multica-anthropic/claude/claude-opus-5",
+			wantRewritten: true,
+		},
+		{
+			name:   "already canonical is left alone",
+			models: gateway,
+			model:  "multica-anthropic/claude/claude-opus-5",
+			want:   "multica-anthropic/claude/claude-opus-5",
+		},
+		{
+			name: "an exact catalog id wins over a qualifiable one",
+			// Both a bare `shared-id` model and a `vendor/shared-id` model
+			// exist. The exact match is what the user picked; promoting it to
+			// the other provider's entry would silently reroute the task.
+			models: []Model{
+				{ID: "shared-id", Provider: ""},
+				{ID: "vendor/shared-id", Provider: "vendor"},
+			},
+			model: "shared-id",
+			want:  "shared-id",
+		},
+		{
+			name: "ambiguous across providers stays untouched",
+			models: []Model{
+				{ID: "gateway-a/claude/claude-opus-5", Provider: "gateway-a"},
+				{ID: "gateway-b/claude/claude-opus-5", Provider: "gateway-b"},
+			},
+			model: "claude/claude-opus-5",
+			want:  "claude/claude-opus-5",
+		},
+		{
+			name:   "unknown model is passed through for the CLI to judge",
+			models: gateway,
+			model:  "something-nobody-advertises",
+			want:   "something-nobody-advertises",
+		},
+		{
+			name:   "empty catalog cannot qualify anything",
+			models: nil,
+			model:  "claude/claude-opus-5",
+			want:   "claude/claude-opus-5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, rewritten := QualifyModelID(tt.models, tt.model)
+			if got != tt.want || rewritten != tt.wantRewritten {
+				t.Errorf("QualifyModelID(%q) = (%q, %v), want (%q, %v)",
+					tt.model, got, rewritten, tt.want, tt.wantRewritten)
+			}
+		})
+	}
+}
+
+// A blank model means "let the runtime pick its own default" — there is
+// nothing to qualify, and the runtime resolves its own selection.
+func TestQualifyModelIDIgnoresBlankModel(t *testing.T) {
+	t.Parallel()
+	models := []Model{{ID: "vendor/only-model", Provider: "vendor"}}
+	got, rewritten := QualifyModelID(models, "   ")
+	if got != "" || rewritten {
+		t.Errorf("QualifyModelID(blank) = (%q, %v), want (\"\", false)", got, rewritten)
+	}
+}
+
+// TestModelSelectorMustBeProviderQualifiedIsAnExecutionContract pins what the
+// predicate actually claims: whether a runtime's CLI refuses a model id that
+// carries no provider prefix. It is deliberately NOT a statement about catalog
+// shape. The pi entry is the load-bearing one: buildPiArgs and its tests prove
+// pi resolves a canonical selector, a bare id, and an id containing a slash
+// all on its own, so a pi task must launch without the daemon reading any
+// catalog (MUL-6471). Fork set is opencode-only (no deveco/omp in this fork).
+func TestModelSelectorMustBeProviderQualifiedIsAnExecutionContract(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		provider string
+		want     bool
+		why      string
+	}{
+		{"opencode", true, "run --model resolves strictly through provider/model"},
+		{"pi", false, "pi's own resolver accepts bare and slash-shaped ids"},
+		{"claude", false, "bare model ids, no provider segment to miss"},
+		{"codex", false, "bare model ids"},
+		{"copilot", false, "bare model ids under a display-name provider"},
+		{"", false, "unknown provider must not spend discovery"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			t.Parallel()
+			if got := ModelSelectorMustBeProviderQualified(tt.provider); got != tt.want {
+				t.Errorf("ModelSelectorMustBeProviderQualified(%q) = %v, want %v (%s)",
+					tt.provider, got, tt.want, tt.why)
+			}
+		})
+	}
+}

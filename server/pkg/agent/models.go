@@ -196,6 +196,74 @@ func ModelKnownIncompatibleWithProvider(providerType, model string) bool {
 	return isRuntimeSpecificModelID(model)
 }
 
+// ModelSelectorMustBeProviderQualified reports whether a runtime's CLI
+// refuses a model id that does not carry its `<provider>/` prefix.
+//
+// This is an execution contract, not a statement about catalog shape. It
+// decides one thing: whether the daemon has to read the runtime catalog before
+// launching a task that pins a model. opencode's `run --model` resolves
+// strictly through `provider/model` and rejects anything else — verified
+// against opencode 1.18.14, which answers a bare id with `UnknownError` before
+// any provider call. pi is deliberately absent: its resolver accepts a
+// canonical selector, a bare id, AND an id containing a slash (see
+// buildPiArgs), so a pi task launches correctly without the daemon qualifying
+// anything first (MUL-6471, GH #7300).
+func ModelSelectorMustBeProviderQualified(providerType string) bool {
+	switch providerType {
+	case "opencode":
+		return true
+	default:
+		return false
+	}
+}
+
+// QualifyModelID resolves a persisted model string to the canonical ID the
+// runtime's own catalog advertises, and reports whether it rewrote anything.
+// models is the runtime's discovered catalog; callers already holding one pay
+// nothing extra.
+//
+// Runtimes that namespace their catalog (opencode's `provider/model` selector)
+// want the qualified form, but `agent.model` holds whatever was persisted —
+// and for gateway-style providers the bare model id is itself slash-shaped
+// (`claude/claude-opus-5` under provider `multica-anthropic`). The slash is
+// therefore not a provider boundary and cannot be guessed at: the catalog is
+// the only thing that knows which provider owns an id. Callers get the
+// qualified id when exactly one provider claims the value, and the input
+// untouched otherwise.
+//
+// Untouched is the deliberate answer for every uncertain case — the value
+// already matches a catalog ID, or two providers expose the same bare id.
+// Manual model entry is supported everywhere, so a value this function cannot
+// confidently place must still reach the CLI verbatim; the CLI's own resolver
+// is a better judge than a guess here would be (MUL-6471, GH #7300).
+func QualifyModelID(models []Model, model string) (string, bool) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return model, false
+	}
+	for _, m := range models {
+		if m.ID == model {
+			return model, false
+		}
+	}
+	qualified := ""
+	for _, m := range models {
+		if m.Provider == "" || m.ID != m.Provider+"/"+model {
+			continue
+		}
+		if qualified != "" && qualified != m.ID {
+			// Two providers expose this same bare id. Picking one would be a
+			// coin flip that silently routes the task to the wrong gateway.
+			return model, false
+		}
+		qualified = m.ID
+	}
+	if qualified == "" {
+		return model, false
+	}
+	return qualified, true
+}
+
 func acceptedModelIDsForProvider(providerType string) (map[string]bool, bool) {
 	switch {
 	case providerType == "claude":
