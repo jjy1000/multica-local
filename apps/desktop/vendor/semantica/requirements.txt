@@ -1,3 +1,22 @@
-fastapi>=0.110
-uvicorn>=0.27
-pydantic>=2.0
+# P1 / 0.5.53: this file is retained only as documentation of what
+# the Semantica Explorer runtime needs. The actual wheel
+# (apps/desktop/vendor/semantica-src/builds/semantica-*.whl, mirrored
+# to apps/desktop/resources/semantica/builds/ by bundle-cli) bundles
+# ALL transitive deps from pyproject.toml [project.dependencies]:
+#   - fastapi, uvicorn[standard], pydantic
+#   - httpx, requests, aiohttp
+#   - numpy, scipy, scikit-learn, networkx
+#   - rdflib, spacy, transformers, sentence-transformers, torch
+#   - pandas, plotly, matplotlib, seaborn
+#   - python-dotenv, pyyaml, loguru, structlog, rich, click
+#   - fastembed, faiss-cpu, gensim, umap-learn
+#   - gitpython, lxml, beautifulsoup4, pillow, opencv-python, openpyxl,
+#     python-docx, librosa, ipywidgets, toml, tqdm, tokenizers
+#   - protobuf, grpcio, onnxruntime
+#   - chardet
+#
+# No `pip install` here. run.sh installs the wheel into
+# ~/.multica/semantica-venv/ with `pip install --no-index
+# --find-links=./builds/ semantica-*.whl`. A future version bump to
+# 0.5.5x that drops an upstream dep will simply omit it from the
+# new wheel — no edit here.
