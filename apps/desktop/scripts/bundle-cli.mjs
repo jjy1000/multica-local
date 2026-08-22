@@ -517,7 +517,7 @@ if (await exists(codeCanvasSrc)) {
   }
   await mkdir(codeCanvasDest, { recursive: true });
   await cp(codeCanvasSrc, codeCanvasDest, { recursive: true });
-  console.log(`[bundle-cli] bundled code-canvas stub → ${codeCanvasDest}`);
+  console.log(`[bundle-cli] bundled code-canvas service → ${codeCanvasDest}`);
 } else {
   console.warn(
     "[bundle-cli] code-canvas stub not vendored at " +

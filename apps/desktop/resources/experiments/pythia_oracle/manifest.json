@@ -40,6 +40,11 @@
       "proxy_prefix": "/experimental/pythia",
       "loopback_service": "pythia_oracle"
     },
+    "resources": {
+      "installable": true,
+      "lockable_resources": ["agent:pythia_runtime"],
+      "install_handler": "pythia_oracle"
+    },
     "safety": {
       "init_timeout_ms": 30000,
       "burst": { "threshold": 3, "window_seconds": 60 },

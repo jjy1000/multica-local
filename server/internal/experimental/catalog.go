@@ -188,6 +188,11 @@ var Catalog = []Flag{
 		},
 		ManifestPath: "experiments/chat_pin_ui/manifest.json",
 		RuntimeKind:  "none",
+		// 0.5.60 (audit P2-6): chat_pin_ui is a pure UI toggle with no
+		// leader agent and no dispatch path — binding it to an issue is
+		// a dead lab_source that nothing ever reads. Hide it from the
+		// per-issue LabPicker like the other infrastructure flags.
+		HideFromIssueLabPicker: true,
 	},
 	{
 		Key:        "claude_science_lab",
@@ -326,13 +331,11 @@ var Catalog = []Flag{
 		HidesDeliverableInIssueTimeline: true,
 	},
 	{
-		// code_canvas: 0.3.19 P9 internal lab. A subprocess-style
-		// experiment that spawns a tiny stub binary so the desktop
-		// IPC pipeline gets end-to-end exercised without depending
-		// on a real external service. The 30-line stub run.sh is
-		// enough to verify the manifest → catalog → registry →
-		// dispatcher → manager-factory → IPC chain; future labs
-		// replace the stub with the actual binary.
+		// code_canvas: 0.3.19 P9 internal lab, graduated to a real
+		// service in 0.5.18. A subprocess experiment that spawns
+		// vendor/code-canvas/run.sh (stdlib-only GET /health +
+		// GET|POST /render syntax-highlight service) so the desktop IPC
+		// pipeline exercises a genuine loopback backend end-to-end.
 		Key:        "code_canvas",
 		DefaultVal: false,
 		Title: LocalizedString{

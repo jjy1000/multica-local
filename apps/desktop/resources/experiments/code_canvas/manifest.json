@@ -46,7 +46,7 @@
       "loopback_service": "code_canvas"
     },
     "resources": {
-      "installable": false,
+      "installable": true,
       "lockable_resources": [],
       "install_handler": ""
     },
