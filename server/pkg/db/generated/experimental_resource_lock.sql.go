@@ -73,6 +73,30 @@ func (q *Queries) DeleteExperimentalResourceLockByID(ctx context.Context, arg De
 	return err
 }
 
+const deleteOrphanResourceLocks = `-- name: DeleteOrphanResourceLocks :execrows
+DELETE FROM experimental_resource_lock l
+WHERE (l.resource_type = 'agent' AND NOT EXISTS (SELECT 1 FROM agent a WHERE a.id = l.resource_id))
+   OR (l.resource_type = 'squad' AND NOT EXISTS (SELECT 1 FROM squad s WHERE s.id = l.resource_id))
+   OR (l.resource_type = 'skill' AND NOT EXISTS (SELECT 1 FROM skill s WHERE s.id = l.resource_id))
+   OR (l.resource_type = 'member' AND NOT EXISTS (SELECT 1 FROM member m WHERE m.id = l.resource_id))
+   OR (l.resource_type = 'workspace' AND NOT EXISTS (SELECT 1 FROM workspace w WHERE w.id = l.resource_id))
+`
+
+// 0.5.60 (audit P0-3): delete lock rows whose underlying resource no
+// longer exists. Resource deletion cascades (runtime teardown's
+// DeleteArchivedAgentsByRuntime / DeleteSquadsByArchivedAgentsOnRuntime,
+// workspace ON DELETE CASCADE) never release locks, and the table has no
+// TTL column, so orphans grow unbounded. mcp_server / swarm_run rows are
+// deliberately NOT swept here (swarm_gc owns the swarm_run lifecycle and
+// there is no mcp_server table to match against).
+func (q *Queries) DeleteOrphanResourceLocks(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOrphanResourceLocks)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getExperimentalResourceLock = `-- name: GetExperimentalResourceLock :one
 SELECT id,
        experimental_source,

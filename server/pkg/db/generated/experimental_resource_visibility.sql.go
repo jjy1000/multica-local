@@ -33,6 +33,23 @@ func (q *Queries) DeleteExperimentalResourceVisibilityByResourceID(ctx context.C
 	return err
 }
 
+const deleteOrphanResourceVisibilityRows = `-- name: DeleteOrphanResourceVisibilityRows :execrows
+DELETE FROM experimental_resource_visibility v
+WHERE (v.resource_type = 'agent' AND NOT EXISTS (SELECT 1 FROM agent a WHERE a.id = v.resource_id))
+   OR (v.resource_type = 'squad' AND NOT EXISTS (SELECT 1 FROM squad s WHERE s.id = v.resource_id))
+`
+
+// 0.5.60 (audit P0-3): companion sweep to DeleteOrphanResourceLocks —
+// visibility rows reference agents/squads that deletion cascades removed
+// without cleaning up (378 orphaned code_canvas rows at audit time).
+func (q *Queries) DeleteOrphanResourceVisibilityRows(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOrphanResourceVisibilityRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertExperimentalResourceVisibility = `-- name: InsertExperimentalResourceVisibility :exec
 INSERT INTO experimental_resource_visibility (flag_key, resource_type, resource_id, hidden)
 VALUES ($1, $2, $3, TRUE)

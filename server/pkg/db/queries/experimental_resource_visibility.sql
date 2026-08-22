@@ -54,3 +54,11 @@ WHERE resource_type = $1;
 -- cleanupSteps slice had only 3 entries; visibility was missing).
 DELETE FROM experimental_resource_visibility
 WHERE resource_type = $1 AND resource_id = $2;
+
+-- name: DeleteOrphanResourceVisibilityRows :execrows
+-- 0.5.60 (audit P0-3): companion sweep to DeleteOrphanResourceLocks —
+-- visibility rows reference agents/squads that deletion cascades removed
+-- without cleaning up (378 orphaned code_canvas rows at audit time).
+DELETE FROM experimental_resource_visibility v
+WHERE (v.resource_type = 'agent' AND NOT EXISTS (SELECT 1 FROM agent a WHERE a.id = v.resource_id))
+   OR (v.resource_type = 'squad' AND NOT EXISTS (SELECT 1 FROM squad s WHERE s.id = v.resource_id));

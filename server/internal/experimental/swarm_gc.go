@@ -175,7 +175,36 @@ func (g *SwarmGC) Run() {
 			return
 		case <-ticker.C:
 			g.sweep()
+			// 0.5.60 (audit P0-3): separate call, not inside sweep() —
+			// sweep()'s no-swarm-runs early return would otherwise
+			// starve the orphan cleanup on an install where no swarm
+			// ever ran (the exact install that leaked 3401 rows).
+			g.sweepOrphanedExperimentalResources()
 		}
+	}
+}
+
+// sweepOrphanedExperimentalResources deletes experimental_resource_lock /
+// experimental_resource_visibility rows whose resource was hard-deleted
+// by a cascade that never releases them (runtime teardown, workspace
+// CASCADE). Migration 274 did the one-shot cleanup; this keeps the tables
+// clean going forward on the same 6h cadence. Inert rows are invisible to
+// every consult site today, but any future count-based consumer would
+// inherit the inflation, so the sweep logs only when rows moved.
+func (g *SwarmGC) sweepOrphanedExperimentalResources() {
+	if g.cfg.Queries == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	locks, visibility, err := SweepOrphanedExperimentalResources(ctx, g.cfg.Queries)
+	if err != nil {
+		g.cfg.Logger.Warn("orphan experimental resource sweep failed", "err", err.Error())
+		return
+	}
+	if locks > 0 || visibility > 0 {
+		g.cfg.Logger.Info("orphan experimental resource sweep",
+			"locks_deleted", locks, "visibility_deleted", visibility)
 	}
 }
 
