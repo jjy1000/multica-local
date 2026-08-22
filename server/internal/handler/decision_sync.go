@@ -275,16 +275,27 @@ func (h *Handler) postDecisionSync(
 	// (the upstream is the source of truth — its own upsert-on-id
 	// dedupes repeated fires). The ACL index catches up on the next
 	// reconciliation cycle (P6 territory).
+	//
+	// 0.5.60 (audit hole #2): the error used to be discarded with
+	// `_ =` — the ONLY truly silent failure in the semantica path.
+	// Since the P6 reconciler body is observability-only, a missed
+	// ACL row stayed invisible until upstream exposes a decisions-list
+	// API. Log it.
 	if h.Queries != nil && visibility != "" {
 		actorIDStr := experimental.ActorIDFor(actorType, actorID, row.WorkspaceID)
 		upsertCtx, upsertCancel := context.WithTimeout(context.Background(), semanticaDecisionTimeout)
-		_ = h.Queries.UpsertSemanticaDecisionACL(upsertCtx, db.UpsertSemanticaDecisionACLParams{
+		if err := h.Queries.UpsertSemanticaDecisionACL(upsertCtx, db.UpsertSemanticaDecisionACLParams{
 			DecisionID:  decision.ID,
 			WorkspaceID: row.WorkspaceID,
 			ActorType:   actorType,
 			ActorID:     actorIDStr,
 			Visibility:  visibility,
-		})
+		}); err != nil {
+			slog.Warn("postDecisionSync: ACL upsert failed (upstream decision was recorded; ACL index will lag until reconcile)",
+				"issue_id", util.UUIDToString(row.ID),
+				"decision_id", decision.ID,
+				"error", err)
+		}
 		upsertCancel()
 	}
 }
