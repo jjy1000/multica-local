@@ -811,6 +811,18 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			h.SemanticaGC = semanticaGC
 			slog.Info("semantica_gc started")
 
+			// 0.5.58 P6: ACL reconciler tick. Pure observability
+			// today (the reconcile body lands when upstream
+			// semantica exposes list /api/decisions). 6h cadence
+			// matches the plan §2.3 contract; defaults baked into
+			// NewACLReconciler.
+			aclReconciler := experimental.NewACLReconciler(experimental.ACLReconcilerConfig{
+				Queries: h.Queries,
+			})
+			aclReconciler.Start()
+			h.SemanticaACLReconciler = aclReconciler
+			slog.Info("semantica_acl_reconciler started")
+
 			// 0.5.31: AuthTokenGC sweeps the three auth-token
 			// tables that have an `expires_at` column but no
 			// working retention GC (task_token + workspace_invitation

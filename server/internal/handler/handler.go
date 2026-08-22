@@ -197,6 +197,12 @@ type Handler struct {
 	// from cmd/server/main.go shutdown. Nil is acceptable — test-
 	// only builds skip it.
 	SemanticaGC *experimental.SemanticaGC
+
+	// SemanticaACLReconciler (0.5.58 P6) ticks every 6h and emits a
+	// reconcile log line; the actual reconcile body lands once
+	// upstream semantica exposes list /api/decisions. Until then,
+	// the field is observability + cron infrastructure only.
+	SemanticaACLReconciler *experimental.ACLReconciler
 	// AuthTokenGC (0.5.31) sweeps the three auth-token tables that
 	// have an `expires_at` column but no working retention GC:
 	// task_token (migration 108), workspace_invitation (041), and

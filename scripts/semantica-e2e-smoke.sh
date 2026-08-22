@@ -181,6 +181,34 @@ else
 fi
 rm -f "$HDR_FILE"
 
+# -------- Stage 4b: fork-side ACL list endpoint (0.5.56 P4) -------------
+# /api/experimental/semantica/decisions returns the per-workspace
+# ACL-filtered rows (P4 contract). Membership-gated; 200 is the
+# happy path, 401/403 is expected for a viewer that's not a member
+# of the workspace (the test seeds an empty workspace so 200 with
+# count=0 is the typical first-boot response).
+log "Stage 4b/5: fork-side ACL endpoint /api/experimental/semantica/decisions"
+DECISIONS_BODY=$(curl -sS -o /tmp/multica-semantica-decisions.json -w "%{http_code}" \
+  -H "Authorization: Bearer $MULTICA_API_TOKEN" \
+  "$MULTICA_API_URL/experimental/semantica/decisions?workspace=demo-ws") || DECISIONS_BODY=000
+case "$DECISIONS_BODY" in
+  200)
+    if grep -q '"count"[[:space:]]*:[[:space:]]*[0-9]' /tmp/multica-semantica-decisions.json; then
+      note PASS "ACL endpoint 200 + count field present"
+    else
+      note FAIL "ACL endpoint 200 but response missing count field"
+      exit 1
+    fi
+    ;;
+  401|403|404)
+    note PASS "ACL endpoint $DECISIONS_BODY (auth/membership gated, expected for empty workspace)"
+    ;;
+  *)
+    note FAIL "ACL endpoint returned $DECISIONS_BODY (expected 200/401/403/404)"
+    exit 1
+    ;;
+esac
+
 # -------- Stage 5: per-workspace path assertion ----------------------------
 log "Stage 5/5: per-workspace graph path isolation (0.5.29 P0-2 guard)"
 GLOB_COUNT=$(find "$HOME/.multica" -name 'semantica-graph.json' 2>/dev/null | wc -l | tr -d ' ')

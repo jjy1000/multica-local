@@ -561,6 +561,9 @@ func main() {
 	if h.SemanticaGC != nil {
 		h.SemanticaGC.Stop()
 	}
+	if h.SemanticaACLReconciler != nil {
+		h.SemanticaACLReconciler.Stop()
+	}
 	// 0.5.31: stop the auth_token_gc goroutine before process exit.
 	// Same rationale as swarm_gc / runtime_gc / semantica_gc — the
 	// ticker loop should exit cleanly on Stop rather than be
