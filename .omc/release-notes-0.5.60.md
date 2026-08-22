@@ -99,7 +99,11 @@ deferring a closure (`6bdf5fd63`) + end-to-end pin
 3-round full consume → `persist run OK rounds=3` + 3-envelope row;
 early disconnect → partial persist (by design). Also built + committed
 the missing semantica wheel (`8fe19fd10`) — the offline install chain
-was missing it entirely on this machine.
+was missing it entirely on this machine. Two more fixes followed the
+run-lifecycle auditor's final report: semantica ACL upsert failures are
+now logged instead of discarded (`4cafa0f18`), and mythos/swarm panels
+gained "never started" affordances so an empty run table no longer reads
+as "broken" (`eda379eab`, 4 locales).
 
 ## Ship chain
 

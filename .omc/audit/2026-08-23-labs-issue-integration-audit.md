@@ -183,3 +183,13 @@ Go 的 defer 参数即时求值: `defer persistIssueForecastRun(r, ifc, collecte
 另: semantica wheel(`semantica-0.6.6-py3-none-any.whl`)本机首次构建
 并随提交入库 + 拷入已装 .app —— 此前 run.sh 的离线安装链缺轮子,
 子进程实验室不可能装起来(`8fe19fd10`)。
+
+### run 生命周期组终审追加项处置
+
+| 终审发现 | 处置 |
+|---|---|
+| #2 semantica ACL upsert `_ =` 静默吞错 | ✅ `4cafa0f18` 改为 WRN 日志(保留 best-effort 语义) |
+| #6 mythos/swarm 无"从未运行"提示 | ✅ `eda379eab` MythosPanel 空态文案指向侧栏入口;swarm 404 后渲染"未启动"灰 pill;4 语言 |
+| #3 code_canvas 轮询 60s 平顶(无 live 态) | ⚪ 接受 — artifacts 无进行中阶段,偏离有理由 |
+| #4 swarm ctx.Done 退出不 drainTasks | ⚪ 接受 — 服务器关停连坐杀 daemon 任务;若关停改为非致命需回看 |
+| #5 mythos enhancer 依赖 issue 终态(24h 上限) | ⚪ 接受 — 有界、每 tick 持久化、启动重收养,设计使然 |
