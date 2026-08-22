@@ -3807,8 +3807,9 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 
 		// 0.3.31: lab ↔ assignee mutex (batch variant). Mirrors the
 		// UpdateIssue gate above, including the 0.3.33 narrowing:
-		// only `mythos_swarm` still reserves the roster (and only
-		// in sole mode — enhancer REQUIRES an assignee). Other labs
+		// only `mythos_swarm` (sole mode — enhancer REQUIRES an
+		// assignee) and `swarm_topology` (0.5.21, no modes) still
+		// reserve the roster. Other labs
 		// auto-assign their own leader agent since 0.3.47, so the
 		// old "any lab + any assignee → skip" rule silently dropped
 		// every batch status/priority move against lab-tagged issues
@@ -3853,6 +3854,17 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 				// Enhancer needs its user-picked target assignee; a
 				// batch clearing it would strand the supervise loop.
 				slog.Warn("batch update rejected: enhancer requires assignee",
+					"issue_id", issueID, "post_lab", postLab)
+				continue
+			case postLab == "swarm_topology" && hasAssignee:
+				// 0.5.60 (audit P0-1): the 0.5.21 swarm mutex extension
+				// landed in CreateIssue/UpdateIssue/UI but was never
+				// propagated here — a batch PATCH flipping lab_source to
+				// swarm_topology onto an assigned issue (or assigning a
+				// swarm issue) silently persisted, bypassing the 400 the
+				// single-issue paths return. Swarm has no enhancer mode,
+				// so a single case suffices (lab_mode is ignored).
+				slog.Warn("batch update rejected: lab/assignee mutex",
 					"issue_id", issueID, "post_lab", postLab)
 				continue
 			}

@@ -159,18 +159,18 @@ func TestCreateIssueRejectsLabSourceWithAssignee(t *testing.T) {
 // 0.3.31: same contract on PATCH. The UpdateIssue gate was the
 // source of three separate defects in the 0.3.30.2 ship:
 //
-//   1. rawFields["lab_source"] keyed the mutex trigger, so a
-//      PATCH that only changed the assignee on a pre-labbed
-//      issue bypassed the gate entirely. (LABEL: "patch assignee
-//      on existing lab issue")
-//   2. Symmetric problem: PATCHing only `lab_source` to a
-//      non-empty value on a pre-assigned issue fell through to
-//      the catalog check instead of the mutex. (LABEL: "patch lab
-//      on existing assigned issue")
-//   3. Atomic "set lab + clear existing assignee" was computed
-//      from prevIssue.AssigneeType because the explicit-null
-//      branch was treated as untouched. (LABEL: "atomic set lab
-//      + clear assignee")
+//  1. rawFields["lab_source"] keyed the mutex trigger, so a
+//     PATCH that only changed the assignee on a pre-labbed
+//     issue bypassed the gate entirely. (LABEL: "patch assignee
+//     on existing lab issue")
+//  2. Symmetric problem: PATCHing only `lab_source` to a
+//     non-empty value on a pre-assigned issue fell through to
+//     the catalog check instead of the mutex. (LABEL: "patch lab
+//     on existing assigned issue")
+//  3. Atomic "set lab + clear existing assignee" was computed
+//     from prevIssue.AssigneeType because the explicit-null
+//     branch was treated as untouched. (LABEL: "atomic set lab
+//     + clear assignee")
 //
 // 0.3.33 narrow: only `mythos_swarm` enforces the mutex on PATCH
 // (its 5-agent RDT roster is meaningful + the enhancer-mode
@@ -435,6 +435,110 @@ func TestBatchUpdateIssuesRespectsLabMutex(t *testing.T) {
 		if !labSourceAfter.Valid || labSourceAfter.String != known {
 			t.Errorf("expected lab_source=%q, got valid=%v str=%q",
 				known, labSourceAfter.Valid, labSourceAfter.String)
+		}
+	})
+}
+
+// TestBatchUpdateIssuesRespectsSwarmTopologyMutex — 0.5.60 (audit P0-1).
+// The 0.5.21 swarm mutex extension landed in CreateIssue/UpdateIssue/UI but
+// never reached the batch switch: a batch PATCH flipping lab_source to
+// swarm_topology onto an assigned issue persisted silently while the
+// single-issue paths 400. Pin the batch layer to the same narrowed gate.
+func TestBatchUpdateIssuesRespectsSwarmTopologyMutex(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	const swarmLab = "swarm_topology"
+	realMemberID := testUserID
+
+	t.Run("lab + assignee in same batch update → per-issue skip", func(t *testing.T) {
+		created := createIssueForTest(t, map[string]any{
+			"title":         "batch-swarm-mutex-1",
+			"assignee_type": "member",
+			"assignee_id":   realMemberID,
+		})
+		w := httptest.NewRecorder()
+		req := newRequest("POST", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{
+			"issue_ids": []string{created.ID},
+			"updates": map[string]any{
+				"lab_source":    swarmLab,
+				"assignee_type": "member",
+				"assignee_id":   realMemberID,
+			},
+		})
+		testHandler.BatchUpdateIssues(w, req)
+		if w.Code < 200 || w.Code >= 300 {
+			t.Fatalf("expected 2xx for batch, got %d: %s", w.Code, w.Body.String())
+		}
+		var labSourceAfter pgtype.Text
+		if err := testPool.QueryRow(context.Background(),
+			`SELECT lab_source FROM issue WHERE id = $1`, created.ID,
+		).Scan(&labSourceAfter); err != nil {
+			t.Fatalf("re-read issue: %v", err)
+		}
+		if labSourceAfter.Valid {
+			t.Errorf("batch swarm mutex violation persisted lab_source=%q; expected NULL",
+				labSourceAfter.String)
+		}
+	})
+
+	t.Run("lab only on pre-assigned issue → per-issue skip", func(t *testing.T) {
+		created := createIssueForTest(t, map[string]any{
+			"title":         "batch-swarm-mutex-2",
+			"assignee_type": "member",
+			"assignee_id":   realMemberID,
+		})
+		w := httptest.NewRecorder()
+		req := newRequest("POST", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{
+			"issue_ids": []string{created.ID},
+			"updates": map[string]any{
+				"lab_source": swarmLab,
+			},
+		})
+		testHandler.BatchUpdateIssues(w, req)
+		if w.Code < 200 || w.Code >= 300 {
+			t.Fatalf("expected 2xx for batch, got %d: %s", w.Code, w.Body.String())
+		}
+		var labSourceAfter pgtype.Text
+		if err := testPool.QueryRow(context.Background(),
+			`SELECT lab_source FROM issue WHERE id = $1`, created.ID,
+		).Scan(&labSourceAfter); err != nil {
+			t.Fatalf("re-read issue: %v", err)
+		}
+		if labSourceAfter.Valid {
+			t.Errorf("batch silently persisted lab_source=%q on a swarm mutex violation",
+				labSourceAfter.String)
+		}
+	})
+
+	t.Run("lab only on unassigned issue → succeeds", func(t *testing.T) {
+		created := createIssueForTest(t, map[string]any{
+			"title": "batch-swarm-mutex-3",
+		})
+		w := httptest.NewRecorder()
+		req := newRequest("POST", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{
+			"issue_ids": []string{created.ID},
+			"updates": map[string]any{
+				"lab_source": swarmLab,
+			},
+		})
+		testHandler.BatchUpdateIssues(w, req)
+		if w.Code < 200 || w.Code >= 300 {
+			t.Fatalf("expected 2xx, got %d: %s", w.Code, w.Body.String())
+		}
+		var labSourceAfter pgtype.Text
+		if err := testPool.QueryRow(context.Background(),
+			`SELECT lab_source FROM issue WHERE id = $1`, created.ID,
+		).Scan(&labSourceAfter); err != nil {
+			t.Fatalf("re-read issue: %v", err)
+		}
+		if !labSourceAfter.Valid || labSourceAfter.String != swarmLab {
+			t.Errorf("expected lab_source=%q, got valid=%v str=%q",
+				swarmLab, labSourceAfter.Valid, labSourceAfter.String)
 		}
 	})
 }

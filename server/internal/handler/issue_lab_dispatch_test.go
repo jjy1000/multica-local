@@ -855,3 +855,108 @@ func TestCreateIssueSwarmTopologyWithAssigneeRejected(t *testing.T) {
 		t.Fatalf("expected 400 body to mention swarm_topology + assignee, got: %s", body)
 	}
 }
+
+// TestUpdateIssueSwarmTopologyWithAssigneeRejected — 0.5.60 (audit P0-1 /
+// drift #3 pin). The Create-side swarm mutex has been pinned since 0.5.22
+// (TestCreateIssueSwarmTopologyWithAssigneeRejected), but the UpdateIssue
+// path was not: a PUT flipping lab_source to swarm_topology on an already
+// assigned issue must 400 exactly like Create does.
+func TestUpdateIssueSwarmTopologyWithAssigneeRejected(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	mustCreateTestMember(t, wsUUID)
+
+	// Pre-assigned issue (member assignee — the mutex gate fires before
+	// assignee validation, so the assignee type does not matter, but a
+	// real member keeps the test readable).
+	issue := createIssueForTest(t, map[string]any{
+		"title":         "swarm-update-mutex",
+		"status":        "todo",
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
+	})
+
+	w := httptest.NewRecorder()
+	req := withURLParam(
+		newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{
+			"lab_source": "swarm_topology",
+		}),
+		"id", issue.ID,
+	)
+	testHandler.UpdateIssue(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("UpdateIssue swarm_topology on assigned issue: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "swarm_topology") || !strings.Contains(body, "assignee") {
+		t.Fatalf("expected 400 body to mention swarm_topology + assignee, got: %s", body)
+	}
+
+	// The rejection must not persist anything.
+	var labSourceAfter pgtype.Text
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT lab_source FROM issue WHERE id = $1`, issue.ID,
+	).Scan(&labSourceAfter); err != nil {
+		t.Fatalf("re-read issue: %v", err)
+	}
+	if labSourceAfter.Valid {
+		t.Errorf("rejected update persisted lab_source=%q", labSourceAfter.String)
+	}
+}
+
+// TestSwarmTopologyRejectsEnhancerMode — 0.5.60 (audit drift #4 pin).
+// swarm_topology has no per-issue modes; lab_mode='enhancer' must 400 on
+// BOTH write paths. Pre-this-pin the gates existed (Create issue.go:2511 /
+// Update :3068) but zero tests covered them.
+func TestSwarmTopologyRejectsEnhancerMode(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	mustCreateTestMember(t, wsUUID)
+
+	t.Run("create", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+			"title":         "swarm-enhancer-create",
+			"status":        "todo",
+			"lab_source":    "swarm_topology",
+			"lab_mode":      "enhancer",
+			"assignee_type": "member",
+			"assignee_id":   testUserID,
+		})
+		testHandler.CreateIssue(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("CreateIssue swarm_topology+enhancer: expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("update", func(t *testing.T) {
+		issue := createIssueForTest(t, map[string]any{
+			"title":  "swarm-enhancer-update",
+			"status": "todo",
+		})
+		w := httptest.NewRecorder()
+		req := withURLParam(
+			newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{
+				"lab_source": "swarm_topology",
+				"lab_mode":   "enhancer",
+			}),
+			"id", issue.ID,
+		)
+		testHandler.UpdateIssue(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("UpdateIssue swarm_topology+enhancer: expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
