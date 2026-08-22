@@ -596,7 +596,21 @@ export function ManualCreatePanel({
       // issue toast; the report accumulates on the issue detail's
       // Pythia panel. Best-effort: a Pythia failure must not block
       // the create flow (the issue already exists in the DB).
+      //
+      // 0.5.59: stamp the sessionStorage trigger key BEFORE firing so
+      // the PythiaPanel that mounts when the user navigates to the
+      // issue detail immediately flips into "推演中..." instead of
+      // showing the silent-empty state for the first ~5s of polling.
+      // Key shape matches <PythiaPanel> in lab-output-panel.tsx.
       if (labSource === "pythia_oracle") {
+        try {
+          window.sessionStorage.setItem(
+            `pythia-triggered-${wsId}-${issue.id}`,
+            String(Date.now()),
+          );
+        } catch {
+          // sessionStorage unavailable (private mode, SSR, etc.) — ignore.
+        }
         try {
           await api.rawRequest(
             "/api/experimental/pythia-oracle/forecast/issue",

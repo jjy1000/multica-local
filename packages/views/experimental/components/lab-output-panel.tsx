@@ -625,6 +625,49 @@ function PythiaFrames({ envelopes }: { envelopes: PythiaForecastEnvelope[] }) {
 function PythiaPanel({ wsId, issueId }: { wsId: string; issueId: string }) {
   const { t } = useT("experimental");
 
+  // 0.5.59: track when the user last triggered a forecast so the panel
+  // can show "推演进行中..." for the SSE-loop window instead of an empty
+  // placeholder that reads as "no data / broken". Without this, an
+  // oracle still warming up looks identical to "oracle never ran"
+  // and the user has no signal that work is happening.
+  //
+  // Persisted in sessionStorage so a navigate-away-and-back cycle
+  // doesn't reset the timer. The sessionStorage write is fire-and-
+  // forget — when the mutation resolves we re-read the timestamp.
+  const trigKey = `pythia-triggered-${wsId}-${issueId}`;
+  const [triggeredAt, setTriggeredAt] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const raw = window.sessionStorage.getItem(trigKey);
+    const n = raw ? Number.parseInt(raw, 10) : NaN;
+    return Number.isFinite(n) ? n : null;
+  });
+
+  const triggerForecast = useMutation({
+    mutationFn: async (rounds: number) => {
+      const r = await api.rawRequest(
+        "/api/experimental/pythia-oracle/forecast/issue",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ issue_id: issueId, rounds }),
+        },
+      );
+      if (!r.ok && r.status !== 200) {
+        throw new Error(`forecast trigger ${r.status}`);
+      }
+      return rounds;
+    },
+    onMutate: (rounds) => {
+      const now = Date.now();
+      window.sessionStorage.setItem(trigKey, String(now));
+      setTriggeredAt(now);
+      return { rounds };
+    },
+    onSettled: () => {
+      runsQuery.refetch();
+    },
+  });
+
   const runsQuery = useQuery({
     queryKey: ["lab-output-panel-pythia-runs", wsId, issueId],
     queryFn: async (): Promise<PythiaForecastRun[]> => {
@@ -642,13 +685,22 @@ function PythiaPanel({ wsId, issueId }: { wsId: string; issueId: string }) {
       );
     },
     refetchInterval: (query) => {
-      // No run yet → poll at the live cadence waiting for the first forecast
-      // to be persisted. Once a run exists it is terminal (the POST loop is
-      // triggered explicitly on issue creation), so drop to the idle beat.
       const runs = query.state.data;
       return runs && runs.length > 0 ? IDLE_INTERVAL_MS : POLL_INTERVAL_MS;
     },
   });
+
+  // 0.5.59: derive "in progress" state from the trigger timestamp.
+  // The Python oracle takes ~45s for 10 rounds; we give it a 90s
+  // grace before flipping to "无响应". Once rows arrive, the
+  // timestamp is ignored (we have data).
+  const now = Date.now();
+  const inProgressWindowMs = 90_000;
+  const hasRuns = (runsQuery.data?.length ?? 0) > 0;
+  const isInProgress =
+    triggeredAt != null && now - triggeredAt < inProgressWindowMs && !hasRuns;
+  const isStuck =
+    triggeredAt != null && now - triggeredAt >= inProgressWindowMs && !hasRuns;
 
   if (runsQuery.isLoading) {
     return (
@@ -675,11 +727,84 @@ function PythiaPanel({ wsId, issueId }: { wsId: string; issueId: string }) {
     );
   }
 
+  // 0.5.59: in-progress UI — spinner + the round budget is shown so
+  // the user sees work happening. The retry button is intentionally
+  // NOT shown here (oracle is still running; clicking it would
+  // stack a second 10-round run on top of the first).
+  if (isInProgress) {
+    const elapsed = Math.floor((now - (triggeredAt ?? now)) / 1000);
+    const budgetSec = Math.floor(inProgressWindowMs / 1000);
+    return (
+      <div
+        className="space-y-1.5 rounded-md border border-purple-500/40 bg-purple-500/5 px-2 py-1.5"
+        data-testid="lab-output-panel-pythia-in-progress"
+      >
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-purple-700 dark:text-purple-300">
+          <Loader2 className="size-3 animate-spin" aria-hidden />
+          <span>Pythia 推演中 · {elapsed}s / {budgetSec}s</span>
+        </div>
+        <p className="text-[10px] leading-snug text-muted-foreground">
+          {triggerForecast.isPending
+            ? "正在请求 10 轮 SSE 流…"
+            : "10 轮 oracle 调用,每轮 ~3-5s + 5s 间隔"}
+        </p>
+      </div>
+    );
+  }
+
+  // 0.5.59: stuck UI — triggered but no rows after 90s. Surface a
+  // concrete retry path so the user never sits on a silent empty
+  // panel again (the pre-0.5.59 failure mode).
+  if (isStuck) {
+    return (
+      <div
+        className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-2 py-1.5"
+        data-testid="lab-output-panel-pythia-stuck"
+      >
+        <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+          推演未在 90 秒内返回结果
+        </p>
+        <p className="text-[10px] leading-snug text-muted-foreground">
+          可能原因:Python 引擎未启动 / oracle 进程崩溃 / 网络中断。点重试可手动重新触发 3 轮。
+        </p>
+        <button
+          type="button"
+          disabled={triggerForecast.isPending}
+          onClick={() => triggerForecast.mutate(3)}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-500/40 bg-background px-2 py-1 text-[11px] font-medium text-foreground hover:bg-amber-500/10 disabled:opacity-50"
+        >
+          <RefreshCw className="size-3" aria-hidden />
+          {triggerForecast.isPending ? "请求中…" : "重新推演 (3 轮)"}
+        </button>
+        {triggerForecast.isError && (
+          <p className="text-[10px] text-destructive">
+            {triggerForecast.error instanceof Error ? triggerForecast.error.message : "重试失败"}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   const runs = runsQuery.data ?? [];
   const latest = runs[0] ?? null;
 
   if (!latest) {
-    return <p className="text-xs text-muted-foreground">{t(($) => $.lab_output_panel.empty)}</p>;
+    return (
+      <div className="space-y-1.5" data-testid="lab-output-panel-pythia-empty">
+        <p className="text-xs text-muted-foreground">
+          {t(($) => $.lab_output_panel.empty)}
+        </p>
+        <button
+          type="button"
+          disabled={triggerForecast.isPending}
+          onClick={() => triggerForecast.mutate(3)}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-purple-500/40 bg-purple-500/5 px-2 py-1 text-[11px] font-medium text-purple-700 hover:bg-purple-500/10 disabled:opacity-50 dark:text-purple-300"
+        >
+          <RefreshCw className="size-3" aria-hidden />
+          {triggerForecast.isPending ? "请求中…" : "启动 Pythia 推演 (3 轮)"}
+        </button>
+      </div>
+    );
   }
 
   return (

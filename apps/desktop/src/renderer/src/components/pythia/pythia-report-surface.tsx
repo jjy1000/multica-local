@@ -23,6 +23,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@multica/core/api";
+import { getCurrentWsId } from "@multica/core/platform";
 import { useT } from "@multica/views/i18n";
 import type { PythiaPrediction } from "./types";
 import { GlobeSVG } from "./globe-svg";
@@ -252,6 +253,18 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
     let cancelled = false;
     const run = async () => {
       setRegenerating(true);
+      // 0.5.59: stamp the trigger key BEFORE firing so the issue-detail
+      // <PythiaPanel> flips into "推演中..." the moment the user
+      // navigates back. Matches the key shape in lab-output-panel.tsx.
+      try {
+        window.sessionStorage.setItem(
+          `pythia-triggered-${getCurrentWsId() ?? "ws"}-${props.issueId}`,
+          String(Date.now()),
+        );
+      } catch {
+        // sessionStorage unavailable — ignore, panel will fall back to
+        // its in-memory state on this surface.
+      }
       try {
         // 0.3.45.2 bug fix (P1#6): was a bare fetch("/api/..."). On
         // the packaged desktop build the renderer document origin is

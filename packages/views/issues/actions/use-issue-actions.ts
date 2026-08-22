@@ -102,6 +102,18 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
             // issue timeline. Best-effort: a launch failure must not surface
             // as an update error, because the field change already succeeded.
             if (updates.lab_source === "pythia_oracle") {
+              // 0.5.59: stamp the trigger key so <PythiaPanel> on the
+              // issue detail flips into "推演中..." immediately after
+              // the update mutation resolves. Key shape matches
+              // lab-output-panel.tsx.
+              try {
+                window.sessionStorage.setItem(
+                  `pythia-triggered-${wsId}-${issueId}`,
+                  String(Date.now()),
+                );
+              } catch {
+                // sessionStorage unavailable — ignore.
+              }
               void api
                 .rawRequest(
                   "/api/experimental/pythia-oracle/forecast/issue",
