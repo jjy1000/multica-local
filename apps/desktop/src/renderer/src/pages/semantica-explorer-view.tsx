@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { FlaskConical, Loader2 } from "lucide-react";
+import { api } from "@multica/core/api";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { getCurrentWsId } from "@multica/core/platform";
 import { useT } from "@multica/views/i18n";
@@ -39,14 +40,19 @@ export function SemanticaExplorerView() {
   // (individual | team) from the new fork-side ACL endpoint. Failures
   // fall back to "individual" so the banner never blocks the explorer
   // from rendering.
+  //
+  // 0.5.60: route through api.rawRequest, never a bare fetch. The renderer
+  // origin is file:// in the packaged app, so a site-relative fetch never
+  // reaches the bundled backend on :8090 and no Bearer token is attached —
+  // the team-mode banner silently fell back to "individual" forever
+  // (root CLAUDE.md → "Experimental tab network calls (0.3.30)").
   useEffect(() => {
     if (!enabled) return;
     const wsId = getCurrentWsId();
     if (!wsId) return;
     let cancelled = false;
-    void fetch(`/api/experimental/semantica/decisions?workspace=${encodeURIComponent(wsId)}`, {
-      credentials: "include",
-    })
+    void api
+      .rawRequest(`/api/experimental/semantica/decisions?workspace=${encodeURIComponent(wsId)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((body: { mode?: "individual" | "team" } | null) => {
         if (!cancelled && body && (body.mode === "team" || body.mode === "individual")) {
