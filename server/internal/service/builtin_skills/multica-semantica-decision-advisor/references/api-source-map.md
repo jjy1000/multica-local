@@ -166,8 +166,9 @@ On failure: `"ok": false`, `"data": null`, `"error": "<diagnostic>"`.
 - **Auth is anonymous by default** — `SEMANTICA_ALLOW_ANONYMOUS=true` skips
   `X-API-Key`; set `SEMANTICA_REQUIRE_AUTH=1` to require it.
 - **Cold-start takes 30–90 s** — numpy/scipy/networkx/rdflib import at boot;
-  the desktop `ready_timeout_ms: 120000` accommodates it. First `/api/health`
-  502 within 2 min → check `~/.multica/profiles/*/daemon.log`.
+  the desktop `ready_timeout_ms: 180000` accommodates it (0.5.28 P0-1 clamp;
+  was 120000 pre-P0). First `/api/health` 502 within 2 min → check
+  `~/.multica/profiles/*/daemon.log`.
 - **X-Multica-Embedded is set by two paths** — the Multica reverse proxy
   adds it to every request that flows through `/experimental/semantica/*`
   (handler/experimental_proxy.go::reverseProxyTo), AND the
@@ -175,3 +176,60 @@ On failure: `"ok": false`, `"data": null`, `"error": "<diagnostic>"`.
   sets it on outbound POSTs from the daemon. The Semantica allow-list
   logic sees both call paths identically — the duplicate is
   intentional belt-and-braces.
+
+## What's new in semantica-agi/semantica v0.6.6 (0.5.54 P2 sync)
+
+The fork now vendors upstream at `apps/desktop/vendor/semantica-src/`
+via `git subtree` (Phase 0). The 0.6.6 release landed two changes that
+matter to Multica integrators; the **wire shape** that the fork posts
+(`SemanticaDecisionRecordSchema`) is **unchanged**.
+
+### SHA-256 deterministic IRIs (was: randomised `hash()`)
+
+Pre-0.6.6 the upstream exporter minted entity/relationship IRIs from
+Python's builtin `hash()`, which is randomised per process
+(`PYTHONHASHSEED`). The same entity produced a different IRI on
+every run, so exports were not diff/join-able across restarts and
+could not be matched against an earlier provenance record. 0.6.6
+fixed this by:
+
+- Minting IRIs with **SHA-256** in the declared
+  `https://semantica.dev/ns#` namespace.
+- Resolving endpoints the same way `serialize_to_turtle` does
+  (catches a Qodo-reviewer-found edge case where the temporal
+  fallback hashed the wrong source field).
+- Storing `sem:confidence` with `xsd:decimal` consistently across
+  the N-Triples + Turtle serializers (was `xsd:float` in one path,
+  which contradicted the other).
+
+**Fork-side impact**: zero. Multica's wire envelope uses
+`id: "multica_<issue_uuid>"` which is already SHA-stable on the
+fork side; the upstream change is invisible to fork code but
+makes exports diff-able in the IF explorer view.
+
+### RDF vocabulary: `semantica-ns.ttl` (NEW file in 0.6.6)
+
+0.6.6 published its first RDF vocabulary at
+`semantica/ontology/vocabulary/semantica-ns.ttl`. The 14 terms
+declared are the predicates that the exporters actually emit —
+nothing invented for completeness. See the new
+[`vocabulary.md`](./vocabulary.md) reference for the per-term
+emission sites and the deprecation status.
+
+**Fork-side impact**: zero today. Multica's `decision_sync.go`
+emits `tags: ["multica", "lab:semantica"]` but no `sem:*` predicates.
+P2 defers first-class vocabulary emission to **P4 (ACL)** — that's
+when `actor_type=team` is added to the DecisionRecord envelope and
+the per-actor subgraph view needs to label its results with
+`sem:KnowledgeGraph` / `sem:Entity` so the explorer can filter
+correctly.
+
+### How to re-sync upstream
+
+```bash
+bash scripts/sync-semantica-upstream.sh   # subtree pull + wheel rebuild + 5-scraper diff
+```
+
+If the wire schema changes upstream, the `field` scraper in
+`scripts/check-semantica-upstream.sh` (P0 deliverable) catches it
+before the build breaks.

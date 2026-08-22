@@ -1,4 +1,6 @@
-// Package handler — decision_sync.go (0.5.22 Semantica × Multica Phase 2)
+// Package handler — decision_sync.go (0.5.22 Semantica × Multica Phase 2;
+//                                  0.5.30 P1-2 schema pin;
+//                                  0.5.54 P2 0.6.6 stability notes)
 //
 // Side-effect helper that POSTs a Semantica decision record when a
 // Multica issue reaches a terminal state. Wired by
@@ -22,9 +24,9 @@
 //     dedupes repeated fires (the listener subscribes to multiple
 //     events that may all see the same terminal transition).
 //
-// Payload shape (matches Semantica's DecisionRecord schema at
-// /api/decisions — see packages/core/api/schemas.ts::SemanticaDecisionRecordSchema
-// and the canonical reference in server/internal/service/builtin_skills/
+// Payload shape (matches Semantica's POST /api/decisions contract;
+// see packages/core/api/schemas.ts::SemanticaDecisionRecordSchema and
+// the canonical reference in server/internal/service/builtin_skills/
 // multica-semantica-decision-advisor/references/api-source-map.md):
 //
 //	{
@@ -43,6 +45,29 @@
 //	    "occurred_at": "<RFC3339 UTC>"
 //	  }
 //	}
+//
+// 0.5.54 P2 notes (re: semantica-agi/semantica v0.6.6, vendored at
+// apps/desktop/vendor/semantica-src/ via git subtree):
+//   - DecisionRecord wire shape is unchanged from 0.5.30 P1-2; no Go
+//     or TS schema extension is required.
+//   - Upstream 0.6.6 made entity/relationship IRI minting deterministic
+//     (SHA-256 in the declared https://semantica.dev/ns# namespace, was
+//     Python's randomised hash() pre-0.6.6). Multica's wire envelope
+//     already used `multica_<issue_uuid>` (SHA-stable on the fork
+//     side); the fork sees zero behaviour change but exports are now
+//     diff/join-able across restarts.
+//   - Upstream 0.6.6 also published its first RDF vocabulary at
+//     semantica/ontology/vocabulary/semantica-ns.ttl. Multica's wire
+//     envelope does not yet emit sem:* predicates — P2 defers that
+//     to P4 (ACL, which adds actor_type=team and exposes the
+//     vocabulary to the per-actor subgraph view).
+//   - The legacy `vendor/semantica/semantica/decisions.py` reference
+//     that 0.5.30 P1-2 mentioned (a non-existent path) is no longer
+//     referenced anywhere in the fork tree; the canonical location
+//     is semantica/context/decision_models.py (the @dataclass
+//     Decision / DecisionContext / Policy / Exception / Precedent /
+//     ApprovalChain surface — the JSON shape we POST is a subset of
+//     the Decision class).
 
 package handler
 
