@@ -960,3 +960,85 @@ func TestSwarmTopologyRejectsEnhancerMode(t *testing.T) {
 		}
 	})
 }
+
+// TestCreateIssueRejectsEnhancerOnNonMythosLab — 0.5.60 (audit P1-1).
+// Pre-fix CreateIssue accepted lab_mode=enhancer on ANY lab (201) while
+// UpdateIssue rejected the exact same state (400): such a row could be
+// created but never PATCHed again. Both write paths now agree.
+func TestCreateIssueRejectsEnhancerOnNonMythosLab(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+	mustCreateTestMember(t, wsUUID)
+
+	w := httptest.NewRecorder()
+	// claude_science_lab + a manual assignee is legal (no mutex);
+	// the enhancer mode on top of it is the contract violation.
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":         "enhancer-on-claude-lab",
+		"status":        "todo",
+		"lab_source":    "claude_science_lab",
+		"lab_mode":      "enhancer",
+		"assignee_type": "member",
+		"assignee_id":   testUserID,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateIssue enhancer on claude_science_lab: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "enhancer") {
+		t.Fatalf("expected 400 body to mention enhancer, got: %s", w.Body.String())
+	}
+}
+
+// TestLabModeEnumBoundaryValidation — 0.5.60 (audit P1-2). A bogus
+// lab_mode used to sail through both gates and die on the mig-157 CHECK
+// (23514) as a 500; it must now 400 at the HTTP boundary on both paths.
+func TestLabModeEnumBoundaryValidation(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	t.Run("create", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+			"title":      "lab-mode-bogus-create",
+			"status":     "todo",
+			"lab_source": "pythia_oracle",
+			"lab_mode":   "bogus",
+		})
+		testHandler.CreateIssue(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("CreateIssue lab_mode=bogus: expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "lab_mode") {
+			t.Fatalf("expected 400 body to mention lab_mode, got: %s", w.Body.String())
+		}
+	})
+
+	t.Run("update", func(t *testing.T) {
+		issue := createIssueForTest(t, map[string]any{
+			"title":  "lab-mode-bogus-update",
+			"status": "todo",
+		})
+		w := httptest.NewRecorder()
+		req := withURLParam(
+			newRequest("PUT", "/api/issues/"+issue.ID, map[string]any{
+				"lab_mode": "bogus",
+			}),
+			"id", issue.ID,
+		)
+		testHandler.UpdateIssue(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("UpdateIssue lab_mode=bogus: expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}

@@ -2493,6 +2493,10 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	// member/agent row never produces a confusing 400 ("does not
 	// refer to a member") when the real issue is the contract
 	// violation.
+	if req.LabMode != nil && !validLabModeValue(*req.LabMode) {
+		writeError(w, http.StatusBadRequest, "lab_mode must be 'sole' or 'enhancer'")
+		return
+	}
 	if req.LabSource != nil {
 		enhancerMode := req.LabMode != nil && *req.LabMode == "enhancer"
 		hasAssignee := assigneeType.Valid || assigneeID.Valid
@@ -2509,6 +2513,14 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		case enhancerMode && labSource == "swarm_topology":
 			writeError(w, http.StatusBadRequest,
 				"lab_mode=enhancer is not supported for lab_source=swarm_topology; the swarm owns the issue end-to-end")
+			return
+		case enhancerMode && labSource != "mythos_swarm":
+			// 0.5.60 (audit P1-1): parity with UpdateIssue. Pre-fix,
+			// Create accepted enhancer on ANY lab (201) while Update
+			// rejected the exact same state (400) — such a row could
+			// never be PATCHed again.
+			writeError(w, http.StatusBadRequest,
+				"lab_mode=enhancer is only supported when lab_source=mythos_swarm")
 			return
 		}
 	}
@@ -2766,6 +2778,15 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, resp)
 }
 
+// validLabModeValue reports whether v is an acceptable issue.lab_mode
+// value. The migration-157 CHECK accepts only 'sole' | 'enhancer';
+// validating at the HTTP boundary turns a bogus value into a clean 400
+// instead of a 23514 CHECK violation surfacing as a 500 (audit P1-2).
+// Empty string means "clear / unset" on the write paths and is accepted.
+func validLabModeValue(v string) bool {
+	return v == "" || v == "sole" || v == "enhancer"
+}
+
 type UpdateIssueRequest struct {
 	Title         *string  `json:"title"`
 	Description   *string  `json:"description"`
@@ -3006,6 +3027,13 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	// contract is broken, but rawFields never reports the lab).
 	// Symmetric: PATCHing only `lab_source` to a non-empty value
 	// when the issue already has an assignee must also fail.
+	if _, ok := rawFields["lab_mode"]; ok && req.LabMode != nil && !validLabModeValue(*req.LabMode) {
+		// 0.5.60 (audit P1-2): boundary-validate the enum so a bogus
+		// value 400s here instead of dying on the mig-157 CHECK (23514)
+		// as a 500 deep in the write.
+		writeError(w, http.StatusBadRequest, "lab_mode must be 'sole' or 'enhancer'")
+		return
+	}
 	{
 		var postLab string
 		if _, ok := rawFields["lab_source"]; ok && req.LabSource != nil {
