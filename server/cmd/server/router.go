@@ -903,6 +903,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// handler.claude_science_skills.go for the visibility filter.
 	r.Get("/api/experimental/claude-science/skills", h.ClaudeScienceSkills)
 
+	// 0.5.56 P4: fork-side ACL-filtered read endpoint for the semantica
+	// lab. Returns only the decisions the calling viewer is allowed to
+	// see in the workspace (per the visibility SQL in
+	// semantica_acl.sql::ListSemanticaDecisionsForViewer). Membership-
+	// gated via X-User-ID; non-members get 403.
+	r.Get("/api/experimental/semantica/decisions", h.ListSemanticaDecisions)
+
 	// 0.3.30: Labs runtime + LLM Wiki bridge + Mythos Swarm + Pythia
 	// per-issue forecast are now registered UNCONDITIONALLY inside the
 	// authenticated group, each wrapped in a per-request

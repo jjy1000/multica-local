@@ -1608,7 +1608,27 @@ export const SemanticaDecisionRecordSchema = z.object({
   status: z.string(),
   outcome: z.string(),
   tags: z.array(z.string()).default([]),
+  visibility: z.string().optional(),
   provenance: SemanticaDecisionProvenanceSchema,
+}).loose();
+
+// 0.5.56 P4: ACL row mirror for the fork-side list endpoint at
+// GET /api/experimental/semantica/decisions. Visibility values are
+// pinned to the migration 273 CHECK; the schema defaults to "" so a
+// pre-P4 server (no Visibility field yet) still parses cleanly.
+export const SemanticaDecisionSummarySchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  actor_type: z.string(),
+  actor_id: z.string().optional().default(""),
+  visibility: z.string().optional().default(""),
+  created_at: z.string(),
+}).loose();
+
+export const SemanticaDecisionListResponseSchema = z.object({
+  count: z.number().int().nonnegative(),
+  mode: z.enum(["individual", "team"]),
+  items: z.array(SemanticaDecisionSummarySchema),
 }).loose();
 
 export const EMPTY_LAB_CONTEXT: LabContext = {
