@@ -239,11 +239,13 @@ once to discover all available endpoints.
 - **Cold-start takes 30-90 seconds.** The Semantica Explorer
   imports numpy / scipy / networkx / rdflib at startup, so the
   subprocess is slow to bind its first `/api/health` response.
-  The desktop manager's `ready_timeout_ms: 120000` accommodates
-  this; the first run after `pip install -e` is the slowest (subsequent
-  starts benefit from filesystem cache and Python module cache).
-  If `/api/health` returns 502 within 2 minutes, check the
-  desktop main process log (`~/.multica/profiles/*/daemon.log`)
+  The desktop manager's `ready_timeout_ms: 180000` accommodates
+  this (0.5.28 P0-1 clamp; was 120000 pre-P0). Subsequent starts
+  benefit from filesystem cache and Python module cache. (0.5.53
+  P1: the wheel install path replaces the legacy `pip install -e`;
+  the venv is reused across launches so there's no per-launch
+  compile step.) If `/api/health` returns 502 within 2 minutes,
+  check the desktop main process log (`~/.multica/profiles/*/daemon.log`)
   for the `semantica` subprocess output.
 - **Decision node names are case-sensitive.** `POST /api/decisions`
   writes nodes with `node_type="decision"` (lowercase); some legacy
