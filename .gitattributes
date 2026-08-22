@@ -4,3 +4,10 @@ docker/entrypoint.sh text eol=lf
 
 # Default behavior
 * text=auto
+
+# 0.5.52 Phase 0 — semantica subtree vendor is upstream tree, ignore in
+# language stats and treat as vendored. Do NOT add these rules to
+# apps/desktop/vendor/semantica-src/.gitattributes (it is upstream tree
+# and would conflict on `git subtree pull`).
+apps/desktop/vendor/semantica-src/** linguist-vendored
+apps/desktop/vendor/semantica-src/** linguist-generated
