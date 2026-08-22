@@ -256,14 +256,25 @@ export function PythiaReportSurface(props: PythiaReportSurfaceProps) {
       // 0.5.59: stamp the trigger key BEFORE firing so the issue-detail
       // <PythiaPanel> flips into "推演中..." the moment the user
       // navigates back. Matches the key shape in lab-output-panel.tsx.
-      try {
-        window.sessionStorage.setItem(
-          `pythia-triggered-${getCurrentWsId() ?? "ws"}-${props.issueId}`,
-          String(Date.now()),
-        );
-      } catch {
-        // sessionStorage unavailable — ignore, panel will fall back to
-        // its in-memory state on this surface.
+      //
+      // 0.5.60 (audit P1-4): only stamp when we actually have a wsId.
+      // The reader (lab-output-panel.tsx) keys on the REAL workspace id
+      // from its prop; writing under a fabricated "ws" fallback when
+      // getCurrentWsId() is null produced a key the reader never matches,
+      // silently losing the in-progress state. When getCurrentWsId() is
+      // non-null it is the same value the reader's prop carries, so the
+      // keys agree.
+      const stampWsId = getCurrentWsId();
+      if (stampWsId) {
+        try {
+          window.sessionStorage.setItem(
+            `pythia-triggered-${stampWsId}-${props.issueId}`,
+            String(Date.now()),
+          );
+        } catch {
+          // sessionStorage unavailable — ignore, panel will fall back to
+          // its in-memory state on this surface.
+        }
       }
       try {
         // 0.3.45.2 bug fix (P1#6): was a bare fetch("/api/..."). On
