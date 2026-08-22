@@ -194,3 +194,81 @@ func buildIssueForecastContextForTest(title, body, lab string) *issueForecastCon
 		LabSource: lab,
 	}
 }
+
+// TestPythiaForecastHandlerFallbackPopulates verifies that the
+// package-level fallback handler stash is populated by
+// setPythiaForecastHandlerFallback (called from
+// AttachPythiaIssueForecastMiddleware) and read by
+// pythiaForecastHandler().
+//
+// 0.5.59 — the chi ctx-key propagation through r.WithContext was
+// observed to drop the forecastIssueHandlerCtxKey in some SSE
+// defer paths, producing zero-row persists despite a successful
+// 200 + 45s SSE stream. The fallback closes that gap. This test
+// pins both directions so a future chi update / middleware refactor
+// can't silently regress.
+func TestPythiaForecastHandlerFallbackPopulates(t *testing.T) {
+	t.Parallel()
+
+	// Snapshot the package state and restore it on exit so the
+	// fallback doesn't leak between tests.
+	prev := pythiaForecastHandler()
+	t.Cleanup(func() {
+		setPythiaForecastHandlerFallback(prev)
+	})
+
+	setPythiaForecastHandlerFallback(nil)
+	if got := pythiaForecastHandler(); got != nil {
+		t.Fatalf("pre-set: pythiaForecastHandler() = %v, want nil", got)
+	}
+
+	want := &Handler{}
+	setPythiaForecastHandlerFallback(want)
+	if got := pythiaForecastHandler(); got != want {
+		t.Fatalf("post-set: pythiaForecastHandler() = %v, want %v", got, want)
+	}
+}
+
+// TestPythiaForecastHandlerFallbackConcurrencySpawnsReaders fires N
+// goroutines that all read pythiaForecastHandler() concurrently while
+// a writer mutates the stash. The RWMutex must keep readers safe;
+// pre-0.5.59 this would race on the unsynchronised package var.
+func TestPythiaForecastHandlerFallbackConcurrencySpawnsReaders(t *testing.T) {
+	t.Parallel()
+
+	prev := pythiaForecastHandler()
+	t.Cleanup(func() {
+		setPythiaForecastHandlerFallback(prev)
+	})
+
+	const N = 16
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	for i := 0; i < N; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = pythiaForecastHandler()
+				}
+			}
+		}()
+	}
+
+	// Writer flips the fallback N times to exercise Lock/Unlock.
+	for i := 0; i < 1000; i++ {
+		if i%2 == 0 {
+			setPythiaForecastHandlerFallback(&Handler{})
+		} else {
+			setPythiaForecastHandlerFallback(nil)
+		}
+	}
+
+	close(stop)
+	wg.Wait()
+}

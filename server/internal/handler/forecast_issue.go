@@ -52,6 +52,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -278,20 +279,71 @@ func pythiaIssueForecastStream(w http.ResponseWriter, r *http.Request, rounds in
 // already cancelled by the time the stream finishes — the client has
 // its frames and moved on — but the row must still land so the lab
 // view has a finished result to read.
+// persistIssueForecastRun writes the completed (or partial, on early
+// exit) per-issue deliberation to pythia_forecast_run. Non-fatal: a
+// persistence failure logs and returns without affecting the SSE
+// response, which has already been streamed to the client.
+//
+// 0.5.59 — every silent early-return now logs a WRN so a missing
+// row in pythia_forecast_run is diagnosable from the server log.
+// The pre-0.5.59 code returned without any signal when the handler
+// context was lost (chi middleware propagation gap), which produced
+// the "推演成功但 UI 无数据" symptom — see ship log.
+//
+// The write uses a detached context (context.WithoutCancel + a short
+// timeout) because the originating request context is frequently
+// already cancelled by the time the stream finishes — the client has
+// its frames and moved on — but the row must still land so the lab
+// view has a finished result to read.
 func persistIssueForecastRun(r *http.Request, ifc *issueForecastContext, envelopes []forecastEnvelope) {
-	if len(envelopes) == 0 || ifc == nil {
+	issueIDStr := ""
+	wsIDStr := ""
+	if ifc != nil {
+		issueIDStr = ifc.IssueID
+		wsIDStr = ifc.WorkspaceID
+	}
+	if len(envelopes) == 0 {
+		slog.Warn("pythia forecast: persist skipped — zero envelopes",
+			"issue_id", issueIDStr, "workspace_id", wsIDStr,
+			"reason", "all rounds errored before frame was emitted")
+		return
+	}
+	if ifc == nil {
+		slog.Warn("pythia forecast: persist skipped — nil issue context")
 		return
 	}
 	h, ok := forecastIssueHandlerFromCtx(r)
-	if !ok || h == nil || h.Queries == nil {
+	if !ok || h == nil {
+		// 0.5.59 — package-level fallback. The chi middleware sets
+		// the per-request ctx key, but the SSE defer path sometimes
+		// loses it (observed pre-0.5.59: every run produced zero DB
+		// rows even though the SSE stream emitted 10 frames). The
+		// ctx-miss WRN above still fires so the underlying chi
+		// issue stays visible in logs.
+		if fb := pythiaForecastHandler(); fb != nil {
+			h = fb
+		} else {
+			slog.Warn("pythia forecast: persist skipped — no handler in ctx AND no package-level fallback",
+				"issue_id", issueIDStr,
+				"hint", "AttachPythiaIssueForecastMiddleware was never called for this route")
+			return
+		}
+	}
+	if h.Queries == nil {
+		slog.Warn("pythia forecast: persist skipped — handler.Queries is nil",
+			"issue_id", issueIDStr)
 		return
 	}
 	issueUUID, err := util.ParseUUID(ifc.IssueID)
 	if err != nil {
+		slog.Warn("pythia forecast: persist skipped — issue UUID parse failed",
+			"issue_id_str", ifc.IssueID, "error", err)
 		return
 	}
 	wsUUID, err := util.ParseUUID(ifc.WorkspaceID)
 	if err != nil {
+		slog.Warn("pythia forecast: persist skipped — workspace UUID parse failed",
+			"workspace_id_str", ifc.WorkspaceID, "error", err)
 		return
 	}
 	payload, err := json.Marshal(envelopes)
@@ -309,9 +361,17 @@ func persistIssueForecastRun(r *http.Request, ifc *issueForecastContext, envelop
 	}); err != nil {
 		slog.Warn("pythia forecast: persist run failed",
 			"issue_id", ifc.IssueID,
+			"workspace_id", ifc.WorkspaceID,
 			"rounds", len(envelopes),
+			"source", forecastRunSource(envelopes),
 			"error", err)
+		return
 	}
+	slog.Info("pythia forecast: persist run OK",
+		"issue_id", ifc.IssueID,
+		"workspace_id", ifc.WorkspaceID,
+		"rounds", len(envelopes),
+		"source", forecastRunSource(envelopes))
 }
 
 // forecastRunSource collapses the per-envelope `lab_source` provenance
@@ -667,5 +727,40 @@ func MountPythiaIssueForecastMiddleware(h *Handler) func(http.Handler) http.Hand
 // mounts the middleware on the supplied chi router. Used by router.go
 // so the wiring is one line at the call site.
 func AttachPythiaIssueForecastMiddleware(r chi.Router, h *Handler) {
+	// 0.5.59 — stash the handler in a package-level fallback so the
+	// SSE defer in persistIssueForecastRun can still recover it even
+	// if chi drops the context key along the r.WithContext chain
+	// (observed pre-0.5.59: ctx lookup returned false → silent return
+	// → DB never received the row → "推演无反馈"). Diagnostic WRN
+	// above still fires so the real chi bug, if any, is visible.
+	setPythiaForecastHandlerFallback(h)
 	r.Use(MountPythiaIssueForecastMiddleware(h))
+}
+
+// setPythiaForecastHandlerFallback stores the *Handler that
+// persistIssueForecastRun falls back to when the chi request context
+// is missing forecastIssueHandlerCtxKey. Exposed (rather than writing
+// the package var directly) so tests don't have to instantiate a
+// chi.Router to exercise the stash path.
+func setPythiaForecastHandlerFallback(h *Handler) {
+	pythiaForecastHandlerMu.Lock()
+	pythiaForecastHandlerFallback = h
+	pythiaForecastHandlerMu.Unlock()
+}
+
+// pythiaForecastHandlerFallback is the package-level mirror of the
+// per-request middleware-attached *Handler. It exists ONLY as a
+// safety net for the SSE defer path. Populated by
+// AttachPythiaIssueForecastMiddleware at router boot; never mutated
+// afterwards. Protected by a Mutex so concurrent reads (during
+// SSE defers) see a stable value.
+var (
+	pythiaForecastHandlerMu       sync.RWMutex
+	pythiaForecastHandlerFallback *Handler
+)
+
+func pythiaForecastHandler() *Handler {
+	pythiaForecastHandlerMu.RLock()
+	defer pythiaForecastHandlerMu.RUnlock()
+	return pythiaForecastHandlerFallback
 }
