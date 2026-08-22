@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > **TL;DR**: **localized single-user fork** of Multica (no telemetry, no OAuth, no cloud, username-only login — see **Localized Fork** below). Memory: `~/.claude/projects/-Users-jiangjianyan-jjy-multica-exploration-dev/memory/`. Backup: `.omc/backups/<date>/<release>-ship/` (auto per `ship-mac`). Single-command ship: `bash scripts/ship-mac.sh --yes`. Below: current release → key contracts → routing → ship chain → deferred/SKIPs.
 >
-> **Current release: 0.5.51** (2026-08-21, head `603c0765d` on `epic/0.5.13-integration`, 5 commits on top of 0.5.50: MUL-6310 closure — protocol/taskfailure stubs upstream-aligned + NUL-byte regression tests — plus the MUL-6471 opencode/pi custom-provider fix). **MUL-6310 is honestly closed**: the NUL-byte sanitization is regression-pinned (`task_payload_nul_test.go`), and the chat-cancel deferred-finalization chain (`RebroadcastCancelledTask`/`FinalizeDeferredCancelledChat`/`AckTaskCancelled`) is SKIP-DEAD-CASE — it needs the upstream direct-chat claim subsystem (fork `chat.sql` 219 vs upstream 1491 lines) and a daemon→server cancel-ack + worktree branch production the fork lacks. **MUL-6471 landed**: opencode reaches custom gateway providers (daemon qualifies bare model ids against the runtime catalog) and pi passes the model selector whole to `--model` (no synthesized `--provider`). **MUL-6417 deferred**: fork's `runtime_config_sections.go` is 817 lines divergent from upstream pre-MUL-6417, lacks `ChatChannelType`/`kindIssue` — a manual rewrite, not a port. Verification: `go build`/`go vet` clean, `pkg/agent` 13.3s + `internal/daemon` 23.5s pass, NUL handler tests pass; ship not run (user paused porting). Historical release notes (0.5.12 → 0.5.41) archived at [`.omc/_legacy/release-notes-archive.md`](.omc/_legacy/release-notes-archive.md); 0.5.43-0.5.51 notes at `.omc/release-notes-0.5.{43..51}.md`; 0.5.49 retrospective at `.omc/0.5.49-retrospective.md`; load-bearing contracts from those releases live in [Known Stability Surfaces](#known-stability-surfaces), [Active Contracts](#active-contracts-03457---polling-fallback-lab-leader-rewrite-by-issue-route-order), [Fork-Applicable HIGH Vuln Contracts](#fork-applicable-high-vuln-contracts-8-pending-0518-sec-first).
+> **Current release: 0.5.58** (2026-08-23, head `c752f639e` on `epic/0.5.13-integration`, 17 commits on top of 0.5.51). Headline: **semantica port-and-localize series closed (Phase 0 → P6)**, the 7-phase plan in [`.omc/plans/semantica-research-and-porting-design.md`](.omc/plans/semantica-research-and-porting-design.md) is fully shipped. The vendored `semantica-agi/semantica` Python package now ships inside the fork as a git subtree (`apps/desktop/vendor/semantica-src/`); runtime is fully wheel-driven (`pip install --no-index --find-links=builds/`, no external `pip install -e`); per-workspace ACL table (migration 273, `semantica_local_decision_acl`) closes the team/individual agent isolation contract — `COUNT(member WHERE workspace_id=?)` = 1 → individual mode (per-actor decisions stay private), ≥2 → team mode (shared visibility); new `GET /api/experimental/semantica/decisions` endpoint serves ACL-filtered rows; new `<SemanticaModeBanner />` surfaces the workspace mode in the renderer with arrow-expression `useT` selectors (the 2026-07-14 incident rule); 5-scraper monitor (`scripts/check-semantica-upstream.sh`) catches endpoint/field/SPARQL-blocklist/vocab/dep drift monthly before it becomes a regression. Full release notes at [`.omc/release-notes-0.5.58.md`](.omc/release-notes-0.5.58.md). Verification: `pnpm typecheck --force` 6/6, `go build ./...` clean, targeted Go tests for semantica/experimental/handler all green. Historical release notes (0.5.12 → 0.5.51) archived at [`.omc/_legacy/release-notes-archive.md`](.omc/_legacy/release-notes-archive.md); 0.5.43-0.5.51 notes at `.omc/release-notes-0.5.{43..51}.md`; 0.5.49 retrospective at `.omc/0.5.49-retrospective.md`; load-bearing contracts from those releases live in [Known Stability Surfaces](#known-stability-surfaces), [Active Contracts](#active-contracts-03457---polling-fallback-lab-leader-rewrite-by-issue-route-order), [Fork-Applicable HIGH Vuln Contracts](#fork-applicable-high-vuln-contracts-8-pending-0518-sec-first).
 
 > Keep this file short and authoritative: rules here should be hard to infer from code or easy to get wrong.
 
@@ -905,6 +905,63 @@ reference, NOT for implementation guidance:
 
 Do not implement against the old route/manifest/3-tab-view description; the
 current contract is the issue-bound lab path plus the LabPicker entry point.
+
+## Semantica integration (0.5.52-0.5.58)
+
+The 7-phase plan in [`.omc/plans/semantica-research-and-porting-design.md`](.omc/plans/semantica-research-and-porting-design.md) is fully shipped; full release notes at [`.omc/release-notes-0.5.58.md`](.omc/release-notes-0.5.58.md). This section is the **post-0.5.58 invariant set** — the rules that future Claude sessions must respect when touching any semantica-adjacent code. Cross-cutting, not a Labs sub-feature, so it lives at the root rather than under "Labs Platform".
+
+### Source-of-truth paths (mirrors Pythia-src pattern)
+
+- `apps/desktop/vendor/semantica-src/` — **source-of-record**. Git subtree of `semantica-agi/semantica` (pin in `.upstream-version`). The Python `semantica/` pkg, tests, pyproject.toml live here. **Do NOT edit** files under `semantica/` — they will conflict on the next `git subtree pull`. For fork-specific changes, use `.fork-patches/` (empty, intended for runtime patches that survive subtree pulls).
+- `apps/desktop/vendor/semantica/run.sh` + `requirements.txt` — **runtime canonical**. This is what `bundle-cli` mirrors to `apps/desktop/resources/semantica/`. Edit here; the bundle step is byte-for-byte.
+- `apps/desktop/vendor/semantica-src/builds/` — **wheel cache**. `bash scripts/build-semantica-wheel.sh` produces `semantica-<ver>-py3-none-any.whl` here. Bundle-cli copies this to `resources/semantica/builds/`. The runtime `run.sh` does `pip install --no-index --find-links=./builds/`. Commit the `.whl` so future devs don't need to rebuild.
+- `bundle-cli.mjs` extends the existing `vendor/semantica/` → `resources/semantica/` recursive-cp block to also mirror `vendor/semantica-src/builds/` → `resources/semantica/builds/`. If builds/ is missing, log "run bash scripts/build-semantica-wheel.sh before packaging" — do NOT abort the bundle (matches the pythia pattern).
+
+### Wheel contract (replaces the legacy `pip install -e $SEMANTICA_REPO_PATH`)
+
+- `run.sh` looks for the wheel at `./builds/` (relative to its own location), then falls back to `../../semantica-src/builds/` (dev path before bundle-cli runs).
+- `SEMANTICA_REPO_PATH` is **deprecated as of 0.5.53 (P1)** — the runtime warns once but does not exit. Removed entirely in 0.5.54 (P2).
+- `SEMANTICA_WORKSPACE_ID` (UUID regex) + `SEMANTICA_API_KEY` (per-launch in-memory secret from `subprocess-manager.ts`) remain required hard-checks. The 0.5.29 P0-2 / P1-1 contracts are unchanged.
+- The venv at `~/.multica/semantica-venv/` is **reused across launches** — `pip install` skips when the same version is already installed. Version bump on `semantica-*.whl` triggers automatic reinstall on next boot.
+
+### Synchronisation loop (monthly cadence)
+
+- `bash scripts/sync-semantica-upstream.sh` — idempotent: first run does `git subtree add --squash`, subsequent runs do `git subtree pull --squash`. Pin to `${SEMANTICA_PIN:-v0.6.6}` (or `main`). On success: stamps `.upstream-version`, builds wheel, optionally `bundle-cli`, prints drift summary.
+- `bash scripts/check-semantica-upstream.sh` — 5-scraper drift detector (endpoint / field / sparql / vocab / deps). Run per-scraper or `--scraper=all` (default). Drift is a signal, not a failure — exit 0 either way. See [`.omc/semantica-upstream-watch.md`](.omc/semantica-upstream-watch.md) for the source-of-record plan.
+- `bash scripts/build-semantica-wheel.sh` — builds the wheel from `vendor/semantica-src/`. Wipes `builds/*.whl` first to prevent stale wheels. Requires `pip install build` (or `uv pip install build`).
+
+### Per-workspace ACL (team/individual isolation boundary, 0.5.56 P4)
+
+- `semantica_local_decision_acl` (migration 273) — per-decision ACL row. CHECK: `actor_type IN ('system','user','agent','team')` + `visibility IN ('team','individual_private','shared_team')`.
+- Mode detector: `COUNT(member WHERE workspace_id = ?) = 1` → individual mode (per-actor private); `≥2` → team mode (shared visibility). Pure helper at `internal/experimental/acl.go::Mode` / `VisibilityFor` / `WorkspaceMemberCount`.
+- Write path: `decision_sync.go::postDecisionSync` computes Visibility at write time. Failure falls back to `ModeIndividual` + `slog.Warn` (default-safe). `UpsertSemanticaDecisionACL` runs best-effort after the upstream POST succeeds (same 10s timeout as the POST itself).
+- Read path: `GET /api/experimental/semantica/decisions?workspace=<uuid>` — membership-gated via `requireWorkspaceMember` (defence-in-depth), filters via `ListSemanticaDecisionsForViewer` (SQL encodes the per-actor visibility rules). Response envelope: `{count, mode, items[]}` so the renderer can pick the ModeBanner label without a second roundtrip.
+- Renderer: `<SemanticaModeBanner mode={...} />` (P5, `packages/views/experimental/components/semantica-mode-banner.tsx`) — `role="status"` + `aria-live="polite"` for team, `role="note"` + `aria-live="off"` for individual.
+
+### Drift signals that are NOT actionable through the monitor
+
+- **field 24 NEW** — upstream `Decision` dataclass has 34 fields; fork's `SemanticaDecisionRecordSchema` zod intentionally ships a 10-field envelope subset. Future work: extend zod when more upstream fields become load-bearing for fork use cases.
+- **endpoint 19 REMOVED** — upstream CHANGELOG mentions path names like `/analytics` that the fork's `api-source-map.md` doesn't reference by absolute path (the proxy strips `/api/`). Handled by the live endpoint-diff scraper; not a bug.
+- **sparql 9 NEW** — fork's `multica-semantica` SKILL.md doesn't list the 9 forbidden keywords (`INSERT/DELETE/DROP/LOAD/CLEAR/CREATE/COPY/MOVE/ADD`). Future work: append them.
+
+### i18n policy (closes the 2026-07-14 incident)
+
+- All `t(($) => $.semantica.*)` selectors MUST be arrow expressions. Block-body `t(($) => { return ...; })` returns a plain string instead of the proxy, i18next's `[PATH_KEY]` becomes `undefined`, and the very next line throws `TypeError`. ESLint blocks it at build time via `no-restricted-syntax` in `views/eslint.config.mjs`.
+- 4 locales MUST stay in sync: en / zh-Hans / ja / ko. Adding a new key to one requires adding to all 4 in the same atomic commit.
+- Audit: [`.omc/audit/2026-08-23-semantica-p3-i18n-audit.md`](.omc/audit/2026-08-23-semantica-p3-i18n-audit.md) — the canonical reference for which keys are present and which are deferred to which phase.
+
+### Reconcile body is deferred (P6)
+
+`internal/experimental/semantica_acl_reconciler.go::ACLReconciler` ticks every 6h and emits a "semantica_acl_reconcile tick" log line. **The reconcile body is observability only** by design — upstream semantica does not expose `GET /api/decisions` (list), and graph.json is rdflib's default serialization (requires Python to parse). When upstream closes that gap, the reconcile body lands: re-stamp Visibility on member shift, GC orphan rows. The cron infrastructure is in place at `cmd/server/router.go` (started alongside `SemanticaGC`) and `cmd/server/main.go` (Stopped in shutdown sequence).
+
+### Reference docs (canonical sources of truth)
+
+- [`.omc/release-notes-0.5.58.md`](.omc/release-notes-0.5.58.md) — the 7-phase journey, verification, follow-ups.
+- [`.omc/plans/semantica-research-and-porting-design.md`](.omc/plans/semantica-research-and-porting-design.md) — the research + plan (subtree vs other vendor strategies, 6-phase split, design alternatives).
+- [`.omc/semantica-upstream-watch.md`](.omc/semantica-upstream-watch.md) — the long-cadence upstream tracking plan.
+- [`.omc/audit/2026-08-23-semantica-p3-i18n-audit.md`](.omc/audit/2026-08-23-semantica-p3-i18n-audit.md) — P3 no-op rationale.
+- `server/internal/service/builtin_skills/multica-semantica-decision-advisor/references/vocabulary.md` — the 14 `sem:` vocabulary terms with per-term emission sites.
+- `server/internal/service/builtin_skills/multica-semantica-decision-advisor/references/api-source-map.md` — the endpoint inventory + 0.6.6 "what's new" section.
 
 ## Active Contracts (0.3.45.7+) — Polling fallback, lab leader rewrite, by-issue route order
 
