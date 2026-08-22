@@ -100,7 +100,17 @@
     "not_enabled_desc": "打开 设置 → Labs 并启用 Semantica Knowledge Graph 开关，即可使用探索器。",
     "boot_error_title": "Semantica 启动失败",
     "retry": "重试",
-    "iframe_title": "Semantica 探索器"
+    "iframe_title": "Semantica 探索器",
+    "mode": {
+      "individual": {
+        "label": "单成员工作区",
+        "desc": "你看到的决策仅对本工作区私有,其他成员不可读。"
+      },
+      "team": {
+        "label": "多成员工作区",
+        "desc": "所有工作区成员可见团队的决策;个人决策仅作者本人可见。"
+      }
+    }
   },
   "lab_output_panel": {
     "empty": "尚无运行结果",

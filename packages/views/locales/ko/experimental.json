@@ -100,7 +100,17 @@
     "not_enabled_desc": "설정 → Labs에서 Semantica Knowledge Graph 플래그를 활성화하면 탐색기를 사용할 수 있습니다.",
     "boot_error_title": "Semantica 시작 실패",
     "retry": "다시 시도",
-    "iframe_title": "Semantica 탐색기"
+    "iframe_title": "Semantica 탐색기",
+    "mode": {
+      "individual": {
+        "label": "단일 멤버 워크스페이스",
+        "desc": "표시되는 결정은 이 워크스페이스에만 비공개이며, 다른 멤버는 읽을 수 없습니다."
+      },
+      "team": {
+        "label": "멀티 멤버 워크스페이스",
+        "desc": "모든 워크스페이스 멤버가 팀의 결정을 볼 수 있고, 개인 결정은 작성자 본인에게만 표시됩니다."
+      }
+    }
   },
   "lab_output_panel": {
     "empty": "아직 실행 결과가 없습니다",

@@ -100,7 +100,17 @@
     "not_enabled_desc": "設定 → Labs で Semantica Knowledge Graph フラグを有効にすると、エクスプローラーを利用できます。",
     "boot_error_title": "Semantica の起動に失敗しました",
     "retry": "再試行",
-    "iframe_title": "Semantica エクスプローラー"
+    "iframe_title": "Semantica エクスプローラー",
+    "mode": {
+      "individual": {
+        "label": "個人ワークスペース",
+        "desc": "表示される判断はこのワークスペース内のみで有効で、他のメンバーは閲覧できません。"
+      },
+      "team": {
+        "label": "チームワークスペース",
+        "desc": "ワークスペースの全メンバーがチームの判断を閲覧できます。個人判断は作成者のみに表示されます。"
+      }
+    }
   },
   "lab_output_panel": {
     "empty": "実行結果はまだありません",

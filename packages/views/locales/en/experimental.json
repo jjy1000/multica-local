@@ -100,7 +100,17 @@
     "not_enabled_desc": "Open Settings → Labs and enable the Semantica Knowledge Graph flag to use the explorer.",
     "boot_error_title": "Semantica failed to start",
     "retry": "Retry",
-    "iframe_title": "Semantica Explorer"
+    "iframe_title": "Semantica Explorer",
+    "mode": {
+      "individual": {
+        "label": "Individual workspace",
+        "desc": "Decisions you see are private to this workspace; no other member can read them."
+      },
+      "team": {
+        "label": "Team workspace",
+        "desc": "All workspace members can see every team's decision; per-user decisions stay visible to their author."
+      }
+    }
   },
   "lab_output_panel": {
     "empty": "No runs yet",

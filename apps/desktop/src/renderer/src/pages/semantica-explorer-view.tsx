@@ -4,6 +4,7 @@ import { useExperimentalFlag } from "@multica/core/experimental";
 import { getCurrentWsId } from "@multica/core/platform";
 import { useT } from "@multica/views/i18n";
 import { DragStrip } from "@multica/views/platform";
+import { SemanticaModeBanner } from "@multica/views/experimental/components";
 
 // SemanticaExplorerView (0.5.22 Phase 2)
 //
@@ -30,8 +31,35 @@ export function SemanticaExplorerView() {
   const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<"individual" | "team">("individual");
   // Bumped on Retry to re-run the boot effect after a failed start.
   const [retryKey, setRetryKey] = useState(0);
+
+  // 0.5.57 P5: once the subprocess is up, fetch the workspace mode
+  // (individual | team) from the new fork-side ACL endpoint. Failures
+  // fall back to "individual" so the banner never blocks the explorer
+  // from rendering.
+  useEffect(() => {
+    if (!enabled) return;
+    const wsId = getCurrentWsId();
+    if (!wsId) return;
+    let cancelled = false;
+    void fetch(`/api/experimental/semantica/decisions?workspace=${encodeURIComponent(wsId)}`, {
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { mode?: "individual" | "team" } | null) => {
+        if (!cancelled && body && (body.mode === "team" || body.mode === "individual")) {
+          setMode(body.mode);
+        }
+      })
+      .catch(() => {
+        // Best-effort: render with the default "individual" banner.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, retryKey, url]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -160,6 +188,7 @@ export function SemanticaExplorerView() {
         title={t(($) => $.semantica.title)}
         status={status}
       />
+      <SemanticaModeBanner mode={mode} className="mx-auto my-3 max-w-3xl rounded-md border border-border bg-muted/30 px-4 py-2 text-sm" />
       <iframe
         src={`${url}/`}
         title={t(($) => $.semantica.iframe_title)}
