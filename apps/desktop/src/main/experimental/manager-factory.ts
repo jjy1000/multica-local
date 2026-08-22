@@ -72,6 +72,13 @@ const staticFlagDescriptors: ReadonlyArray<ManagerFactoryDescriptor> = [
   { flagKey: "claude_science_lab", kind: "inline", label: "experimental_claude_science_lab" },
   { flagKey: "pythia_oracle", kind: "subprocess", label: "experimental_pythia" },
   { flagKey: "mythos_swarm", kind: "headless", label: "experimental_mythos" },
+  // 0.5.60 (audit P2-2): swarm_topology was the only catalog flag missing
+  // from this static list (the comment above claims all 8). On a cold boot
+  // where loadFlagDescriptors() had not resolved /api/experimental-flags
+  // yet — or the fetch failed — no experimental:swarm_topology:* IPC
+  // channels existed, the exact "no handler registered" class this list
+  // prevents. Headless like mythos_swarm (no desktop-side process).
+  { flagKey: "swarm_topology", kind: "headless", label: "experimental_swarm_topology" },
   { flagKey: "llm_wiki_bridge", kind: "subprocess", label: "experimental_llm_wiki_bridge" },
   { flagKey: "code_canvas", kind: "subprocess", label: "experimental_code_canvas" },
   // 0.5.22 Phase 2: semantica is a catalog-only subprocess flag driven by

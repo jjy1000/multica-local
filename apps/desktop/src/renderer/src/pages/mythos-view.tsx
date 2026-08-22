@@ -222,15 +222,20 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
   // can only add agents the workspace explicitly owns. We exclude
   // private visibility (sub-agent of another team) and the canonical
   // mythos_* roster (those are picked automatically by the server).
+  // 0.5.60 (audit P2-3): also exclude lab_managed agents — with other
+  // flags on, swarm_role_* / pythia_runtime / semantica_decision_advisor
+  // etc. would otherwise show up as mythos extension candidates.
   const candidates = useMemo(() => {
     const list = (agentsQuery.data ?? []) as Array<{
       id: string;
       name: string;
       description?: string | null;
       visibility?: "workspace" | "private";
+      lab_managed?: boolean;
     }>;
     return list
       .filter((a) => a.visibility !== "private")
+      .filter((a) => !a.lab_managed)
       .filter((a) => !a.name.startsWith("mythos_"))
       .map((a) => ({ id: a.id, name: a.name, description: a.description ?? "" }));
   }, [agentsQuery.data]);
