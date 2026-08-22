@@ -991,6 +991,15 @@ type RuntimeProfile struct {
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
+type SemanticaLocalDecisionAcl struct {
+	DecisionID  string             `json:"decision_id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	ActorType   string             `json:"actor_type"`
+	ActorID     string             `json:"actor_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	Visibility  string             `json:"visibility"`
+}
+
 type Skill struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`
