@@ -111,6 +111,12 @@ const (
 // names match the upstream DecisionRecord schema; tags are stable
 // ("multica" + "lab:semantica") so Semantica queries can filter the
 // corpus.
+//
+// 0.5.56 P4 adds the `visibility` field — the fork's per-decision
+// ACL enum (team | individual_private | shared_team). The value is
+// computed at write time by experimental.VisibilityFor and stamped
+// into semantica_local_decision_acl by the write-through block at
+// the end of postDecisionSync.
 type semanticaDecision struct {
 	ID          string   `json:"id"`
 	Title       string   `json:"title"`
@@ -118,6 +124,7 @@ type semanticaDecision struct {
 	Status      string   `json:"status"`
 	Outcome     string   `json:"outcome"`
 	Tags        []string `json:"tags"`
+	Visibility  string   `json:"visibility,omitempty"`
 	Provenance  struct {
 		Source      string `json:"source"`
 		IssueID     string `json:"issue_id"`
@@ -170,6 +177,12 @@ func (h *Handler) SyncIssueDecisionToSemantica(
 // (callers that want synchronous fire-forget still go through the
 // public method). Uses the passed-in row directly — no DB read here,
 // the listener has already hydrated it.
+//
+// 0.5.56 P4: stamps Visibility into the envelope and writes through
+// to semantica_local_decision_acl after the upstream POST succeeds.
+// Member-count failure falls back to ModeIndividual (default-safe)
+// so a transient DB hiccup never loses a decision; the warn log
+// carries the actor_id + workspace_id for triage.
 func (h *Handler) postDecisionSync(
 	row db.Issue,
 	status string,
@@ -192,7 +205,24 @@ func (h *Handler) postDecisionSync(
 		return
 	}
 
-	decision := buildSemanticaDecision(row, status, actorType, actorID)
+	// Compute mode + visibility from the workspace's member count.
+	// Failure path: default to individual mode (default-safe — never
+	// leaks a team decision by mistake on a DB hiccup).
+	mode := experimental.ModeIndividual
+	if h.Queries != nil {
+		count, err := experimental.WorkspaceMemberCount(ctx, h.Queries, row.WorkspaceID)
+		if err == nil {
+			mode = experimental.Mode(count)
+		} else {
+			slog.Warn("postDecisionSync: workspace member count failed; defaulting to individual",
+				"issue_id", util.UUIDToString(row.ID),
+				"workspace_id", util.UUIDToString(row.WorkspaceID),
+				"error", err)
+		}
+	}
+	visibility := experimental.VisibilityFor(mode, actorType)
+
+	decision := buildSemanticaDecision(row, status, actorType, actorID, visibility)
 
 	payload, err := json.Marshal(decision)
 	if err != nil {
@@ -236,13 +266,34 @@ func (h *Handler) postDecisionSync(
 	slog.Info("postDecisionSync: recorded decision",
 		"issue_id", util.UUIDToString(row.ID),
 		"decision_id", decision.ID,
-		"issue_status", status)
+		"issue_status", status,
+		"visibility", visibility,
+		"mode", mode)
+
+	// Write-through to semantica_local_decision_acl. Best-effort: a
+	// transient DB error here does NOT roll back the upstream POST
+	// (the upstream is the source of truth — its own upsert-on-id
+	// dedupes repeated fires). The ACL index catches up on the next
+	// reconciliation cycle (P6 territory).
+	if h.Queries != nil && visibility != "" {
+		actorIDStr := experimental.ActorIDFor(actorType, actorID, row.WorkspaceID)
+		upsertCtx, upsertCancel := context.WithTimeout(context.Background(), semanticaDecisionTimeout)
+		_ = h.Queries.UpsertSemanticaDecisionACL(upsertCtx, db.UpsertSemanticaDecisionACLParams{
+			DecisionID:  decision.ID,
+			WorkspaceID: row.WorkspaceID,
+			ActorType:   actorType,
+			ActorID:     actorIDStr,
+			Visibility:  visibility,
+		})
+		upsertCancel()
+	}
 }
 
 // buildSemanticaDecision assembles the JSON envelope from an issue
 // row + status. Pure function so the test can drive it without an
-// HTTP roundtrip.
-func buildSemanticaDecision(row db.Issue, status, actorType string, actorID pgtype.UUID) semanticaDecision {
+// HTTP roundtrip. The visibility string is pre-computed by the
+// caller (postDecisionSync) so this helper stays pure.
+func buildSemanticaDecision(row db.Issue, status, actorType string, actorID pgtype.UUID, visibility string) semanticaDecision {
 	desc := ""
 	if row.Description.Valid {
 		desc = row.Description.String
@@ -263,6 +314,7 @@ func buildSemanticaDecision(row db.Issue, status, actorType string, actorID pgty
 		Status:      status,
 		Outcome:     fmt.Sprintf("Multica issue reached terminal status %q", status),
 		Tags:        []string{"multica", "lab:semantica"},
+		Visibility:  visibility,
 	}
 	// Fallback for empty title: Semantica's downstream treats empty
 	// titles as unsearchable. The UUID-based fallback keeps the record

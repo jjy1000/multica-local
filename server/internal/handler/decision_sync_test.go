@@ -37,7 +37,7 @@ func TestBuildSemanticaDecision_MapsIssueToEnvelope(t *testing.T) {
 		Status:      "done",
 	}
 
-	d := buildSemanticaDecision(row, "done", "agent", actorUUID)
+	d := buildSemanticaDecision(row, "done", "agent", actorUUID, "shared_team")
 
 	// ID is the idempotency key on the Semantica side.
 	if want := "multica_" + util.UUIDToString(issueUUID); d.ID != want {
@@ -94,7 +94,7 @@ func TestBuildSemanticaDecision_EmptyDescriptionAndActor(t *testing.T) {
 		Status:      "cancelled",
 	}
 
-	d := buildSemanticaDecision(row, "cancelled", "", pgtype.UUID{})
+	d := buildSemanticaDecision(row, "cancelled", "", pgtype.UUID{}, "individual_private")
 
 	if d.Description != "" {
 		t.Errorf("Description = %q, want empty", d.Description)
@@ -130,7 +130,7 @@ func TestBuildSemanticaDecision_UTF8TruncationSafe(t *testing.T) {
 		Status:      "done",
 	}
 
-	d := buildSemanticaDecision(row, "done", "agent", pgtype.UUID{})
+	d := buildSemanticaDecision(row, "done", "agent", pgtype.UUID{}, "shared_team")
 
 	// Truncation marker must be present.
 	if !strings.HasSuffix(d.Description, "…") {
@@ -185,7 +185,7 @@ func TestBuildSemanticaDecision_BoundaryLengths(t *testing.T) {
 				Description: pgtype.Text{String: tc.desc, Valid: true},
 				Status:      "done",
 			}
-			d := buildSemanticaDecision(row, "done", "agent", pgtype.UUID{})
+			d := buildSemanticaDecision(row, "done", "agent", pgtype.UUID{}, "shared_team")
 			if tc.wantTrunc && !strings.HasSuffix(d.Description, "…") {
 				t.Errorf("expected truncation, got %q", d.Description)
 			}
@@ -217,7 +217,7 @@ func TestBuildSemanticaDecision_EmptyTitle(t *testing.T) {
 		Status:      "done",
 	}
 
-	d := buildSemanticaDecision(row, "done", "agent", pgtype.UUID{})
+	d := buildSemanticaDecision(row, "done", "agent", pgtype.UUID{}, "shared_team")
 
 	if d.Title == "" {
 		t.Fatalf("Title should have a fallback (UUID), got empty string")
@@ -244,7 +244,7 @@ func TestBuildSemanticaDecision_ZeroWorkspaceID(t *testing.T) {
 		Status:      "closed",
 	}
 
-	d := buildSemanticaDecision(row, "closed", "system", pgtype.UUID{})
+	d := buildSemanticaDecision(row, "closed", "system", pgtype.UUID{}, "individual_private")
 
 	if d.Provenance.WorkspaceID != "" {
 		t.Errorf("WorkspaceID = %q, want empty for zero pgtype.UUID", d.Provenance.WorkspaceID)
