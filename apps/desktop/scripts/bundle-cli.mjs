@@ -559,7 +559,29 @@ if (await exists(semanticaSrc)) {
   }
   await mkdir(semanticaDest, { recursive: true });
   await cp(semanticaSrc, semanticaDest, { recursive: true });
-  console.log(`[bundle-cli] bundled semantica runtime → ${semanticaDest}`);
+  // 0.5.53 P1: also mirror the prebuilt wheel(s) from
+  // apps/desktop/vendor/semantica-src/builds/ — run.sh looks for the
+  // wheel at ./builds/ (Stage 3 of the new run.sh). Without this the
+  // packaged runtime refuses to start with "no prebuilt wheel found".
+  const semanticaBuildsSrc = join(
+    repoRoot,
+    "apps",
+    "desktop",
+    "vendor",
+    "semantica-src",
+    "builds",
+  );
+  if (await exists(semanticaBuildsSrc)) {
+    await cp(semanticaBuildsSrc, join(semanticaDest, "builds"), { recursive: true });
+    console.log(
+      `[bundle-cli] bundled semantica runtime → ${semanticaDest} (+ builds/)`,
+    );
+  } else {
+    console.log(
+      `[bundle-cli] bundled semantica runtime → ${semanticaDest} ` +
+        "(builds/ missing — run bash scripts/build-semantica-wheel.sh before packaging)",
+    );
+  }
 } else {
   console.warn(
     "[bundle-cli] semantica runtime not vendored at " +
