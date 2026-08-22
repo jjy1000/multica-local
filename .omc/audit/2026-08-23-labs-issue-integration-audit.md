@@ -164,6 +164,22 @@ POST install 可达。这解释了 code_canvas 名下 378 个孤儿 agent 锁/vi
 | P2-6 chat_pin_ui 死绑定 | `6c117433c` | ✅ picker 隐藏 |
 | P3-1 semantica resources/mig273 未提交 | `286ca8f71` | ✅ 已提交(逐字节核验与 vendor/源一致) |
 | P3-2/3/4/7 文档漂移 | 本次 docs 提交 | ✅ CLAUDE.md 四处修正 |
-| P1-6 全 lab 零生产执行 | — | ⏳ 需真实触发验证(本次尝试 pythia API 触发) |
+| P1-6 全 lab 零生产执行 | `6bdf5fd63` | ✅ pythia 已闭环(见下);其余 lab 仍需首次真实使用 |
 | P2-4 swarm skill/squad visibility | — | ⏸ 瞬态低危,暂不修 |
 | P2-5 pref 孤儿 user_id | — | ⏸ 已知登录契约衍生,惰性 |
+
+### 追加: 0.5.59 事件的真正根因 (0.5.60+)
+
+ship 后 API 触发验证时,0.5.59 的诊断日志当场抓到
+`persist skipped — zero envelopes`,但客户端明明收到了帧 —— 真根因是
+Go 的 defer 参数即时求值: `defer persistIssueForecastRun(r, ifc, collected)`
+在 defer 语句处捕获了 **空 slice 头**(len=0),后续 `append` 只更新局部
+变量,永不更新被捕获的头。修复 = 闭包化(`6bdf5fd63`),
+`TestIssueForecastStreamPersistsCollectedRounds` 端到端钉扎(失败复现
+0 行)。验证: 3 轮完整消费 → `persist run OK rounds=3` + 3 envelope 行
+落库;提前断开 → 部分落库(设计行为)。0.5.59 的包级 fallback 保留
+(未触发,防御性)。
+
+另: semantica wheel(`semantica-0.6.6-py3-none-any.whl`)本机首次构建
+并随提交入库 + 拷入已装 .app —— 此前 run.sh 的离线安装链缺轮子,
+子进程实验室不可能装起来(`8fe19fd10`)。

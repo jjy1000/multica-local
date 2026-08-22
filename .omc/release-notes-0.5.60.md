@@ -87,6 +87,20 @@ contract corners. 0.5.60 closes all three P0s and five P1/P2s.
   (transient, LOW). P2-5 experimental_pref orphan user_ids (known
   username-login contract derivative, inert).
 
+## Post-ship root cause (the 0.5.59 incident, finally closed)
+
+After shipping, an API trigger reproduced "frames stream, zero rows" and
+the 0.5.59 diagnostics caught it live: `persist skipped — zero
+envelopes`. The real root cause is Go's defer-argument evaluation —
+`defer persistIssueForecastRun(r, ifc, collected)` captured the EMPTY
+slice header at the defer statement; appends never reached it. Fixed by
+deferring a closure (`6bdf5fd63`) + end-to-end pin
+`TestIssueForecastStreamPersistsCollectedRounds`. Verified live:
+3-round full consume → `persist run OK rounds=3` + 3-envelope row;
+early disconnect → partial persist (by design). Also built + committed
+the missing semantica wheel (`8fe19fd10`) — the offline install chain
+was missing it entirely on this machine.
+
 ## Ship chain
 
 Standard: snapshot → migrate up (274 already applied) → bundle-cli →
