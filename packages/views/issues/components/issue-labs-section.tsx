@@ -329,9 +329,21 @@ function SwarmRunStatusPill({ run }: { run: SwarmRunStatus }) {
             )}
             {/* Swarm run status pill (0.5.22). Renders only when the
                 issue is bound to a swarm_topology run AND the run
-                exists (404 → no pill). */}
+                exists. 0.5.60 (audit hole #6): once the lookup has
+                resolved to 404, render a muted "not started" pill
+                instead of nothing — with every run table empty on a
+                fresh install, silence read as "broken". */}
             {swarmRun.data ? (
               <SwarmRunStatusPill run={swarmRun.data} />
+            ) : swarmRun.isSuccess && !swarmRun.data ? (
+              <AppLink href="/experimental/swarm-topology" className="shrink-0">
+                <span
+                  className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500"
+                  data-swarm-status="never_started"
+                >
+                  {t(($) => $.lab_section.swarm_never_started)}
+                </span>
+              </AppLink>
             ) : null}
           </div>
 

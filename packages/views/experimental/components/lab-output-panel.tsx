@@ -514,7 +514,15 @@ function MythosPanel({
   const latest = runs[0] ?? null;
 
   if (!latest) {
-    return <p className="text-xs text-muted-foreground">{t(($) => $.lab_output_panel.empty)}</p>;
+    // 0.5.60 (audit hole #6): a lab-bound issue whose lab never executed
+    // must say so — the bare "empty" string read as "no data / broken".
+    // Mythos runs start ONLY from the sidebar lab form (issue binding
+    // enqueues nothing), so point the user there.
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t(($) => $.lab_output_panel.mythos_never_started)}
+      </p>
+    );
   }
 
   return (

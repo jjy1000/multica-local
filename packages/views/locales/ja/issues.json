@@ -520,6 +520,7 @@
   },
   "lab_section": {
     "section_title": "このイシューで稼働中のラボ",
+    "swarm_never_started": "未開始",
     "open_panel": "ラボパネルを開く",
     "running_indicator": "実行中",
     "running_tooltip": "ラボエージェントがこのイシューで作業中です",

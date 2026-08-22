@@ -114,6 +114,7 @@
   },
   "lab_output_panel": {
     "empty": "No runs yet",
+    "mythos_never_started": "No Mythos runs yet — start one from the Mythos lab view in the sidebar.",
     "summary_card_title": "Research Lab Result",
     "open_in_lab": "Open in lab",
     "status_running": "Running",

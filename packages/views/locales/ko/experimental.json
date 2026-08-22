@@ -114,6 +114,7 @@
   },
   "lab_output_panel": {
     "empty": "아직 실행 결과가 없습니다",
+    "mythos_never_started": "아직 Mythos 실행이 없습니다 — 사이드바의 Mythos 랩 보기에서 시작하세요.",
     "summary_card_title": "연구 랩 결과",
     "open_in_lab": "랩에서 열기",
     "status_running": "실행 중",

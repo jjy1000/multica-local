@@ -538,6 +538,7 @@
   },
   "lab_section": {
     "section_title": "이 이슈에서 실행 중인 랩",
+    "swarm_never_started": "미시작",
     "open_panel": "랩 패널 열기",
     "running_indicator": "실행 중",
     "running_tooltip": "랩 에이전트가 이 이슈에서 작업 중입니다",

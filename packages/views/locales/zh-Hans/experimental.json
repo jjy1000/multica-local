@@ -114,6 +114,7 @@
   },
   "lab_output_panel": {
     "empty": "尚无运行结果",
+    "mythos_never_started": "尚无 Mythos 运行记录 — 请到侧栏的 Mythos 实验室视图发起推演。",
     "summary_card_title": "科研实验室结果",
     "open_in_lab": "在实验室打开",
     "status_running": "运行中",

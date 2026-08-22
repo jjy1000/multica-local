@@ -544,6 +544,7 @@
   },
   "lab_section": {
     "section_title": "Labs running on this issue",
+    "swarm_never_started": "not started",
     "open_panel": "Open labs panel",
     "running_indicator": "Running",
     "running_tooltip": "An experimental agent is currently working on this issue",

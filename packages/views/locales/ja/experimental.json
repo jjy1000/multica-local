@@ -114,6 +114,7 @@
   },
   "lab_output_panel": {
     "empty": "実行結果はまだありません",
+    "mythos_never_started": "Mythos の実行はまだありません — サイドバーの Mythos ラボ画面から開始してください。",
     "summary_card_title": "科研ラボの結果",
     "open_in_lab": "ラボで開く",
     "status_running": "実行中",
