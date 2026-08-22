@@ -272,3 +272,61 @@ func TestPythiaForecastHandlerFallbackConcurrencySpawnsReaders(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// TestIssueForecastStreamPersistsCollectedRounds — 0.5.60 root-cause pin.
+// Pre-0.5.60 the deferred persist was wired as
+// `defer persistIssueForecastRun(r, ifc, collected)` — Go evaluates
+// deferred-call arguments at the defer statement, capturing the EMPTY
+// slice header; the later appends updated the local variable, never the
+// captured header, so every successful run (200, frames emitted) persisted
+// zero rows. The 0.5.59 diagnostics made the skip visible; this test pins
+// the closure fix end-to-end against the DB-backed handler: run the real
+// stream, then assert the pythia_forecast_run row landed.
+func TestIssueForecastStreamPersistsCollectedRounds(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	issue := createIssueForTest(t, map[string]any{
+		"title": "pythia-persist-e2e",
+	})
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(),
+			`DELETE FROM pythia_forecast_run WHERE issue_id = $1`, issue.ID)
+	})
+
+	ifc := &issueForecastContext{
+		IssueID:     issue.ID,
+		IssueNumber: issue.Identifier,
+		Title:       "pythia-persist-e2e",
+		LabSource:   "pythia_oracle",
+		WorkspaceID: testWorkspaceID,
+	}
+	ctx := withIssueForecastContext(context.Background(), ifc)
+	ctx = context.WithValue(ctx, forecastIssueHandlerCtxKey{}, testHandler)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"/api/experimental/pythia-oracle/forecast/issue?seed=7", nil)
+	if err != nil {
+		t.Fatalf("build req: %v", err)
+	}
+
+	w := &captureWriter{}
+	pythiaIssueForecastStream(w, req, 1)
+
+	if !strings.Contains(string(w.body), "event: prediction") {
+		t.Fatalf("stream emitted no prediction frame; body=%q", string(w.body))
+	}
+
+	var count int
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT count(*) FROM pythia_forecast_run WHERE issue_id = $1`, issue.ID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count run rows: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected exactly 1 pythia_forecast_run row for the emitted round, got %d (pre-0.5.60 defer-capture bug = 0)", count)
+	}
+}

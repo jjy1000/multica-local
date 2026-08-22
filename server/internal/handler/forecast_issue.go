@@ -239,7 +239,16 @@ func pythiaIssueForecastStream(w http.ResponseWriter, r *http.Request, rounds in
 	// normal completion, upstream error, client disconnect — writes
 	// whatever rounds actually landed. A zero-round result is skipped
 	// inside the helper.
-	defer persistIssueForecastRun(r, ifc, collected)
+	//
+	// 0.5.60 — THIS MUST STAY A CLOSURE. Go evaluates deferred-call
+	// arguments at the defer statement, so the pre-0.5.60 form
+	// `defer persistIssueForecastRun(r, ifc, collected)` captured the
+	// EMPTY slice header (len 0); the subsequent appends updated the
+	// local variable, never the captured header — every successful run
+	// persisted zero rows ("推演成功但 UI 无数据"). The closure reads
+	// the variable at call time. Regression-pinned by
+	// TestIssueForecastStreamPersistsCollectedRounds.
+	defer func() { persistIssueForecastRun(r, ifc, collected) }()
 
 	emit := func(round int) error {
 		env, err := source(r.Context(), seed, ifc, round)
@@ -305,7 +314,7 @@ func persistIssueForecastRun(r *http.Request, ifc *issueForecastContext, envelop
 	if len(envelopes) == 0 {
 		slog.Warn("pythia forecast: persist skipped — zero envelopes",
 			"issue_id", issueIDStr, "workspace_id", wsIDStr,
-			"reason", "all rounds errored before frame was emitted")
+			"reason", "the stream finished with no envelopes collected (every round errored before emit)")
 		return
 	}
 	if ifc == nil {
