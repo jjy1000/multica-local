@@ -149,7 +149,14 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
-function PredictionsList({ predictions }: { predictions: LabPrediction[] }) {
+function PredictionsList({
+  predictions,
+  labViewHref,
+}: {
+  predictions: LabPrediction[];
+  labViewHref?: string;
+}) {
+  const { t } = useT("experimental");
   return (
     <div className="space-y-1.5">
       {predictions.map((p, i) => (
@@ -169,13 +176,31 @@ function PredictionsList({ predictions }: { predictions: LabPrediction[] }) {
               style={{ width: `${Math.round(clamp01(p.probability) * 100)}%` }}
             />
           </div>
+          {labViewHref && (
+            <div className="flex justify-end">
+              <AppLink
+                href={labViewHref}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+                aria-label={t(($) => $.lab_output_panel.view_in_lab)}
+              >
+                {t(($) => $.lab_output_panel.view_in_lab)} →
+              </AppLink>
+            </div>
+          )}
         </div>
       ))}
     </div>
   );
 }
 
-function CodeBlockList({ blocks }: { blocks: LabCodeBlock[] }) {
+function CodeBlockList({
+  blocks,
+  labViewHref,
+}: {
+  blocks: LabCodeBlock[];
+  labViewHref?: string;
+}) {
+  const { t } = useT("experimental");
   return (
     <div className="space-y-2">
       {blocks.map((b, i) => (
@@ -189,13 +214,24 @@ function CodeBlockList({ blocks }: { blocks: LabCodeBlock[] }) {
           <pre className="overflow-x-auto p-2 text-xs">
             <code className="font-mono text-foreground">{b.code}</code>
           </pre>
+          {labViewHref && (
+            <div className="flex justify-end border-t border-border bg-muted/30 px-2 py-1">
+              <AppLink
+                href={labViewHref}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+                aria-label={t(($) => $.lab_output_panel.view_in_lab)}
+              >
+                {t(($) => $.lab_output_panel.view_in_lab)} →
+              </AppLink>
+            </div>
+          )}
         </div>
       ))}
     </div>
   );
 }
 
-function TaskOutput({ task }: { task: LabTaskBrief }) {
+function TaskOutput({ task, labViewHref }: { task: LabTaskBrief; labViewHref?: string }) {
   const { t } = useT("experimental");
   const attachments = (task.result_attachments ?? [])
     .map(attachmentToArtifact)
@@ -222,7 +258,23 @@ function TaskOutput({ task }: { task: LabTaskBrief }) {
             {t(($) => $.lab_output_panel.attachments_label)}
           </p>
           {attachments.map((art, i) => (
-            <ArtifactRenderer key={`${art.id}-${i}`} artifact={art} pluginSlug="" />
+            <div
+              key={`${art.id}-${i}`}
+              className="overflow-hidden rounded-lg border border-border"
+            >
+              <ArtifactRenderer artifact={art} pluginSlug="" />
+              {labViewHref && (
+                <div className="flex justify-end border-t border-border bg-muted/30 px-2 py-1">
+                  <AppLink
+                    href={labViewHref}
+                    className="text-[10px] text-muted-foreground hover:text-foreground"
+                    aria-label={t(($) => $.lab_output_panel.view_in_lab)}
+                  >
+                    {t(($) => $.lab_output_panel.view_in_lab)} →
+                  </AppLink>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -232,7 +284,7 @@ function TaskOutput({ task }: { task: LabTaskBrief }) {
           <p className="text-[11px] font-medium text-muted-foreground">
             {t(($) => $.lab_output_panel.predictions_label)}
           </p>
-          <PredictionsList predictions={predictions} />
+          <PredictionsList predictions={predictions} labViewHref={labViewHref} />
         </div>
       )}
 
@@ -241,14 +293,14 @@ function TaskOutput({ task }: { task: LabTaskBrief }) {
           <p className="text-[11px] font-medium text-muted-foreground">
             {t(($) => $.lab_output_panel.code_blocks_label)}
           </p>
-          <CodeBlockList blocks={codeBlocks} />
+          <CodeBlockList blocks={codeBlocks} labViewHref={labViewHref} />
         </div>
       )}
     </div>
   );
 }
 
-function ClaudePanel({ ctx }: { ctx: LabContext }) {
+function ClaudePanel({ ctx, labViewHref }: { ctx: LabContext; labViewHref?: string }) {
   const { t } = useT("experimental");
 
   const runCount = (
@@ -308,7 +360,7 @@ function ClaudePanel({ ctx }: { ctx: LabContext }) {
           {t(($) => $.lab_output_panel.in_progress)}
         </p>
       )}
-      <TaskOutput task={outputTask} />
+      <TaskOutput task={outputTask} labViewHref={labViewHref} />
     </div>
   );
 }
@@ -1218,5 +1270,5 @@ export function LabOutputPanel({ wsId, issueId, labSource, labMode }: LabOutputP
     );
   }
 
-  return <ClaudePanel ctx={query.data?.ctx ?? EMPTY_LAB_CONTEXT} />;
+  return <ClaudePanel ctx={query.data?.ctx ?? EMPTY_LAB_CONTEXT} labViewHref={labViewHref} />;
 }
