@@ -146,6 +146,7 @@
     "pythia_frames_label": "予測フレーム",
     "pythia_confidence_label": "確信度",
     "pythia_synthetic_hint": "モックデータ",
+    "view_in_lab": "ラボで見る",
     "code_canvas_input_label": "コード",
     "code_canvas_language_label": "言語",
     "code_canvas_render": "描画して保存",

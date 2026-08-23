@@ -146,6 +146,7 @@
     "pythia_frames_label": "Forecast frames",
     "pythia_confidence_label": "confidence",
     "pythia_synthetic_hint": "mock data",
+    "view_in_lab": "View in lab",
     "code_canvas_input_label": "Code",
     "code_canvas_language_label": "Language",
     "code_canvas_render": "Render & save",

@@ -146,6 +146,7 @@
     "pythia_frames_label": "预测帧",
     "pythia_confidence_label": "置信度",
     "pythia_synthetic_hint": "模拟数据",
+    "view_in_lab": "在实验室查看",
     "code_canvas_input_label": "代码",
     "code_canvas_language_label": "语言",
     "code_canvas_render": "渲染并保存",

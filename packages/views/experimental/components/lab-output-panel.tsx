@@ -29,6 +29,8 @@ import type {
 } from "@multica/core/types/api";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { ArtifactRenderer, type Artifact } from "./artifact-renderer";
+import { AppLink } from "../../navigation";
+import { labSourceRouteSuffix } from "../../issues/components/issue-labs-section";
 import { useT } from "../../i18n";
 
 // 0.5.18 M1-M4: unified output panel for the four A-class issue-bound labs.
@@ -322,16 +324,36 @@ const TERMINAL_MYTHOS_STATUSES = new Set(["completed", "aborted", "failed"]);
 // (server/internal/service/mythos/supervise.go SupervisionPhase).
 const LIVE_MYTHOS_PHASES = new Set(["preparing", "planning", "supervising"]);
 
-function MythosConclusions({ conclusions }: { conclusions: MythosCodaConclusion[] }) {
+function MythosConclusions({
+  conclusions,
+  labViewHref,
+}: {
+  conclusions: MythosCodaConclusion[];
+  labViewHref?: string;
+}) {
+  const { t } = useT("experimental");
   return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
-      {conclusions.map((c, i) => (
-        <span key={`${c.key}-${i}`} className="contents">
-          <dt className="font-mono text-foreground">{c.key}:</dt>
-          <dd className="text-foreground">{c.value}</dd>
-        </span>
-      ))}
-    </dl>
+    <div className="space-y-1.5">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
+        {conclusions.map((c, i) => (
+          <span key={`${c.key}-${i}`} className="contents">
+            <dt className="font-mono text-foreground">{c.key}:</dt>
+            <dd className="text-foreground">{c.value}</dd>
+          </span>
+        ))}
+      </dl>
+      {labViewHref && (
+        <div className="flex justify-end">
+          <AppLink
+            href={labViewHref}
+            className="text-[10px] text-muted-foreground hover:text-foreground"
+            aria-label={t(($) => $.lab_output_panel.view_in_lab)}
+          >
+            {t(($) => $.lab_output_panel.view_in_lab)} →
+          </AppLink>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -454,10 +476,12 @@ function MythosPanel({
   wsId,
   issueId,
   labMode,
+  labViewHref,
 }: {
   wsId: string;
   issueId: string;
   labMode?: "sole" | "enhancer";
+  labViewHref?: string;
 }) {
   const { t } = useT("experimental");
 
@@ -536,6 +560,15 @@ function MythosPanel({
           <span className={latest.status === "completed" ? "text-emerald-600 dark:text-emerald-400" : ""}>
             {latest.status}
           </span>
+          {labViewHref && (
+            <AppLink
+              href={labViewHref}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+              aria-label={t(($) => $.lab_output_panel.view_in_lab)}
+            >
+              {t(($) => $.lab_output_panel.view_in_lab)} →
+            </AppLink>
+          )}
         </span>
       </div>
 
@@ -559,7 +592,10 @@ function MythosPanel({
           {t(($) => $.lab_output_panel.mythos_conclusions_label)}
         </p>
         {latest.coda_conclusions.length > 0 ? (
-          <MythosConclusions conclusions={latest.coda_conclusions} />
+          <MythosConclusions
+            conclusions={latest.coda_conclusions}
+            labViewHref={labViewHref}
+          />
         ) : (
           <p className="text-xs text-muted-foreground">
             {t(($) => $.lab_output_panel.mythos_no_conclusions)}
@@ -578,7 +614,13 @@ function MythosPanel({
 // order; the envelope element carries no `round` field (see the wire shape in
 // forecast_issue.go / claude_lab_forecast.go), so the display round is the
 // array index + 1.
-function PythiaFrames({ envelopes }: { envelopes: PythiaForecastEnvelope[] }) {
+function PythiaFrames({
+  envelopes,
+  labViewHref,
+}: {
+  envelopes: PythiaForecastEnvelope[];
+  labViewHref?: string;
+}) {
   const { t } = useT("experimental");
 
   if (envelopes.length === 0) {
@@ -624,13 +666,32 @@ function PythiaFrames({ envelopes }: { envelopes: PythiaForecastEnvelope[] }) {
               </span>
             )}
           </div>
+          {labViewHref && (
+            <div className="flex justify-end">
+              <AppLink
+                href={labViewHref}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+                aria-label={t(($) => $.lab_output_panel.view_in_lab)}
+              >
+                {t(($) => $.lab_output_panel.view_in_lab)} →
+              </AppLink>
+            </div>
+          )}
         </div>
       ))}
     </div>
   );
 }
 
-function PythiaPanel({ wsId, issueId }: { wsId: string; issueId: string }) {
+function PythiaPanel({
+  wsId,
+  issueId,
+  labViewHref,
+}: {
+  wsId: string;
+  issueId: string;
+  labViewHref?: string;
+}) {
   const { t } = useT("experimental");
 
   // 0.5.59: track when the user last triggered a forecast so the panel
@@ -826,7 +887,7 @@ function PythiaPanel({ wsId, issueId }: { wsId: string; issueId: string }) {
         </span>
       </div>
 
-      <PythiaFrames envelopes={latest.envelopes} />
+      <PythiaFrames envelopes={latest.envelopes} labViewHref={labViewHref} />
     </div>
   );
 }
@@ -856,7 +917,15 @@ const LANGUAGES = [
 
 const DEFAULT_SNIPPET = `# fibonacci\ndef fib(n: int) -> int:\n    """Return the n-th Fibonacci number."""\n    if n < 2:\n        return n\n    return fib(n - 1) + fib(n - 2)\n\nprint(fib(10))  # 55\n`;
 
-function CodeCanvasPanel({ wsId, issueId }: { wsId: string; issueId: string }) {
+function CodeCanvasPanel({
+  wsId,
+  issueId,
+  labViewHref,
+}: {
+  wsId: string;
+  issueId: string;
+  labViewHref?: string;
+}) {
   const { t } = useT("experimental");
   const qc = useQueryClient();
   const [code, setCode] = useState(DEFAULT_SNIPPET);
@@ -1034,6 +1103,17 @@ function CodeCanvasPanel({ wsId, issueId }: { wsId: string; issueId: string }) {
                   title={`${a.language} · ${a.created_at}`}
                   className="h-48 w-full bg-background"
                 />
+                {labViewHref && (
+                  <div className="flex justify-end border-t border-border bg-muted/30 px-2 py-1">
+                    <AppLink
+                      href={labViewHref}
+                      className="text-[10px] text-muted-foreground hover:text-foreground"
+                      aria-label={t(($) => $.lab_output_panel.view_in_lab)}
+                    >
+                      {t(($) => $.lab_output_panel.view_in_lab)} →
+                    </AppLink>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -1046,6 +1126,10 @@ function CodeCanvasPanel({ wsId, issueId }: { wsId: string; issueId: string }) {
 export function LabOutputPanel({ wsId, issueId, labSource, labMode }: LabOutputPanelProps) {
   const { t } = useT("experimental");
   const isClaude = labSource === "claude_science_lab";
+  const suffix = labSourceRouteSuffix(labSource);
+  const labViewHref = suffix
+    ? `/experimental/${suffix}?issue=${encodeURIComponent(issueId)}`
+    : undefined;
 
   const query = useQuery({
     queryKey: ["lab-output-panel", wsId, issueId, labSource],
@@ -1075,15 +1159,22 @@ export function LabOutputPanel({ wsId, issueId, labSource, labMode }: LabOutputP
   if (!A_CLASS_LABS.has(labSource)) return null;
 
   if (labSource === "pythia_oracle") {
-    return <PythiaPanel wsId={wsId} issueId={issueId} />;
+    return <PythiaPanel wsId={wsId} issueId={issueId} labViewHref={labViewHref} />;
   }
 
   if (labSource === "mythos_swarm") {
-    return <MythosPanel wsId={wsId} issueId={issueId} labMode={labMode} />;
+    return (
+      <MythosPanel
+        wsId={wsId}
+        issueId={issueId}
+        labMode={labMode}
+        labViewHref={labViewHref}
+      />
+    );
   }
 
   if (labSource === "code_canvas") {
-    return <CodeCanvasPanel wsId={wsId} issueId={issueId} />;
+    return <CodeCanvasPanel wsId={wsId} issueId={issueId} labViewHref={labViewHref} />;
   }
 
   if (!isClaude) {
