@@ -1,4 +1,5 @@
 {
+  "back": "Back",
   "user_plugins": {
     "title": "User Plugins",
     "create": "Create Plugin",
@@ -12,6 +13,9 @@
     "settings": "Settings",
     "select_agent_hint": "Select an agent to create a lab plugin",
     "plugin_not_found": "Plugin \"{{slug}}\" not found",
+    "creating_title": "Plugin is being created",
+    "creating_desc": "The Lab Builder agent is creating this plugin in the background — usually 10s to a few minutes. You'll land here automatically when it finishes.",
+    "back_to_labs": "Back to Labs",
     "run": "Run",
     "chat_no_workspace": "Please select or create a workspace first.",
     "table_placeholder": "Table view (v1 placeholder)",

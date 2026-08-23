@@ -1,4 +1,5 @@
 {
+  "back": "뒤로",
   "user_plugins": {
     "title": "사용자 플러그인",
     "create": "플러그인 생성",
@@ -12,6 +13,9 @@
     "settings": "설정",
     "select_agent_hint": "에이전트를 선택하여 실험실 플러그인을 생성",
     "plugin_not_found": "플러그인 「{{slug}}」 을(를) 찾을 수 없습니다",
+    "creating_title": "플러그인 생성 중",
+    "creating_desc": "Lab Builder 에이전트가 백그라운드에서 플러그인을 만들고 있습니다 — 보통 10초에서 몇 분 정도 걸립니다. 완료되면 자동으로 여기로 이동합니다.",
+    "back_to_labs": "Labs로 돌아가기",
     "run": "실행",
     "chat_no_workspace": "먼저 워크스페이스를 선택하거나 생성하세요.",
     "table_placeholder": "테이블 보기 (v1 자리 표시자)",

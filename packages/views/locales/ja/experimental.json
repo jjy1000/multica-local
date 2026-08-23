@@ -1,4 +1,5 @@
 {
+  "back": "戻る",
   "user_plugins": {
     "title": "ユーザープラグイン",
     "create": "プラグイン作成",
@@ -12,6 +13,9 @@
     "settings": "設定",
     "select_agent_hint": "エージェントを選択してラボプラグインを作成",
     "plugin_not_found": "プラグイン「{{slug}}」が見つかりません",
+    "creating_title": "プラグイン作成中",
+    "creating_desc": "Lab Builder エージェントがバックグラウンドで作成中です — 通常数十秒から数分。完成すると自動でここに表示されます。",
+    "back_to_labs": "ラボに戻る",
     "run": "実行",
     "chat_no_workspace": "先にワークスペースを選択または作成してください。",
     "table_placeholder": "テーブルビュー（v1 プレースホルダー）",

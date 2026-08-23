@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Puzzle, Trash2, Play, Loader2, Pencil } from "lucide-react";
+import { Trash2, Play, Loader2, Pencil, ArrowLeft } from "lucide-react";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Label } from "@multica/ui/components/ui/label";
 import { Switch } from "@multica/ui/components/ui/switch";
@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { api } from "@multica/core/api";
 import { useUpdateExperimentalFlag } from "@multica/core/experimental";
 import { getCurrentWsId } from "@multica/core/platform";
+import { useNavigation } from "../../navigation";
 import type { UserPluginResponse } from "@multica/core/types";
 import { useT } from "../../i18n";
 import { ChatWindow } from "../../chat/components/chat-window";
@@ -116,6 +117,7 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
   const qc = useQueryClient();
   const updateFlag = useUpdateExperimentalFlag();
   const wsId = useCurrentWsIdPoll();
+  const navigation = useNavigation();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -126,6 +128,19 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
     queryKey: ["user-plugins"],
     queryFn: () => api.listUserPlugins(),
     staleTime: 30_000,
+    // 0.5.60: while the slug is missing, auto-poll every 5s — the user
+    // typically arrives here a few seconds before the lab-builder agent
+    // finishes POSTing the plugin (audit: "no progress feedback during
+    // lab creation"). Backs off to no auto-polling once the plugin
+    // lands or after 12 retries (~60s) so a typo'd / deleted slug
+    // doesn't burn a forever-loop.
+    refetchInterval: (query) => {
+      const list = query.state.data as UserPluginResponse[] | undefined;
+      const found = (list ?? []).some((p) => p.slug === pluginSlug);
+      if (found) return false;
+      if ((query.state.errorUpdateCount ?? 0) > 12) return false;
+      return 5_000;
+    },
   });
 
   const plugin: UserPluginResponse | undefined = (plugins ?? []).find(
@@ -192,10 +207,43 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
   }
 
   if (!plugin) {
+    // 0.5.60: while the lab-builder agent is creating this plugin, the
+    // user lands here with a missing slug — surface that as a live
+    // "creating" affordance with a spinner + auto-retry (refetchInterval
+    // above) + an explicit Back so the user is never trapped staring at
+    // a one-line "not found". After 12 polls (~60s) the refetch backs
+    // off and we fall back to the static message — so a typo'd or
+    // deleted slug doesn't burn a forever-loop.
     return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Puzzle className="h-4 w-4" aria-hidden />
-        {t(($) => $.user_plugins.plugin_not_found, { slug: pluginSlug })}
+      <div className="flex max-w-md flex-col items-start gap-3 rounded-lg border border-border bg-card p-5 text-sm text-card-foreground">
+        <div className="flex items-center gap-2 text-foreground">
+          <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden />
+          <span className="font-medium">{t(($) => $.user_plugins.creating_title)}</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {t(($) => $.user_plugins.creating_desc, { slug: pluginSlug })}
+        </p>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              qc.invalidateQueries({ queryKey: ["user-plugins"] });
+            }}
+          >
+            {t(($) => $.lab_output_panel.retry)}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => navigation.back()}
+          >
+            <ArrowLeft className="size-3.5" aria-hidden />
+            {t(($) => $.user_plugins.back_to_labs)}
+          </Button>
+        </div>
       </div>
     );
   }

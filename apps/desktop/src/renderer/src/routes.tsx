@@ -4,8 +4,13 @@ import {
   Navigate,
   Outlet,
   useMatches,
+  useNavigate,
 } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
+import type { CSSProperties } from "react";
+import { ArrowLeft } from "lucide-react";
+import { Button } from "@multica/ui/components/ui/button";
+import { useT } from "@multica/views/i18n";
 import { IssueDetailPage } from "./pages/issue-detail-page";
 import { ProjectDetailPage } from "./pages/project-detail-page";
 import { AutopilotDetailPage } from "./pages/autopilot-detail-page";
@@ -110,6 +115,39 @@ function PageShell() {
 }
 
 /**
+ * Experimental view shell — wraps every `/experimental/*` route. Provides
+ * a fixed top-left "Back" affordance so the user always has a way out
+ * of the full-window lab view (audit: "lab plugin panel covers the left
+ * task panel — no way back"). The back button is positioned outside the
+ * DragStrip region (which the lab views render themselves) with
+ * WebkitAppRegion: "no-drag" so window dragging still works on the
+ * rest of the strip.
+ */
+function ExperimentalViewShell() {
+  const navigate = useNavigate();
+  const { t } = useT("experimental");
+  return (
+    <>
+      <div
+        className="fixed left-3 top-2 z-50"
+        style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+      >
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(-1)}
+          aria-label={t(($) => $.back)}
+        >
+          <ArrowLeft className="size-3.5" aria-hidden />
+          {t(($) => $.back)}
+        </Button>
+      </div>
+      <Outlet />
+    </>
+  );
+}
+
+/**
  * Route definitions shared by all tabs.
  *
  * Every tab path is workspace-scoped: `/{slug}/{route}/...`. Pre-workspace
@@ -132,63 +170,67 @@ export const appRoutes: RouteObject[] = [
     errorElement: <DesktopRouteErrorPage />,
     children: [
       { index: true, element: null },
-      // 0.3.22 Lab consolidation: `claude_science_lab` replaces the
-      // 0.3.20 `claude_science` + `claude_science_runtime` pair.
-      // Single sidebar entry, single view, runtime sandbox is one of
-      // the lab's capabilities — not a separate flag. Gated behind a
-      // runtime check via window.experimentalAPI; the view itself
-      // shows a "service not ready" placeholder until the matching
-      // Labs flag is enabled.
+      // 0.5.60: group every /experimental/* route under
+      // ExperimentalViewShell so the top-left Back affordance renders
+      // once and stays consistent across all 8 lab surfaces.
       {
-        path: "experimental/claude-lab",
-        element: <ClaudeLabView />,
-        handle: { title: "Claude Research Lab" },
-      },
-      {
-        path: "experimental/pythia",
-        element: <PythiaView />,
-        handle: { title: "Pythia Oracle" },
-      },
-      {
-        path: "experimental/mythos",
-        element: <MythosView />,
-        handle: { title: "Mythos Swarm" },
-      },
-      {
-        // 0.5.21: swarm topology — top-level task mode parallel to
-        // claude_science_lab. Self-organising multi-agent system.
-        path: "experimental/swarm-topology",
-        element: <SwarmTopologyView />,
-        handle: { title: "Swarm Topology" },
-      },
-      {
-        path: "experimental/llm-wiki",
-        element: <LLMWikiBridgeView />,
-        handle: { title: "LLM Wiki Bridge" },
-      },
-      {
-        path: "experimental/code-canvas",
-        element: <CodeCanvasView />,
-        handle: { title: "Code Canvas" },
-      },
-      {
-        // 0.5.22 Phase 2: semantica Labs-tab view. Iframe wrapper around the
-        // Semantica Explorer SPA. URL is /experimental/semantica-explorer
-        // (NOT /experimental/semantica — that path is reserved for the REST
-        // proxy the agent subprocess calls). Distinction matters: a future
-        // /experimental/semantica-decisions tab should not collide with the
-        // API proxy at /experimental/semantica/api/decisions.
-        path: "experimental/semantica-explorer",
-        element: <SemanticaExplorerView />,
-        handle: { title: "Semantica Explorer" },
-      },
-      {
-        // 0.3.60: generic user plugin shell. The slug comes from the URL
-        // param; the view fetches plugin info from /api/user-plugins and
-        // renders the manifest-driven tab layout.
-        path: "experimental/plugin/:pluginSlug",
-        element: <PluginShellPage />,
-        handle: { title: "实验室插件" },
+        path: "experimental",
+        element: <ExperimentalViewShell />,
+        children: [
+          // 0.3.22 Lab consolidation: `claude_science_lab` replaces the
+          // 0.3.20 `claude_science` + `claude_science_runtime` pair.
+          {
+            path: "claude-lab",
+            element: <ClaudeLabView />,
+            handle: { title: "Claude Research Lab" },
+          },
+          {
+            path: "pythia",
+            element: <PythiaView />,
+            handle: { title: "Pythia Oracle" },
+          },
+          {
+            path: "mythos",
+            element: <MythosView />,
+            handle: { title: "Mythos Swarm" },
+          },
+          {
+            // 0.5.21: swarm topology — top-level task mode parallel to
+            // claude_science_lab. Self-organising multi-agent system.
+            path: "swarm-topology",
+            element: <SwarmTopologyView />,
+            handle: { title: "Swarm Topology" },
+          },
+          {
+            path: "llm-wiki",
+            element: <LLMWikiBridgeView />,
+            handle: { title: "LLM Wiki Bridge" },
+          },
+          {
+            path: "code-canvas",
+            element: <CodeCanvasView />,
+            handle: { title: "Code Canvas" },
+          },
+          {
+            // 0.5.22 Phase 2: semantica Labs-tab view. Iframe wrapper around the
+            // Semantica Explorer SPA. URL is /experimental/semantica-explorer
+            // (NOT /experimental/semantica — that path is reserved for the REST
+            // proxy the agent subprocess calls). Distinction matters: a future
+            // /experimental/semantica-decisions tab should not collide with the
+            // API proxy at /experimental/semantica/api/decisions.
+            path: "semantica-explorer",
+            element: <SemanticaExplorerView />,
+            handle: { title: "Semantica Explorer" },
+          },
+          {
+            // 0.3.60: generic user plugin shell. The slug comes from the URL
+            // param; the view fetches plugin info from /api/user-plugins and
+            // renders the manifest-driven tab layout.
+            path: "plugin/:pluginSlug",
+            element: <PluginShellPage />,
+            handle: { title: "实验室插件" },
+          },
+        ],
       },
       {
         path: ":workspaceSlug",
