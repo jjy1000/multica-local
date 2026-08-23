@@ -175,6 +175,7 @@ type MythosRunResult = {
 
 function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } = {}) {
   const { t } = useT("mythos");
+  const { t: tExp } = useT("experimental");
   const workspace = useCurrentWorkspace();
   const wsId = workspace?.id ?? "";
   const [problem, setProblem] = useState("");
@@ -288,6 +289,21 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
       <p className="mt-1 text-sm text-muted-foreground">
         {t(($) => $.run_form_blurb)}
       </p>
+      {rootIssueId ? (
+        <div className="mt-2 flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
+          <span className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-foreground/80">
+            {rootIssueId.slice(0, 8)}…
+          </span>
+          <button
+            type="button"
+            onClick={() => setRootIssueId(null)}
+            aria-label={tExp(($) => $.back)}
+            className="inline-flex size-4 items-center justify-center rounded text-xs hover:bg-muted hover:text-foreground"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
 
       {/* 0.3.54: a subtler hint when the page is opened without an
           issue binding. The Mythos RDT pipeline produces three

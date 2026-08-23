@@ -159,6 +159,7 @@ const LIVE_LAB_SESSION_STATUSES = new Set([
 
 export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: string | null } = {}) {
   const enabled = useExperimentalFlag(CLAUDE_LAB_FLAG, false);
+  const { t } = useT("claude-lab");
   const [tab, setTab] = useState<LabTab>("plan");
   const [wsId, setWsId] = useState<string | null>(() => getCurrentWsId());
   // URL `?issue=<id>` lets CreateIssueDialog land the user back in the
@@ -219,6 +220,21 @@ export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: st
       <Header active={tab} onTabChange={setTab} />
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-6">
         <Intro />
+        {selectedIssueId ? (
+          <div className="-mb-2 flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
+            <span className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-foreground/80">
+              {selectedIssueId.slice(0, 8)}…
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedIssueId(null)}
+              aria-label={t(($) => $.agent_lock_clear)}
+              className="inline-flex size-4 items-center justify-center rounded text-xs hover:bg-muted hover:text-foreground"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         <LabAgentFromIssue
           wsId={wsId}
           selectedIssueId={selectedIssueId}

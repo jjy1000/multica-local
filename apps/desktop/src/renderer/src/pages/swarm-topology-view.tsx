@@ -21,9 +21,11 @@
 //     new swarm_run, then re-fetches state.
 //   - "active" (existing run): show the full layout above.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { useSearchParams } from "react-router-dom";
 
 import { api } from "@multica/core/api";
 import type { Issue } from "@multica/core/types";
@@ -322,7 +324,16 @@ function BootstrapForm({
   onBootstrapped: (run: SwarmRun) => void;
 }) {
   const { t } = useT("swarm");
+  const { t: tExp } = useT("experimental");
+  const [searchParams] = useSearchParams();
+  const urlIssueId = searchParams.get("issue");
   const [issueId, setIssueId] = useState("");
+  // Pre-bind the issue picker from `?issue=<id>` when the user lands here
+  // from an issue-detail "view in lab" jump (LabOutputPanel produces the
+  // href). We never clobber a value the user already picked.
+  useEffect(() => {
+    if (urlIssueId && !issueId) setIssueId(urlIssueId);
+  }, [urlIssueId, issueId]);
   const [problem, setProblem] = useState("");
   const [maxHours, setMaxHours] = useState(72);
 
@@ -338,6 +349,21 @@ function BootstrapForm({
         <CardDescription>{t(($) => $.bootstrap.description)}</CardDescription>
       </CardHeader>
       <CardContent>
+        {issueId ? (
+          <div className="mb-3 flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
+            <span className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-foreground/80">
+              {issueId.slice(0, 8)}…
+            </span>
+            <button
+              type="button"
+              onClick={() => setIssueId("")}
+              aria-label={tExp(($) => $.back)}
+              className="inline-flex size-4 items-center justify-center rounded text-xs hover:bg-muted hover:text-foreground"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         <form
           onSubmit={(e) => {
             e.preventDefault();

@@ -34,6 +34,7 @@ type Horizon = "day" | "week" | "month" | "year";
 export function PythiaView({ issueId: initialIssueId = null }: { issueId?: string | null } = {}) {
   const pythiaOracleEnabled = useExperimentalFlag("pythia_oracle", false);
   const { t } = useT("pythia");
+  const { t: tExp } = useT("experimental");
   const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -137,6 +138,21 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
             还没绑定?先到任务列表里给某个 issue 选 Pythia,再点上方「打开实验室面板」回来。
           </div>
         )}
+        {issueId ? (
+          <div className="flex items-center justify-end gap-1.5 border-b border-border/60 bg-muted/30 px-6 py-1.5 text-[10px] text-muted-foreground">
+            <span className="rounded border border-border bg-background/40 px-1.5 py-0.5 font-mono text-foreground/80">
+              {issueId.slice(0, 8)}…
+            </span>
+            <button
+              type="button"
+              onClick={() => setIssueId(null)}
+              aria-label={tExp(($) => $.back)}
+              className="inline-flex size-4 items-center justify-center rounded text-xs hover:bg-muted hover:text-foreground"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         <Suspense
           fallback={
             <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
