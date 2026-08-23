@@ -110,3 +110,11 @@ as "broken" (`eda379eab`, 4 locales).
 Standard: snapshot → migrate up (274 already applied) → bundle-cli →
 electron-vite build → `electron-builder --mac --dir` from `apps/desktop/`
 → cp -R → `scripts/desktop-sign-nested-binaries.sh` → cold-start verify.
+
+## Post-release fixes
+
+Two UX follow-ups shipped after the main 0.5.60 batch closed (both
+lab-side, no backend surface, no migration):
+
+- `df60a8d62` — **progress feedback during lab creation + Back affordance on lab views**. While the lab-creation form is mid-submit the user now sees a spinner-state copy + a disabled trigger (was a dead button that read as "broken"); every lab view gains a top-left Back affordance that returns to the issue detail (was the only way back via the sidebar, easy to miss).
+- `eda5b69bb` — **"View in lab" click-to-jump from issue result cards**. Each result item on the issue-bound LabOutputPanel now carries a right-aligned `View in lab →` AppLink that navigates to the lab route pre-scoped to the current issue (`?issue=<id>`). Pythia / Mythos / CodeCanvas were already wired; ClaudeSciencePanel (attachments / predictions / code blocks) gained the same affordance, bringing the four A-class labs to parity. The `?issue=<id>` query is informational today — receiver-side consumption (auto-selecting the matching task in the lab view) is deferred per main-session judgment.

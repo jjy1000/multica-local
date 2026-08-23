@@ -193,3 +193,14 @@ Go 的 defer 参数即时求值: `defer persistIssueForecastRun(r, ifc, collecte
 | #3 code_canvas 轮询 60s 平顶(无 live 态) | ⚪ 接受 — artifacts 无进行中阶段,偏离有理由 |
 | #4 swarm ctx.Done 退出不 drainTasks | ⚪ 接受 — 服务器关停连坐杀 daemon 任务;若关停改为非致命需回看 |
 | #5 mythos enhancer 依赖 issue 终态(24h 上限) | ⚪ 接受 — 有界、每 tick 持久化、启动重收养,设计使然 |
+
+## 后续 UX 补口 (df60a8d62 / eda5b69bb)
+
+主批 0.5.60 在 `8fe19fd10` 关闭后,`epic/0.5.13-integration` 继续追加了两个实验室侧 UX 补口(均为纯 renderer,无后端面、无迁移)。CLAUDE.md "Current release" 计数从 16 → 18。
+
+- **`df60a8d62` — progress feedback during lab creation + Back affordance on lab views。** 实验创建表单提交中显示 spinner 文案 + 禁用触发器(原为"看起来坏了"的死按钮);每个实验视图新增左上角 Back 返回 issue detail(原本只能从侧栏返回,容易漏)。审计未单独审计此面,但与 0.5.60 batch 不重叠。
+- **`eda5b69bb` — "View in lab" click-to-jump from issue result cards。** LabOutputPanel 每个结果项现在带右侧对齐的 `View in lab →` AppLink,跳转到当前 issue 范围(`?issue=<id>`)的实验室路由。Pythia / Mythos / CodeCanvas 此前已布线;ClaudeSciencePanel 的附件 / 推演 / 代码块三项补齐同等 affordance,四个 A-class 实验室至此完全对齐。
+
+**Deferred (receiver-side `?issue=` consumption):** 当前 `?issue=<id>` 仅作为信息查询串 — 实验室视图并未自动选中与该 issue 关联的 task/run。主会话判定为按需延期(未来 hookup 时实现,不在本批)。
+
+**风险评估**:均为纯 renderer 改动,不触及 `.asar` / `asar.unpacked` 边界;ship-mac 链无需重跑;零数据迁移、零 row-parity delta。
