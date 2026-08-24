@@ -1,4 +1,5 @@
 import { app } from "electron";
+import { isAllowedTargetApiUrl } from "../daemon-manager";
 
 // upstream-registry bridges the desktop main-process managers to
 // the in-process server state used by the same-origin reverse proxy
@@ -55,6 +56,19 @@ interface UpstreamRegistryEntry {
 // launch. In dev / packaged the port is stable (8090) but reading
 // from the file matches the renderer's `apiBaseURL()` helper so we
 // never disagree about which Multica server we are talking to.
+//
+// 0.5.67 audit fix (F-027 extension): every URL candidate is
+// gated through isAllowedTargetApiUrl (loopback + private LAN
+// http(s) only). Pre-fix this function trusted any URL written in
+// desktop.json or MULTICA_API_URL env — combined with the JWT
+// attach in `registerExperimentalUpstream` /
+// `unregisterExperimentalUpstream`, a user who pointed
+// desktop.json at `https://attacker.example.com` (or set the env
+// var) would silently POST their full Multica auth token to the
+// attacker. F-027 already enforced this on `daemon:set-target-api-url`
+// (F-027, closed 0.5.18); this commit extends the same gate to
+// the upstream-registry IPC. Rejected candidates fall through to
+// the safe localhost default.
 let cachedBaseURL: string | null = null;
 async function apiBaseURL(): Promise<string> {
   if (cachedBaseURL !== null) return cachedBaseURL;
@@ -65,7 +79,11 @@ async function apiBaseURL(): Promise<string> {
     const cfgPath = path.join(os.homedir(), ".multica", "desktop.json");
     const raw = await fs.readFile(cfgPath, "utf-8");
     const cfg = JSON.parse(raw) as { apiUrl?: string };
-    if (typeof cfg.apiUrl === "string" && cfg.apiUrl.length > 0) {
+    if (
+      typeof cfg.apiUrl === "string" &&
+      cfg.apiUrl.length > 0 &&
+      isAllowedTargetApiUrl(cfg.apiUrl)
+    ) {
       cachedBaseURL = cfg.apiUrl;
       return cfg.apiUrl;
     }
@@ -73,7 +91,12 @@ async function apiBaseURL(): Promise<string> {
     // Fall through to env-based guess.
   }
   const fromEnv = process.env["MULTICA_API_URL"];
-  cachedBaseURL = fromEnv ?? "http://localhost:8090";
+  if (typeof fromEnv === "string" && fromEnv.length > 0 && isAllowedTargetApiUrl(fromEnv)) {
+    cachedBaseURL = fromEnv;
+    return fromEnv;
+  }
+  // Safe default — localhost loopback is always allowed.
+  cachedBaseURL = "http://localhost:8090";
   return cachedBaseURL;
 }
 
