@@ -17,6 +17,12 @@
 The open-source managed agents platform.<br/>
 Turn coding agents into real teammates — assign tasks, track progress, compound skills.
 
+> **⚠️ This checkout is a localized single-user fork of [multica-ai/multica](https://github.com/multica-ai/multica).**
+> The upstream README below describes the upstream cloud product. This fork's actual behavior is
+> governed by [`CLAUDE.md`](./CLAUDE.md) — start with the **Localized Fork** section (no telemetry,
+> no OAuth, no cloud, username-only login, macOS desktop app as the primary target). Dev workflow:
+> [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+
 [![CI](https://github.com/multica-ai/multica/actions/workflows/ci.yml/badge.svg)](https://github.com/multica-ai/multica/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/multica-ai/multica?style=flat)](https://github.com/multica-ai/multica/stargazers)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/W8gYBn226t)

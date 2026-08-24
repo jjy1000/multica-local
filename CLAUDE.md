@@ -184,78 +184,33 @@ Pinned versions — do not bump casually:
 
 ## Commands
 
-`make` (or `make help`) prints the full target list — `make` defaults to `help`, not to a destructive target. The one-command bootstrap is `make dev`: auto-detects main vs worktree, creates env file, installs deps, runs migrations, starts backend + frontend.
-
 > **Single-command release**: `bash scripts/ship-mac.sh --yes` runs every ship-chain step end-to-end (snapshot → bundle-cli → build → package → nested-binary signing → cold-start verify), aborts on first failure, and is the canonical ship entry point per **Ship chain** below. `--build-only` stops before `/Applications` overwrite.
 
-```bash
-make dev              # auto-setup and start the app
-make start            # start backend + frontend
-make stop             # stop app processes for this checkout
-make db-drop          # permanently drop this checkout's local database
-make remove-worktree WORKTREE=../path  # drop a linked worktree DB, then remove it
-make server           # run Go server only
-make daemon           # run local daemon
-make test             # Go tests
-make sqlc             # regenerate sqlc code after SQL changes
-pnpm install
-pnpm dev:web
-pnpm dev:desktop
-pnpm build
-pnpm typecheck
-pnpm lint
-pnpm test             # TS/Vitest tests through Turborepo
-pnpm exec playwright test
-pnpm ui:add badge     # shadcn/Base UI component into packages/ui
+For dev workflow (bootstrap, daily commands, worktree, run/serve/test, troubleshooting, destructive reset), see [`CONTRIBUTING.md`](./CONTRIBUTING.md) — the authoritative dev doc. Three compact reference patterns below are the ones that come up in every fix + ship cycle:
 
+```bash
 # Single Go test (from server/)
 cd server && go test -run TestName -count=1 -timeout 60s ./internal/handler/
 
 # Single Vitest test (from repo root)
 pnpm test path/to/file.test.ts
 
-# Desktop packaging (from repo root)
-pnpm --filter @multica/desktop bundle-cli   # Go binaries + migrations + PG manifest → resources/
-pnpm --filter @multica/desktop build        # electron-vite build
-pnpm --filter @multica/desktop package      # electron-builder → dist/multica-desktop-<ver>-mac-arm64.dmg
+# Docs-sync check (run after any root CLAUDE.md edit, before commit)
+node scripts/check-agents-docs-sync.mjs
 ```
 
-### Before packaging
+### Before packaging (fork-specific, NOT in CONTRIBUTING.md)
 
-Run the data-safety snapshot (mandatory):
 ```bash
+# 1. Data-safety snapshot (mandatory; exit 1 blocks packaging).
 bash ~/.multica/scripts/pre-update-snapshot.sh
-```
-Backs up current `/Applications/Multica.app`, DB tables, config files, KB vaults. Failure (exit 1) blocks packaging. Auto-detects PG port (5432 prod / 5433 dev). Prunes old `.bak` dirs on each run.
-
-**Run pending migrations before bundle-cli** (see 0.3.20 ship lesson):
-```bash
+# 2. Apply pending migrations (surface SQL errors at build time, not first launch).
 cd server && go run ./cmd/migrate up
 ```
-The `.app` cold start auto-runs pending migrations, but surface SQL errors at build time rather than at first user launch.
 
-### Desktop install
+### Version source (fork-specific)
 
-```bash
-hdiutil attach dist/multica-desktop-*-mac-arm64.dmg -nobrowse -quiet
-cp -R /Volumes/Multica*/Multica.app /Applications/
-hdiutil detach /Volumes/Multica* -quiet
-
-# Fallback when DMG generation hangs (create-dmg 1.2.3 incompat, 0.3.4/0.3.13/0.3.15+):
-cp -R dist/mac-arm64/Multica.app /Applications/
-
-# Verify cold start loaded the new binary:
-bash ~/.multica/scripts/verify-desktop-cold-start.sh
-```
-Do NOT run `chown -R $USER:admin` (broken in zsh sandbox, memory `multica-dmg-replace-chown-pitfall`); `cp -R` doesn't trigger it.
-
-### Worktree dev isolation (0.2.95)
-
-`apps/desktop/scripts/dev.mjs` auto-detects worktree-isolated renderer ports and app names via `worktree-dev-env.mjs`. Linked worktrees appear as "Multica Canary" with offset ports. Worktrees share one PG container; use `make worktree-env` + `make setup-worktree` + `make start-worktree` for manual setup.
-
-### Version source
-
-This checkout **is** a git repository, but its tags are `pre-update-*` snapshot markers, not release tags — so `git describe --tags` returns a marker like `pre-update-...-gfa6fb31`, not a usable release version. `bundle-cli.mjs` runs `git describe` first, then falls back to `apps/desktop/package.json` → `version` whenever the result is empty or a `pre-update-` marker (see `apps/desktop/scripts/bundle-cli.mjs`). `apps/desktop/package.json` is the canonical version source. Bump `apps/desktop/package.json` only.
+This checkout's tags are `pre-update-*` snapshot markers, not release tags — `git describe --tags` returns `pre-update-...-g<sha>`. `bundle-cli.mjs` falls back to `apps/desktop/package.json` → `version` whenever the result is empty or a `pre-update-` marker. **`apps/desktop/package.json` is the canonical version source. Bump only that file.**
 
 ## Authentication
 
@@ -437,6 +392,7 @@ For code changes, run the narrowest useful checks while iterating, then broader 
 
 ```bash
 pnpm typecheck
+pnpm lint
 pnpm test
 make check-fast       # affected TS typecheck + unit + lint; no DB/Go/E2E
 make test
