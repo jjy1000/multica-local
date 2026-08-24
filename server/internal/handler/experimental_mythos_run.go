@@ -48,7 +48,19 @@ const (
 	mythosRateLimitWindow  = 5 * time.Minute // 1 run per workspace per 5 min
 	mythosRateLimitMaxRuns = 1
 	mythosWaitPollInterval = 1 * time.Second
-	mythosWaitTimeout      = 60 * time.Second
+	// 0.5.65 audit fix: 60s was empirically too short. The daemon
+	// polls for tasks on its own beat (server-side claim only fires
+	// after `EmptyClaim.Bump` resolves + daemon's own poll cycle),
+	// and the first claim can land 3-5 min after enqueue when the
+	// runtime was previously marked empty + the daemon was idle.
+	// The previous timeout caused the HTTP request to return with
+	// mythos_run.status='completed' (via the deadline-exceeded path)
+	// while agent_task_queue rows were still queued — a false-positive
+	// completion that left callers (CLI, Render, the loop body) with
+	// no convergence signal and no coda synthesis. 5min covers the
+	// observed p99 daemon latency for both lab-bound and free-form
+	// sub-issues.
+	mythosWaitTimeout = 5 * time.Minute
 )
 
 // mythosRateLimiter is a per-workspace sliding-window limiter. The

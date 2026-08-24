@@ -109,15 +109,22 @@ func TestMythosMaxLoopHardCap_IsFive(t *testing.T) {
 
 func TestMythosWaitConstants_InRange(t *testing.T) {
 	// Sanity: poll interval should be much smaller than the timeout
-	// (the loop runs at most WaitTimeout / PollInterval steps) and
-	// the timeout should be short enough to fit inside the HTTP
-	// request budget (5min).
+	// (the loop runs at most WaitTimeout / PollInterval steps).
 	if mythosWaitPollInterval >= mythosWaitTimeout {
 		t.Fatalf("poll interval %v must be < timeout %v",
 			mythosWaitPollInterval, mythosWaitTimeout)
 	}
-	if mythosWaitTimeout >= 5*time.Minute {
-		t.Fatalf("wait timeout %v should be < 5min to stay within HTTP budget",
+	// 0.5.65 audit fix: the historical assertion was `timeout < 5min`,
+	// which assumed an HTTP request budget. The main server
+	// (`cmd/server/main.go:406-409`) intentionally omits WriteTimeout,
+	// so the request can run as long as the runner needs. The real
+	// budget is the daemon's first-claim latency — empirically 3-5 min
+	// when the runtime was previously idle + EmptyClaim cache was
+	// stale. 5 min is the minimum that reliably covers that path.
+	if mythosWaitTimeout < 5*time.Minute {
+		t.Fatalf("wait timeout %v must be >= 5min to cover daemon first-claim latency "+
+			"(otherwise mythos_run.status='completed' fires while agent_task_queue "+
+			"rows are still queued, producing false-positive completion)",
 			mythosWaitTimeout)
 	}
 }
