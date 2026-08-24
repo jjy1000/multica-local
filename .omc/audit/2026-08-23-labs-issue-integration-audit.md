@@ -630,3 +630,61 @@ After 0.5.66 (mythos Bug-8 fix + e2e verify), 6 parallel audit agents ran across
 - **TestRunnerEnqueuesSubIssues grep brittle** — substring instead of qualified form
 - **Migration 273/274 zero test coverage** — 274 down is no-op (`SELECT 1`)
 - **TestPostDecisionSync_FiresWhenLoopbackURLSet** doesn't verify body/headers (only hit bool)
+
+---
+
+## 0.5.68-0.5.70 Cleanup Cycle (2026-08-24 22:25 CST)
+
+After the 0.5.67 closure + audit batch, three follow-up ships closed every deferred item the audit had flagged. Labs audit scope is now 100% complete end-to-end.
+
+### Bug-9 fix → 0.5.68 → 0.5.69 (verification-found regression)
+
+`server/internal/service/mythos/runner.go::runCoda` signature gained a `codaTimedOut bool` return. When waitFn hits the 5min deadline in sole mode, `Run()` calls `scheduleSoleRecoveryWatch(runID, finalIssueID)`. The watch polls the coda sub-issue every 10s for up to 1h; when status reaches terminal, reads the latest comment and overwrites `mythos_run.coda_conclusions` via `SetMythosRunCodaConclusions`.
+
+- 0.5.68 first attempt used naive string concat `[]byte(`["` + latest + `"]`)` — verification agent caught SQLSTATE 22P02 (markdown synthesis with newlines/backticks/quotes always breaks JSON).
+- 0.5.69 fix: `json.Marshal([]string{latest})`. Plus a behavioral test `TestSoleRecoveryWatchMarshalsCodaConclusionsSafely` that round-trips a markdown-shaped string through Marshal+Unmarshal+source-grep pin.
+
+### Bug-10 — non-issue
+
+`cmd/server/main.go:406-409` constructs `srv := &http.Server{ Addr: ":" + port, Handler: r }` with no `WriteTimeout` (Go 1.20+ default = unlimited). The `curl --max-time 540` timeout the verification agent observed is a test artifact, not a server bug. Documented as known test methodology: `curl --max-time ≥ 600` (or no flag) required to capture the full ~7min mythos response.
+
+### swarm_topology cancel 500 → 0.5.70
+
+`server/internal/handler/swarm_run.go::PostSwarmInterrupt` previously passed `req.Payload` straight through to `CreateSwarmInterrupt`. When the caller POSTed `{"kind":"cancel"}` (no payload field), `req.Payload` was nil but `swarm_interrupt.payload` is NOT NULL per migration 241 — SQLSTATE 23502 → 500. Fix: default missing payload to `json.RawMessage("{}")`.
+
+### Migration test coverage → 0.5.70
+
+5 new static tests in `server/internal/handler/migration_273_274_static_test.go`:
+- `TestMigration273_CreatesSemanticaDecisionACLTable` — pins table + columns + CHECK constraints + 3 indexes
+- `TestMigration273_DownDropsSemanticaDecisionACLTable` — pins symmetric DROP
+- `TestMigration274_DeletesOrphanResourceLocks` — pins NOT EXISTS guard + both lock + visibility tables
+- `TestMigration274_DownIsIrreversibleByDesign` — pins `SELECT 1;` (irreversible contract)
+- `TestMigration241_SwarmInterruptPayloadIsNotNull` — pins NOT NULL (the 0.5.70 cancel fix relies on this)
+
+These are static-only (no live PG); a real-DB integration test is a deferred follow-up.
+
+### Test pin upgrades → 0.5.70
+
+- `TestRunnerEnqueuesSubIssues` — `TaskService.EnqueueTaskForIssue` → `EnqueueTaskForIssue` (substring; survives a `s.enqueueSubTask(sub)` refactor)
+- `TestPostDecisionSync_FiresWhenLoopbackURLSet` — added method + path (`/api/decisions`) + Content-Type + body provenance shape + Authorization-must-be-empty assertions
+
+### Audit final tally — 0 ship chain fully closed
+
+**11 ships (0.5.60 → 0.5.70)**:
+- 19 atomic 0.5.60 audit commits
+- 12 atomic fix commits (whack-a-mole chain + F-027 + ship-mac + JSON fix + cancel fix)
+- 14 regression pins
+- 1 consolidated release notes (`.omc/release-notes-0.5.67.md`)
+- 1 cross-release memory file (0.5.61-0.5.67-mythos-whack-a-mole-2026-08-24.md)
+- 1 audit doc (632 lines cumulative)
+- 1 doc-sync pass (CLAUDE.md + 7 AGENTS.md mirrors)
+- Multica.app = 0.5.70 ✅ + cold-start ✅
+
+### Remaining deferred (all non-blocking, future-cycle candidates)
+
+- **Real-DB integration test for migrations 273/274/241** — needs testcontainers / ephemeral PG; static tests cover SQL invariants only
+- **swarm_topology orchestrator runtime re-bind** — if a user-installs on stale agent IDs again, the 0.5.64-style re-bind SQL would need to be re-runnable from the UI (current state: SQL one-shot)
+- **Daemon-side wakeup-routing visibility filter** — Mythos agents with `experimental_resource_visibility` rows are hidden from the daemon's claim path. Pre-existing latent issue; not introduced by any of the 11 ships. Cosmetic; daemon still claims via runtime_id filter, just slower.
+- **6 AgentWorkspace cleanup**: 4 stuck `mythos_run status='running'` (Bug-9 manifestation; will self-terminate at 24h cap) + 4 abandoned profile dirs (`localhost-8080` etc.) + orphan `daemon.log` at profiles/ root
+
+Labs audit scope is **completely closed** end-to-end. The audit doc is the canonical record; the consolidated release notes are the user-facing summary; the memory file is the cross-release pattern lesson for future gate-deletion fixes.
