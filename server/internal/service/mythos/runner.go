@@ -629,13 +629,16 @@ func (s *Service) runLoopIteration(
 	body := ""
 	if waitFn != nil {
 		out, werr := waitFn(ctx, subID)
-		if werr != nil {
-			// A failed waitFn is non-fatal for the RDT loop — record
-			// a synthetic body so the convergence score stays defined.
+		// 0.5.66 audit fix: see runCoda. Preserve partial agent output
+		// even when waitFn returned an error (timeout). Prefer the
+		// captured body; fall back to the synthetic string only when
+		// waitFn returned nothing.
+		switch {
+		case out != "":
+			body = out
+		case werr != nil:
 			body = fmt.Sprintf("[mythos loop iter=%d] sub-issue %s wait failed: %v",
 				iter, title, werr)
-		} else {
-			body = out
 		}
 	}
 	if body == "" {
@@ -701,10 +704,20 @@ func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, wa
 	summary := ""
 	if waitFn != nil {
 		out, werr := waitFn(ctx, subID)
-		if werr != nil {
-			summary = fmt.Sprintf("[mythos coda] %s", werr.Error())
-		} else {
+		// 0.5.66 audit fix: preserve the partial agent output captured
+		// by waitFn even when waitFn returned an error (timeout). The
+		// daemon may have finished the coda task *just* after the
+		// waitFn's 5min deadline expired, posting real synthesis as a
+		// comment — but the historical code overwrote it with a
+		// synthetic "[mythos coda] context deadline exceeded" string,
+		// discarding the convergence signal. Prefer the captured body;
+		// fall back to the synthetic string only when waitFn returned
+		// nothing.
+		switch {
+		case out != "":
 			summary = out
+		case werr != nil:
+			summary = fmt.Sprintf("[mythos coda] %s", werr.Error())
 		}
 	}
 	if summary == "" {

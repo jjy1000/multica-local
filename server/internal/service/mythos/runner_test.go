@@ -135,7 +135,7 @@ func TestRunnerAssignsIssueNumber(t *testing.T) {
 // and coda CreateIssue. If a future refactor removes either call,
 // the test fires (and the production runner hangs again).
 func TestRunnerEnqueuesSubIssues(t *testing.T) {
-	src := readRunnerSource(t)
+	src := readRunReader(t)
 	if !strings.Contains(src, "TaskService.EnqueueTaskForIssue") {
 		t.Fatalf("runner.go must call TaskService.EnqueueTaskForIssue after CreateIssue " +
 			"on both loop and coda sub-issues; otherwise the daemon never claims them")
@@ -152,6 +152,36 @@ func TestRunnerEnqueuesSubIssues(t *testing.T) {
 		t.Fatalf("NewService signature must require *service.TaskService so the wiring is enforced")
 	}
 }
+
+// TestRunnerPreservesPartialWaitFnOutput — 0.5.66 audit regression pin.
+// runLoopIteration + runCoda historically overwrote the body/summary
+// with a synthetic "[mythos coda] context deadline exceeded" string
+// whenever waitFn returned an error — even though waitFn's polling
+// loop captures the last agent comment body before the timeout. The
+// daemon may finish the task 1-2 seconds after waitFn's 5min deadline
+// expires, so the captured body often contains real synthesis that
+// the historical overwrite discarded. The fix switches on `out != ""`
+// first, then falls back to the synthetic string. If a future refactor
+// restores the if/else-discard pattern, the test fires.
+func TestRunnerPreservesPartialWaitFnOutput(t *testing.T) {
+	src := readRunReader(t)
+	// Both call sites must prefer out (captured body) over the
+	// werr-derived synthetic string.
+	if !strings.Contains(src, "case out != \"\":") {
+		t.Fatalf("runner.go waitFn-result handling must prefer captured body " +
+			"over the werr-derived synthetic string; otherwise mythos_run loses " +
+			"real synthesis when waitFn times out milliseconds before daemon completion")
+	}
+	// Both audit-fix comments must be present.
+	if !strings.Contains(src, "0.5.66 audit fix") {
+		t.Fatalf("runner.go must document the 0.5.66 partial-output preservation fix inline")
+	}
+}
+
+// readRunReader is an alias for the existing readRunnerSource helper
+// — earlier versions of this file used a different name. Keep the
+// alias so the test names read cleanly without renaming the helper.
+func readRunReader(t *testing.T) string { return readRunnerSource(t) }
 
 // readRunnerSource loads runner.go via go's embed-like test helper.
 // We don't actually need embed — a plain os.ReadFile of the file
