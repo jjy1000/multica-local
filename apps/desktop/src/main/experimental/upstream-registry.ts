@@ -77,6 +77,41 @@ async function apiBaseURL(): Promise<string> {
   return cachedBaseURL;
 }
 
+// authToken reads the desktop profile JWT so the in-process main-process
+// caller can authenticate to /__experimental/upstream. After 0.5.29 P1-1
+// that endpoint sits inside middleware.Auth — a missing token returns
+// 401 and the upstream registry stays empty, which silently downgrades
+// Pythia / Mythos / etc. to synthetic fallbacks. The desktop profile
+// config is the same source pythiaRuntimeEnv() reads (pythia-manager.ts
+// injects it into the subprocess env), so we mirror that lookup here.
+let cachedAuthToken: string | null = null;
+async function authToken(): Promise<string> {
+  if (cachedAuthToken !== null) return cachedAuthToken;
+  try {
+    const fs = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const cfgPath = path.join(
+      os.homedir(),
+      ".multica",
+      "profiles",
+      `desktop-${process.env["MULTICA_DESKTOP_HOST"] ?? "localhost-8090"}`,
+      "config.json",
+    );
+    const raw = await fs.readFile(cfgPath, "utf-8");
+    const cfg = JSON.parse(raw) as { token?: string; api_token?: string };
+    const tok = cfg.token ?? cfg.api_token;
+    if (typeof tok === "string" && tok.length > 0) {
+      cachedAuthToken = tok;
+      return tok;
+    }
+  } catch {
+    // Fall through — caller will log a 401.
+  }
+  cachedAuthToken = "";
+  return "";
+}
+
 // registerExperimentalUpstream POSTs the manager's loopback URL to
 // the server's in-process registry so /experimental/{service}/*
 // reverse-proxy requests have an upstream to forward to.
@@ -92,10 +127,14 @@ export async function registerExperimentalUpstream(
   key: string = "",
 ): Promise<void> {
   const base = await apiBaseURL();
+  const token = await authToken();
   try {
     const res = await fetch(`${base}/__experimental/upstream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ service, url, key } satisfies UpstreamRegistryEntry),
     });
     if (!res.ok) {
@@ -116,9 +155,11 @@ export async function unregisterExperimentalUpstream(
   service: UpstreamRegistryEntry["service"],
 ): Promise<void> {
   const base = await apiBaseURL();
+  const token = await authToken();
   try {
     await fetch(`${base}/__experimental/upstream/${service}`, {
       method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
   } catch (err) {
     process.stderr.write(
