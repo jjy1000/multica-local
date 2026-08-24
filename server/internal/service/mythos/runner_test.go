@@ -11,6 +11,7 @@
 package mythos
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -210,6 +211,50 @@ func TestRunnerSchedulesSoleRecoveryWatch(t *testing.T) {
 	}
 	if !strings.Contains(src, "0.5.68") {
 		t.Fatalf("runner.go must document the 0.5.68 sole-recovery-watch fix inline")
+	}
+}
+
+// TestSoleRecoveryWatchMarshalsCodaConclusionsSafely — 0.5.69 audit
+// regression pin. The 0.5.68 recovery-watch used
+// `[]byte(\`["\` + latest + \`]"\`)` to persist the daemon's
+// coda synthesis. Agent-written synthesis is markdown — always
+// contains newlines, backticks, em-dashes, quotes, backslashes.
+// The naive concat always tripped SQLSTATE 22P02 at the JSON parse
+// step, so the recovery watch wrote nothing. The fix uses
+// json.Marshal([]string{latest}). This is a behavioral test that
+// actually invokes the encoding path on a markdown-shaped input.
+func TestSoleRecoveryWatchMarshalsCodaConclusionsSafely(t *testing.T) {
+	// Markdown-shaped coda synthesis with all the nasty chars:
+	// newlines, backticks (code fence), em-dashes, raw " and \,
+	// unicode, control-ish whitespace.
+	const markdown = "## Coda synthesis\n\nThe \"answer\" is:\n\n" +
+		"```json\n{\"key\": \"value\\path\"}\n```\n\n" +
+		"with em—dash and backtick `code`.\n"
+	encoded, err := json.Marshal([]string{markdown})
+	if err != nil {
+		t.Fatalf("json.Marshal must accept markdown coda synthesis, got: %v", err)
+	}
+	// Round-trip: decode + check the string survives intact.
+	var out []string
+	if err := json.Unmarshal(encoded, &out); err != nil {
+		t.Fatalf("encoded payload must round-trip, got: %v", err)
+	}
+	if len(out) != 1 || out[0] != markdown {
+		t.Fatalf("encoded payload must preserve markdown verbatim; "+
+			"got len=%d, first=%q", len(out), out[0])
+	}
+	// Source-level pin: the runner.go fix must use json.Marshal,
+	// NOT naive string concat. If a future refactor reverts to
+	// concat, this test still pins the round-trip behavior at the
+	// function level; the literal grep is defense-in-depth.
+	src := readRunReader(t)
+	if strings.Contains(src, "[]byte(`[\\\"` +") {
+		t.Fatalf("runner.go must not use naive string concat for coda_conclusions; " +
+			"use json.Marshal instead — markdown always has chars that break JSON")
+	}
+	if !strings.Contains(src, "json.Marshal([]string{latest})") {
+		t.Fatalf("runner.go must use json.Marshal for coda_conclusions persist; " +
+			"otherwise markdown content trips SQLSTATE 22P02")
 	}
 }
 

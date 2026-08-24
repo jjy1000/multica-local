@@ -326,9 +326,21 @@ func (s *Service) soleRecoveryWatchLoop(ctx context.Context, runID pgtype.UUID, 
 			if latest == "" {
 				return
 			}
+			// 0.5.69 audit fix: use json.Marshal instead of naive
+			// string concat. Agent-written coda synthesis is always
+			// markdown — newlines, backticks, em-dashes, quotes,
+			// backslashes are guaranteed. The previous
+			// `["` + latest + `"]` form broke SQLSTATE 22P02 at the
+			// first non-escaped character.
+			encoded, marshalErr := json.Marshal([]string{latest})
+			if marshalErr != nil {
+				slog.WarnContext(ctx, "mythos recovery watch: coda_conclusions marshal failed",
+					"run", runID, "err", marshalErr)
+				return
+			}
 			if err := s.queries.SetMythosRunCodaConclusions(ctx, db.SetMythosRunCodaConclusionsParams{
 				ID:              runID,
-				CodaConclusions: []byte(`["` + latest + `"]`),
+				CodaConclusions: encoded,
 			}); err != nil {
 				slog.WarnContext(ctx, "mythos recovery watch: coda_conclusions persist failed",
 					"run", runID, "err", err)
