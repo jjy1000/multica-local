@@ -337,11 +337,21 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Audit row.
+	payload := req.Payload
+	if len(payload) == 0 {
+		// 0.5.70 audit fix: swarm_interrupt.payload is NOT NULL in
+		// the schema (migration 241); a nil jsonb trips 23502.
+		// Default to '{}' so callers can POST {"kind":"cancel"}
+		// without a payload field. Per-kind structured data (e.g.
+		// 'redirect' with a target_issue_id) still passes through
+		// untouched.
+		payload = json.RawMessage("{}")
+	}
 	if _, err := h.Queries.CreateSwarmInterrupt(r.Context(), db.CreateSwarmInterruptParams{
 		SwarmRunID: runUUID,
 		UserID:     userUUID,
 		Kind:       req.Kind,
-		Payload:    req.Payload,
+		Payload:    payload,
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "create interrupt: "+err.Error())
 		return
