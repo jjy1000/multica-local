@@ -178,6 +178,41 @@ func TestRunnerPreservesPartialWaitFnOutput(t *testing.T) {
 	}
 }
 
+// TestRunnerSchedulesSoleRecoveryWatch — 0.5.68 audit regression pin.
+// Before this commit, when runCoda's waitFn hit the 5min deadline,
+// Run() returned with mythos_run.status='completed' but the daemon
+// often finished the coda task 30s–5min later, posting real
+// synthesis as a comment that was never persisted into
+// mythos_run.coda_conclusions. The fix: runCoda now returns a
+// `codaTimedOut` bool; Run() calls scheduleSoleRecoveryWatch when
+// it's true in sole mode (skipped for enhancer, where tickSupervise
+// already handles completion). If a future refactor drops the call,
+// drops the codaTimedOut propagation, or moves the call site out
+// of the sole-mode branch, this test fires.
+func TestRunnerSchedulesSoleRecoveryWatch(t *testing.T) {
+	src := readRunReader(t)
+	// runCoda must return a bool (codaTimedOut).
+	if !strings.Contains(src, "(string, pgtype.UUID, bool, error)") {
+		t.Fatalf("runCoda must return codaTimedOut bool; otherwise sole recovery " +
+			"watch can never be scheduled")
+	}
+	// Run() must check the bool + schedule the watch + only for sole mode.
+	if !strings.Contains(src, "scheduleSoleRecoveryWatch(run.ID, finalID)") {
+		t.Fatalf("Run() must call scheduleSoleRecoveryWatch when runCoda timed out")
+	}
+	if !strings.Contains(src, "if codaTimedOut && cfg.Mode == ModeSole") {
+		t.Fatalf("recovery-watch schedule must be sole-mode-only; " +
+			"enhancer mode already uses tickSupervise for completion")
+	}
+	// The scheduler + loop must exist with both audit-fix comments.
+	if !strings.Contains(src, "soleRecoveryWatchLoop") {
+		t.Fatalf("soleRecoveryWatchLoop goroutine missing")
+	}
+	if !strings.Contains(src, "0.5.68") {
+		t.Fatalf("runner.go must document the 0.5.68 sole-recovery-watch fix inline")
+	}
+}
+
 // readRunReader is an alias for the existing readRunnerSource helper
 // — earlier versions of this file used a different name. Keep the
 // alias so the test names read cleanly without renaming the helper.

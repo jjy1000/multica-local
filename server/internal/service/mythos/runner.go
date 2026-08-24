@@ -229,6 +229,124 @@ func (s *Service) Stop() {
 	}
 }
 
+// scheduleSoleRecoveryWatch spawns a one-shot goroutine that watches
+// the coda sub-issue for terminal-state transition and, when the
+// daemon finishes, overwrites mythos_run.coda_conclusions with the
+// daemon's latest comment body. Used in sole mode when the coda
+// waitFn hit the 5min deadline (rare with the 0.5.65 timeout,
+// but possible on slow daemon first-claim paths).
+//
+// Tracked via superviseSet so Service.Stop() (called on server
+// shutdown) cancels the watch. The watch is bounded by
+// soleRecoveryWatchMaxLifetime (1h) — past that, the daemon
+// almost certainly won't surface, and the run is already
+// status='completed', so we exit cleanly without writing.
+//
+// Skipped for enhancer mode — the existing tickSupervise path
+// already handles completion detection for target_assignee.
+func (s *Service) scheduleSoleRecoveryWatch(runID pgtype.UUID, finalIssueID pgtype.UUID) {
+	ctx, cancel := context.WithTimeout(context.Background(), soleRecoveryWatchMaxLifetime)
+
+	s.superviseMu.Lock()
+	if old, ok := s.superviseSet[runID]; ok {
+		old() // cancel any pre-existing watch for this run
+	}
+	s.superviseSet[runID] = cancel
+	s.superviseMu.Unlock()
+
+	go func() {
+		defer func() {
+			s.superviseMu.Lock()
+			delete(s.superviseSet, runID)
+			s.superviseMu.Unlock()
+			cancel()
+		}()
+		s.soleRecoveryWatchLoop(ctx, runID, finalIssueID)
+	}()
+}
+
+// soleRecoveryWatchMaxLifetime bounds the one-shot watch so a
+// forgotten daemon can't pin goroutines forever. 1h is twice the
+// observed p99 daemon first-claim latency for the daemon's idle
+// path; anything beyond that is almost certainly a daemon that's
+// gone (the desktop runtime was deleted, the user logged out,
+// etc.) — the run stays status='completed' regardless of whether
+// we ever see a terminal comment.
+const soleRecoveryWatchMaxLifetime = 1 * time.Hour
+
+// soleRecoveryWatchPollInterval — how often the watch polls the
+// coda sub-issue. 10s is fine because each poll is a single
+// indexed PK lookup; over the 1h max-lifetime that's ~360 reads
+// per stuck run, negligible.
+const soleRecoveryWatchPollInterval = 10 * time.Second
+
+// soleRecoveryWatchLoop is the goroutine body for the coda
+// recovery watch. Polls the coda sub-issue until it reaches a
+// terminal status, then reads the latest comment and overwrites
+// mythos_run.coda_conclusions with the agent's real synthesis.
+// Exits cleanly on context cancel (server shutdown, or the
+// 1h max-lifetime cap).
+func (s *Service) soleRecoveryWatchLoop(ctx context.Context, runID pgtype.UUID, codaIssueID pgtype.UUID) {
+	ticker := time.NewTicker(soleRecoveryWatchPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		codaIssue, err := s.queries.GetIssue(ctx, codaIssueID)
+		if err != nil {
+			// transient DB error — log + retry next tick
+			slog.WarnContext(ctx, "mythos recovery watch: read coda issue failed",
+				"run", runID, "coda_issue", codaIssueID, "err", err)
+			continue
+		}
+		switch codaIssue.Status {
+		case "done", "closed", "cancelled":
+			// Read the latest agent comment and overwrite the
+			// captured coda_summary with the daemon's real output.
+			// We don't preserve the original fallback string —
+			// the daemon's actual synthesis is strictly more
+			// informative than "[mythos coda] context deadline
+			// exceeded".
+			comments, cerr := s.queries.ListCommentsForIssue(ctx, db.ListCommentsForIssueParams{
+				IssueID:     codaIssueID,
+				WorkspaceID: codaIssue.WorkspaceID,
+				Limit:       50,
+			})
+			if cerr != nil || len(comments) == 0 {
+				slog.WarnContext(ctx, "mythos recovery watch: no comments for finished coda issue",
+					"run", runID, "coda_issue", codaIssueID, "err", cerr)
+				return
+			}
+			latest := comments[len(comments)-1].Content
+			if latest == "" {
+				return
+			}
+			if err := s.queries.SetMythosRunCodaConclusions(ctx, db.SetMythosRunCodaConclusionsParams{
+				ID:              runID,
+				CodaConclusions: []byte(`["` + latest + `"]`),
+			}); err != nil {
+				slog.WarnContext(ctx, "mythos recovery watch: coda_conclusions persist failed",
+					"run", runID, "err", err)
+				return
+			}
+			slog.InfoContext(ctx, "mythos recovery watch: coda_conclusions updated from daemon",
+				"run", runID, "coda_issue", codaIssueID, "comment_chars", len(latest))
+			return
+		case "todo", "in_progress", "in_review":
+			// Still running — keep polling.
+		default:
+			// Unknown status — treat as still-running (don't exit).
+			slog.WarnContext(ctx, "mythos recovery watch: unknown coda issue status, keep polling",
+				"run", runID, "coda_issue", codaIssueID, "status", codaIssue.Status)
+		}
+	}
+}
+
 // superviseLoop is the per-run supervision goroutine. Defined in
 // supervise.go (same package) — declared as an interface here so
 // runner.go does not have to import the supervise.go file's helpers.
@@ -405,7 +523,7 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 	_ = converged // kept for telemetry hookups later
 
 	// ── Coda ─────────────────────────────────────────────────────────
-	summary, finalID, err := s.runCoda(ctx, cfg, run.ID, waitFn)
+	summary, finalID, codaTimedOut, err := s.runCoda(ctx, cfg, run.ID, waitFn)
 	if err != nil {
 		s.markFailed(ctx, run.ID, err)
 		return nil, fmt.Errorf("mythos coda: %w", err)
@@ -419,6 +537,20 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 		}); err != nil {
 			return nil, fmt.Errorf("mythos final-issue set: %w", err)
 		}
+	}
+
+	// 0.5.68 — sole-mode recovery watch. If the coda waitFn timed
+	// out, the daemon may finish the coda task AFTER this Run() returns.
+	// Without a watch, mythos_run.coda_conclusions would stay empty
+	// forever (or stale). Spawn a one-shot poll that fires when the
+	// coda sub-issue reaches a terminal status, then reads the
+	// daemon's latest comment and overwrites coda_conclusions.
+	//
+	// Skipped for enhancer mode — the existing supervise path
+	// (startSupervise) already handles completion detection for
+	// target_assignee, not for the coda sub-issue.
+	if codaTimedOut && cfg.Mode == ModeSole && finalID.Valid {
+		s.scheduleSoleRecoveryWatch(run.ID, finalID)
 	}
 
 	// Terminal status branch (0.3.31 dual-mode).
@@ -650,9 +782,9 @@ func (s *Service) runLoopIteration(
 // runCoda creates the final summary issue and blocks (via waitFn) for
 // the coda agent to close it. Mirrors runLoopIteration but with a
 // single fixed agent and the `coda` role label.
-func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, waitFn func(context.Context, pgtype.UUID) (string, error)) (string, pgtype.UUID, error) {
+func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, waitFn func(context.Context, pgtype.UUID) (string, error)) (string, pgtype.UUID, bool, error) {
 	if !cfg.CodaAgentID.Valid {
-		return "", pgtype.UUID{}, fmt.Errorf("no coda agent configured")
+		return "", pgtype.UUID{}, false, fmt.Errorf("no coda agent configured")
 	}
 	_, err := s.queries.CreateMythosMember(ctx, db.CreateMythosMemberParams{
 		RunID:     runID,
@@ -661,7 +793,7 @@ func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, wa
 		Iteration: 0,
 	})
 	if err != nil {
-		return "", pgtype.UUID{}, fmt.Errorf("coda member: %w", err)
+		return "", pgtype.UUID{}, false, fmt.Errorf("coda member: %w", err)
 	}
 
 	title := fmt.Sprintf("%scoda", cfg.SubIssuePrefix)
@@ -670,7 +802,7 @@ func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, wa
 	// with the loop sub-issues (or any prior row that omits Number).
 	codaNumber, err := s.queries.IncrementIssueCounter(ctx, cfg.WorkspaceID)
 	if err != nil {
-		return "", pgtype.UUID{}, fmt.Errorf("coda sub-issue number: %w", err)
+		return "", pgtype.UUID{}, false, fmt.Errorf("coda sub-issue number: %w", err)
 	}
 	sub, err := s.queries.CreateIssue(ctx, db.CreateIssueParams{
 		WorkspaceID:  cfg.WorkspaceID,
@@ -688,20 +820,21 @@ func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, wa
 		LabSource:   pgtype.Text{String: Source, Valid: true},
 	})
 	if err != nil {
-		return "", pgtype.UUID{}, fmt.Errorf("coda sub-issue create: %w", err)
+		return "", pgtype.UUID{}, false, fmt.Errorf("coda sub-issue create: %w", err)
 	}
 	subID := pgtype.UUID{Bytes: sub.ID.Bytes, Valid: true}
 
 	// 0.5.64 audit fix: see runLoopIteration. Enqueue the coda
 	// sub-issue so the coda agent actually runs.
 	if s.TaskService == nil {
-		return "", pgtype.UUID{}, fmt.Errorf("mythos: TaskService not wired — NewService requires *service.TaskService")
+		return "", pgtype.UUID{}, false, fmt.Errorf("mythos: TaskService not wired — NewService requires *service.TaskService")
 	}
 	if _, err := s.TaskService.EnqueueTaskForIssue(ctx, sub, pgtype.UUID{}); err != nil {
-		return "", pgtype.UUID{}, fmt.Errorf("coda sub-issue enqueue: %w", err)
+		return "", pgtype.UUID{}, false, fmt.Errorf("coda sub-issue enqueue: %w", err)
 	}
 
 	summary := ""
+	codaTimedOut := false
 	if waitFn != nil {
 		out, werr := waitFn(ctx, subID)
 		// 0.5.66 audit fix: preserve the partial agent output captured
@@ -717,13 +850,21 @@ func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, wa
 		case out != "":
 			summary = out
 		case werr != nil:
+			// 0.5.68 — track that waitFn timed out so the caller can
+			// schedule a sole-mode recovery watch. The watcher reads
+			// the coda sub-issue's terminal status + latest comment
+			// later, and overwrites mythos_run.coda_conclusions with
+			// the daemon's real synthesis when the daemon eventually
+			// finishes (rare with the 0.5.65 5min waitFn, but
+			// possible on a slow daemon first-claim).
+			codaTimedOut = true
 			summary = fmt.Sprintf("[mythos coda] %s", werr.Error())
 		}
 	}
 	if summary == "" {
 		summary = fmt.Sprintf("[mythos coda] Synthesised %s.", cfg.Problem)
 	}
-	return summary, subID, nil
+	return summary, subID, codaTimedOut, nil
 }
 
 func (s *Service) recordLoopResult(ctx context.Context, runID pgtype.UUID, iter int, issueID pgtype.UUID) error {
