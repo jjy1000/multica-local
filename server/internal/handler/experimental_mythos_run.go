@@ -315,7 +315,7 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 	// working.
 	svc := h.MythosService
 	if svc == nil {
-		svc = mythos.NewService(h.Queries)
+		svc = mythos.NewService(h.Queries, h.TaskService)
 	}
 	res, runErr := svc.Run(
 		r.Context(), cfg, h.mythosWaitFn(workspaceUUID),

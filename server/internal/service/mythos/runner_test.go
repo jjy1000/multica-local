@@ -126,6 +126,33 @@ func TestRunnerAssignsIssueNumber(t *testing.T) {
 	}
 }
 
+// TestRunnerEnqueuesSubIssues — 0.5.64 audit regression pin.
+// Pre-0.5.61 the 404 stale-flag-gate masked the runner; after
+// 0.5.61 + 0.5.62 (CreatorType) + 0.5.63 (Number) the runner reached
+// the waitFn call but no agent task was ever enqueued, so the daemon
+// never saw the sub-issue and the request hung until WriteTimeout.
+// The fix calls TaskService.EnqueueTaskForIssue after both the loop
+// and coda CreateIssue. If a future refactor removes either call,
+// the test fires (and the production runner hangs again).
+func TestRunnerEnqueuesSubIssues(t *testing.T) {
+	src := readRunnerSource(t)
+	if !strings.Contains(src, "TaskService.EnqueueTaskForIssue") {
+		t.Fatalf("runner.go must call TaskService.EnqueueTaskForIssue after CreateIssue " +
+			"on both loop and coda sub-issues; otherwise the daemon never claims them")
+	}
+	// The function comment block must mention the audit fix so a
+	// future reader doesn't "tidy" the call away as unused.
+	if !strings.Contains(src, "0.5.64 audit fix") {
+		t.Fatalf("runner.go must document the 0.5.64 enqueue audit fix inline")
+	}
+	// NewService signature must require TaskService — without it
+	// the wiring is unenforced at compile time and the runner hangs
+	// at runtime instead of failing fast.
+	if !strings.Contains(src, "taskService *service.TaskService") {
+		t.Fatalf("NewService signature must require *service.TaskService so the wiring is enforced")
+	}
+}
+
 // readRunnerSource loads runner.go via go's embed-like test helper.
 // We don't actually need embed — a plain os.ReadFile of the file
 // relative to the package directory is sufficient.

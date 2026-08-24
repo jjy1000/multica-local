@@ -650,7 +650,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// an enhancer-mode mythos_run is created; ResumeSupervision picks
 	// up any orphaned runs from a previous daemon process.
 	{
-		svc := mythossvc.NewService(h.Queries)
+		svc := mythossvc.NewService(h.Queries, h.TaskService)
 		h.MythosService = svc
 		// Best-effort recovery: scan every workspace for runs in
 		// 'supervising' state. The 0.3.31 SQL query scopes by

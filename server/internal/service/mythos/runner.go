@@ -32,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -164,7 +165,9 @@ type Result struct {
 }
 
 // Service is the entry point. Construct via NewService with the
-// generated sqlc Queries handle.
+// generated sqlc Queries handle and the shared TaskService (needed
+// to enqueue sub-issues for the daemon after CreateIssue — see
+// runLoopIteration / runCoda; 0.5.64 audit fix).
 //
 // superviseSet (0.3.31) tracks in-flight supervise goroutines for
 // enhancer-mode runs. The map is keyed by run id; the value is the
@@ -174,6 +177,7 @@ type Result struct {
 // previous process left behind.
 type Service struct {
 	queries      *db.Queries
+	TaskService *service.TaskService
 	superviseMu  sync.Mutex
 	superviseSet map[pgtype.UUID]context.CancelFunc
 	// tickQ is the 0.3.64 test seam for tickSupervision. nil in
@@ -183,9 +187,14 @@ type Service struct {
 	tickQ tickSupervisionQuerier
 }
 
-func NewService(queries *db.Queries) *Service {
+// NewService builds a mythos Service. TaskService is required — the
+// RDT runner forks sub-issues and must enqueue each as an agent_task
+// before blocking on its completion; passing nil here disables that
+// enqueue and the runner hangs (the historical bug fixed in 0.5.64).
+func NewService(queries *db.Queries, taskService *service.TaskService) *Service {
 	return &Service{
 		queries:      queries,
+		TaskService: taskService,
 		superviseSet: make(map[pgtype.UUID]context.CancelFunc),
 	}
 }
@@ -603,6 +612,20 @@ func (s *Service) runLoopIteration(
 	}
 	subID := pgtype.UUID{Bytes: sub.ID.Bytes, Valid: true}
 
+	// 0.5.64 audit fix: enqueue the sub-issue as an agent task so the
+	// daemon claims and runs it. Without this call the daemon never
+	// sees the sub-issue, waitFn blocks until the server's WriteTimeout
+	// kills the request, and mythos_run.status stays stuck at 'running'.
+	// Pre-0.5.61 the 404 stale-flag-gate at the HTTP boundary masked
+	// this gap; the 0.5.61+ gates closed and the bug surfaced as
+	// "iter-1 sub-issue created but never executed".
+	if s.TaskService == nil {
+		return "", pgtype.UUID{}, fmt.Errorf("mythos: TaskService not wired — NewService requires *service.TaskService")
+	}
+	if _, err := s.TaskService.EnqueueTaskForIssue(ctx, sub, pgtype.UUID{}); err != nil {
+		return "", pgtype.UUID{}, fmt.Errorf("loop sub-issue enqueue: %w", err)
+	}
+
 	body := ""
 	if waitFn != nil {
 		out, werr := waitFn(ctx, subID)
@@ -665,6 +688,15 @@ func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, wa
 		return "", pgtype.UUID{}, fmt.Errorf("coda sub-issue create: %w", err)
 	}
 	subID := pgtype.UUID{Bytes: sub.ID.Bytes, Valid: true}
+
+	// 0.5.64 audit fix: see runLoopIteration. Enqueue the coda
+	// sub-issue so the coda agent actually runs.
+	if s.TaskService == nil {
+		return "", pgtype.UUID{}, fmt.Errorf("mythos: TaskService not wired — NewService requires *service.TaskService")
+	}
+	if _, err := s.TaskService.EnqueueTaskForIssue(ctx, sub, pgtype.UUID{}); err != nil {
+		return "", pgtype.UUID{}, fmt.Errorf("coda sub-issue enqueue: %w", err)
+	}
 
 	summary := ""
 	if waitFn != nil {
