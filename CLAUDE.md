@@ -275,59 +275,21 @@ Root-level reminders:
 
 ## Desktop Rules
 
-### Self-contained backend (server-manager.ts)
+> Full desktop lifecycle, routing, packaging, and data-safety contracts: [`apps/desktop/CLAUDE.md`](apps/desktop/CLAUDE.md) — read it before touching `apps/desktop/src/main/*`.
 
-The desktop app bundles its own Go backend and auto-starts everything on launch. No external `make start` required. Lifecycle managed by `apps/desktop/src/main/server-manager.ts`:
+**P0 data-safety contract** (2026-07-02 incident destroyed 69 user tables when a Docker pgdata was migrated by the bundled `migrate` binary; do NOT remove either layer, do NOT make `backend` optional without re-reading `memory/multica-0.3.0-standalone-2026-07-02.md`):
 
-1. **Probe PostgreSQL** — TCP connect to `127.0.0.1:5432`. PG is bundled Postgres.app 17.4 under `~/Library/Application Support/Multica/pg/`. If unreachable, `startNativePg` downloads/extracts/initdb/starts it.
-2. **Run migrations** — Execute the bundled `migrate up` binary (schema migrations at `resources/server/migrations/`). Retries up to 3 times with 2 s backoff. **P0 guard**: `runMigrate` REFUSES `backend === "external"`.
-3. **Spawn server** — Start the bundled `server` binary as a background child process, poll `/health` until it responds.
-4. **Daemon follows** — Once the server is live, the existing daemon-manager registers the agent runtime.
+> `runMigrate(profile, env, backend?)` REFUSES `backend === "external"`.
+> The call site in `ensureServerUp` ALSO skips for defense in depth.
+> Any new caller that invokes `runMigrate` must pass `backend` explicitly.
 
-On `app.before-quit`, the server receives SIGTERM (5 s grace) then SIGKILL. The quit handler is registered alongside `setupDaemonManager()` in `apps/desktop/src/main/index.ts` — it calls `stopServerManager()` so the server port is always freed on exit.
-
-**Bundled resources** (all Go binaries, migration SQL files, PG manifest, experimental manifests, Pythia source, OpenScience prompts) ship via `asarUnpack: resources/**`. The bundle script is `apps/desktop/scripts/bundle-cli.mjs` — it builds three Go binaries from `server/cmd/*` and copies them + `server/migrations/` + PG manifest + Pythia + OpenScience + claude-science manifests into `apps/desktop/resources/`. Docker compose is no longer bundled (0.3.0+ standalone).
-
-**Path resolution in packaged app**: `child_process` APIs do not resolve asar paths. Use `resolveResourcePath()` (in server-manager.ts) which routes to `process.resourcesPath + app.asar.unpacked/resources/...` when `app.isPackaged`, and `app.getAppPath() + resources/...` in dev.
+**P1.8 sentinel atomicity**: `runMigrationFlow` creates `~/.multica/.pg-migrating-v1` with `O_EXCL` BEFORE the destructive `pg_restore`, renames to `~/.multica/.pg-migrated-v1` on success. A SIGKILL between restore-success and rename leaves the in-progress file; next launch refuses auto-retry. **Do NOT write the final sentinel before the operation succeeds.**
 
 **Desktop runtime config**: `~/.multica/desktop.json`:
 ```json
 {"apiUrl": "http://localhost:8090", "wsUrl": "ws://localhost:8090/ws", "appUrl": "http://localhost:3000"}
 ```
 Per-profile server env (`.env`) at `~/.multica/profiles/<name>/.env`.
-
-### v0.3.0+ Standalone (Docker removed)
-
-PG is now bundled Postgres.app (17.4) shipped under `resources/pg/`, downloaded on first launch to `~/Library/Application Support/Multica/pg/17.4/`. Read `memory/multica-0.3.0-standalone-2026-07-02.md` before touching the native PG lifecycle.
-
-- `apps/desktop/src/main/pg-bootstrap.ts` — native PG lifecycle: `downloadAndExtractPg` (DMG + SHA-256 verify), `initPgDataDir` (initdb + postgresql.conf patches), `startNativePg` (pg_ctl + force-quit orphan recovery + Gatekeeper fallback), `stopNativePg` (pg_ctl stop -m fast + pgrep SIGKILL fallback), `runMigrationFlow` (Docker→native pg_dump|pg_restore + row-count parity).
-- `apps/desktop/src/main/server-manager.ts` — `pickPgBackend` (2-way picker: external if multica PG is on 5432, else native), `probeMulticaPg` (4-field identity check: user=multica, db=multica, pgcrypto, `schema_migrations` table), `runMigrate` (P0 guard), `ensureServerUp` (P1.1 in-flight cache + P1.2 stopping flag), `stopServerManager` (await inflight, then SIGTERM).
-
-**P0 data-safety contract** (2026-07-02 incident destroyed 69 user tables when a Docker pgdata was migrated by the bundled `migrate` binary whose history includes `029_drop_daemon_pairing`, `046_drop_runtime_usage`, `103_drop_legacy_daily_rollups`):
-
-> `runMigrate(profile, env, backend?)` REFUSES `backend === "external"`.
-> The call site in `ensureServerUp` ALSO skips for defense in depth.
-> **Do NOT remove either layer. Do NOT make `backend` optional without
-> re-reading the memory file.** Any new caller that invokes `runMigrate`
-> must pass `backend` explicitly.
-
-**P1.8 sentinel atomicity**: `runMigrationFlow` creates `~/.multica/.pg-migrating-v1` with `O_EXCL` BEFORE the destructive `pg_restore`, renames it to `~/.multica/.pg-migrated-v1` on success. A SIGKILL between restore-success and rename leaves the in-progress file; the next launch sees it and refuses auto-retry (returns `{skipped: "already-migrated"}`). The user must remove the file manually after investigation. **Do NOT write the final sentinel before the operation succeeds.**
-
-### Routing
-
-Three categories:
-
-- **Session routes**: workspace-scoped tab destinations such as `/:slug/issues`.
-- **Transition flows**: pre-workspace one-shot actions such as create workspace or accept invite. These are `WindowOverlay` state, not routes.
-- **Error/stale states**: stale workspace tabs should auto-heal by dropping stale tab groups, not render desktop error pages.
-
-Constraints:
-- New pre-workspace desktop flows register a `WindowOverlay` type in `stores/window-overlay-store.ts`; do not add them to `routes.tsx`.
-- `setCurrentWorkspace(slug, uuid)` from `@multica/core/platform` is the active workspace source of truth.
-- Code that leaves workspace context must call `setCurrentWorkspace(null, null)` explicitly.
-- Leave/delete workspace flow order: read cached destination, clear current workspace, navigate, then run the mutation.
-- Cross-workspace navigation must go through the navigation adapter so it can call `switchWorkspace(slug, targetPath)`.
-- Full-window desktop views outside the dashboard shell must mount `<DragStrip />` from `@multica/views/platform` as the first flex child. Interactive controls in the top 48px need `WebkitAppRegion: "no-drag"`.
 
 ## Data Safety & Version Upgrades
 
