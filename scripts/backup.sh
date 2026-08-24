@@ -243,7 +243,16 @@ EOF
 # Retention: if > 30 active backups (excluding _template and _archive), archive oldest
 ACTIVE_COUNT=$(find "$BACKUPS_ROOT" -mindepth 2 -maxdepth 2 -type d ! -path '*/_template*' ! -path '*/_archive*' | wc -l | tr -d ' ')
 if [[ "$ACTIVE_COUNT" -gt "$MAX_ACTIVE" ]]; then
-  OLDEST=$(find "$BACKUPS_ROOT" -mindepth 2 -maxdepth 2 -type d ! -path '*/_template*' ! -path '*/_archive*' -printf '%T@ %p\n' | sort -n | head -1 | awk '{print $2}')
+  # 0.5.67 audit fix: replace GNU `find -printf '%T@ %p\n'` with
+  # BSD-compatible `find -exec stat -f '%m %N'`. macOS ships BSD find
+  # which rejects -printf and would abort the script under
+  # `set -euo pipefail` (the prior behavior — every 0.5.61-0.5.66
+  # ship left no `.omc/backups/` entry because of this). The
+  # `-exec stat -f '%m %N' {} +` form batches stat calls, matching
+  # the `-printf` performance shape. Linux find also accepts
+  # `-exec stat -f` (coreutils stat is portable to GNU too), so
+  # this is a 2-OS-portable replacement.
+  OLDEST=$(find "$BACKUPS_ROOT" -mindepth 2 -maxdepth 2 -type d ! -path '*/_template*' ! -path '*/_archive*' -exec stat -f '%m %N' {} + 2>/dev/null | sort -n | head -1 | awk '{print $2}')
   if [[ -n "$OLDEST" ]]; then
     REL="${OLDEST#$BACKUPS_ROOT/}"
     TS_PART="${REL%%/*}"
