@@ -34,7 +34,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/service/mythos"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -205,13 +204,12 @@ type MythosRunResponse struct {
 
 // RunMythosSwarm drives the three-stage RDT pipeline once.
 //
-// Auth: any workspace member. Route gating by
-// `experimental.DefaultFor("mythos_swarm")` lives at the router.
+// Auth: any workspace member. Per-user flag gating lives in the
+// router middleware (RequireExperimentalFlag) — this handler does
+// NOT re-check via experimental.DefaultFor because DefaultFor reads
+// Catalog.DefaultVal only and ignores experimental_pref rows, which
+// would 404 every per-user enabled lab. (0.5.61 audit fix.)
 func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
-	if !experimental.DefaultFor("mythos_swarm") {
-		http.Error(w, "mythos_swarm flag is off", http.StatusNotFound)
-		return
-	}
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return

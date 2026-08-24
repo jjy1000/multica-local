@@ -414,12 +414,23 @@ func TestPostDecisionSync_5xxResponse(t *testing.T) {
 	h.postDecisionSync(testSyncRow(t), "done", "agent", pgtype.UUID{}) // must not panic
 }
 
-// TestPostDecisionSync_FlagOff — HIGH #6 / F25. With the flag default
-// false, the body must short-circuit before any HTTP. We do NOT flip
-// the default here; the catalog default is false for semantica.
-func TestPostDecisionSync_FlagOff(t *testing.T) {
-	// Ensure the flag is off (its production default).
-	flipSemanticaDefault(t, false)
+// TestPostDecisionSync_NilRegistry — HIGH #6 / F25. Nil registry must
+// no-op without panic.
+func TestPostDecisionSync_NilRegistry(t *testing.T) {
+	flipSemanticaDefault(t, true)
+	h := &Handler{ExperimentRegistry: nil}
+	h.postDecisionSync(testSyncRow(t), "done", "agent", pgtype.UUID{}) // must not panic
+}
+
+// TestPostDecisionSync_FiresWhenLoopbackURLSet — 0.5.61 regression pin.
+// After the catalog-only-flag-gate removal, postDecisionSync fires
+// whenever the registry has a loopback URL — the per-user gating now
+// lives entirely at the router middleware (RequireExperimentalFlag)
+// which already admits only enabled-tenant requests. Pinning this so
+// a future "fix" that re-adds DefaultFor can't silently re-break
+// per-user enabled semantica tenants.
+func TestPostDecisionSync_FiresWhenLoopbackURLSet(t *testing.T) {
+	flipSemanticaDefault(t, false) // catalog default off — should NOT matter here
 
 	var hit bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -434,15 +445,7 @@ func TestPostDecisionSync_FlagOff(t *testing.T) {
 
 	h.postDecisionSync(testSyncRow(t), "done", "agent", pgtype.UUID{})
 
-	if hit {
-		t.Errorf("POST fired despite flag off")
+	if !hit {
+		t.Errorf("POST did not fire despite loopback URL set; per-user flag gating lives at the router now")
 	}
-}
-
-// TestPostDecisionSync_NilRegistry — HIGH #6 / F25. Nil registry must
-// no-op without panic.
-func TestPostDecisionSync_NilRegistry(t *testing.T) {
-	flipSemanticaDefault(t, true)
-	h := &Handler{ExperimentRegistry: nil}
-	h.postDecisionSync(testSyncRow(t), "done", "agent", pgtype.UUID{}) // must not panic
 }

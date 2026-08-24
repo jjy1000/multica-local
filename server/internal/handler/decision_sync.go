@@ -195,9 +195,12 @@ func (h *Handler) postDecisionSync(
 	if h.ExperimentRegistry == nil {
 		return
 	}
-	if !experimental.DefaultFor("semantica") {
-		return
-	}
+	// Per-user flag gating happens at the API layer (router middleware
+	// RequireExperimentalFlag). This internal helper deliberately does
+	// NOT re-check via experimental.DefaultFor — that helper reads only
+	// Catalog.DefaultVal (false for every built-in lab) and would
+	// silently drop decisions for every per-user enabled semantica
+	// tenant. (0.5.61 audit fix.)
 	upstreamURL := h.ExperimentRegistry.LoopbackURL("semantica")
 	if upstreamURL == "" {
 		slog.Debug("postDecisionSync: semantica subprocess not running, skipping",
