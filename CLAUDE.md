@@ -220,25 +220,13 @@ Login pages: `apps/desktop/src/renderer/src/pages/login.tsx`, `apps/web/app/(aut
 
 ## API Compatibility
 
-Frontend code must survive backend response drift, especially in installed desktop builds.
-
-- Parse API JSON with `parseWithFallback` in `packages/core/api/schema.ts` and a zod schema. Do not cast network JSON to `T`.
-- Endpoint responses consumed by UI logic must pass through a schema before returning.
-- Downstream UI should optional-chain and default fields defensively.
-- Prefer explicit boolean checks (`=== true`) over truthy/falsy checks on server fields.
-- Server-driven enum switches need a `default` branch.
-- When adding or changing an endpoint, add/update the schema and include a malformed-response test.
+Frontend code must survive backend response drift, especially in installed desktop builds — zod schemas + `parseWithFallback` for every endpoint consumed by UI logic, explicit `=== true` boolean checks, `default` branch on server-driven enums. Full contract: [`packages/CLAUDE.md`](packages/CLAUDE.md) §API compatibility.
 
 ## Backend UUID Rules
 
 > Full backend boundaries, commands, and pitfalls: [`server/CLAUDE.md`](server/CLAUDE.md).
 
-In `server/internal/handler/`, always know where a UUID came from before using it in write queries.
-
-- Resource path params that may be UUIDs or human-readable IDs must be resolved through loaders (`loadIssueForUser`, `loadSkillForUser`, `loadAgentForUser`, `requireDaemonRuntimeAccess`); subsequent writes use the resolved `entity.ID`.
-- Pure UUID inputs from request boundaries use `parseUUIDOrBadRequest(w, s, fieldName)` and return immediately on `ok=false`.
-- Trusted UUID round-trips from sqlc results or test fixtures use `parseUUID(s)`, which panics on invalid input.
-- Outside handlers, `util.ParseUUID(s) (pgtype.UUID, error)` is the safe variant; always check the error.
+In `server/internal/handler/`, always know where a UUID came from before using it in write queries: path params via loaders (`loadIssueForUser`, `loadSkillForUser`, `loadAgentForUser`, `requireDaemonRuntimeAccess`), pure UUID inputs via `parseUUIDOrBadRequest`, trusted round-trips via `parseUUID`, outside handlers via `util.ParseUUID`. See server/CLAUDE.md §UUID rules for the full table.
 
 ## Coding Rules
 
@@ -264,7 +252,7 @@ When adding a shared page or feature for web and desktop:
 5. Keep platform-only UI in the app or inject it through props/slots.
 6. Hooks that need workspace context should accept `wsId`.
 
-CSS for web/desktop is shared from `packages/ui/styles/`. Use semantic tokens (`bg-background`, `text-muted-foreground`); avoid hardcoded Tailwind colors and duplicated base styles.
+CSS for web/desktop is shared from `packages/ui/styles/` — use semantic tokens (`bg-background`, `text-muted-foreground`), never hardcoded Tailwind colors. (Full UI conventions: [`packages/CLAUDE.md`](packages/CLAUDE.md).)
 
 When reviewing or auditing UI code — accessibility, UX, visual design, or "does this look right" — invoke the `web-design-guidelines` skill (`.agents/skills/web-design-guidelines/SKILL.md`). Triggers: "review my UI", "check accessibility", "audit design", "review UX", "check against best practices". It fetches the Web Interface Guidelines and returns terse `file:line` findings with a summary.
 
