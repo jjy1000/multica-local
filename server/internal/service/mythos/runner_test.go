@@ -12,6 +12,8 @@ package mythos
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -70,6 +72,39 @@ func TestSourceConstant_MatchesCatalog(t *testing.T) {
 	if Source != "mythos_swarm" {
 		t.Fatalf("Source = %q, want %q (must match catalog entry)", Source, "mythos_swarm")
 	}
+}
+
+// TestRunnerCreatorType_IsNotSystem — 0.5.62 audit regression pin.
+// The DB CHECK issue_creator_type_check restricts creator_type to
+// {member, agent}. The runner previously sent "system" for both the
+// loop sub-issue (runLoopIteration) and the coda sub-issue (runCoda),
+// which tripped SQLSTATE 23514 on every fork and silently set
+// mythos_run.status='failed'. This is a static check — if the literal
+// ever creeps back into either call site, the test fires. The fix
+// landed at runner.go:578 (loop) and runner.go:631 (coda) and changed
+// both to "agent" with CreatorID set to the assignee agent UUID, which
+// is the semantically correct value (the sub-issue is authored on
+// behalf of the agent that will work it).
+func TestRunnerCreatorType_IsNotSystem(t *testing.T) {
+	src := readRunnerSource(t)
+	if strings.Contains(src, `CreatorType:  "system"`) ||
+		strings.Contains(src, `CreatorType: "system"`) ||
+		strings.Contains(src, `CreatorType:"system"`) {
+		t.Fatalf("runner.go still contains a CreatorType: \"system\" literal — "+
+			"violates issue_creator_type_check (allowed: member, agent)")
+	}
+}
+
+// readRunnerSource loads runner.go via go's embed-like test helper.
+// We don't actually need embed — a plain os.ReadFile of the file
+// relative to the package directory is sufficient.
+func readRunnerSource(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile("runner.go")
+	if err != nil {
+		t.Fatalf("read runner.go: %v", err)
+	}
+	return string(data)
 }
 
 func TestTokeniseAndCosine_Reuse(t *testing.T) {

@@ -575,9 +575,15 @@ func (s *Service) runLoopIteration(
 		Priority:     "medium",
 		AssigneeType: pgtype.Text{String: "agent", Valid: true},
 		AssigneeID:   agentID,
-		CreatorType:  "system",
-		CreatorID:    cfg.CreatorUserID,
-		LabSource:    pgtype.Text{String: Source, Valid: true},
+		// 0.5.62 audit fix: CreatorType must be in {member, agent} per
+		// issue_creator_type_check. The loop sub-issue is authored on
+		// behalf of the loop-member agent (the assignee), so "agent"
+		// is the semantically correct value. The historical "system"
+		// literal tripped CHECK 23514 on every fork and silently turned
+		// mythos_run.status='failed'.
+		CreatorType: "agent",
+		CreatorID:   agentID,
+		LabSource:   pgtype.Text{String: Source, Valid: true},
 	})
 	if err != nil {
 		return "", pgtype.UUID{}, fmt.Errorf("loop sub-issue create: %w", err)
@@ -628,9 +634,11 @@ func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, wa
 		Priority:     "medium",
 		AssigneeType: pgtype.Text{String: "agent", Valid: true},
 		AssigneeID:   cfg.CodaAgentID,
-		CreatorType:  "system",
-		CreatorID:    cfg.CreatorUserID,
-		LabSource:    pgtype.Text{String: Source, Valid: true},
+		// 0.5.62 audit fix: see runLoopIteration. Coda sub-issue is
+		// authored on behalf of the coda agent (the assignee).
+		CreatorType: "agent",
+		CreatorID:   cfg.CodaAgentID,
+		LabSource:   pgtype.Text{String: Source, Valid: true},
 	})
 	if err != nil {
 		return "", pgtype.UUID{}, fmt.Errorf("coda sub-issue create: %w", err)
