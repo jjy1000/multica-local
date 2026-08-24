@@ -95,6 +95,37 @@ func TestRunnerCreatorType_IsNotSystem(t *testing.T) {
 	}
 }
 
+// TestRunnerAssignsIssueNumber — 0.5.63 audit regression pin.
+// issue.number is NOT NULL DEFAULT 0 AND uq_issue_workspace_number
+// UNIQUE (workspace_id, number). The HTTP create path explicitly
+// passes a Number from IncrementIssueCounter; the runner previously
+// omitted Number on both CreateIssue calls, so every fork landed
+// with default 0 and tripped SQLSTATE 23505 on the first pre-existing
+// row in the workspace. The fix at runner.go (loop + coda) calls
+// IncrementIssueCounter and threads the result through Number:. If a
+// future "fix" removes the Number field, this test fires.
+func TestRunnerAssignsIssueNumber(t *testing.T) {
+	src := readRunnerSource(t)
+	// Count CreateIssueParams blocks (each fork is one block).
+	// Every block must include `Number:`.
+	count := strings.Count(src, "db.CreateIssueParams{")
+	if count < 2 {
+		t.Fatalf("expected at least 2 CreateIssueParams blocks (loop + coda), found %d", count)
+	}
+	// Each block must reference `Number:`. The simplest signal is
+	// the literal "Number:" inside the file; if it's missing entirely
+	// the runner reverted to default 0 (the bug).
+	if !strings.Contains(src, "Number:       issueNumber,") ||
+		!strings.Contains(src, "Number:       codaNumber,") {
+		t.Fatalf("runner.go must pass Number to both CreateIssueParams blocks " +
+			"(loop + coda); otherwise issue.number defaults to 0 and trips uq_issue_workspace_number")
+	}
+	// And the incrementer calls must precede each CreateIssue.
+	if !strings.Contains(src, "IncrementIssueCounter(ctx, cfg.WorkspaceID)") {
+		t.Fatalf("runner.go must call IncrementIssueCounter to populate Number atomically")
+	}
+}
+
 // readRunnerSource loads runner.go via go's embed-like test helper.
 // We don't actually need embed — a plain os.ReadFile of the file
 // relative to the package directory is sufficient.

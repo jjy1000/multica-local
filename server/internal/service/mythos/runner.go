@@ -567,12 +567,25 @@ func (s *Service) runLoopIteration(
 	// when it finishes. lab_source="mythos_swarm" is enforced by
 	// issue.go:2252's experimental.IsKnownKey guard.
 	title := fmt.Sprintf("%siter-%d", cfg.SubIssuePrefix, iter)
+	// 0.5.63 audit fix: number is required because the column has
+	// NOT NULL DEFAULT 0 AND a UNIQUE (workspace_id, number) index.
+	// The HTTP path gets this via IssueService.Create's
+	// IncrementIssueCounter call (atomic UPDATE...RETURNING); the
+	// runner bypasses IssueService and would otherwise insert with
+	// default 0, which collides with every prior row that did the
+	// same. IncrementIssueCounter is atomic on its own — safe to
+	// call outside a tx.
+	issueNumber, err := s.queries.IncrementIssueCounter(ctx, cfg.WorkspaceID)
+	if err != nil {
+		return "", pgtype.UUID{}, fmt.Errorf("loop sub-issue number: %w", err)
+	}
 	sub, err := s.queries.CreateIssue(ctx, db.CreateIssueParams{
 		WorkspaceID:  cfg.WorkspaceID,
 		Title:        title,
 		Description:  pgtype.Text{String: fmt.Sprintf("Mythos RDT loop iteration %d for: %s", iter, cfg.Problem), Valid: true},
 		Status:       "todo",
 		Priority:     "medium",
+		Number:       issueNumber,
 		AssigneeType: pgtype.Text{String: "agent", Valid: true},
 		AssigneeID:   agentID,
 		// 0.5.62 audit fix: CreatorType must be in {member, agent} per
@@ -626,12 +639,20 @@ func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, wa
 	}
 
 	title := fmt.Sprintf("%scoda", cfg.SubIssuePrefix)
+	// 0.5.63 audit fix: see runLoopIteration. Atomic number via
+	// IncrementIssueCounter so the coda sub-issue does not collide
+	// with the loop sub-issues (or any prior row that omits Number).
+	codaNumber, err := s.queries.IncrementIssueCounter(ctx, cfg.WorkspaceID)
+	if err != nil {
+		return "", pgtype.UUID{}, fmt.Errorf("coda sub-issue number: %w", err)
+	}
 	sub, err := s.queries.CreateIssue(ctx, db.CreateIssueParams{
 		WorkspaceID:  cfg.WorkspaceID,
 		Title:        title,
 		Description:  pgtype.Text{String: fmt.Sprintf("Mythos coda synthesis for: %s", cfg.Problem), Valid: true},
 		Status:       "todo",
 		Priority:     "medium",
+		Number:       codaNumber,
 		AssigneeType: pgtype.Text{String: "agent", Valid: true},
 		AssigneeID:   cfg.CodaAgentID,
 		// 0.5.62 audit fix: see runLoopIteration. Coda sub-issue is
