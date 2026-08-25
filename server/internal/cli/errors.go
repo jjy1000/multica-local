@@ -33,12 +33,17 @@ const (
 
 	// HTTP status layer.
 	KindAuthRequired // 401
-	KindForbidden    // 403
-	KindNotFound     // 404
-	KindConflict     // 409
-	KindValidation   // 400 / 422
-	KindRateLimited  // 429
-	KindServerError  // 5xx
+	// KindTaskTokenRejected is a 401 on a task-scoped token. HTTPError.Kind()
+	// never returns it — the status code alone cannot tell the two apart — so
+	// it is selected in userMessage, where the credential the request actually
+	// sent is known. Exit classification is unchanged: still an auth failure.
+	KindTaskTokenRejected
+	KindForbidden   // 403
+	KindNotFound    // 404
+	KindConflict    // 409
+	KindValidation  // 400 / 422
+	KindRateLimited // 429
+	KindServerError // 5xx
 
 	// Anything we could not classify.
 	KindUnknown
@@ -80,6 +85,8 @@ func (k ErrorKind) String() string {
 		return "network_offline"
 	case KindAuthRequired:
 		return "auth_required"
+	case KindTaskTokenRejected:
+		return "task_token_rejected"
 	case KindForbidden:
 		return "forbidden"
 	case KindNotFound:
@@ -307,6 +314,10 @@ var kindMessages = map[ErrorKind][2]string{
 		"Your session has expired or you are not signed in. Run `multica login` to sign in again. On a self-hosted or non-OAuth setup, ask your administrator for valid credentials.",
 		"登录已过期或尚未登录。请运行 `multica login` 重新登录。自托管或非 OAuth 场景请联系管理员获取有效凭证。",
 	},
+	KindTaskTokenRejected: {
+		"This task token was rejected and is no longer usable. Stop here: do not retry, and do not fall back to a profile or member credential, because anything done with one would run as that person rather than as this task. Only the runtime that started this task can supply a valid task token.",
+		"这个 task token 已被拒绝，不再可用。请到此为止：不要重试，也不要改用 profile 或成员凭证 —— 用它们执行的任何操作都会以那个成员的身份运行，而不是以这次 task 的身份运行。只有启动这次 task 的运行时才能提供有效的 task token。",
+	},
 	KindForbidden: {
 		"You do not have permission to access this resource. Check that you are in the right workspace, or ask an administrator to grant access.",
 		"无权访问该资源。请确认当前 workspace 是否正确，或联系管理员授予权限。",
@@ -335,6 +346,22 @@ var kindMessages = map[ErrorKind][2]string{
 		"An unexpected error occurred.",
 		"发生未知错误。",
 	},
+}
+
+// serverMessagePrefixes lists the kinds whose response body carries a
+// hand-written, actionable message worth showing instead of the generic
+// template, with the {English, Chinese} lead-in used to introduce it.
+//
+// 409 belongs here because the generic conflict copy is not merely vague, it
+// points the wrong way: it reads as a transient race ("re-fetch the latest
+// state and try again") while every conflict this API returns is a
+// deterministic refusal that names its own fix ("a skill with this name
+// already exists", "set parent_id (--parent) to <id>"). Agents took the retry
+// hint literally and burned hours re-sending an unchanged request (GH #6264,
+// GH #5948), and the server-side wording added in MUL-4417 never reached them.
+var serverMessagePrefixes = map[ErrorKind][2]string{
+	KindValidation: {"Invalid request: ", "请求无效："},
+	KindConflict:   {"Request conflict: ", "请求冲突："},
 }
 
 // messageFor returns the localized message for a kind.
@@ -391,14 +418,31 @@ func userMessage(err error, lang Language) string {
 	var httpErr *HTTPError
 	if errors.As(err, &httpErr) {
 		kind := httpErr.Kind()
-		// Validation errors usually carry a useful server-provided message;
-		// surface it instead of the generic line.
-		if kind == KindValidation {
+		// A 401 on a task token is not a login problem, and the generic copy
+		// below is the wrong instruction for whoever reads it: it says to sign
+		// in again or ask an administrator for valid credentials. An
+		// autonomous agent can act on that, and one did — after its task token
+		// stopped working mid-run it read the daemon owner's profile PAT and
+		// kept going under the member's identity (GH #7522).
+		//
+		// What the copy must not do is guess *why*. The usual cause is the
+		// task reaching a terminal state, but the same 401 covers a malformed
+		// token, one sent to the wrong server, and one dropped by an unrelated
+		// cleanup. "Stop" is true in every one of those cases; "the task
+		// finished" is not.
+		if kind == KindAuthRequired && httpErr.TaskScoped {
+			return messageFor(KindTaskTokenRejected, lang)
+		}
+		// Validation and conflict errors carry a useful server-provided
+		// message; surface it instead of the generic line. A body we cannot
+		// recognize still falls back to the template, so this never dumps a
+		// raw response at the user.
+		if prefix, ok := serverMessagePrefixes[kind]; ok {
 			if serverMsg := extractServerMessage(httpErr.Body); serverMsg != "" {
 				if lang == LangZH {
-					return "请求无效：" + serverMsg
+					return prefix[1] + serverMsg
 				}
-				return "Invalid request: " + serverMsg
+				return prefix[0] + serverMsg
 			}
 		}
 		return messageFor(kind, lang)
