@@ -458,7 +458,12 @@ func main() {
 	}
 
 	// Start background sweeper to mark stale runtimes as offline.
-	go runRuntimeSweeper(sweepCtx, pool, queries, liveness, taskSvc, bus)
+	// queuedTTL defaults to defaultTaskQueuedTTL (2h, see runtime_sweeper.go).
+	// The desktop fork sets MULTICA_TASK_QUEUED_TTL=5m via server-manager.ts
+	// so single-user stale tasks fail fast; self-hosted deployments can raise
+	// it if low-concurrency runtimes legitimately hold queued work past 2h.
+	go runRuntimeSweeper(sweepCtx, pool, queries, liveness, taskSvc, bus,
+		envDuration("MULTICA_TASK_QUEUED_TTL", defaultTaskQueuedTTL))
 	go heartbeatScheduler.Run(sweepCtx)
 	go runAutopilotFailureMonitor(autopilotCtx, queries, bus, envFailureMonitorConfig())
 	go runDBStatsLogger(sweepCtx, pool)
