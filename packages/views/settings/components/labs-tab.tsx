@@ -15,6 +15,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@multica/ui/components/ui/empty";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   useExperimentalFlags,
@@ -22,7 +23,7 @@ import {
 } from "@multica/core/experimental";
 import { useT } from "../../i18n";
 import { LabsFlagSidePanel } from "./labs-flag-side-panel";
-import { UserPluginsSection } from "./user-plugins-section";
+import { userPluginKeys, UserPluginsSection } from "./user-plugins-section";
 
 // 0.3.18 Labs safety net wire shape. The renderer must use this
 // exact field set — server/internal/experimental/safety.go defines
@@ -88,6 +89,7 @@ export function LabsTab() {
   const { t, i18n } = useT("settings");
   const { data: flags, isLoading, error, refetch } = useExperimentalFlags();
   const updateFlag = useUpdateExperimentalFlag();
+  const qc = useQueryClient();
   const [broken, setBroken] = useState<BrokenFlagEntry[]>([]);
   // 0.3.45.4: install-all recovery state. When the user lands here
   // with a flag enabled but 0 resources (e.g. they toggled the flag
@@ -136,8 +138,14 @@ export function LabsTab() {
         `已运行: ${body.attempted} 个 lab,成功 ${body.succeeded},失败 ${body.failed}`,
       );
       // Force a refetch of the flag list so the per-flag manifest
-      // (resource counts) refreshes.
+      // (resource counts) refreshes. Also invalidate the user-plugins
+      // list — /api/experimental-resources/install-all can install a
+      // user-plugin's backing resources too (when the install handler
+      // is wired through experimental.DefaultFor(user_<slug>)), and the
+      // UserPluginsSection under this tab would otherwise keep showing
+      // the pre-install resource counts.
       await refetch();
+      qc.invalidateQueries({ queryKey: userPluginKeys.all });
     } catch (err) {
       setInstallAllSummary(`失败: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -164,7 +172,11 @@ export function LabsTab() {
         });
         return;
       }
+      // Same dual invalidation as runInstallAll — a single-flag install
+      // can still touch user-plugins state (e.g. when the install wires
+      // an experimental flag's resource to a user plugin's manifest).
       await refetch();
+      qc.invalidateQueries({ queryKey: userPluginKeys.all });
     } catch {
       toast.error(t(($) => $.labs.toast_failed));
     } finally {

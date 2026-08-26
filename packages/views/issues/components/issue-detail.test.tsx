@@ -636,6 +636,79 @@ describe("IssueDetail (shared)", () => {
     expect(link).toHaveAttribute("href", "/experimental/claude-lab?issue=issue-1");
   });
 
+  // 0.5.x: LeaderAgent fallback rendering. The catalog stamps
+  // flag.leader_agent for labs with a per-issue auto-assignee (mirrors
+  // the server-side defaultLabLeaderForKey / UserPluginLeader table).
+  // Empty / absent means the lab owns no single agent (mythos_swarm
+  // runs via its squad roster; llm_wiki_bridge / chat_pin_ui have no
+  // per-issue agent) — the property panel must show the "由实验室管理"
+  // fallback instead of "实验室负责人: <blank>". The hint only renders
+  // when a lab is bound to the issue.
+  it("renders '实验室负责人: <name>' when the lab catalog declares a leader_agent", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      lab_source: "claude_science_lab",
+    });
+    mockApiObj.listExperimentalFlags.mockResolvedValue([
+      {
+        key: "claude_science_lab",
+        enabled: true,
+        default_enabled: false,
+        title: { en: "Claude Research Lab", zh: "Claude 科研实验室" },
+        description: { en: "", zh: "" },
+        leader_agent: "claude_research_lead",
+      },
+    ]);
+
+    renderIssueDetail();
+
+    const hint = await screen.findByTestId("lab-leader-hint");
+    expect(hint).toHaveTextContent("实验室负责人: claude_research_lead");
+  });
+
+  it("renders '由实验室管理' fallback when the lab has no leader_agent (chat_pin_ui / llm_wiki_bridge)", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      lab_source: "llm_wiki_bridge",
+    });
+    mockApiObj.listExperimentalFlags.mockResolvedValue([
+      {
+        key: "llm_wiki_bridge",
+        enabled: true,
+        default_enabled: false,
+        title: { en: "LLM Wiki Bridge", zh: "LLM 知识库桥接" },
+        description: { en: "", zh: "" },
+        // leader_agent intentionally absent — lab owns no per-issue agent.
+      },
+    ]);
+
+    renderIssueDetail();
+
+    const hint = await screen.findByTestId("lab-leader-hint");
+    expect(hint).toHaveTextContent("由实验室管理");
+  });
+
+  it("does NOT render the leader hint when no lab is bound to the issue", async () => {
+    // Default mockIssue has no lab_source.
+    mockApiObj.listExperimentalFlags.mockResolvedValue([
+      {
+        key: "claude_science_lab",
+        enabled: true,
+        default_enabled: false,
+        title: { en: "Claude Research Lab", zh: "Claude 科研实验室" },
+        description: { en: "", zh: "" },
+        leader_agent: "claude_research_lead",
+      },
+    ]);
+
+    renderIssueDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText("Properties")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("lab-leader-hint")).not.toBeInTheDocument();
+  });
+
   it("shows loading skeleton while data is loading", () => {
     // Make the API hang to keep loading state
     mockApiObj.getIssue.mockReturnValue(new Promise(() => {}));

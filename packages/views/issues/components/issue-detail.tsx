@@ -1917,36 +1917,62 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               assignDefaultLabAgentOnUpdate fire only via onUpdate →
               handleUpdateField → PATCH `issue.lab_source`. */}
           <PropRow label="Lab">
-            <span className="flex items-center gap-1.5 min-w-0">
-              <LabPicker
-                labSource={issue.lab_source ?? null}
-                labMode={issue.lab_mode ?? null}
-                onUpdate={(u) =>
-                  handleUpdateField({
-                    lab_source: u.lab_source ?? null,
-                    lab_mode: u.lab_mode ?? null,
-                  })
-                }
-                onClearAssignee={() =>
-                  handleUpdateField({
-                    assignee_type: null,
-                    assignee_id: null,
-                  })
-                }
-                align="start"
-              />
-              {issue.lab_source &&
-                labSourceRouteSuffix(issue.lab_source) && (
-                  <AppLink
-                    href={`/experimental/${labSourceRouteSuffix(issue.lab_source)!}${
-                      issue.id ? `?issue=${encodeURIComponent(issue.id)}` : ""
-                    }`}
-                    aria-label={t(($) => $.lab_section.open_panel)}
-                    className="inline-flex shrink-0 items-center text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
-                  >
-                    <ExternalLink className="size-3" />
-                  </AppLink>
-                )}
+            <span className="flex flex-col gap-1 min-w-0">
+              <span className="flex items-center gap-1.5 min-w-0">
+                <LabPicker
+                  labSource={issue.lab_source ?? null}
+                  labMode={issue.lab_mode ?? null}
+                  onUpdate={(u) =>
+                    handleUpdateField({
+                      lab_source: u.lab_source ?? null,
+                      lab_mode: u.lab_mode ?? null,
+                    })
+                  }
+                  onClearAssignee={() =>
+                    handleUpdateField({
+                      assignee_type: null,
+                      assignee_id: null,
+                    })
+                  }
+                  align="start"
+                />
+                {issue.lab_source &&
+                  labSourceRouteSuffix(issue.lab_source) && (
+                    <AppLink
+                      href={`/experimental/${labSourceRouteSuffix(issue.lab_source)!}${
+                        issue.id ? `?issue=${encodeURIComponent(issue.id)}` : ""
+                      }`}
+                      aria-label={t(($) => $.lab_section.open_panel)}
+                      className="inline-flex shrink-0 items-center text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
+                    >
+                      <ExternalLink className="size-3" />
+                    </AppLink>
+                  )}
+              </span>
+              {/* 0.5.x: leader-agent fallback. The server stamps
+                  flag.leader_agent on /api/experimental-flags so the
+                  property panel can show the auto-assignee under the
+                  lab chip without a second round trip. Empty / absent
+                  means the lab owns no single agent (mythos_swarm runs
+                  via its squad roster; llm_wiki_bridge / chat_pin_ui
+                  have no per-issue agent) — the renderer shows a
+                  generic "由实验室管理" hint instead of a misleading
+                  "实验室负责人: <blank>". Only visible when a lab is
+                  bound to the issue. */}
+              {issue.lab_source && (
+                <span
+                  className="text-caption text-muted-foreground pl-0.5"
+                  data-testid="lab-leader-hint"
+                >
+                  {(() => {
+                    const flag = flagCatalog?.find((f) => f.key === issue.lab_source);
+                    const leader = flag?.leader_agent?.trim();
+                    return leader
+                      ? `实验室负责人: ${leader}`
+                      : "由实验室管理";
+                  })()}
+                </span>
+              )}
             </span>
           </PropRow>
 
