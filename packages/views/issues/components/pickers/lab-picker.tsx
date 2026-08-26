@@ -151,13 +151,29 @@ export function LabPicker({
   // product-level flag should be added to the catalog's
   // `HideFromIssueLabPicker` instead of duplicating the
   // black-list here.
+  //
+  // catalog.AlwaysShowInLabPicker DTO marker (sibling of the
+  // `lab_managed` DTO marker — see CLAUDE.md Active Contract #4):
+  // an `always_show=true` flag must remain reachable in the picker
+  // even when the catalog says "hide from issue lab picker" or the
+  // flag is currently disabled. Without this escape hatch the
+  // catalog's HideFromIssueLabPicker cannot coexist with an opt-in
+  // onboarding surface (e.g. a flag should be reachable but never
+  // auto-enabled). The escape hatch is checked FIRST so a
+  // hide_from_picker=true flag still surfaces when always_show is
+  // set; an enabled=false flag still surfaces when always_show is
+  // set (the Enabled field on the picker row is honest about state).
   const entries = useMemo(() => {
     const out: { id: string; title: string; enabled: boolean }[] = [
       { id: "", title: t(($) => $.pickers.lab.picker_none) ?? "None", enabled: true },
     ];
     for (const flag of flags ?? []) {
+      // Hide-from-picker respects always_show escape hatch: an
+      // always-shown flag must be reachable in the picker even if
+      // catalog says hide-from-picker.
+      if (flag.hide_from_issue_lab_picker && !flag.always_show_in_lab_picker) continue;
+      // Enabled filter: must be enabled UNLESS always_show is true.
       if (!flag.enabled && !flag.always_show_in_lab_picker) continue;
-      if (flag.hide_from_issue_lab_picker) continue;
       out.push({
         id: flag.key,
         title: flag.title.zh || flag.title.en || flag.key,

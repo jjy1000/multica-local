@@ -230,4 +230,61 @@ describe("LabPicker", () => {
     expect(document.querySelectorAll("button[data-picker-item]").length).toBe(1);
     expect(document.querySelector("button[data-picker-item]")).toHaveTextContent("None");
   });
+
+  it("AlwaysShowBypass: hide_from_issue_lab_picker + disabled is reachable when always_show_in_lab_picker=true", () => {
+    // The catalog.AlwaysShowInLabPicker DTO marker is an
+    // escape hatch over the picker-hide filter (sibling of the
+    // `lab_managed` marker — CLAUDE.md Active Contract #4).
+    // A flag that is hide_from_picker=true AND enabled=false
+    // but has always_show_in_lab_picker=true MUST still appear
+    // in the picker — the catalog's intent is "reachable but
+    // never auto-enabled", not "completely invisible".
+    mockFlags.value = [
+      { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
+      {
+        key: "experimental_onboarding_lab",
+        title: { zh: "试用新实验室", en: "Try New Lab" },
+        enabled: false,
+        hide_from_issue_lab_picker: true,
+        always_show_in_lab_picker: true,
+      },
+    ];
+    renderPicker();
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(trigger);
+    const items = document.querySelectorAll("button[data-picker-item]");
+    // None + claude_science_lab + experimental_onboarding_lab = 3.
+    // Title render order is `title.zh || title.en || key`, so the
+    // Chinese title is what shows up in the DOM.
+    const labels = Array.from(items).map((el) => el.textContent ?? "");
+    expect(labels.some((l) => l.includes("试用新实验室"))).toBe(true);
+    expect(items.length).toBe(3);
+  });
+
+  it("HideFromPicker: hide_from_issue_lab_picker + disabled stays out when always_show=false", () => {
+    // Without the always_show escape hatch, the prior behavior
+    // holds: a hide_from_picker=true flag is invisible in the
+    // per-issue picker regardless of its enabled state. This
+    // pins the asymmetric semantics — the escape hatch must be
+    // EXPLICITLY opted into via always_show_in_lab_picker=true.
+    mockFlags.value = [
+      { key: "claude_science_lab", title: { zh: "Claude 实验室", en: "Claude Lab" }, enabled: true },
+      { key: "pythia_oracle", title: { zh: "Pythia 多视角预测", en: "Pythia Multi-Perspective Forecasting" }, enabled: true },
+      {
+        key: "infrastructure_invisible_lab",
+        title: { zh: "基础设施实验室", en: "Infra Lab" },
+        enabled: false,
+        hide_from_issue_lab_picker: true,
+      },
+    ];
+    renderPicker();
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(trigger);
+    const items = document.querySelectorAll("button[data-picker-item]");
+    // None + claude_science_lab + pythia_oracle = 3; the
+    // hide_from_picker flag must NOT appear.
+    const labels = Array.from(items).map((el) => el.textContent ?? "");
+    expect(labels.some((l) => l.includes("Infra Lab"))).toBe(false);
+    expect(items.length).toBe(3);
+  });
 });
