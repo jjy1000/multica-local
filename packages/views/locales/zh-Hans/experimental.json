@@ -56,7 +56,26 @@
     "skills_ack_title": "全局技能注入确认",
     "skills_ack_description": "此插件开启后会将以下技能注入工作区中的每个智能体：{{skills}}。确认开启？",
     "skills_ack_confirm": "确认开启",
-    "skills_ack_cancel": "取消"
+    "skills_ack_cancel": "取消",
+    "trigger_mode": {
+      "auto": "自驱",
+      "issue_select": "任务绑定"
+    },
+    "runtime_kind": {
+      "none": "无运行时",
+      "inline": "内联",
+      "subprocess": "子进程"
+    },
+    "status": {
+      "active": "启用",
+      "disabled": "停用",
+      "deleted": "已删除"
+    },
+    "toast": {
+      "delete_success": "插件已删除",
+      "delete_failed": "删除失败: {{msg}}",
+      "toggle_failed": "切换失败"
+    }
   },
   "forecast_stream": {
     "title": "实时预测",

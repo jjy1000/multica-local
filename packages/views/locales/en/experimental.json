@@ -56,7 +56,26 @@
     "skills_ack_title": "Global skill injection",
     "skills_ack_description": "This plugin declares that enabling it will inject the following skills into EVERY agent in the workspace: {{skills}}. Continue?",
     "skills_ack_confirm": "Enable & acknowledge",
-    "skills_ack_cancel": "Cancel"
+    "skills_ack_cancel": "Cancel",
+    "trigger_mode": {
+      "auto": "Self-driven",
+      "issue_select": "Task-bound"
+    },
+    "runtime_kind": {
+      "none": "No runtime",
+      "inline": "Inline",
+      "subprocess": "Subprocess"
+    },
+    "status": {
+      "active": "Active",
+      "disabled": "Disabled",
+      "deleted": "Deleted"
+    },
+    "toast": {
+      "delete_success": "Plugin deleted",
+      "delete_failed": "Delete failed: {{msg}}",
+      "toggle_failed": "Toggle failed"
+    }
   },
   "forecast_stream": {
     "title": "Live forecast",

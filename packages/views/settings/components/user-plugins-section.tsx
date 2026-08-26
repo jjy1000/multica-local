@@ -25,27 +25,10 @@ import { useT } from "../../i18n";
 
 // 0.3.60 Labs sandbox — user-created plugin management section.
 // Rendered below the developer catalog flags in the Labs tab.
-// v1: hardcoded Chinese labels; i18n keys deferred.
+// All visible strings come from the experimental i18n namespace.
 
-const userPluginKeys = {
+export const userPluginKeys = {
   all: ["user-plugins"] as const,
-};
-
-const TRIGGER_MODE_LABELS: Record<string, string> = {
-  auto: "自驱",
-  issue_select: "任务绑定",
-};
-
-const RUNTIME_KIND_LABELS: Record<string, string> = {
-  none: "无运行时",
-  inline: "内联",
-  subprocess: "子进程",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  active: "启用",
-  disabled: "停用",
-  deleted: "已删除",
 };
 
 // ── F-008: global skill-injection ack ───────────────────────────────────────
@@ -129,11 +112,12 @@ export function UserPluginsSection() {
     setDeleting(true);
     try {
       await api.deleteUserPlugin(deleteTarget.slug);
-      toast.success("插件已删除");
+      toast.success(t(($) => $.user_plugins.toast.delete_success));
       setDeleteTarget(null);
       invalidateAll();
     } catch (err) {
-      toast.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(t(($) => $.user_plugins.toast.delete_failed, { msg }));
     } finally {
       setDeleting(false);
     }
@@ -157,7 +141,8 @@ export function UserPluginsSection() {
       { key: plugin.flag_key, enabled: next },
       {
         onSuccess: () => invalidateAll(),
-        onError: () => toast.error("切换失败"),
+        onError: () =>
+          toast.error(t(($) => $.user_plugins.toast.toggle_failed)),
       },
     );
   }
@@ -204,10 +189,20 @@ export function UserPluginsSection() {
                       {plugin.title.zh || plugin.title.en}
                     </Label>
                     <span className="inline-flex items-center rounded-md border border-blue-400/40 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-700 dark:text-blue-300">
-                      {TRIGGER_MODE_LABELS[plugin.trigger_mode] ?? plugin.trigger_mode}
+                      {plugin.trigger_mode === "auto"
+                        ? t(($) => $.user_plugins.trigger_mode.auto)
+                        : plugin.trigger_mode === "issue_select"
+                          ? t(($) => $.user_plugins.trigger_mode.issue_select)
+                          : plugin.trigger_mode}
                     </span>
                     <span className="inline-flex items-center rounded-md border border-muted-foreground/30 bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
-                      {RUNTIME_KIND_LABELS[plugin.runtime_kind] ?? plugin.runtime_kind}
+                      {plugin.runtime_kind === "none"
+                        ? t(($) => $.user_plugins.runtime_kind.none)
+                        : plugin.runtime_kind === "inline"
+                          ? t(($) => $.user_plugins.runtime_kind.inline)
+                          : plugin.runtime_kind === "subprocess"
+                            ? t(($) => $.user_plugins.runtime_kind.subprocess)
+                            : plugin.runtime_kind}
                     </span>
                     <span
                       className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] ${
@@ -216,7 +211,13 @@ export function UserPluginsSection() {
                           : "border border-muted-foreground/30 bg-muted text-muted-foreground"
                       }`}
                     >
-                      {STATUS_LABELS[plugin.status] ?? plugin.status}
+                      {plugin.status === "active"
+                        ? t(($) => $.user_plugins.status.active)
+                        : plugin.status === "disabled"
+                          ? t(($) => $.user_plugins.status.disabled)
+                          : plugin.status === "deleted"
+                            ? t(($) => $.user_plugins.status.deleted)
+                            : plugin.status}
                     </span>
                   </div>
                   <p className="text-sm text-muted-foreground">

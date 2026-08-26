@@ -56,7 +56,26 @@
     "skills_ack_title": "グローバルスキル注入の確認",
     "skills_ack_description": "このプラグインを有効にすると、ワークスペース内のすべてのエージェントに次のスキルが注入されます: {{skills}}。続行しますか?",
     "skills_ack_confirm": "有効化して確認",
-    "skills_ack_cancel": "キャンセル"
+    "skills_ack_cancel": "キャンセル",
+    "trigger_mode": {
+      "auto": "自走化",
+      "issue_select": "タスク連携"
+    },
+    "runtime_kind": {
+      "none": "ランタイムなし",
+      "inline": "インライン",
+      "subprocess": "サブプロセス"
+    },
+    "status": {
+      "active": "有効",
+      "disabled": "無効",
+      "deleted": "削除済み"
+    },
+    "toast": {
+      "delete_success": "プラグインを削除しました",
+      "delete_failed": "削除失敗: {{msg}}",
+      "toggle_failed": "切り替え失敗"
+    }
   },
   "forecast_stream": {
     "title": "ライブ予測",
