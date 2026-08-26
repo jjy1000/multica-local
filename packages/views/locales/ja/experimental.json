@@ -26,6 +26,8 @@
     "enable_plugin_hint": "無効化すると、プラグインのサイドバー項目とビューが非表示になります。",
     "edit": "プラグインを編集",
     "delete": "プラグインを削除",
+    "delete_button": "削除",
+    "delete_button_deleting": "削除中…",
     "delete_title": "プラグインを削除",
     "delete_description": "プラグイン「{{name}}」を削除しますか？この操作は元に戻せません。",
     "cancel": "キャンセル",

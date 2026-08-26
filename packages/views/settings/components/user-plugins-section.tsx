@@ -280,7 +280,7 @@ export function UserPluginsSection() {
               {t(($) => $.user_plugins.cancel)}
             </Button>
             <Button type="button" variant="destructive" onClick={handleDelete} disabled={deleting}>
-              {deleting ? "删除中…" : "删除"}
+              {deleting ? t(($) => $.user_plugins.delete_button_deleting) : t(($) => $.user_plugins.delete_button)}
             </Button>
           </DialogFooter>
         </DialogContent>

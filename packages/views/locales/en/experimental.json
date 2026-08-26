@@ -26,6 +26,8 @@
     "enable_plugin_hint": "When disabled, the plugin's sidebar entry and views are hidden.",
     "edit": "Edit plugin",
     "delete": "Delete plugin",
+    "delete_button": "Delete",
+    "delete_button_deleting": "Deleting...",
     "delete_title": "Delete plugin",
     "delete_description": "Are you sure you want to delete the plugin \"{{name}}\"? This action cannot be undone.",
     "cancel": "Cancel",

@@ -26,6 +26,8 @@
     "enable_plugin_hint": "비활성화하면 플러그인의 사이드바 항목과 뷰가 숨겨집니다.",
     "edit": "플러그인 편집",
     "delete": "플러그인 삭제",
+    "delete_button": "삭제",
+    "delete_button_deleting": "삭제 중…",
     "delete_title": "플러그인 삭제",
     "delete_description": "플러그인 「{{name}}」 을(를) 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.",
     "cancel": "취소",

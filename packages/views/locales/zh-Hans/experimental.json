@@ -26,6 +26,8 @@
     "enable_plugin_hint": "停用后插件的侧边栏入口与视图将隐藏。",
     "edit": "编辑插件",
     "delete": "删除插件",
+    "delete_button": "删除",
+    "delete_button_deleting": "删除中…",
     "delete_title": "删除插件",
     "delete_description": "确定要删除插件「{{name}}」吗？此操作不可撤销。",
     "cancel": "取消",
