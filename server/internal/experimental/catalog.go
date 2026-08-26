@@ -387,16 +387,12 @@ var Catalog = []Flag{
 		// tab together make semantica a first-class issue-bound lab.
 		HideFromIssueLabPicker:          false,
 		HidesDeliverableInIssueTimeline: true,
-		// Phase 2: sidebar entry routes to /experimental/semantica-explorer
-		// (NOT /experimental/semantica — that path is reserved for the
-		// REST proxy used by the agent subprocess).
-		Sidebar: []SidebarRow{
-			{
-				Key:      "experimental_semantica",
-				LabelKey: "experimental_semantica",
-				Route:    "/experimental/semantica-explorer",
-			},
-		},
+		// Sidebar entry is owned by the manifest's
+		// spec.entry_points.sidebar (apps/desktop/resources/experiments/semantica/manifest.json).
+		// Route must be /experimental/semantica-explorer — the bare
+		// /experimental/semantica path is reserved for the REST proxy
+		// used by the agent subprocess. Single source of truth: edit the
+		// manifest, not this catalog literal.
 	},
 	// 0.5.6: `agent_self_optimization` and `agent_creation_studio`
 	// are no longer catalog entries. The two flags were promoted to

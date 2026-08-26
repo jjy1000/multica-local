@@ -21,7 +21,7 @@
     "entry_points": {
       "sidebar": [
         {
-          "key": "semantica",
+          "key": "experimental_semantica",
           "label_key": "experimental_semantica",
           "route": "/experimental/semantica-explorer"
         }
