@@ -63,6 +63,7 @@ export function ChatMessageList({
 }: ChatMessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollContainerEl, setScrollContainerEl] = useState<HTMLDivElement | null>(null);
+  const [isNearBottom, setIsNearBottom] = useState(true);
   const setScrollContainerRef = useCallback((node: HTMLDivElement | null) => {
     scrollRef.current = node;
     setScrollContainerEl(node);
@@ -133,13 +134,8 @@ export function ChatMessageList({
         firstItemIndex={firstIndex}
         increaseViewportBy={{ top: 400, bottom: 600 }}
         atBottomThreshold={120}
-        // Follow rapid streamed output only while Virtuoso says the reader is
-        // at the live end. An in-flight smooth animation temporarily reports
-        // "not at bottom" on the next append and permanently drops the follow
-        // (#6697), so live growth must use an immediate scroll.
-        followOutput={(atBottom) =>
-          !isFetchingOlderMessages && atBottom ? "auto" : false
-        }
+        atBottomStateChange={setIsNearBottom}
+        followOutput={() => (!isFetchingOlderMessages && isNearBottom ? "smooth" : false)}
         startReached={() => {
           if (hasOlderMessages && !isFetchingOlderMessages) {
             onLoadOlderMessages?.();
