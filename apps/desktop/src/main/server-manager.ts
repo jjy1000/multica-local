@@ -359,6 +359,11 @@ interface ServerEnv {
   DATABASE_URL: string;
   JWT_SECRET: string;
   MULTICA_PUBLIC_URL: string;
+  // Fork overrides the upstream 2h default to fail-fast on stale queued
+  // tasks (single-user desktop, not self-hosted). Override here only if a
+  // future desktop workflow legitimately needs to wait longer than 5m
+  // behind a long-running task.
+  MULTICA_TASK_QUEUED_TTL?: string;
   POSTGRES_USER?: string;
   POSTGRES_PASSWORD?: string;
   POSTGRES_DB?: string;
@@ -387,6 +392,7 @@ async function buildServerEnv(profile: string, port: number): Promise<ServerEnv>
       DATABASE_URL: pgProbeUrl(),
       JWT_SECRET: randomHex(32),
       MULTICA_PUBLIC_URL: `http://localhost:${port}`,
+      MULTICA_TASK_QUEUED_TTL: "5m",
     };
     await mkdir(profileDir(profile), { recursive: true });
     await writeFile(envFile, serializeEnvFile(env), { mode: 0o600 });
@@ -417,6 +423,9 @@ function serializeEnvFile(env: ServerEnv): string {
     `DATABASE_URL=${env.DATABASE_URL}`,
     `JWT_SECRET=${env.JWT_SECRET}`,
     `MULTICA_PUBLIC_URL=${env.MULTICA_PUBLIC_URL}`,
+    // Fork-specific override: single-user desktop fails fast on stale
+    // queued tasks (5m) instead of upstream's 2h self-hosted default.
+    `MULTICA_TASK_QUEUED_TTL=${env.MULTICA_TASK_QUEUED_TTL ?? "5m"}`,
     "",
   ].join("\n");
 }
