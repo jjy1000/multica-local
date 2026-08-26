@@ -563,17 +563,8 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	}
 
 	codexArgs := buildCodexArgs(opts, b.cfg.Logger)
-	cmd := exec.CommandContext(runCtx, execPath, codexArgs...)
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, execPath, codexArgs...))
 	hideAgentWindow(cmd)
-	// Run codex in its own process group so a cancel-on-stuck cleanup
-	// reaches the whole tree — the codex Node wrapper plus the native
-	// Rust app-server it spawns — not just the direct child. Without
-	// this, killing the leader leaves grandchildren as orphans that
-	// keep consuming memory until the OS reaps them; see #4520, where a
-	// scanner overflow during thread/resume otherwise leaked Codex
-	// processes indefinitely. configureProcessGroup is a no-op on
-	// Windows.
-	configureProcessGroup(cmd)
 	// Override the default exec.CommandContext cancel behaviour. The
 	// default sends SIGKILL only to cmd.Process (the leader); we instead
 	// signal the whole process group so descendants die too. Returning
@@ -608,7 +599,7 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 	stderrBuf := newStderrTail(newLogWriter(b.cfg.Logger, "[codex:stderr] "), codexStderrTailBytes)
 	cmd.Stderr = stderrBuf
 
-	if err := cmd.Start(); err != nil {
+	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start codex: %w", err)
 	}
@@ -748,6 +739,9 @@ func (b *codexBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 			waitCh := make(chan struct{})
 			go func() {
 				_ = cmd.Wait()
+				// Leader reaped; drop the runtime-process-tree ownership
+				// handle (Unix: no-op; Windows: closes the Job Object).
+				releaseProcessGroup(cmd)
 				close(waitCh)
 			}()
 			select {
@@ -1240,9 +1234,9 @@ func detectCodexVersionForDiagnostics(ctx context.Context, execPath string, env 
 	versionCtx, cancel := context.WithTimeout(ctx, codexVersionDiagnosticTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(versionCtx, execPath, "--version")
+	cmd := newRuntimeCmd(exec.CommandContext(versionCtx, execPath, "--version"))
 	cmd.Env = env
-	data, err := cmd.Output()
+	data, err := outputOwned(cmd, logger)
 	if err != nil {
 		if logger != nil {
 			logger.Debug("codex version diagnostic failed", "error", err)
