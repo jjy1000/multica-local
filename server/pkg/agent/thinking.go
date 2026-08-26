@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -169,9 +170,9 @@ func loadClaudeThinkingByModel(ctx context.Context, executablePath string) map[s
 // parsing fails it returns the static fallback rather than nothing so
 // callers can still render a usable picker.
 func claudeEffortSuperset(ctx context.Context, executablePath string) []string {
-	cmd := exec.CommandContext(ctx, executablePath, "--help")
+	cmd := newRuntimeCmd(exec.CommandContext(ctx, executablePath, "--help"))
 	hideAgentWindow(cmd)
-	out, err := cmd.CombinedOutput()
+	out, err := combinedOutputOwned(cmd, slog.Default())
 	if err != nil {
 		return append([]string(nil), claudeStaticEffortFallback...)
 	}
@@ -313,9 +314,9 @@ func loadCodexThinkingByModel(ctx context.Context, executablePath string) map[st
 var codexDebugModelsArgs = []string{"debug", "models", "--bundled"}
 
 func runCodexDebugModels(ctx context.Context, executablePath string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, executablePath, codexDebugModelsArgs...)
+	cmd := newRuntimeCmd(exec.CommandContext(ctx, executablePath, codexDebugModelsArgs...))
 	hideAgentWindow(cmd)
-	return cmd.Output()
+	return outputOwned(cmd, slog.Default())
 }
 
 // parseCodexDebugModels takes the JSON payload from `codex debug
@@ -408,9 +409,9 @@ func codebuddyHelpOutput(ctx context.Context, executablePath string) string {
 
 	runCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, executablePath, "--help")
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, executablePath, "--help"))
 	hideAgentWindow(cmd)
-	out, _ := cmd.CombinedOutput()
+	out, _ := combinedOutputOwned(cmd, slog.Default())
 	result := string(out)
 
 	if result != "" {
