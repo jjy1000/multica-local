@@ -29,8 +29,8 @@ Multica 的 [自部署](/self-host-quickstart) 服务器启动时从环境变量
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
 | `DATABASE_URL` | 本地 `multica` 数据库 | PostgreSQL 连接地址 |
-| `DATABASE_MAX_CONNS` | `25` | 单个 API 进程的最大数据库连接数 |
-| `DATABASE_MIN_CONNS` | `5` | 单个 API 进程保留的最小连接数 |
+| `DATABASE_MAX_CONNS` | `25` | pgxpool 最大连接数。守护进程高频轮询（每 3 秒）会占用连接；大规模部署可能需要调高 |
+| `DATABASE_MIN_CONNS` | `5` | 最小常驻连接 |
 | `PORT` | `8080` | API 监听端口 |
 | `JWT_SECRET` | 生产环境必填 | 登录 JWT、部分签名流程使用的密钥；生产环境对空值或已知占位值拒绝启动 |
 | `APP_ENV` | 空 | 生产环境设为 `production` |

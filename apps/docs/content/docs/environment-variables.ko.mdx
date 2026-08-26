@@ -29,8 +29,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `DATABASE_URL` | 로컬 `multica` 데이터베이스 | PostgreSQL 연결 주소 |
-| `DATABASE_MAX_CONNS` | `25` | API 프로세스 하나의 최대 데이터베이스 연결 수 |
-| `DATABASE_MIN_CONNS` | `5` | API 프로세스 하나가 유지하는 최소 연결 수 |
+| `DATABASE_MAX_CONNS` | `25` | pgxpool 최대 연결 수. 데몬은 자주(3초마다) 폴링하며 연결을 사용하므로, 규모가 큰 배포에서는 더 높은 값이 필요할 수 있습니다 |
+| `DATABASE_MIN_CONNS` | `5` | 최소 유휴 연결 수 |
 | `PORT` | `8080` | API listen port |
 | `JWT_SECRET` | 프로덕션에서 필수 | 로그인 JWT와 일부 서명 절차에서 사용하는 키. 프로덕션에서는 비어 있거나 알려진 자리표시자 값으로 부팅 거부 |
 | `APP_ENV` | 비어 있음 | 프로덕션 환경에서는 `production`으로 설정 |
