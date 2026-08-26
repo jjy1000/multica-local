@@ -63,7 +63,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		}
 	}()
 
-	cmd := exec.CommandContext(runCtx, execPath, args...)
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, execPath, args...))
 	hideAgentWindow(cmd)
 	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(args))
 	cmd.WaitDelay = 10 * time.Second
@@ -92,7 +92,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	stderrBuf := newStderrTail(newLogWriter(b.cfg.Logger, "[claude:stderr] "), agentStderrTailBytes)
 	cmd.Stderr = stderrBuf
 
-	if err := cmd.Start(); err != nil {
+	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		closeStdin()
 		cancel()
 		return nil, fmt.Errorf("start claude: %w", err)
@@ -100,7 +100,7 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 
 	b.cfg.Logger.Info("claude started", "pid", cmd.Process.Pid, "cwd", opts.Cwd, "model", opts.Model)
 
-	// cmd.Start() succeeded — transfer temp file ownership to the goroutine.
+	// The process started — transfer temp file ownership to the goroutine.
 	mcpFileCleanup = nil
 
 	msgCh := make(chan Message, 256)
@@ -219,6 +219,11 @@ func (b *claudeBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 
 		// Wait for process exit
 		exitErr := cmd.Wait()
+		// Leader reaped; drop the runtime-process-tree ownership handle. On
+		// Unix this is a no-op (process groups have no handle); on Windows
+		// it closes the Job Object, killing anything still inside it
+		// (MUL-6658 / GH #7522).
+		releaseProcessGroup(cmd)
 		duration := time.Since(startTime)
 		// writeDone is buffered (cap 1) and the writer always sends — by the
 		// time cmd has exited, the prompt write has either succeeded, hit a
@@ -970,9 +975,9 @@ func isEmptyJSONObject(raw json.RawMessage) bool {
 }
 
 func detectCLIVersion(ctx context.Context, execPath string) (string, error) {
-	cmd := exec.CommandContext(ctx, execPath, "--version")
+	cmd := newRuntimeCmd(exec.CommandContext(ctx, execPath, "--version"))
 	hideAgentWindow(cmd)
-	data, err := cmd.Output()
+	data, err := outputOwned(cmd, slog.Default())
 	if err != nil {
 		// One provider-agnostic boundary for probes: DetectVersion routes every
 		// provider through here, so an ENOEXEC diagnosis added at this point

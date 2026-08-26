@@ -57,7 +57,7 @@ func (b *kimiBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 	// a safe granting option the agent offered (see
 	// selectACPApprovalOptionID) for each session/request_permission request.
 	kimiArgs := append([]string{"acp"}, filterCustomArgs(opts.CustomArgs, kimiBlockedArgs, b.cfg.Logger)...)
-	cmd := exec.CommandContext(runCtx, execPath, kimiArgs...)
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, execPath, kimiArgs...))
 	hideAgentWindow(cmd)
 	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(kimiArgs, trustAgentCommandPositional(0, "acp")))
 	if opts.Cwd != "" {
@@ -94,7 +94,7 @@ func (b *kimiBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 		return nil, fmt.Errorf("kimi stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start kimi: %w", err)
 	}
@@ -173,6 +173,9 @@ func (b *kimiBackend) Execute(ctx context.Context, prompt string, opts ExecOptio
 		defer func() {
 			stdin.Close()
 			_ = cmd.Wait()
+			// Leader reaped; drop the runtime-process-tree ownership
+			// handle (Unix: no-op; Windows: closes the Job Object).
+			releaseProcessGroup(cmd)
 		}()
 
 		startTime := time.Now()

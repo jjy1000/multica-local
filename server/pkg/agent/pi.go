@@ -205,7 +205,7 @@ func (b *piBackend) Execute(ctx context.Context, prompt string, opts ExecOptions
 	args := buildPiArgs(prompt, sessionPath, opts, b.cfg.Logger)
 	argv0, cmdArgs := choosePiInvocation(execName, lookedUp, args, b.cfg.Logger)
 
-	cmd := exec.CommandContext(runCtx, argv0, cmdArgs...)
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, argv0, cmdArgs...))
 	hideAgentWindow(cmd)
 	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(args))
 	cmd.WaitDelay = 10 * time.Second
@@ -233,7 +233,7 @@ func (b *piBackend) Execute(ctx context.Context, prompt string, opts ExecOptions
 	}
 	cmd.Stderr = newLogWriter(b.cfg.Logger, "[pi:stderr] ")
 
-	if err := cmd.Start(); err != nil {
+	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		_ = stdin.Close()
 		cancel()
 		return nil, fmt.Errorf("start pi: %w", err)
@@ -359,6 +359,9 @@ func (b *piBackend) Execute(ctx context.Context, prompt string, opts ExecOptions
 		}
 
 		waitErr := cmd.Wait()
+		// Leader reaped; drop the runtime-process-tree ownership handle
+		// (Unix: no-op; Windows: closes the Job Object).
+		releaseProcessGroup(cmd)
 		duration := time.Since(startTime)
 
 		if runCtx.Err() == context.DeadlineExceeded {

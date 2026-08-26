@@ -94,7 +94,7 @@ func (b *qoderBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		[]string{"--yolo", "--acp"},
 		filterCustomArgs(opts.CustomArgs, qoderBlockedArgs, b.cfg.Logger)...,
 	)
-	cmd := exec.CommandContext(runCtx, execPath, qoderArgs...)
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, execPath, qoderArgs...))
 	hideAgentWindow(cmd)
 	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(qoderArgs))
 	if opts.Cwd != "" {
@@ -124,7 +124,7 @@ func (b *qoderBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		return nil, fmt.Errorf("qoder stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start qoder: %w", err)
 	}
@@ -202,6 +202,9 @@ func (b *qoderBackend) Execute(ctx context.Context, prompt string, opts ExecOpti
 		defer func() {
 			stdin.Close()
 			_ = cmd.Wait()
+			// Leader reaped; drop the runtime-process-tree ownership
+			// handle (Unix: no-op; Windows: closes the Job Object).
+			releaseProcessGroup(cmd)
 		}()
 
 		startTime := time.Now()

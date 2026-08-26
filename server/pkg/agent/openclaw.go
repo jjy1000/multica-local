@@ -74,7 +74,7 @@ func (b *openclawBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	}
 	args := buildOpenclawArgs(prompt, sessionID, opts, b.cfg.Logger)
 
-	cmd := exec.CommandContext(runCtx, execPath, args...)
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, execPath, args...))
 	hideAgentWindow(cmd)
 	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(args))
 	cmd.WaitDelay = 10 * time.Second
@@ -94,7 +94,7 @@ func (b *openclawBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	}
 	cmd.Stderr = newLogWriter(b.cfg.Logger, "[openclaw:stderr] ")
 
-	if err := cmd.Start(); err != nil {
+	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start openclaw: %w", err)
 	}
@@ -120,6 +120,9 @@ func (b *openclawBackend) Execute(ctx context.Context, prompt string, opts ExecO
 
 		// Wait for process exit.
 		exitErr := cmd.Wait()
+		// Leader reaped; drop the runtime-process-tree ownership handle
+		// (Unix: no-op; Windows: closes the Job Object).
+		releaseProcessGroup(cmd)
 		duration := time.Since(startTime)
 
 		if runCtx.Err() == context.DeadlineExceeded {
@@ -232,9 +235,9 @@ func customArgsContains(args []string, flag string) bool {
 // comment, so the message intentionally names the detected version
 // and the upgrade command.
 func checkOpenclawVersion(ctx context.Context, execPath string) error {
-	cmd := exec.CommandContext(ctx, execPath, "--version")
+	cmd := newRuntimeCmd(exec.CommandContext(ctx, execPath, "--version"))
 	hideAgentWindow(cmd)
-	out, err := cmd.CombinedOutput()
+	out, err := combinedOutputOwned(cmd, slog.Default())
 	if err != nil {
 		return fmt.Errorf("openclaw --version failed: %w", err)
 	}

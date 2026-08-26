@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"regexp"
@@ -479,20 +480,20 @@ func discoverOpenCodeModels(ctx context.Context, executablePath string) ([]Model
 	// the model picker was empty. See multica-ai/multica#3627.
 	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, executablePath, "models", "--verbose")
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, executablePath, "models", "--verbose"))
 	hideAgentWindow(cmd)
 	// Parse whatever the verbose command printed, even on a non-zero exit — a
 	// stale config entry can make `opencode models` exit non-zero while still
 	// listing the resolvable catalog (mirrors the pi path; see #3729/#3627).
-	out, _ := cmd.Output()
+	out, _ := outputOwned(cmd, slog.Default())
 	models := parseOpenCodeModels(string(out))
 	if len(models) == 0 {
 		// Verbose yielded nothing usable (unsupported flag, error text, or an
 		// empty list). Retry the plain command, which omits the per-model JSON
 		// but still prints the IDs.
-		cmd = exec.CommandContext(runCtx, executablePath, "models")
+		cmd = newRuntimeCmd(exec.CommandContext(runCtx, executablePath, "models"))
 		hideAgentWindow(cmd)
-		out, _ = cmd.Output()
+		out, _ = outputOwned(cmd, slog.Default())
 		models = parseOpenCodeModels(string(out))
 	}
 	if len(models) == 0 {
@@ -692,11 +693,11 @@ func discoverPiModels(ctx context.Context, executablePath string) ([]Model, erro
 	// the opencode discovery cap (see #3729, same class as #3627).
 	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, executablePath, "--list-models")
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, executablePath, "--list-models"))
 	hideAgentWindow(cmd)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
-	stdout, err := cmd.Output()
+	stdout, err := outputOwned(cmd, slog.Default())
 	if err != nil && len(stdout) == 0 && stderr.Len() == 0 {
 		return []Model{}, nil
 	}
@@ -917,7 +918,7 @@ func discoverACPModels(ctx context.Context, executablePath string, p acpDiscover
 	if len(cmdArgs) == 0 {
 		cmdArgs = []string{"acp"}
 	}
-	cmd := exec.CommandContext(runCtx, executablePath, cmdArgs...)
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, executablePath, cmdArgs...))
 	hideAgentWindow(cmd)
 	if len(p.extraEnv) > 0 {
 		cmd.Env = append(os.Environ(), p.extraEnv...)
@@ -934,7 +935,7 @@ func discoverACPModels(ctx context.Context, executablePath string, p acpDiscover
 	// Discard stderr; noisy logs here don't help us and we don't
 	// want them bleeding into the daemon log every 60s.
 	cmd.Stderr = io.Discard
-	if err := cmd.Start(); err != nil {
+	if err := startOwnedProcessTree(cmd, slog.Default()); err != nil {
 		return []Model{}, nil
 	}
 	// Ensure the child process is always reaped.
@@ -942,6 +943,9 @@ func discoverACPModels(ctx context.Context, executablePath string, p acpDiscover
 		_ = stdin.Close()
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
+		// Drop the runtime-process-tree ownership handle (Unix: no-op;
+		// Windows: closes the Job Object).
+		releaseProcessGroup(cmd)
 	}()
 
 	writeACP := func(id int, method string, params map[string]any) error {
@@ -1125,9 +1129,9 @@ func discoverAntigravityModels(ctx context.Context, executablePath string) ([]Mo
 	// short cap is plenty; keep it generous enough to absorb cold starts.
 	runCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, executablePath, "models")
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, executablePath, "models"))
 	hideAgentWindow(cmd)
-	out, err := cmd.Output()
+	out, err := outputOwned(cmd, slog.Default())
 	if err != nil && len(out) == 0 {
 		return nil, nil
 	}
@@ -1176,9 +1180,9 @@ func discoverCursorModels(ctx context.Context, executablePath string) ([]Model, 
 	// time out and fall back to the minimal static list. See #3729.
 	runCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(runCtx, executablePath, "--list-models")
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, executablePath, "--list-models"))
 	hideAgentWindow(cmd)
-	out, err := cmd.Output()
+	out, err := outputOwned(cmd, slog.Default())
 	if err != nil && len(out) == 0 {
 		return cursorStaticModels(), nil
 	}
@@ -1273,9 +1277,9 @@ func discoverOpenclawAgents(ctx context.Context, executablePath string) ([]Model
 		{"agents", "list", "--output", "json"},
 		{"agents", "list", "-o", "json"},
 	} {
-		cmd := exec.CommandContext(runCtx, executablePath, jsonArgs...)
+		cmd := newRuntimeCmd(exec.CommandContext(runCtx, executablePath, jsonArgs...))
 		hideAgentWindow(cmd)
-		out, err := cmd.Output()
+		out, err := outputOwned(cmd, slog.Default())
 		if err != nil && len(out) == 0 {
 			continue
 		}
@@ -1287,9 +1291,9 @@ func discoverOpenclawAgents(ctx context.Context, executablePath string) ([]Model
 	// Text fallback. Be strict — the default output is a decorated
 	// banner with box-drawing and section headers, and picking up
 	// the wrong tokens produces nonsense entries like "Identity:".
-	cmd := exec.CommandContext(runCtx, executablePath, "agents", "list")
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, executablePath, "agents", "list"))
 	hideAgentWindow(cmd)
-	out, err := cmd.Output()
+	out, err := outputOwned(cmd, slog.Default())
 	if err != nil && len(out) == 0 {
 		return []Model{}, nil
 	}
