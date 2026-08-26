@@ -32,6 +32,7 @@ import {
 import { installContextMenu } from "./context-menu";
 import { handleAppShortcut } from "./keyboard-shortcuts";
 import { installNavigationGestures } from "./navigation-gestures";
+import { createRendererWebPreferences } from "./renderer-web-preferences";
 import { writeRendererConsoleLine } from "./renderer-log";
 import { getAppVersion } from "./app-version";
 import { loadRuntimeConfig } from "./runtime-config-loader";
@@ -221,40 +222,22 @@ function createWindow(): void {
     ...(is.dev || process.platform === "linux"
       ? { icon: BUNDLED_ICON_PATH }
       : {}),
-    webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
-      sandbox: false,
-      webSecurity: false,
-      // Required for the Chromium PDF viewer (PDFium) to activate inside
-      // iframes — used by the attachment preview modal for application/pdf
-      // files. Default is false in Electron; without it <iframe src=*.pdf>
-      // renders blank.
-      //
-      // Security trade-off, accepted intentionally:
-      //   1. This window already runs with `webSecurity: false` + `sandbox: false`,
-      //      so `plugins: true` does NOT meaningfully widen the renderer's
-      //      attack surface beyond what is already accepted.
-      //   2. The only PDFs that reach an iframe here are signed CloudFront URLs
-      //      we ourselves issued (see useDownloadAttachment); user-supplied URLs
-      //      are routed through `setWindowOpenHandler` → `openExternalSafely` and
-      //      cannot land in this renderer.
-      //   3. Chromium's PDFium plugin is itself sandboxed inside its own process
-      //      and only handles the `application/pdf` MIME — it does not expose
-      //      Flash, Java, or other historical plugin surfaces.
-      //
-      // If we ever tighten `webSecurity` / `sandbox`, revisit this by hosting
-      // the PDF viewer in a dedicated BrowserView with `plugins: true` scoped
-      // to that view, keeping the main renderer plugin-free.
-      plugins: true,
-      // Required to render Electron's <webview> tag in the renderer. The
-      // experimental Claude Science view mounts a real Chromium instance
-      // (separate process, partition-isolated cookies) instead of an
-      // iframe. Without this flag Chromium strips <webview> from the DOM
-      // silently and the renderer falls back to whatever HTML Chromium
-      // emits for an unknown element — which is invisible to the user.
-      webviewTag: true,
-      additionalArguments: [`--multica-locale=${systemLocale}`],
-    },
+    // Sandbox: true + webSecurity: false + plugins: true (PDFium) +
+    // systemLocale args — extracted into renderer-web-preferences.ts so
+    // the security-relevant defaults are pinned by a unit test beside the
+    // module. The `webviewTag: true` override is fork-only: the experimental
+    // Claude Science view mounts a real Chromium instance via <webview>
+    // tag, and Chromium strips <webview> from the DOM silently without
+    // this flag (renderer falls back to whatever HTML Chromium emits for
+    // an unknown element, which is invisible to the user). See
+    // apps/desktop/src/main/renderer-web-preferences.ts for the full
+    // security rationale (PDF plugin comment, etc.).
+    webPreferences: createRendererWebPreferences(
+      join(__dirname, "../preload/index.js"),
+      systemLocale,
+      [],
+      { webviewTag: true },
+    ),
   });
   const window = mainWindow;
   latestRendererRouteContext = null;
