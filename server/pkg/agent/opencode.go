@@ -97,13 +97,8 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	args = append(args, filterCustomArgs(opts.CustomArgs, opencodeBlockedArgs, b.cfg.Logger)...)
 	args = append(args, prompt)
 
-	cmd := exec.CommandContext(runCtx, execPath, args...)
+	cmd := newRuntimeCmd(exec.CommandContext(runCtx, execPath, args...))
 	hideAgentWindow(cmd)
-	// Run opencode in its own process group so cancellation can reach the
-	// whole tree (opencode plus any tool subprocess it spawns), not just the
-	// direct child — otherwise a cancelled or restarted run can orphan a
-	// descendant that keeps spinning (#4533).
-	configureProcessGroup(cmd)
 	// Take over context cancellation. The default CommandContext behaviour
 	// SIGKILLs only the leader the instant runCtx is done; we instead drive a
 	// graceful, group-wide SIGTERM→SIGKILL from the cancellation goroutine
@@ -164,7 +159,7 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 	}
 	cmd.Stderr = newLogWriter(b.cfg.Logger, "[opencode:stderr] ")
 
-	if err := cmd.Start(); err != nil {
+	if err := startOwnedProcessTree(cmd, b.cfg.Logger); err != nil {
 		cancel()
 		return nil, fmt.Errorf("start opencode: %w", err)
 	}
@@ -215,6 +210,9 @@ func (b *opencodeBackend) Execute(ctx context.Context, prompt string, opts ExecO
 
 		// Wait for process exit, then release the cancellation handler.
 		exitErr := cmd.Wait()
+		// Leader reaped; drop the runtime-process-tree ownership handle
+		// (Unix: no-op; Windows: closes the Job Object).
+		releaseProcessGroup(cmd)
 		close(procDone)
 		duration := time.Since(startTime)
 
