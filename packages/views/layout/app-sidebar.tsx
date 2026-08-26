@@ -31,6 +31,7 @@ import {
   ClipboardList,
   Pin,
   Brain,
+  MessagesSquare,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -121,11 +122,11 @@ const configureNav = NAV_PAGE_REGISTRY.filter((page) => page.group === "configur
 //
 // Adding a new lab? Pick one lucide icon and append it here AND to
 // `LabBadge`'s switch statement; both must agree.
-// 0.5.74 batch 1: added swarm_topology + semantica (Code-Reviewer audit finding A)
+// 0.5.74 PR 7: mythos_swarm icon → MessagesSquare to differentiate from swarm_topology's Network
 const experimentalIconByKey: Record<string, typeof FlaskConical> = {
   claude_science_lab: TestTubes,
   pythia_oracle: Sparkles,
-  mythos_swarm: Network,
+  mythos_swarm: MessagesSquare,
   llm_wiki_bridge: ClipboardList,
   code_canvas: Code2,
   // (0.3.57: constitution_agent removed alongside the lab retirement.)

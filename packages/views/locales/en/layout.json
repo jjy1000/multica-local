@@ -46,7 +46,7 @@
       "description": "Chat with the team and other builders.",
       "dismiss": "Dismiss"
     },
-    "experimental_mythos": "Mythos Swarm",
+    "experimental_mythos": "Mythos Swarm v1",
     "experimental_enabled_badge": "Enabled",
     "mythos_enabled_badge": "Swarm enabled",
     "pythia_enabled_badge": "Pythia enabled",
