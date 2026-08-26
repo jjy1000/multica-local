@@ -81,6 +81,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Pythia engine runtime artifacts (live ledger appends, oracle writes — never commit)
+apps/desktop/vendor/pythia-src/runs/
+
 # Security / vuln scan scratch dirs — these are pipeline-internal working state
 # (json chunks, partial python extractors, staging files). Final deliverables
 # (THREAT_MODEL.md, VULN-FINDINGS.md) belong in .omc/audit/ when ready, never
