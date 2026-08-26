@@ -490,3 +490,41 @@ CLI commands, skill listings, token rejection.
 - `.omc/release-notes-0.5.67.md` (audit batch — 7 ships closed all labs audit deferred items)
 - Memory `0.5.36-mul6243-ui-closeout-2026-08-18.md` (cherry-pick wholesale-adoption trap)
 - Memory `0.5.15-cherry-pick-batch-2026-08-10.md` (surgical cherry-pick methodology, 95.7% conflict rate)
+
+## Post-triage re-grade (2026-08-26) — 10 upstream commits since triage was authored
+
+> Triage baseline `54027ba76` was the upstream HEAD at triage time (2026-08-26 morning). Since then upstream advanced to `09a2410e8` (current upstream/main). 10 new commits landed. Re-graded below using the same methodology as the original triage.
+
+### New commits (10)
+
+| SHA | Subject | Verdict | Reason |
+|---|---|---|---|
+| `09a2410e8` | MUL-6709: starter_prompts -> conversation_starters (#7592) | DEFER Batch 5 | Conflicts with `f8ec870f` per-agent starter prompts (already REVIEW-tier in triage). Two competing starter-prompt architectures in upstream — port one or the other, not both. |
+| `f74a71060` | perf(web): preload landing hero (MUL-6711) | Batch 4 | Web-only (`apps/web/`); no fork desktop impact. |
+| `21b938bfd` | docs(changelog): drop reverted entries v0.4.35 | Batch 4 | Docs-only, after `c7d66071e` (forward-cherry-pick order). |
+| `c7d66071e` | docs(changelog): add v0.4.35 release entry | Batch 4 | Docs-only changelog entry — cherry-pick individually per triage methodology §Batch 4. |
+| `3b1018e9c` | Revert MUL-6016 Codex capacity retry | SKIP | Fork never had MUL-6016 (Codex retry logic absent in fork's daemon). |
+| `a9d86af46` | Revert MUL-6385 live HTML preview | SKIP | Fork never had MUL-6385 (live HTML preview surface not in fork's renderer). |
+| `cd169947b` | MUL-6686 daemon readable workdir paths | DEFER Batch 5 | Touches daemon/execenv — fork has `0.5.20 sub-agent tempdir fix` + `0.5.25 RuntimeGC fix` + `0.5.27/0.5.28 PORT leak fix`; multi-layer integration risk. |
+| `7b8c78399` | fix(issues): verified autopilot private agents | DEFER Batch 5 | Touches `server/internal/handler/issue.go` (fork-heavy — CLAUDE.md §Lab ↔ Assignee Mutex + Active Contract #5 swarm_topology). |
+| `bbba9c546` | MUL-6697 runtime access on task claims | DEFER Batch 5 | Touches daemon + task layer — fork's `daemon-manager.ts:1272` allowlist (F-027 closed 0.5.18) + per-task TMPDIR injection (0.5.20) at risk. |
+| `6c8f02aea` | fix(billing): trusted Pro limits | SKIP | Billing surface — fork removed (CLAUDE.md §Localized Fork). |
+
+### Re-grade summary
+
+- **4 new Batch 4 candidates** (`f74a71060`, `21b938bfd`, `c7d66071e`, plus reorder pair) — net +3 after `21b938bfd`/`c7d66071e` forward-order note.
+- **4 new DEFER Batch 5 candidates** (`09a2410e8`, `cd169947b`, `7b8c78399`, `bbba9c546`) — fork-heavy touch + integration risk.
+- **3 new SKIP** (`3b1018e9c`, `a9d86af46`, `6c8f02aea`) — never-in-fork or fork-removed.
+
+### Updated effort estimate (incremental)
+
+- **Batch 4 delta**: +3 commits, ~15 min (docs-only).
+- **Batch 5 delta**: +4 commits, +1-2 days if approved one by one.
+- **Total new work without Batch 5**: ~15 min.
+- **Total new work with Batch 5**: +1-2 days on top of triage estimate.
+
+### Critical reminder (unchanged)
+
+- Per-commit gate: `pnpm typecheck` + `cd server && go test -count=1 ./internal/... ./pkg/agent/...` (CLAUDE.md §Ship gate).
+- Cherry-pick one at a time, not batched (0.5.36 wholesale-adoption lesson).
+- DEFER Batch 5 commits require explicit user decision before any port.
