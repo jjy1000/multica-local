@@ -28,4 +28,17 @@ describe("reserved slugs", () => {
   it("matches slugs case-sensitively", () => {
     expect(isReservedSlug("Login")).toBe(false);
   });
+
+  // 0.5.72 regression pin: pre-workspace lab route namespaces
+  // (`/experimental/*`, `/experimental/plugin/:slug`) must be reserved so
+  // extractWorkspaceSlug() returns null for those paths. Without this,
+  // clicking an experimental sidebar item routes through
+  // tryRouteToOtherWorkspace → switchWorkspace("experimental", path) → a
+  // brand-new tab group keyed by "experimental" — sidebar context lost,
+  // AppSidebar hidden, lab view renders full-window and collapses the
+  // function bar.
+  it("reserves the pre-workspace lab route namespaces", () => {
+    expect(isReservedSlug("experimental")).toBe(true);
+    expect(isReservedSlug("plugin")).toBe(true);
+  });
 });

@@ -216,6 +216,14 @@ export function DesktopShell() {
   // On first mount, slug is null until WorkspaceRouteLayout (inside the tab
   // router) sets it. Once set, the sidebar and other shell-level components
   // can resolve workspace-scoped paths via useWorkspacePaths().
+  //
+  // Note: /experimental/* routes are pre-workspace (no slug in URL), but
+  // extractWorkspaceSlug() now treats "experimental" as a reserved slug
+  // (see packages/core/paths/reserved-slugs.ts), so the navigation adapter
+  // falls through to in-tab router.navigate — WorkspaceRouteLayout does
+  // NOT unmount, setCurrentWorkspace is not re-called, and this singleton
+  // keeps holding the active workspace's slug. AppSidebar therefore stays
+  // mounted when the user clicks an experimental sidebar entry.
   const slug = useSyncExternalStore(subscribeToCurrentSlug, getCurrentSlug, () => null);
 
   return (

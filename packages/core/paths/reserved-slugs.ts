@@ -159,6 +159,17 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "claude-science",
   "pythia-oracle",
   "code-canvas",
+
+  // Pre-workspace lab routes (0.5.72+)
+  // `experimental` and `plugin` are pre-workspace route namespaces
+  // (`/experimental/*`, `/experimental/plugin/:slug`) used by the Labs tab.
+  // Marking them reserved prevents extractWorkspaceSlug() from treating them as
+  // workspace slugs — without this, clicking an experimental sidebar item would
+  // call switchWorkspace("experimental", path) and create a new tab group keyed
+  // by "experimental", which loses the active workspace's AppSidebar context.
+  // See packages/core/paths/reserved-slugs.ts comment block for the full chain.
+  "experimental",
+  "plugin",
 ]);
 
 export function isReservedSlug(slug: string): boolean {
