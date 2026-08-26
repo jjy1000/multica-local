@@ -271,10 +271,15 @@ func (s *Service) tickSupervision(
 		issue, err := q.GetIssue(ctx, run.FinalIssueID)
 		// Fork deviation (MUL-6243): resolve to the canonical category — a
 		// custom status in the done/cancelled category terminates supervision
-		// exactly like Done/Cancelled. Uses s.queries (not the tick
-		// querier interface, which lacks the catalog queries); Effective is
+		// exactly like Done/Cancelled. Uses the 0.5.72 effectiveQ seam if
+		// the test injected one, otherwise s.queries (the production
+		// *db.Queries satisfies issuestatus.Querier). Effective is
 		// query-free for built-in statuses, so the common path is unchanged.
-		if err == nil && isTerminalIssueStatus(issuestatus.Effective(ctx, s.queries, issue.WorkspaceID, issue.Status)) {
+		effectiveQ := s.effectiveQ
+		if effectiveQ == nil {
+			effectiveQ = s.queries
+		}
+		if err == nil && isTerminalIssueStatus(issuestatus.Effective(ctx, effectiveQ, issue.WorkspaceID, issue.Status)) {
 			state.SubTasksDone = state.SubTasksTotal
 			state.Phase = PhaseDone
 		}

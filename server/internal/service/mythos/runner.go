@@ -32,6 +32,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/multica-ai/multica/server/internal/issuestatus"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -185,6 +186,14 @@ type Service struct {
 	// be exercised without a real DB. resolveTickQuerier falls
 	// back to s.queries when this is nil.
 	tickQ tickSupervisionQuerier
+	// effectiveQ is the 0.5.72 test seam for issuestatus.Effective,
+	// which tickSupervision calls for non-canonical status keys
+	// ("closed", custom statuses). Production callers leave this
+	// nil; tickSupervision falls back to s.queries (the full
+	// *db.Queries satisfies issuestatus.Querier). Tests inject a
+	// fake that returns a Category for custom-status subtests
+	// without booting a real DB.
+	effectiveQ issuestatus.Querier
 }
 
 // NewService builds a mythos Service. TaskService is required — the
