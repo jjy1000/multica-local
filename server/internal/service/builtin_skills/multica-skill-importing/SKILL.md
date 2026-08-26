@@ -204,6 +204,24 @@ Then report that the skill already exists and include its `id` / `name`. Do not
 retry in a loop, and do not create a second skill under a different name just to
 dodge the conflict.
 
+## Reading a skill back: metadata by default
+
+`multica skill get` and `multica skill files list` return **metadata only** —
+path, byte size and content hash per file, plus the size and hash of the
+SKILL.md body. That is what the conflict and verification steps above need, and
+it is what keeps a large skill inspectable at all: inlining every body made a
+~600KB skill impossible to fetch over a slow link (GH #7498).
+
+```bash
+multica skill get <skill-id> --output json                  # metadata
+multica skill get <skill-id> --with-content --output json   # bodies inlined
+multica skill files list <skill-id>                         # paths and sizes
+```
+
+Reach for `--with-content` only when you are going to read the content. To find
+out why a skill is large, the default output already answers it: the `size`
+column names the file.
+
 ## Incorrect → correct
 
 Incorrect (bypasses Multica):
