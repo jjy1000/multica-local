@@ -429,12 +429,34 @@ func TestPostDecisionSync_NilRegistry(t *testing.T) {
 // which already admits only enabled-tenant requests. Pinning this so
 // a future "fix" that re-adds DefaultFor can't silently re-break
 // per-user enabled semantica tenants.
+//
+// 0.5.70 audit fix: also pins the HTTP request shape (method,
+// path, body, headers) so a future "fix" that posts to the wrong
+// endpoint or with the wrong payload can't silently regress — the
+// previous hit-bool check accepted any successful POST, including
+// one to /wrong/path or with body {"service":"different"}.
 func TestPostDecisionSync_FiresWhenLoopbackURLSet(t *testing.T) {
 	flipSemanticaDefault(t, false) // catalog default off — should NOT matter here
 
-	var hit bool
+	type capturedReq struct {
+		method      string
+		path        string
+		contentType string
+		body        map[string]any
+		auth        string
+	}
+	var got capturedReq
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hit = true
+		body, _ := io.ReadAll(r.Body)
+		parsed := map[string]any{}
+		_ = json.Unmarshal(body, &parsed)
+		got = capturedReq{
+			method:      r.Method,
+			path:        r.URL.Path,
+			contentType: r.Header.Get("Content-Type"),
+			body:        parsed,
+			auth:        r.Header.Get("Authorization"),
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -445,7 +467,46 @@ func TestPostDecisionSync_FiresWhenLoopbackURLSet(t *testing.T) {
 
 	h.postDecisionSync(testSyncRow(t), "done", "agent", pgtype.UUID{})
 
-	if !hit {
-		t.Errorf("POST did not fire despite loopback URL set; per-user flag gating lives at the router now")
+	// Shape assertions — the daemon parses these fields, so any
+	// silent drift here would break upstream URL routing on the
+	// desktop side.
+	if got.method != http.MethodPost {
+		t.Errorf("request method = %q, want POST", got.method)
+	}
+	if got.path != "/api/decisions" {
+		t.Errorf("request path = %q, want /api/decisions", got.path)
+	}
+	if got.contentType != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", got.contentType)
+	}
+	// Body shape: buildSemanticaDecision emits a SemanticaDecision
+	// struct with these required keys. Pins the wire shape so a
+	// future "fix" that drops provenance.issue_id or status breaks
+	// the test instead of silently shipping a malformed decision.
+	// See decision_sync.go:30-47 for the wire-shape contract:
+	// issue_id is nested under provenance, NOT at the top level.
+	if got.body["id"] == nil {
+		t.Errorf("body.id missing; daemon cannot track the decision")
+	}
+	if got.body["status"] != "done" {
+		t.Errorf("body.status = %v, want done", got.body["status"])
+	}
+	provRaw, ok := got.body["provenance"].(map[string]any)
+	if !ok {
+		t.Fatalf("body.provenance missing or wrong type: %T", got.body["provenance"])
+	}
+	if provRaw["issue_id"] == nil {
+		t.Errorf("body.provenance.issue_id missing; daemon cannot map the decision back to the issue")
+	}
+	if provRaw["workspace_id"] == nil {
+		t.Errorf("body.provenance.workspace_id missing; semantica ACL reconciler needs it")
+	}
+	// The handler doesn't sign requests itself — desktop side adds
+	// the Authorization header after this POST returns. So the
+	// handler-to-server POST should NOT carry an Authorization header.
+	// Pinning this so a future "fix" that adds auth at this layer
+	// (duplicating desktop's responsibility) gets caught.
+	if got.auth != "" {
+		t.Errorf("Authorization header = %q, want empty (desktop adds auth, not this handler)", got.auth)
 	}
 }

@@ -149,13 +149,13 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   ".well-known",
 
   // Experimental labs (0.3.15+)
-  // `claude-science` is the dedicated workspace created by the claude_science
-  // Labs flag (PR 6 of the 0.3.15 release). `pythia-oracle` is reserved
-  // similarly for the pythia_oracle Labs flag when it gets the same
-  // dedicated-workspace treatment (currently the Pythia lab is still headless).
-  // `code-canvas` is the 0.3.19 P9 internal pilot workspace. Reserving these
-  // slugs means no user can claim a workspace with the same name as an installed
-  // lab.
+  // Legacy lab workspace slugs. Pre-0.3.25 the claude_science / mythos_swarm /
+  // code_canvas labs created a dedicated reserved-slug workspace on install;
+  // 0.3.25 removed that — labs now write into the user's active workspace and
+  // are isolated by experimental_resource_lock + visibility rows (see
+  // install_claude_science.go / install_mythos.go). These slugs stay reserved so
+  // a new user cannot claim a name that a legacy install may still occupy. Do
+  // not treat them as active lab-created workspaces.
   "claude-science",
   "pythia-oracle",
   "code-canvas",

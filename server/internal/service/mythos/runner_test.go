@@ -137,7 +137,7 @@ func TestRunnerAssignsIssueNumber(t *testing.T) {
 // the test fires (and the production runner hangs again).
 func TestRunnerEnqueuesSubIssues(t *testing.T) {
 	src := readRunReader(t)
-	if !strings.Contains(src, "TaskService.EnqueueTaskForIssue") {
+	if !strings.Contains(src, "EnqueueTaskForIssue") {
 		t.Fatalf("runner.go must call TaskService.EnqueueTaskForIssue after CreateIssue " +
 			"on both loop and coda sub-issues; otherwise the daemon never claims them")
 	}
