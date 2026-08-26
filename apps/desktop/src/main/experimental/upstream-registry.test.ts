@@ -63,7 +63,7 @@ describe("upstream-registry URL allowlist (F-027 extension)", () => {
     vi.stubGlobal("fetch", fetchMock);
     await mod.registerExperimentalUpstream("pythia_oracle", "http://127.0.0.1:9999");
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const calledUrl = (fetchMock.mock.calls[0] as [string])[0];
+    const calledUrl = (fetchMock.mock.calls[0] as unknown as [string])[0];
     expect(calledUrl.startsWith("http://localhost:8090/")).toBe(true);
     vi.unstubAllGlobals();
   });
@@ -81,7 +81,7 @@ describe("upstream-registry URL allowlist (F-027 extension)", () => {
       const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
       vi.stubGlobal("fetch", fetchMock);
       await mod.registerExperimentalUpstream("pythia_oracle", "http://127.0.0.1:9999");
-      const calledUrl = (fetchMock.mock.calls[0] as [string])[0];
+      const calledUrl = (fetchMock.mock.calls[0] as unknown as [string])[0];
       expect(calledUrl.startsWith("https://attacker.example.com")).toBe(false);
       expect(calledUrl.startsWith("http://localhost:8090/")).toBe(true);
     } finally {
@@ -103,7 +103,7 @@ describe("upstream-registry URL allowlist (F-027 extension)", () => {
       const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
       vi.stubGlobal("fetch", fetchMock);
       await mod.registerExperimentalUpstream("pythia_oracle", "http://127.0.0.1:9999");
-      const calledUrl = (fetchMock.mock.calls[0] as [string])[0];
+      const calledUrl = (fetchMock.mock.calls[0] as unknown as [string])[0];
       expect(calledUrl.startsWith("http://10.0.1.42:8090/")).toBe(true);
     } finally {
       process.env["HOME"] = origHome;
@@ -118,7 +118,7 @@ describe("upstream-registry URL allowlist (F-027 extension)", () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
     await mod.registerExperimentalUpstream("pythia_oracle", "http://127.0.0.1:9999");
-    const calledUrl = (fetchMock.mock.calls[0] as [string])[0];
+    const calledUrl = (fetchMock.mock.calls[0] as unknown as [string])[0];
     expect(calledUrl.startsWith("https://attacker.example.com")).toBe(false);
     expect(calledUrl.startsWith("http://localhost:8090/")).toBe(true);
     vi.unstubAllGlobals();
