@@ -129,6 +129,30 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 	resp := ExperimentalFlagsListResponse{
 		Flags: make([]ExperimentalFlagResponse, 0, len(experimental.Catalog)+len(userFlags)),
 	}
+
+	// 0.5.x: pre-compute the sidebar entry map once per request. The
+	// built-in loop below and the user-plugin loop below both consult
+	// h.ExperimentRegistry.SidebarEntries; without the map, each call
+	// takes r.mu.Lock() (SidebarEntries is a write-lock accessor that
+	// may mutate r.flags). Pre-computing collapses N+M registry
+	// acquisitions into one set of (max) N+M map writes followed by
+	// N+M map reads in the loop bodies. Keys not present in the map
+	// are an empty slice — equivalent to the pre-0.5.x behaviour
+	// where a flag with no manifest or an unknown flag skipped the
+	// SidebarEntries assignment via `len(entries) > 0`.
+	sidebarEntriesByKey := make(map[string][]experimental.SidebarEntry)
+	if reg := h.ExperimentRegistry; reg != nil {
+		for _, f := range experimental.Catalog {
+			sidebarEntriesByKey[f.Key] = reg.SidebarEntries(f.Key)
+		}
+		for _, f := range userFlags {
+			if _, seen := sidebarEntriesByKey[f.Key]; seen {
+				continue
+			}
+			sidebarEntriesByKey[f.Key] = reg.SidebarEntries(f.Key)
+		}
+	}
+
 	for _, f := range experimental.Catalog {
 		enabled, hasOverride := prefByKey[f.Key]
 		flag := ExperimentalFlagResponse{
@@ -155,11 +179,10 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 		// without a manifest (e.g. chat_pin_ui) omit the field; flags
 		// with an empty sidebar omit it too. Reading the manifest on
 		// every request is cheap — JSON parse of a ~1KB file under the
-		// resources dir.
-		if reg := h.ExperimentRegistry; reg != nil {
-			if entries := reg.SidebarEntries(f.Key); len(entries) > 0 {
-				flag.SidebarEntries = entries
-			}
+		// resources dir. 0.5.x: read from sidebarEntriesByKey rather
+		// than calling the registry inline; see pre-compute block above.
+		if entries := sidebarEntriesByKey[f.Key]; len(entries) > 0 {
+			flag.SidebarEntries = entries
 		}
 		// Surface installation manifest for keys wired through PR 3's
 		// resource endpoints. The renderer's 4-state UI ("未装载" /
@@ -201,10 +224,10 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 		if leader, ok := h.resolveLabLeader(r.Context(), f.Key); ok {
 			flag.LeaderAgent = leader
 		}
-		if reg := h.ExperimentRegistry; reg != nil {
-			if entries := reg.SidebarEntries(f.Key); len(entries) > 0 {
-				flag.SidebarEntries = entries
-			}
+		// 0.5.x: read sidebar entries from the pre-computed map; see
+		// the pre-compute block at the top of the handler.
+		if entries := sidebarEntriesByKey[f.Key]; len(entries) > 0 {
+			flag.SidebarEntries = entries
 		}
 		resp.Flags = append(resp.Flags, flag)
 	}

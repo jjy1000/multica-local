@@ -101,6 +101,16 @@ type Registry struct {
 
 	// rollback handlers keyed by flag key. Same lifecycle as install.
 	rollback map[string]UnregisterHandler
+
+	// sidebarCache memoizes the wire-shape SidebarEntry output per
+	// flag key. ListExperimentalFlags calls SidebarEntries once per
+	// catalog entry (built-ins + user plugins), so on the hot path a
+	// cache hit replaces the rebuild of SidebarEntry from SidebarRow
+	// with a single map lookup under the same Lock. Keys with no
+	// cached value (typo'd unknown keys) are NOT recorded — the cache
+	// only memoizes flags that actually resolved a manifest or
+	// explicitly had no manifest to load.
+	sidebarCache map[string][]SidebarEntry
 }
 
 // NewRegistry builds a registry from the current Catalog. Unknown
@@ -108,10 +118,11 @@ type Registry struct {
 // are bound separately via RegisterInstallHandler / RegisterUnregisterHandler.
 func NewRegistry() *Registry {
 	r := &Registry{
-		flags:    make(map[string]Flag, len(Catalog)),
-		loopback: make(map[string]string),
-		install:  make(map[string]InstallHandler),
-		rollback: make(map[string]UnregisterHandler),
+		flags:        make(map[string]Flag, len(Catalog)),
+		loopback:     make(map[string]string),
+		install:      make(map[string]InstallHandler),
+		rollback:     make(map[string]UnregisterHandler),
+		sidebarCache: make(map[string][]SidebarEntry),
 	}
 	for _, f := range Catalog {
 		r.flags[f.Key] = f
@@ -299,13 +310,27 @@ type SidebarEntry struct {
 	Route    string `json:"route"`
 }
 
-// SidebarEntries returns the sidebar rows for flagKey, or nil when
-// the flag is unknown. The list is sourced from the manifest's
+// SidebarEntries returns the sidebar rows for flagKey, or
+// []SidebarEntry{} when the flag is unknown OR its manifest fails
+// to load. The list is sourced from the manifest's
 // entry_points.sidebar[*]; flags without a manifest (e.g.
-// chat_pin_ui) return nil. Loading is lazy and idempotent — the
-// first call parses the manifest, subsequent calls reuse the
-// in-memory snapshot. A parse failure returns nil so the wire
-// response degrades gracefully.
+// chat_pin_ui) return an empty slice. Loading is lazy, idempotent,
+// and memoized in r.sidebarCache so ListExperimentalFlags — which
+// iterates the catalog and calls SidebarEntries for every flag —
+// hits the cache on the second pass without rebuilding the wire
+// slice from the cached SidebarRow rows.
+//
+// Empty-vs-nil contract: nil is reserved for the "unknown flag"
+// path. Manifest parse failures return []SidebarEntry{} (non-nil)
+// so the JSON wire shape stays stable — the response struct tags
+// `json:"sidebar_entries,omitempty"` drop both nil and an empty
+// slice, but a future change to that tag or a downstream consumer
+// that does `flag.SidebarEntries != nil` instead of
+// `len(flag.SidebarEntries) > 0` would suddenly start seeing
+// "manifest corrupt" as a different field shape than "no manifest".
+// Today's handler filters via `len(entries) > 0`, so the empty
+// slice is wire-equivalent to the old nil; the contract is locked
+// in here so future readers know.
 //
 // Holds the write lock for the whole call because it may mutate
 // r.flags to cache the loaded Sidebar rows; this must not race with
@@ -314,12 +339,23 @@ type SidebarEntry struct {
 func (r *Registry) SidebarEntries(flagKey string) []SidebarEntry {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// 0.5.x: cache hit avoids the SidebarRow→SidebarEntry rebuild
+	// and, on the parse-error path, avoids hammering the failed
+	// manifest on every subsequent request.
+	if cached, ok := r.sidebarCache[flagKey]; ok {
+		return cached
+	}
+
 	f, ok := r.flags[flagKey]
-	if !ok || f.Sidebar != nil || f.ManifestPath == "" {
-		// unknown key, already loaded, or no manifest → return what we have.
-		if !ok {
-			return nil
-		}
+	if !ok {
+		// Unknown key — don't pollute the cache with nil values
+		// (a typo or a future-flag check would otherwise stick
+		// around forever).
+		return nil
+	}
+	if f.Sidebar != nil || f.ManifestPath == "" {
+		// already loaded or no manifest → build from cached rows.
 		out := make([]SidebarEntry, 0, len(f.Sidebar))
 		for _, e := range f.Sidebar {
 			out = append(out, SidebarEntry{
@@ -327,12 +363,20 @@ func (r *Registry) SidebarEntries(flagKey string) []SidebarEntry {
 				LabelKey: e.LabelKey, Route: e.Route,
 			})
 		}
+		r.sidebarCache[flagKey] = out
 		return out
 	}
 
 	manifest, err := LoadManifest(flagKey)
 	if err != nil {
-		return nil
+		// 0.5.x: silent nil hid manifest corruption from ops. Log a
+		// Warn so the breakage surfaces in slog without forcing the
+		// wire response to fail (the lab UI gracefully degrades).
+		slog.Warn("experimental sidebar manifest load failed",
+			"flag_key", flagKey, "err", err)
+		empty := []SidebarEntry{}
+		r.sidebarCache[flagKey] = empty
+		return empty
 	}
 	sp, _ := manifest.Raw["spec"].(map[string]any)
 	ep, _ := sp["entry_points"].(map[string]any)
@@ -356,5 +400,6 @@ func (r *Registry) SidebarEntries(flagKey string) []SidebarEntry {
 	}
 	f.Sidebar = loaded
 	r.flags[flagKey] = f
+	r.sidebarCache[flagKey] = out
 	return out
 }

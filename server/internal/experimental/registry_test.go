@@ -1,7 +1,12 @@
 package experimental
 
 import (
+	"bytes"
 	"errors"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -174,5 +179,220 @@ func TestAutoDispatchFlagBehavior(t *testing.T) {
 				t.Fatalf("AutoDispatch(%q) = %v, want %v", c.key, got, c.want)
 			}
 		})
+	}
+}
+
+// TestSidebarEntriesLogsAndReturnsEmptyOnParseError pins the 0.5.x
+// fix: a manifest parse failure used to silently return nil and
+// leave ops in the dark. The new contract logs a slog.Warn and
+// returns a non-nil empty slice so the JSON wire shape stays
+// stable across "unknown flag", "no manifest", and "manifest
+// corrupt" — the response struct's omitempty tag drops all three,
+// but a downstream consumer that distinguishes nil vs len==0
+// should still see one consistent answer.
+//
+// NOT t.Parallel(): SetManifestRoot + slog.SetDefault mutate
+// package-global state; parallel siblings in catalog_test.go /
+// manifest_test.go call LoadManifest on real manifests and would
+// race against the temp-dir override. Pattern matches
+// TestAutoDispatchFlagBehavior above.
+func TestSidebarEntriesLogsAndReturnsEmptyOnParseError(t *testing.T) {
+	// Use chat_pin_ui — its catalog ManifestPath is fixed and
+	// well-known, so the corrupt-manifest fixture only needs to
+	// write to one specific temp path.
+	const flagKey = "chat_pin_ui"
+
+	tmpDir := t.TempDir()
+	manifestDir := filepath.Join(tmpDir, "experiments", flagKey)
+	if err := os.MkdirAll(manifestDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", manifestDir, err)
+	}
+	// Intentionally invalid JSON — LoadManifest returns
+	// ErrInvalidManifest for a parse failure (vs ErrNoManifest for
+	// a missing file). Both paths funnel into the same slog.Warn +
+	// []SidebarEntry{} branch in the production code.
+	corruptPath := filepath.Join(manifestDir, "manifest.json")
+	if err := os.WriteFile(corruptPath, []byte("{not valid json"), 0o644); err != nil {
+		t.Fatalf("write corrupt manifest: %v", err)
+	}
+	// Swap the manifest root to the temp dir for the duration of
+	// this test. setManifestRootForTest returns a cleanup that the
+	// deferred call runs at test exit.
+	defer setManifestRootForTest(t, tmpDir)()
+
+	// Capture slog output. The default logger's text format is
+	// stable across Go releases — key=value pairs appear as
+	// "<key>=<value>" substrings.
+	var buf bytes.Buffer
+	origLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(origLogger) })
+
+	r := NewRegistry()
+	result := r.SidebarEntries(flagKey)
+
+	// (1) result is []SidebarEntry{} (non-nil), NOT nil.
+	if result == nil {
+		t.Fatal("SidebarEntries returned nil on parse error; want []SidebarEntry{} (non-nil empty slice)")
+	}
+	if len(result) != 0 {
+		t.Fatalf("SidebarEntries returned %d entries on parse error; want 0: %+v", len(result), result)
+	}
+
+	// (2) slog.Warn was emitted with the expected key/flag.
+	output := buf.String()
+	if !strings.Contains(output, "experimental sidebar manifest load failed") {
+		t.Fatalf("slog output missing expected message: %q", output)
+	}
+	if !strings.Contains(output, flagKey) {
+		t.Fatalf("slog output missing flag_key=%q: %q", flagKey, output)
+	}
+	// Also assert the err attribute made it through so ops can
+	// triage from the log line alone (load it via k=v parsing).
+	if !strings.Contains(output, "err=") {
+		t.Fatalf("slog output missing err= attribute: %q", output)
+	}
+
+	// (3) The empty-slice result is also cached so a repeated
+	// call does not hammer the broken file. This is a bonus pin
+	// — without it, every /api/experimental-flags request would
+	// re-parse the corrupt manifest and spam slog.
+	result2 := r.SidebarEntries(flagKey)
+	if len(result2) != 0 {
+		t.Fatalf("second SidebarEntries call returned %d entries; want 0 (cache miss on parse error)", len(result2))
+	}
+}
+
+// TestSidebarEntriesCache pins the 0.5.x memoization contract:
+// SidebarEntries loads the manifest on the first call, caches the
+// wire-shape SidebarEntry slice in sidebarCache, and never
+// re-parses on subsequent calls even when the on-disk manifest is
+// corrupted or removed.
+//
+// The test deliberately invalidates both cache layers between
+// calls — clears f.Sidebar (the row cache) and corrupts the
+// manifest file (forcing a re-parse that would fail). Without the
+// sidebarCache wire slice, the second call would go through
+// LoadManifest, fail on the corrupt file, and return
+// []SidebarEntry{}. With sidebarCache, the second call returns
+// the original rows.
+//
+// Implementation note: the test uses a temp dir + a freshly-
+// registered user plugin flag rather than mutating the real dev
+// resources tree. The earlier version of this test deleted a real
+// manifest and depended on t.Cleanup to restore it — if the test
+// was skipped before the Cleanup registered, the deletion leaked
+// and broke TestLoadManifestResolvesAllFlags in the same package.
+// Temp-dir fixtures isolate this test from any sibling that reads
+// the dev resources tree.
+//
+// NOT t.Parallel(): Catalog / RegisterUserPlugins /
+// setManifestRootForTest mutate global state. Pattern matches
+// TestAutoDispatchFlagBehavior + the parse-error test above.
+func TestSidebarEntriesCache(t *testing.T) {
+	const flagKey = "test_sidebar_cache_flag"
+
+	// Snapshot Catalog + restore on cleanup. The cache test needs
+	// the test flag to appear in the global Catalog slice because
+	// LoadManifest iterates Catalog (not user plugins) to resolve
+	// ManifestPath. Adding the flag to r.flags alone is not enough.
+	origCatalog := Catalog
+	t.Cleanup(func() { Catalog = origCatalog })
+	Catalog = append(append([]Flag{}, origCatalog...), Flag{
+		Key:          flagKey,
+		ManifestPath: "experiments/" + flagKey + "/manifest.json",
+	})
+
+	// Build a temp resources tree with a valid manifest for this
+	// flag. The manifest declares two sidebar rows so the test can
+	// assert a non-zero length after each call.
+	tmpDir := t.TempDir()
+	manifestDir := filepath.Join(tmpDir, "experiments", flagKey)
+	if err := os.MkdirAll(manifestDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", manifestDir, err)
+	}
+	manifestJSON := `{
+		"apiVersion": "multica.dev/experiment/v1",
+		"kind": "Experiment",
+		"metadata": {
+			"name": "` + flagKey + `",
+			"flag": "` + flagKey + `",
+			"title": {"en": "Cache Test"},
+			"description": {"en": "Test cache"}
+		},
+		"spec": {
+			"entry_points": {
+				"sidebar": [
+					{"key": "tab1", "label_key": "tab1_label", "route": "/test/tab1"},
+					{"key": "tab2", "label_key": "tab2_label", "route": "/test/tab2"}
+				]
+			}
+		}
+	}`
+	manifestPath := filepath.Join(manifestDir, "manifest.json")
+	if err := os.WriteFile(manifestPath, []byte(manifestJSON), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	defer setManifestRootForTest(t, tmpDir)()
+
+	r := NewRegistry()
+
+	// First call — should load and populate the cache.
+	first := r.SidebarEntries(flagKey)
+	if len(first) != 2 {
+		t.Fatalf("first SidebarEntries returned %d entries, want 2: %+v", len(first), first)
+	}
+
+	// sidebarCache must be populated after the first call.
+	r.mu.Lock()
+	cached, ok := r.sidebarCache[flagKey]
+	r.mu.Unlock()
+	if !ok {
+		t.Fatal("sidebarCache missing entry after first SidebarEntries call")
+	}
+	if len(cached) != len(first) {
+		t.Fatalf("sidebarCache[%q] length %d != first-call length %d", flagKey, len(cached), len(first))
+	}
+	for i, e := range cached {
+		if e != first[i] {
+			t.Errorf("sidebarCache[%q][%d] = %+v, want %+v", flagKey, i, e, first[i])
+		}
+	}
+
+	// Invalidate both cache layers:
+	//   - clear f.Sidebar (so the existing "Sidebar != nil"
+	//     short-circuit no longer fires);
+	//   - corrupt the manifest file (so a fresh LoadManifest call
+	//     would return ErrInvalidManifest).
+	// Without sidebarCache, the second call would re-parse,
+	// fail on the corrupt file, and return []SidebarEntry{}.
+	r.mu.Lock()
+	f := r.flags[flagKey]
+	f.Sidebar = nil
+	r.flags[flagKey] = f
+	r.mu.Unlock()
+	if err := os.WriteFile(manifestPath, []byte("{not valid json"), 0o644); err != nil {
+		t.Fatalf("corrupt manifest: %v", err)
+	}
+
+	// Second call — must still return the original rows via the
+	// wire slice cache, not via LoadManifest (which would now fail).
+	second := r.SidebarEntries(flagKey)
+	if len(second) != len(first) {
+		t.Fatalf("second SidebarEntries call returned %d entries, want %d (cache miss after manifest corrupt)",
+			len(second), len(first))
+	}
+	for i, e := range second {
+		if e != first[i] {
+			t.Errorf("second[%d] = %+v, want %+v (cache hit must round-trip)", i, e, first[i])
+		}
+	}
+
+	// Third call as a paranoia check — multiple cache hits in a
+	// row must remain stable (no state corruption in the cache
+	// layer across repeated reads).
+	third := r.SidebarEntries(flagKey)
+	if len(third) != len(first) {
+		t.Fatalf("third SidebarEntries call returned %d entries, want %d", len(third), len(first))
 	}
 }
