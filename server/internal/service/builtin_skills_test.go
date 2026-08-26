@@ -202,6 +202,51 @@ func TestMentioningSkillTeachesTheParserContract(t *testing.T) {
 	}
 }
 
+// TestMentioningSkillWarnsAboutPlainNameDelegation pins the HARD FAILURE
+// WARNING block at the top of multica-mentioning/SKILL.md: a squad leader (or
+// any agent) that writes a plain "@Name" instead of the full
+// `[@Label](mention://<type>/<UUID>)` markdown link is plain text — the mention
+// parser (util.MentionRe) requires the markdown shape, so the worker is never
+// triggered and the issue stalls. Observed in JYF-396 on 2026-08-27: squad
+// leader ca01a7fe wrote "@智能体优化专家 …" and 智能体优化专家 6a647967 was never
+// woken, so the user saw a silent "no response" delegation. The warning is
+// defense-in-depth — every agent's runtime brief already states the rule, but
+// the SKILL.md is the platform contract source and must lead with the failure
+// mode so a downstream merge can't quietly remove it.
+func TestMentioningSkillWarnsAboutPlainNameDelegation(t *testing.T) {
+	skill, ok := findSkill(t, "multica-mentioning")
+	if !ok {
+		return
+	}
+	mustContain := []string{
+		// Section header is the loudest signal — agents skim headings first.
+		"## HARD FAILURE WARNING",
+		// Symptom copy unique to the warning section: this exact phrasing is not
+		// in the older "Incorrect → Correct" examples further down.
+		"issue stalls",
+		"task is never delivered",
+		// Correct shape named alongside the warning — not just "don't do this".
+		"[@Label](mention://<type>/<UUID>)",
+		// Lookup command — without this, the agent has no way to get the UUID.
+		"multica agent list --output json",
+	}
+	// The warning must lead the body, not lurk near the end. Anything past
+	// line 30 puts it behind the frontmatter + intro paragraph and the agent's
+	// "decide whether to load" path will skip over it.
+	warningIdx := strings.Index(skill.Content, "## HARD FAILURE WARNING")
+	if warningIdx < 0 {
+		t.Fatalf("multica-mentioning SKILL.md missing HARD FAILURE WARNING section header; squad leader plain @Name will stall the issue (JYF-396 regression)")
+	}
+	if lines := strings.Count(skill.Content[:warningIdx], "\n"); lines > 30 {
+		t.Errorf("HARD FAILURE WARNING must lead the body (found at line %d); agents skip warnings past the first 30 lines", lines+1)
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(skill.Content, want) {
+			t.Errorf("multica-mentioning SKILL.md missing required warning string %q; a squad leader delegating via plain @Name will stall the issue (JYF-396 regression)", want)
+		}
+	}
+}
+
 func TestWorkingOnIssuesSkillCoversIssueLoopContracts(t *testing.T) {
 	skill, ok := findSkill(t, "multica-working-on-issues")
 	if !ok {

@@ -7,6 +7,24 @@ allowed-tools: Bash(multica *)
 
 # Mentioning & Delegating
 
+## HARD FAILURE WARNING — read this first
+
+A plain `@Name` in a comment — for example `@智能体优化专家 please take this` or
+`@alice please review` — is **plain text**. The mention parser
+(`util.MentionRe` in `server/internal/util/mention.go`) requires the full
+markdown link shape `[@Label](mention://<type>/<UUID>)`. Plain text NEVER
+triggers an agent run, no matter how obvious the target looks.
+
+**Symptom of the failure**: you posted what reads like a delegation comment, the
+issue stalls, the worker never wakes, the user sees nothing happening, the squad
+leader is repeatedly re-triggered into silence. This is exactly the squad
+leader → worker dispatch loop closing only via the markdown link shape.
+
+**The only delegation shape that fires**:
+`[@Name](mention://agent/<agent-uuid>)`. Look the UUID up first via
+`multica agent list --output json`. If you type `@Name` without the markdown
+link, the task is never delivered and the issue stalls.
+
 This skill states WHAT a mention link does in the Multica backend, traced to
 source. WHETHER to mention at all — loop avoidance, staying silent on
 acknowledgements — is in your runtime brief's Mentions section; follow that and
