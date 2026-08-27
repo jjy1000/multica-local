@@ -403,11 +403,16 @@ if (await exists(openscienceBin)) {
   }
   console.log(`[bundle-cli] bundled OpenScience binary → ${openscienceDest}`);
 } else {
-  console.warn(
-    "[bundle-cli] OpenScience binary not vendored at " +
-      "apps/desktop/vendor/openscience-bin/openscience — claude_science flag " +
-      "will show 'service not bundled' when enabled. To bundle: drop the " +
-      "`openscience` native binary at that path before running bundle-cli.",
+  // 0.5.78 labs plan P1-3 (option B): the standalone `openscience`
+  // binary is PERMANENTLY optional in this fork. claude_science_lab is
+  // inline RuntimeKind and routes through the Multica runtime bridge,
+  // so a missing binary only affects someone hand-spawning the raw
+  // subprocess while bypassing the gateway. Informational by design —
+  // do NOT re-warn on every build.
+  console.log(
+    "[bundle-cli] info: no OpenScience binary at apps/desktop/vendor/openscience-bin/openscience (expected). " +
+      "claude_science_lab runs via the inline runtime bridge; the standalone subprocess path stays " +
+      "unavailable unless the `openscience` native binary is deliberately drop-shipped at that path.",
   );
 }
 
