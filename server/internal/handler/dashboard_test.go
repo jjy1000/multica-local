@@ -1426,6 +1426,14 @@ func TestDashboardPerAgentRollupsUseExactWindow(t *testing.T) {
 	// Seeded straight into task_usage_hourly (same shortcut as the tz-bucket
 	// test) — the rollup's own source column is task_usage.created_at, which
 	// is `now()`-defaulted and awkward to backdate.
+	// Anchor on the UTC calendar date, NOT bare CURRENT_DATE: CURRENT_DATE
+	// follows the Postgres session TimeZone while every window below cuts
+	// on UTC midnights. With a session zone east of UTC (this dev DB runs
+	// Asia/Shanghai), any suite run between midnight and ~08:00 local makes
+	// CURRENT_DATE outpace the UTC date, sliding "yesterday noon" into the
+	// days=1 window — the intermittent morning-run leak this test was
+	// locked for. Deriving the date from now() in UTC keeps both sides on
+	// the same calendar.
 	const windowProvider = "exact-window-test"
 	const windowModel = "exact-window-model"
 	t.Cleanup(func() {
@@ -1438,7 +1446,7 @@ func TestDashboardPerAgentRollupsUseExactWindow(t *testing.T) {
 			input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, event_count
 		)
 		VALUES (
-			((CURRENT_DATE - 1)::timestamp + interval '12 hours') AT TIME ZONE 'UTC',
+			(((now() AT TIME ZONE 'UTC')::date - 1)::timestamp + interval '12 hours') AT TIME ZONE 'UTC',
 			$1, $2, $3, NULL, $4, $5,
 			7777, 0, 0, 0, 1
 		)
@@ -1456,8 +1464,8 @@ func TestDashboardPerAgentRollupsUseExactWindow(t *testing.T) {
 		INSERT INTO agent_task_queue (agent_id, issue_id, runtime_id, status, started_at, completed_at, created_at)
 		VALUES (
 			$1, $2, $3, 'completed',
-			((CURRENT_DATE - 1)::timestamp + interval '11 hours 45 minutes') AT TIME ZONE 'UTC',
-			((CURRENT_DATE - 1)::timestamp + interval '12 hours') AT TIME ZONE 'UTC',
+			(((now() AT TIME ZONE 'UTC')::date - 1)::timestamp + interval '11 hours 45 minutes') AT TIME ZONE 'UTC',
+			(((now() AT TIME ZONE 'UTC')::date - 1)::timestamp + interval '12 hours') AT TIME ZONE 'UTC',
 			now()
 		)
 		RETURNING id
