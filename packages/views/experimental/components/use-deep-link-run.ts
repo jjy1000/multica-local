@@ -20,15 +20,20 @@
 //   - Highlight is applied via `data-deep-linked="true"` on the row
 //     so each view's existing class-based styling can hook in (or the
 //     caller can read the `isDeepLinked` flag).
-//   - Resilient: if the matching row is not yet mounted (data still
-//     loading), the hook re-runs when the deps change so the scroll
-//     triggers as soon as the row appears.
+//   - Resilient: run lists usually resolve AFTER first paint
+//     (react-query / rawRequest), so the scroll polles via
+//     requestAnimationFrame until the target row actually mounts
+//     (~2s budget) instead of assuming it existed on the first render.
+//   - Host-safe: reads ?run= through the NavigationAdapter searchParams
+//     mirror (useOptionalNavigation) like IssueBreadcrumb does — under a
+//     host with no NavigationProvider the hook degrades to plain rows
+//     instead of throwing.
 //
 // Out of scope for this hook: keyboard focus management (a follow-up
 // can extend it without breaking callers).
 
 import { useCallback, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useOptionalNavigation } from "../../navigation";
 
 export interface UseDeepLinkRunResult<T extends HTMLElement> {
   /** Active run id (the value of ?run=), or null when unset / empty. */
@@ -44,8 +49,8 @@ export interface UseDeepLinkRunResult<T extends HTMLElement> {
 }
 
 export function useDeepLinkRun<T extends HTMLElement = HTMLDivElement>(): UseDeepLinkRunResult<T> {
-  const [searchParams] = useSearchParams();
-  const activeRunId = searchParams.get("run") || null;
+  const searchParams = useOptionalNavigation()?.searchParams;
+  const activeRunId = searchParams?.get("run") || null;
   // Map of runId → element ref. Held outside state because we never
   // need to re-render when a row mounts — the scroll trigger reads it
   // directly.
@@ -63,18 +68,29 @@ export function useDeepLinkRun<T extends HTMLElement = HTMLDivElement>(): UseDee
     [],
   );
 
-  // Scroll when activeRunId matches a mounted row. Re-runs whenever the
-  // activeRunId changes OR when the row list mutates (deps below).
+  // Scroll when activeRunId matches a mounted row. Rows typically mount
+  // async (fetch resolves post-paint), so poll via requestAnimationFrame
+  // until the target appears (~2s budget at 60fps), then stop quietly —
+  // the highlight class still lands because isDeepLinked derives from
+  // state, not DOM presence.
   useEffect(() => {
     if (!activeRunId) {
       scrolled.current = null;
       return;
     }
-    const el = refs.current.get(activeRunId);
-    if (!el) return;
-    if (scrolled.current === activeRunId) return;
-    scrolled.current = activeRunId;
-    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    let raf = 0;
+    let tries = 0;
+    const tick = () => {
+      const el = refs.current.get(activeRunId);
+      if (el && scrolled.current !== activeRunId) {
+        scrolled.current = activeRunId;
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        return;
+      }
+      if (!el && ++tries < 120) raf = requestAnimationFrame(tick);
+    };
+    tick();
+    return () => cancelAnimationFrame(raf);
   }, [activeRunId, refs]);
 
   const isDeepLinked = useCallback(

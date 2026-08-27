@@ -13,12 +13,18 @@
 //      with the standard "在实验室查看完整记录" affordance. Honours the
 //      locale strings (4-locale parity maintained in this commit).
 //
-// Each receiving lab view's history list reads `?run=<id>` from the
-// search params (via useSearchParams) and uses it to scroll/highlight
-// the matching record. Wired scope (this commit):
-//   - pythia-view, mythos-view, code-canvas-view, plugin-shell-view
-//   - swarm-topology-view (already accepted ?issue= + ?run= via
-//     PastRunsPanel; the search-param hook stays compatible).
+// Each receiving lab view's history list reads `?run=<id>` (via
+// useDeepLinkRun on the NavigationAdapter searchParams mirror) and uses
+// it to scroll/highlight the matching record. Wired receivers (0.5.81
+// closure):
+//   - mythos-view PastRunsPanel
+//   - pythia ReportSurface's ForecastHistoryPanel
+//   - ExecutionLogSection (an issue-detail URL with ?run=<taskId>
+//     highlights that run row — the mirrored, back-to-issue direction)
+// NO receiver exists for code-canvas (stateless render tool, nothing
+// persisted) or user_* plugin shells (no durable server-side run ids):
+// pass NO runId for those labs and the ?run= half is omitted entirely
+// rather than emitted as a dead link target.
 //
 // Out of scope for this commit (other labs follow their panel
 // availability in future work):
@@ -49,13 +55,15 @@ import { labSourceRouteSuffix } from "../../issues/components/issue-labs-section
 export function labRunHref(
   labSource: string | null | undefined,
   issueId: string,
-  runId: string,
+  runId?: string | null,
 ): string | undefined {
   const suffix = labSourceRouteSuffix(labSource);
   if (!suffix) return undefined;
   const params = new URLSearchParams();
   params.set("issue", issueId);
-  params.set("run", runId);
+  // Falsy runId (code-canvas / user plugin shells have no receiver)
+  // omits the ?run= half instead of producing a dead deep-link target.
+  if (runId) params.set("run", runId);
   return `/experimental/${suffix}?${params.toString()}`;
 }
 
@@ -65,8 +73,9 @@ export interface LabRunLinkProps {
   /** Bound issue id — must match ?issue= on the receiving lab view. */
   issueId: string;
   /** Run id (task id for AgentTask-based labs; lab-specific id for
-   *  Pythia forecast runs / Mythos swarm runs / etc.). */
-  runId: string;
+   *  Pythia forecast runs / Mythos swarm runs). Omit/falsy for labs
+   *  whose view has no run receiver — the ?run= half then drops out. */
+  runId?: string | null;
   /** Override the link label — defaults to "在实验室查看完整记录" / i18n
    *  equivalent. */
   label?: string;
