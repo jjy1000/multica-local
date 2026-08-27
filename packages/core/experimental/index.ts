@@ -18,4 +18,7 @@ export {
   causalGraphKeys,
   useCausalSubgraph,
   useCausalGraphPath,
+  useCausalWorkspaceGraph,
+  causalConfirmEdge,
+  causalRejectEdge,
 } from "./causal-graph-queries";

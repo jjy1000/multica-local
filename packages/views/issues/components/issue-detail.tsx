@@ -75,6 +75,7 @@ import { ThreadMinimap } from "./thread-minimap";
 import { ThreadNavPanel, mentionsUser, type ThreadNavThread } from "./thread-nav-panel";
 import { collectThreadReplies, deriveThreadResolution } from "./thread-utils";
 import { IssueAgentHeaderChip } from "./issue-agent-header-chip";
+import { IssueCausalGraphIcon } from "./issue-causal-icon";
 import { IssueLabsSection, labSourceRouteSuffix, AgentTrustCorrectButton } from "./issue-labs-section";
 import { LabDeliverableSummary } from "../../experimental/components/lab-deliverable-summary";
 import { ExecutionLogSection } from "./execution-log-section";
@@ -2353,6 +2354,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 it never overlaps the title (which truncates to make room).
                 It self-hides when no agent is active. */}
             <IssueAgentHeaderChip issueId={id} />
+            {/* 0.5.83 WL3: causal-awareness icon (ICP-5) — hidden entirely
+                when the causal_graph flag is off or the issue has no nodes.
+                Opens the subgraph preview; jump target is the workspace
+                graph view. */}
+            <IssueCausalGraphIcon issueId={id} />
             {/* Thread navigator. Leftmost of the action buttons because it
                 navigates the document, while everything to its right acts on
                 the issue. Hidden on mobile with the rail: the panel would work

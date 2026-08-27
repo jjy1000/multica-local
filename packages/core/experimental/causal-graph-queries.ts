@@ -23,8 +23,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { api, parseWithFallback } from "../api";
-import { CausalPathSchema, CausalSubgraphSchema } from "../api/schemas";
-import type { CausalPath, CausalSubgraph } from "../types/api";
+import {
+  CausalEdgeListSchema,
+  CausalNodeListSchema,
+  CausalPathSchema,
+  CausalSubgraphSchema,
+} from "../api/schemas";
+import type { CausalEdge, CausalNode, CausalPath, CausalSubgraph } from "../types/api";
 
 /** Cache-key family for the causal graph queries (issueKeys style). */
 export const causalGraphKeys = {
@@ -105,4 +110,49 @@ export function useCausalGraphPath(from: string | null, to: string | null) {
     enabled: Boolean(from) && Boolean(to),
     staleTime: 60_000,
   });
+}
+
+// Workspace-wide graph read (the unbound view mode): the nodes and
+// edges list endpoints, first page each (limit 100 — the S1 ceiling;
+// curator/evolver growth lands with pagination in the S2 phase).
+export function useCausalWorkspaceGraph(wsId: string | null | undefined) {
+  return useQuery({
+    queryKey: [...causalGraphKeys.all, "workspace", wsId ?? ""],
+    queryFn: async (): Promise<CausalSubgraph> => {
+      const nodesBase = `/api/causal-graph/nodes?workspace_id=${encodeURIComponent(wsId ?? "")}&limit=100`;
+      const edgesBase = `/api/causal-graph/edges?workspace_id=${encodeURIComponent(wsId ?? "")}&limit=100`;
+      const [nRes, eRes] = await Promise.all([api.rawRequest(nodesBase), api.rawRequest(edgesBase)]);
+      if (nRes.status === 404 || eRes.status === 404) throw new CausalFlagOffError();
+      if (!nRes.ok) throw new Error(`causal nodes ${nRes.status}`);
+      if (!eRes.ok) throw new Error(`causal edges ${eRes.status}`);
+      const [nRaw, eRaw]: unknown[] = await Promise.all([nRes.json(), eRes.json()]);
+      const nodes = parseWithFallback<CausalNode[]>(nRaw, CausalNodeListSchema, [], {
+        endpoint: "GET /api/causal-graph/nodes",
+      });
+      const edges = parseWithFallback<CausalEdge[]>(eRaw, CausalEdgeListSchema, [], {
+        endpoint: "GET /api/causal-graph/edges",
+      });
+      return { issue_id: "", depth: 0, nodes, edges };
+    },
+    enabled: Boolean(wsId),
+    retry: (count, error) => error instanceof CausalFlagOffError ? false : count < 2,
+    refetchInterval: CAUSAL_POLL_INTERVAL_MS,
+  });
+}
+
+// Tier D curation gate calls (wire into useMutation in the view).
+export async function causalConfirmEdge(edgeId: string, wsId: string): Promise<void> {
+  const r = await api.rawRequest(
+    `/api/causal-graph/edges/${encodeURIComponent(edgeId)}/confirm?workspace_id=${encodeURIComponent(wsId)}`,
+    { method: "POST" },
+  );
+  if (!r.ok) throw new Error(`confirm ${r.status}`);
+}
+
+export async function causalRejectEdge(edgeId: string, wsId: string): Promise<void> {
+  const r = await api.rawRequest(
+    `/api/causal-graph/edges/${encodeURIComponent(edgeId)}/reject?workspace_id=${encodeURIComponent(wsId)}`,
+    { method: "POST" },
+  );
+  if (!r.ok) throw new Error(`reject ${r.status}`);
 }

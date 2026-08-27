@@ -62,6 +62,7 @@
     "experimental_swarm_topology": "Swarm Topology",
     "experimental_semantica": "Semantica Explorer",
     "error_fallback": "Sidebar failed to render.",
-    "error_retry": "Retry"
+    "error_retry": "Retry",
+    "experimental_causal_graph": "Issue Causal Graph"
   }
 }

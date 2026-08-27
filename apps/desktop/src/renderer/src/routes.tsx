@@ -34,6 +34,7 @@ import { MythosView } from "./pages/mythos-view";
 import { SwarmTopologyView } from "./pages/swarm-topology-view";
 import { PythiaView } from "./pages/pythia-view";
 import { TimesfmView } from "./pages/timesfm-view";
+import { CausalGraphView } from "./pages/causal-graph-view";
 import { LLMWikiBridgeView } from "./pages/llm-wiki-bridge-view";
 import { CodeCanvasView } from "./pages/code-canvas-view";
 import { SemanticaExplorerView } from "./pages/semantica-explorer-view";
@@ -177,6 +178,15 @@ export const appRoutes: RouteObject[] = [
             path: "timesfm-lab",
             element: <TimesfmView />,
             handle: { title: "TimesFM Forecast Lab" },
+          },
+          {
+            // 0.5.83 WL3: workspace-wide issue causal graph. The route
+            // path IS the manifest sidebar entry target; unlike
+            // timesfm/semantica there is no REST-proxy twin (the lab is
+            // server-native — /api/causal-graph/* are the endpoints).
+            path: "causal-graph",
+            element: <CausalGraphView />,
+            handle: { title: "Issue Causal Graph" },
           },
           {
             path: "mythos",
