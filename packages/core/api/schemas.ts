@@ -1743,6 +1743,53 @@ export const PythiaForecastRunSchema = z.object({
 export const PythiaForecastRunListSchema = z.array(PythiaForecastRunSchema);
 
 // ---------------------------------------------------------------------------
+// TimesFM per-issue forecast run schemas (0.5.82 WL2)
+//
+// GET /api/experimental/timesfm/forecast/issue/runs?issue_id=<id>&limit=N
+// returns TimesfmForecastRun[] (newest first, default limit 10). Each row
+// is a timesfm_forecast_run (migration 275): the `result` JSONB holds the
+// engine's raw answer — {series:[{point, quantiles, provenance, dates?}],
+// provenance, model_present, horizon} — exactly what the loopback engine
+// returned, so the lab view re-renders what the engine answered. The
+// quantile map keys mirror the engine's quantile head (10/80/90% bands +
+// median). Kept lenient (.loose() + defaults) so a future engine field
+// addition degrades to the fallback instead of crashing the panel.
+// `provenance` is a DB CHECK set (model | seasonal_naive | mixed) — kept
+// as z.string() so an unknown value still parses and the UI can render it
+// verbatim.
+export const TimesfmQuantilesSchema = z.object({
+  lower_90: z.array(z.number()).default([]),
+  lower_80: z.array(z.number()).default([]),
+  median: z.array(z.number()).default([]),
+  upper_80: z.array(z.number()).default([]),
+  upper_90: z.array(z.number()).default([]),
+}).loose();
+
+export const TimesfmSeriesPointSchema = z.object({
+  point: z.array(z.number()).default([]),
+  quantiles: TimesfmQuantilesSchema.optional(),
+  provenance: z.string().default(""),
+  dates: z.array(z.string()).optional(),
+}).loose();
+
+export const TimesfmForecastResultSchema = z.object({
+  series: z.array(TimesfmSeriesPointSchema).default([]),
+  provenance: z.string().default(""),
+  model_present: z.boolean().default(false),
+  horizon: z.number().default(0),
+}).loose();
+
+export const TimesfmForecastRunSchema = z.object({
+  id: z.string(),
+  horizons: z.number().default(0),
+  provenance: z.string().default(""),
+  created_at: z.string().default(""),
+  result: TimesfmForecastResultSchema.optional(),
+}).loose();
+
+export const TimesfmForecastRunListSchema = z.array(TimesfmForecastRunSchema);
+
+// ---------------------------------------------------------------------------
 // Code Canvas artifact schema (GET/POST
 // /api/experimental/code-canvas/issues/:id/artifacts)
 //

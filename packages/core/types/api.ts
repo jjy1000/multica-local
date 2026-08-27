@@ -663,6 +663,40 @@ export interface PythiaForecastRun {
   envelopes: PythiaForecastEnvelope[];
 }
 
+// TimesFM per-issue forecast run (0.5.82 WL2) — mirrors the wire shape of
+// GET /api/experimental/timesfm/forecast/issue/runs (a timesfm_forecast_run
+// row, migration 275). `result` is the engine's raw JSONB answer; the
+// quantile map keys are the engine's band labels.
+export interface TimesfmQuantiles {
+  lower_90: number[];
+  lower_80: number[];
+  median: number[];
+  upper_80: number[];
+  upper_90: number[];
+}
+
+export interface TimesfmSeriesPoint {
+  point: number[];
+  quantiles?: TimesfmQuantiles;
+  provenance: string;
+  dates?: string[];
+}
+
+export interface TimesfmForecastResult {
+  series: TimesfmSeriesPoint[];
+  provenance: string;
+  model_present: boolean;
+  horizon: number;
+}
+
+export interface TimesfmForecastRun {
+  id: string;
+  horizons: number;
+  provenance: string;
+  created_at: string;
+  result?: TimesfmForecastResult;
+}
+
 export interface CodeCanvasArtifact {
   id: string;
   code: string;

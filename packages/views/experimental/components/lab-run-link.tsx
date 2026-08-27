@@ -24,6 +24,9 @@
 //     not silently drop, the run half)
 //   - ExecutionLogSection (an issue-detail URL with ?run=<taskId>
 //     highlights that run row — the mirrored, back-to-issue direction)
+//   - timesfm-lab view run list (0.5.82 — the run id IS the
+//     timesfm_forecast_run PK; the records-only view reads ?run= via
+//     useDeepLinkRun and highlights the matching persisted row)
 // NO receiver exists for code-canvas (stateless render tool, nothing
 // persisted) or user_* plugin shells (no durable server-side run ids):
 // pass NO runId for those labs and the ?run= half is omitted entirely

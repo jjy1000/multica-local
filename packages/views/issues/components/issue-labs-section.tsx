@@ -45,6 +45,11 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   // routes.tsx (`/experimental/semantica-explorer`, NOT
   // `/experimental/semantica` — that path is the REST proxy).
   semantica: "semantica-explorer",
+  // 0.5.82: timesfm — local TimesFM 2.5 forecasting lab. The URL matches
+  // routes.tsx (`/experimental/timesfm-lab`, NOT `/experimental/timesfm`
+  // — that path is the bare REST proxy the agent subprocess calls; same
+  // split as semantica above).
+  timesfm: "timesfm-lab",
   // (0.3.57: constitution_agent entry removed alongside the lab
   // retirement in migration 165.)
 };
