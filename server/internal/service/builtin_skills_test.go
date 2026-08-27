@@ -563,6 +563,77 @@ func TestProjectsAndResourcesSkillCoversDurableContext(t *testing.T) {
 	}
 }
 
+// TestTimesfmSkillCoversForecastContract locks the 0.5.82 WL2 agent-facing
+// wire contract: the skill must teach the real forecast endpoint shapes
+// (handler/timesfm_forecast.go), the provenance honesty rule, and the
+// records-only law (ICP-1) — and must NOT coach agents into bypassing the
+// labs flag by importing the model themselves.
+func TestTimesfmSkillCoversForecastContract(t *testing.T) {
+	skill, ok := findSkill(t, "multica-timesfm")
+	if !ok {
+		return
+	}
+	fm, body, _ := splitFrontmatter(skill.Content)
+
+	if got := strings.TrimSpace(fm["user-invocable"]); got != "false" {
+		t.Errorf("user-invocable = %q, want false (forecast guidance triggers from issue context)", got)
+	}
+	if got := strings.TrimSpace(fm["allowed-tools"]); !strings.Contains(got, "Bash(multica *)") {
+		t.Errorf("allowed-tools = %q, want access to the Multica CLI", got)
+	}
+
+	// Anchors pinned to the real wire contract in
+	// handler/timesfm_forecast.go — exact line anchors live in the skill's
+	// references/timesfm-source-map.md so a downstream merge that shifts a
+	// line cannot rot this test into pinning a stale lie.
+	mustContain := []string{
+		"/api/experimental/timesfm/forecast/issue",
+		"/api/experimental/timesfm/forecast/issue/runs",
+		"issue_id",
+		"horizon",
+		"quantiles",
+		"lower_90",
+		"upper_90",
+		"provenance",
+		"model_present",
+		"seasonal_naive",
+		"MULTICA_API_TOKEN",
+		"timesfm_oracle",
+		"/experimental/timesfm-lab",
+		"multica experimental flags list",
+		"multica issue comment",
+		// Records-only law (ICP-1), stated as the positive contract —
+		// the skill teaches the law by negation, so a negated phrasing
+		// cannot serve as a mustNotContain anchor here.
+		"Forecasts are issue-first",
+		// Honesty contract: a fallback number must never pass as a
+		// model forecast.
+		"Never strip the provenance",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(body, want) {
+			t.Errorf("timesfm skill missing %q", want)
+		}
+	}
+
+	mustNotContain := []string{
+		// De-coaching: the engine subprocess is offline and wheelhouse
+		// managed — an agent pip-installing or loading the checkpoint
+		// itself bypasses the labs flag and the desktop's env isolation.
+		"pip install",
+		"from_pretrained",
+	}
+	for _, forbidden := range mustNotContain {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("timesfm skill should not teach %q", forbidden)
+		}
+	}
+
+	if !skillHasFile(skill, "references/timesfm-source-map.md") {
+		t.Errorf("timesfm skill missing supporting file references/timesfm-source-map.md")
+	}
+}
+
 func findSkill(t *testing.T, name string) (AgentSkillData, bool) {
 	t.Helper()
 	for _, s := range loadBuiltinSkills() {
