@@ -483,4 +483,112 @@ describe("LabOutputPanel", () => {
     await waitFor(() => expect(screen.getByText(/Adoption grows/)).toBeInTheDocument());
     expect(mockRawRequest).toHaveBeenCalledTimes(2);
   });
+
+  // ── timesfm (0.5.82 WL2) — mirrors the pythia trio ────────────────────
+  // The compact reader shares the pythia panel's loading/error/empty
+  // strings but reads through useTimesfmForecastRuns (limit=10, 404→[],
+  // ICP-1: no manual trigger button anywhere).
+
+  const timesfmRun = {
+    id: "run-1",
+    horizons: 24,
+    provenance: "model",
+    created_at: "2026-08-27T10:00:00Z",
+    result: {
+      horizon: 24,
+      provenance: "model",
+      model_present: true,
+      series: [
+        {
+          point: [10, 11, 12],
+          quantiles: {
+            lower_90: [9, 10, 11],
+            lower_80: [9.5, 10.5, 11.5],
+            median: [10, 11, 12],
+            upper_80: [10.5, 11.5, 12.5],
+            upper_90: [11, 12, 13],
+          },
+          provenance: "model",
+        },
+      ],
+    },
+  };
+
+  function renderTimesfmPanel() {
+    return render(
+      <LabOutputPanel wsId="ws-1" issueId="issue-1" labSource="timesfm" />,
+      { wrapper: Wrapper },
+    );
+  }
+
+  it("renders the timesfm run count, provenance badge, and a deep link to the newest run", async () => {
+    mockRawRequest.mockResolvedValue(makeResponse(200, [timesfmRun]));
+    renderTimesfmPanel();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("lab-output-panel-timesfm")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("1 runs")).toBeInTheDocument();
+    expect(screen.getAllByText("model").length).toBeGreaterThan(0);
+    // No fallback banner while the model weights answered.
+    expect(
+      screen.queryByText(/seasonal-naive fallback/),
+    ).not.toBeInTheDocument();
+    // ICP-3 emitter: the jump link targets the timesfm-lab view with the
+    // newest run pre-scoped (FLAG_ROUTE_SUFFIX timesfm → timesfm-lab).
+    const link = screen.getByRole("link", { name: /view full record in lab/i });
+    expect(link).toHaveAttribute(
+      "href",
+      "/experimental/timesfm-lab?issue=issue-1&run=run-1",
+    );
+    // ICP-1: records-only — no trigger button in the panel.
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("shows the timesfm empty state with the assignee hint when no runs exist", async () => {
+    mockRawRequest.mockResolvedValue(makeResponse(200, []));
+    renderTimesfmPanel();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("lab-output-panel-timesfm-empty")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("No runs yet")).toBeInTheDocument();
+    expect(
+      screen.getByText(/timesfm_oracle/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the fallback banner when the newest run answered without model weights", async () => {
+    mockRawRequest.mockResolvedValue(
+      makeResponse(200, [
+        {
+          ...timesfmRun,
+          provenance: "seasonal_naive",
+          result: { ...timesfmRun.result, model_present: false },
+        },
+      ]),
+    );
+    renderTimesfmPanel();
+
+    await waitFor(() =>
+      expect(screen.getByText(/seasonal-naive fallback/)).toBeInTheDocument(),
+    );
+  });
+
+  it("shows an inline error bar and retries for timesfm on a 503", async () => {
+    mockRawRequest.mockResolvedValueOnce(makeResponse(503, { error: "down" }));
+    mockRawRequest.mockResolvedValueOnce(makeResponse(200, [timesfmRun]));
+    renderTimesfmPanel();
+
+    await waitFor(() =>
+      expect(screen.getByText("Failed to load lab output")).toBeInTheDocument(),
+    );
+
+    screen.getByRole("button", { name: "Retry" }).click();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("lab-output-panel-timesfm")).toBeInTheDocument(),
+    );
+    expect(mockRawRequest).toHaveBeenCalledTimes(2);
+  });
 });
