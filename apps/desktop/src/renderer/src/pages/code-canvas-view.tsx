@@ -3,6 +3,7 @@ import { FlaskConical, Play } from "lucide-react";
 import { api } from "@multica/core/api";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
+import { IssueBreadcrumb } from "@multica/views/experimental/components";
 
 // CodeCanvasView (0.5.18: real render + preview; replaces the static stub)
 //
@@ -72,6 +73,10 @@ export function CodeCanvasView() {
     <div className="flex h-full w-full flex-col overflow-y-auto bg-background">
       <Header crumbLabs={t(($) => $.code_canvas.crumb_labs)} title={t(($) => $.code_canvas.title)} />
       <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
+        {/* 0.5.81: code_canvas is workspace-level by design (single
+            shared render service), so the breadcrumb renders the
+            unbound-hint variant when there is no ?issue=. */}
+        <IssueBreadcrumb infoHintWhenUnbound />
         <section className="flex flex-col gap-3">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             {t(($) => $.code_canvas.title)}
