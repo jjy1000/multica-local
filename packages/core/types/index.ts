@@ -44,6 +44,7 @@ export type {
   AgentSkillSummary,
   SkillFile,
   CreateSkillRequest,
+  SkillImportResult,
   UpdateSkillRequest,
   SetAgentSkillsRequest,
   RuntimeUsage,

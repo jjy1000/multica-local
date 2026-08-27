@@ -48,6 +48,7 @@ import type {
   Skill,
   SkillSummary,
   CreateSkillRequest,
+  SkillImportResult,
   UpdateSkillRequest,
   SetAgentSkillsRequest,
   PersonalAccessToken,
@@ -1772,6 +1773,56 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify(data),
     });
+  }
+
+  /**
+   * Imports a skill from a local .skill / .zip archive. Not routed through
+   * `this.fetch`: the browser has to set the multipart boundary itself.
+   *
+   * The archive path always answers a structured `{ status, skill, reason }`
+   * envelope — created/updated yield the skill, anything else throws with the
+   * server's `reason` so the dialog can show it. Port of upstream MUL-6703's
+   * importSkillArchive, minus its zod-envelope layer (this fork's skills API
+   * reads raw JSON; there is no SkillSchema here to validate against).
+   */
+  async importSkillArchive(
+    file: File,
+    onConflict?: "fail" | "overwrite" | "rename" | "skip",
+  ): Promise<Skill> {
+    const formData = new FormData();
+    formData.append("file", file, file.name || "skill.zip");
+    if (onConflict) formData.append("on_conflict", onConflict);
+
+    let res: Response;
+    try {
+      res = await this.fetchRaw("/api/skills/import", {
+        method: "POST",
+        body: formData,
+      });
+    } catch (err) {
+      // Structured failures (409 conflict / 403 forbidden / 500 failed) carry
+      // a human-readable `reason`; surface it instead of parseErrorBody's
+      // generic fallback.
+      const body = err instanceof ApiError ? err.body : undefined;
+      const reason =
+        body && typeof body === "object"
+          ? ((body as Record<string, unknown>).reason as string | undefined)
+          : undefined;
+      if (reason) throw new Error(reason);
+      throw err;
+    }
+
+    const parsed = (await res.json().catch(() => null)) as
+      | (SkillImportResult & Record<string, unknown>)
+      | null;
+    if (
+      parsed &&
+      (parsed.status === "created" || parsed.status === "updated") &&
+      parsed.skill
+    ) {
+      return parsed.skill;
+    }
+    throw new Error(parsed?.reason || "Import failed");
   }
 
   async updateSkill(id: string, data: UpdateSkillRequest): Promise<Skill> {
