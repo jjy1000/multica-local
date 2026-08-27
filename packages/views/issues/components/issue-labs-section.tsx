@@ -366,12 +366,14 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
           {/* 0.5.81: glanceable "latest result" affordance that lives one
               row above the LabOutputPanel reader. Shares the panel's
               TanStack Query cache key so the network round-trip is
-              amortised. Augments — never replaces — the panel below. */}
-          {(labSource === "claude_science_lab" ||
-            labSource === "pythia_oracle" ||
-            labSource === "mythos_swarm" ||
-            labSource === "code_canvas" ||
-            labSource === "swarm_topology") && (
+              amortised. Augments — never replaces — the panel below.
+
+              0.5.81 audit P3: mounted ONLY for claude_science_lab — that is
+              the sole A-class lab with a real LabContext implementation;
+              mounting for the other four silently rendered a null component
+              every render. Widen this condition alongside new readers in
+              LabLastResultChip itself, never here alone. */}
+          {labSource === "claude_science_lab" && (
             <LabLastResultChip
               wsId={wsId}
               issueId={issueId}
