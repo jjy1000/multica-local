@@ -117,6 +117,16 @@ const (
 	// desktop manager-factory; the install handler only writes the DB
 	// rows that the daemon auto-dispatch path lands on.
 	SourceSemantica Source = "semantica"
+	// SourceTimesfm is the 0.5.82 WL2 TimesFM forecasting lab. Owns the
+	// `timesfm_oracle` leader agent (the only installable resource).
+	// The vendored torch-stack subprocess lifecycle is owned by the
+	// desktop manager-factory; install_timesfm.go only writes the DB
+	// rows (lock + visibility) that the issue-driven dispatch path
+	// lands on. NOTE the flag-key string duplication law: the literal
+	// "timesfm" is VERBATIM across experimental/handler/desktop
+	// packages (import cycles forbid sharing a constant) — pinned by
+	// TestCatalogAutoDispatchContract + the migration 275 static test.
+	SourceTimesfm Source = "timesfm"
 )
 
 // AllSources is the developer-facing read-only list of every known
@@ -136,6 +146,7 @@ var AllSources = []Source{
 	SourceAgentCreationStudio,
 	SourceSwarmTopology,
 	SourceSemantica,
+	SourceTimesfm,
 }
 
 // Valid reports whether s is in AllSources.

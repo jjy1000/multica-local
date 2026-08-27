@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, FlaskConical, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { api, parseWithFallback } from "@multica/core/api";
+import { useTimesfmForecastRuns } from "@multica/core/experimental";
 import {
   CodeCanvasArtifactListSchema,
   CodeCanvasArtifactSchema,
@@ -54,6 +55,9 @@ const A_CLASS_LABS = new Set([
   "pythia_oracle",
   "mythos_swarm",
   "code_canvas",
+  // 0.5.82: TimesFM forecasting lab — compact reader below; the full
+  // records surface is /experimental/timesfm-lab.
+  "timesfm",
 ]);
 
 interface LabOutputPanelProps {
@@ -964,6 +968,88 @@ function PythiaPanel({
   );
 }
 
+// ── TimesFM (0.5.82 WL2) ─────────────────────────────────────────────────
+
+// Compact records reader for the timesfm forecasting lab. ICP-1:
+// records-only — runs fire from issues via the timesfm_oracle agent, so
+// unlike PythiaPanel there is NO manual trigger here; the panel lists what
+// already landed in timesfm_forecast_run and deep-links into the full
+// /experimental/timesfm-lab records view. The read goes through the shared
+// core hook (5s poll, 404→[] flag-off degradation, zod fallback).
+function TimesfmPanel({ issueId }: { issueId: string }) {
+  const { t } = useT("experimental");
+  const runsQuery = useTimesfmForecastRuns(issueId);
+
+  if (runsQuery.isLoading) {
+    return (
+      <div className="space-y-2" data-testid="lab-output-panel-loading">
+        <Skeleton className="h-3 w-1/2" />
+        <Skeleton className="h-3 w-full" />
+      </div>
+    );
+  }
+
+  if (runsQuery.isError) {
+    return (
+      <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+        <p className="text-[11px] text-destructive">{t(($) => $.lab_output_panel.error)}</p>
+        <button
+          type="button"
+          onClick={() => runsQuery.refetch()}
+          className="shrink-0 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted"
+        >
+          {t(($) => $.lab_output_panel.retry)}
+        </button>
+      </div>
+    );
+  }
+
+  const runs = runsQuery.data ?? [];
+  if (runs.length === 0) {
+    return (
+      <div className="space-y-1.5" data-testid="lab-output-panel-timesfm-empty">
+        <p className="text-xs text-muted-foreground">
+          {t(($) => $.lab_output_panel.empty)}
+        </p>
+        <p className="text-[10px] leading-snug text-muted-foreground/80">
+          {t(($) => $.lab_output_panel.timesfm_empty_hint)}
+        </p>
+      </div>
+    );
+  }
+
+  const latest = runs[0];
+  if (!latest) return null;
+  // Engine answered without weights (or fell back outright) — surface the
+  // provenance drop so "a number" never reads as a real model forecast.
+  const engineFallback =
+    latest.result?.model_present === false || latest.provenance === "seasonal_naive";
+
+  return (
+    <div className="space-y-1.5" data-testid="lab-output-panel-timesfm">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-medium text-foreground/90">
+          {t(($) => $.lab_output_panel.timesfm_title)}
+        </p>
+        <span className="shrink-0 rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+          {latest.provenance}
+        </span>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        {t(($) => $.lab_output_panel.run_count, { runs: String(runs.length) })}
+      </p>
+      {engineFallback && (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[10px] leading-snug text-amber-700 dark:text-amber-300">
+          {t(($) => $.lab_output_panel.timesfm_fallback_hint)}
+        </p>
+      )}
+      {/* ICP-3: jump into the records view pre-scoped to the newest run —
+          the timesfm-lab run list is a wired ?run= receiver. */}
+      <LabRunLink flagKey="timesfm" issueId={issueId} runId={latest.id} />
+    </div>
+  );
+}
+
 // ── Code Canvas (M4) ──────────────────────────────────────────────────────
 
 // Duplicated from apps/desktop/src/renderer/src/pages/code-canvas-view.tsx —
@@ -1232,6 +1318,10 @@ export function LabOutputPanel({ wsId, issueId, labSource, labMode }: LabOutputP
 
   if (labSource === "pythia_oracle") {
     return <PythiaPanel wsId={wsId} issueId={issueId} labViewHref={labViewHref} />;
+  }
+
+  if (labSource === "timesfm") {
+    return <TimesfmPanel issueId={issueId} />;
   }
 
   if (labSource === "mythos_swarm") {

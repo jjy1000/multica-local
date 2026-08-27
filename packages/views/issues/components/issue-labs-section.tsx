@@ -45,6 +45,11 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   // routes.tsx (`/experimental/semantica-explorer`, NOT
   // `/experimental/semantica` — that path is the REST proxy).
   semantica: "semantica-explorer",
+  // 0.5.82: timesfm — local TimesFM 2.5 forecasting lab. The URL matches
+  // routes.tsx (`/experimental/timesfm-lab`, NOT `/experimental/timesfm`
+  // — that path is the bare REST proxy the agent subprocess calls; same
+  // split as semantica above).
+  timesfm: "timesfm-lab",
   // (0.3.57: constitution_agent entry removed alongside the lab
   // retirement in migration 165.)
 };
@@ -381,14 +386,17 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
             />
           )}
 
-          {/* 0.5.18 M1: converged read-side output panel for the four
+          {/* 0.5.18 M1: converged read-side output panel for the
               A-class issue-bound labs. Only claude_science_lab has a
-              real reader in M1; the other three render a placeholder. */}
+              real LabContext reader; pythia/mythos/code-canvas/swarm
+              have dedicated readers, and 0.5.82 adds the timesfm
+              compact records reader. */}
           {(labSource === "claude_science_lab" ||
             labSource === "pythia_oracle" ||
             labSource === "mythos_swarm" ||
             labSource === "code_canvas" ||
-            labSource === "swarm_topology") && (
+            labSource === "swarm_topology" ||
+            labSource === "timesfm") && (
             <LabOutputPanel
               wsId={wsId}
               issueId={issueId}

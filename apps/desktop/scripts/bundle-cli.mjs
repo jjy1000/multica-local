@@ -597,3 +597,54 @@ if (await exists(semanticaSrc)) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// 0.5.82: TimesFM 2.5 forecasting runtime (torch stack + FastAPI wrapper).
+//
+// Source-of-record is apps/desktop/vendor/timesfm-src/ (pythia-src
+// idiom): vendored upstream timesfm python package + Multica-authored
+// run.sh / run_loopback.py / requirements-timesfm.txt. The whole tree
+// is mirrored to resources/timesfm/ (semantica block shape) so the
+// desktop's generic subprocess manager can spawn resources/timesfm/
+// run.sh <port> when the timesfm Labs flag is enabled.
+//
+// The offline wheelhouse (vendor/timesfm-src/wheelhouse/, gitignored —
+// torch alone is hundreds of MB) is mirrored ONLY when present, with
+// warn-if-missing semantics cloned from the semantica builds/ block:
+// run.sh installs STRICTLY offline (--no-index --find-links), so a DMG
+// without the wheelhouse degrades the lab to a loud "no wheelhouse"
+// bootstrap error instead of a silent PyPI fetch (fork no-in-app-network
+// law). Build it before packaging:
+//     bash scripts/build-timesfm-wheelhouse.sh
+// ---------------------------------------------------------------------------
+const timesfmSrc = join(repoRoot, "apps", "desktop", "vendor", "timesfm-src");
+const timesfmDest = join(destDir, "..", "timesfm");
+if (await exists(timesfmSrc)) {
+  try {
+    await rm(timesfmDest, { recursive: true, force: true });
+  } catch {
+    // dest missing — fine.
+  }
+  await mkdir(timesfmDest, { recursive: true });
+  await cp(timesfmSrc, timesfmDest, { recursive: true });
+  const timesfmWheelhouseSrc = join(timesfmSrc, "wheelhouse");
+  if (await exists(timesfmWheelhouseSrc)) {
+    console.log(
+      `[bundle-cli] bundled timesfm runtime → ${timesfmDest} (+ wheelhouse/)`,
+    );
+  } else {
+    console.warn(
+      `[bundle-cli] bundled timesfm runtime → ${timesfmDest} ` +
+        "(wheelhouse/ missing — run bash scripts/build-timesfm-wheelhouse.sh " +
+        "before packaging or the lab cannot leave seasonal-naive fallback " +
+        "on fresh machines)",
+    );
+  }
+} else {
+  console.warn(
+    "[bundle-cli] timesfm runtime not vendored at " +
+      "apps/desktop/vendor/timesfm-src — timesfm flag will show " +
+      "'service not bundled' when enabled. Restore the vendor tree " +
+      "(git history) before running bundle-cli if you want the lab shipped.",
+  );
+}
+

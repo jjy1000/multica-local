@@ -190,7 +190,10 @@
     "code_canvas_rendering": "描画中…",
     "code_canvas_history_label": "保存済みの成果物",
     "code_canvas_no_artifacts": "保存済みの成果物はまだありません — 上でコードを描画してください。",
-    "code_canvas_render_failed": "描画に失敗: {{error}}"
+    "code_canvas_render_failed": "描画に失敗: {{error}}",
+    "timesfm_title": "予測レコード",
+    "timesfm_empty_hint": "予測は issue 駆動です。この issue を timesfm_oracle エージェントに割り当てると、予測結果が自動的にここに記録されます。",
+    "timesfm_fallback_hint": "最新の実行は季節単純フォールバックを使用しました — モデル重みが未配置です(~/.multica/models/timesfm/model.safetensors)。"
   },
   "lab_last_result_chip": {
     "title": "最新の結果"

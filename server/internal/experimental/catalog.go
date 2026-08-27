@@ -404,6 +404,49 @@ var Catalog = []Flag{
 		// used by the agent subprocess. Single source of truth: edit the
 		// manifest, not this catalog literal.
 	},
+	{
+		// timesfm: 0.5.82 WL2 — TimesFM 2.5 local forecasting lab.
+		// A vendored torch-stack Python engine (source-of-record
+		// apps/desktop/vendor/timesfm-src/, spawned generically by the
+		// desktop manager-factory from resources/timesfm/run.sh) serves
+		// POST /forecast on loopback; the Go server reverse-proxies it
+		// at /experimental/timesfm (auto-mounted from this entry — no
+		// manual proxy code) and persists per-issue runs into
+		// timesfm_forecast_run (migration 275).
+		//
+		// Issue-task-first: runs fire from issues via the leader agent
+		// `timesfm_oracle` + the multica-timesfm skill; the lab view is
+		// a read-only record (manifest spec.entry_points.sidebar is
+		// EMPTY per ICP-1). Off by default.
+		Key:        "timesfm",
+		DefaultVal: false,
+		Title: LocalizedString{
+			En: "TimesFM Forecasting Lab",
+			Zh: "TimesFM 预测实验室",
+		},
+		Description: LocalizedString{
+			En: "Local TimesFM 2.5 forecasting engine (offline torch runtime). Agents forecast numeric series from issue data via the multica-timesfm skill; quantile-band results persist per issue. Weights are user-seeded — without them a seasonal-naive fallback answers. Off by default.",
+			Zh: "本地 TimesFM 2.5 预测引擎(离线 torch 运行时)。智能体通过 multica-timesfm 技能对 issue 数据中的数值序列做预测,分位数区间结果按 issue 持久化。权重由用户手动放置 — 未放置时以季节性朴素回退应答。默认关闭。",
+		},
+		ManifestPath: "experiments/timesfm/manifest.json",
+		// subprocess: the desktop manager-factory spawns a real Python
+		// process on a free loopback port (generic manifest-driven
+		// manager, semantica style) and registers the URL with
+		// experimental_proxy.go via __experimental/upstream. Agents
+		// reach POST /forecast through the same Multica origin.
+		RuntimeKind:     "subprocess",
+		ProxyPrefix:     "/experimental/timesfm",
+		LoopbackService: "timesfm",
+		// CPU inference takes seconds-minutes per call (report R5/R6);
+		// runs stay manual/retry-driven — pinned by
+		// TestCatalogAutoDispatchContract in catalog_test.go.
+		AutoDispatch: ptrBool(false),
+		// HideFromIssueLabPicker deliberately NOT set: the lab is
+		// per-issue bindable (lab_source=timesfm) like pythia_oracle /
+		// semantica. HidesDeliverableInIssueTimeline deliberately NOT
+		// set: the agent's forecast comment IS the issue-first
+		// deliverable and must stay visible in the plain timeline.
+	},
 	// 0.5.6: `agent_self_optimization` and `agent_creation_studio`
 	// are no longer catalog entries. The two flags were promoted to
 	// product-level resources in 0.5.5 (boot-provisioned leader

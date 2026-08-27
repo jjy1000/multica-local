@@ -1,0 +1,20 @@
+{
+  "title": "TimesFM 예측 랩",
+  "flag_off": "TimesFM이 비활성화되어 있습니다. 설정 → Labs에서 「timesfm」을 켜면 예측 기록이 표시됩니다.",
+  "unbound_title": "이슈가 바인딩되지 않음",
+  "unbound_hint": "이 화면은 바인딩된 이슈의 예측 기록을 표시합니다. 이슈의 랩 패널(「랩에서 전체 기록 보기」)에서 열면 ?issue=<id>가 자동으로 바인딩됩니다.",
+  "records_title": "예측 기록",
+  "run_count": "예측 {{runs}}회",
+  "loading": "기록을 불러오는 중…",
+  "load_failed": "예측 기록을 불러오지 못했습니다",
+  "retry": "다시 시도",
+  "empty": "아직 예측 기록이 없습니다.",
+  "empty_hint": "예측은 이슈 기반입니다. 이 이슈를 timesfm_oracle 에이전트에 할당하거나(또는 댓글로 예측을 요청하면) 결과가 자동으로 여기에 쌓입니다.",
+  "weights_hint": "엔진이 모델 가중치 없이 응답했습니다 — 최신 기록은 seasonal-naive 폴백입니다. ~/.multica/models/timesfm/model.safetensors를 배치하면 실제 TimesFM 예측이 활성화됩니다.",
+  "horizon_label": "예측 스텝 수",
+  "series_count": "시계열 {{count}}개 — 처음 {{shown}}개 표시",
+  "series_label": "시계열 {{index}}",
+  "chart_legend": "중앙값 · 80% 밴드 · 90% 밴드",
+  "no_series": "이 기록에는 시계열 데이터가 없습니다.",
+  "dates_label": "미래 시점"
+}
