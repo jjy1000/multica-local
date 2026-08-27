@@ -543,3 +543,13 @@ The 0.5.77 B5-inbox STOP note framed the blockers as "port ~3–5 foundation com
 
 - Status: **GATE — needs explicit user decision** (adopt upstream inbox architecture as multi-session project, or keep fork inbox and treat status/priority filtering as future fork-local work).
 - Until decided: MUL-6583 `9622dd55a`, MUL-6660 dependency chain items that touch inbox UI stay SKIP-DIVERGENCE.
+
+## Incremental triage #3 (2026-08-27 12:20 CST, post-0.5.79 health check)
+
+Upstream advanced exactly 1 commit past re-grade #2 head (`9a19c90f8` → `76aada3a9`).
+
+| SHA | Subject | Verdict | Notes |
+|---|---|---|---|
+| `76aada3a9` | fix(views): restore quick create dialog height (#7596) (+12/−9, 2 files) | **SKIP — dependent on unported feature** | The fix refines the `sourceContextData`-conditional height chain (`sourceContextExpanded ? … : sourceContextData ? …`). Fork's `create-issue-dialog.tsx` contains neither `sourceContextData` nor `sourceContextExpanded` (verified by grep 2026-08-27): the whole source-context quick-create feature rides on `8c563b49`, already SKIP-default in Batch 5 deferrals. Revisit only if/when source-context is ever ported. |
+
+Also recorded during this pass (environment, not upstream): `codesign --verify --deep --strict` fails on every shipped bundle (0.5.78 bak and 0.5.79 alike) with "file modified: app.asar.unpacked/resources/bin/{migrate,multica,server}" — chronic, by-design artifact of the ship chain re-signing nested Go binaries AFTER the electron-builder seal (ship-mac.sh header: skipping that re-sign → Gatekeeper SIGKILLs the backend). Nested binaries verify valid individually; cold-start gate passes. Accepted state for local non-notarized installs.
