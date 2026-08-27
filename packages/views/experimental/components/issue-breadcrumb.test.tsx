@@ -41,17 +41,21 @@ vi.mock("@multica/core/platform", async () => {
   };
 });
 
-type NavStub = NavigationAdapter & { push: ReturnType<typeof vi.fn> };
+type NavStub = NavigationAdapter;
 
 function makeNavAdapter(search: string): NavStub {
-  return {
+  const stub = {
     push: vi.fn(),
     replace: vi.fn(),
     back: vi.fn(),
     pathname: "/experimental/pythia",
     searchParams: new URLSearchParams(search),
-    getShareableUrl: (p: string) => p,
+    // Mirror the real NavigationAdapter contract — returns a string for
+    // the shareable URL. The desktop adapter returns the public URL
+    // for the connected environment; tests only need a stable sentinel.
+    getShareableUrl: vi.fn((p: string) => p),
   };
+  return stub as unknown as NavStub;
 }
 
 function Wrapper({ nav, children }: { nav: NavStub; children: ReactNode }) {
@@ -147,7 +151,7 @@ describe("IssueBreadcrumb", () => {
     mockGetIssue.mockRejectedValue(new Error("gone"));
     renderBreadcrumb("?issue=gone-id");
 
-    const button = await screen.findByRole("button");
+    const button = await screen.findByRole("button") as HTMLButtonElement;
     await waitFor(() => expect(button.disabled).toBe(false));
     expect(button.textContent).toMatch(/back to task/i);
   });
