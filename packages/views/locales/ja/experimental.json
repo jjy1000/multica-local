@@ -191,5 +191,8 @@
     "code_canvas_history_label": "保存済みの成果物",
     "code_canvas_no_artifacts": "保存済みの成果物はまだありません — 上でコードを描画してください。",
     "code_canvas_render_failed": "描画に失敗: {{error}}"
+  },
+  "lab_last_result_chip": {
+    "title": "最新の結果"
   }
 }

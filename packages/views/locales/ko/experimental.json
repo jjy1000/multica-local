@@ -191,5 +191,8 @@
     "code_canvas_history_label": "저장된 산출물",
     "code_canvas_no_artifacts": "저장된 산출물이 아직 없습니다 — 위에서 코드를 렌더링하세요.",
     "code_canvas_render_failed": "렌더링 실패: {{error}}"
+  },
+  "lab_last_result_chip": {
+    "title": "최신 결과"
   }
 }

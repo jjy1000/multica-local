@@ -191,5 +191,8 @@
     "code_canvas_history_label": "Saved artifacts",
     "code_canvas_no_artifacts": "No saved artifacts yet — render some code above.",
     "code_canvas_render_failed": "Render failed: {{error}}"
+  },
+  "lab_last_result_chip": {
+    "title": "Latest result"
   }
 }
