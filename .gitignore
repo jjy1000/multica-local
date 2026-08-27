@@ -84,6 +84,12 @@ __pycache__/
 # Pythia engine runtime artifacts (live ledger appends, oracle writes — never commit)
 apps/desktop/vendor/pythia-src/runs/
 
+# TimesFM offline wheelhouse (torch dominates — hundreds of MB of .whl).
+# Reproducible from vendor/timesfm-src/requirements-timesfm.txt via
+# `bash scripts/build-timesfm-wheelhouse.sh`; bundle-cli mirrors it into
+# resources/timesfm/wheelhouse at package time. Never commit the wheels.
+apps/desktop/vendor/timesfm-src/wheelhouse/
+
 # Security / vuln scan scratch dirs — these are pipeline-internal working state
 # (json chunks, partial python extractors, staging files). Final deliverables
 # (THREAT_MODEL.md, VULN-FINDINGS.md) belong in .omc/audit/ when ready, never
