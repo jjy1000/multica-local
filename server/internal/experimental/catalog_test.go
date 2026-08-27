@@ -43,6 +43,16 @@ func TestCatalogAutoDispatchContract(t *testing.T) {
 			wantTrue:   true,
 			wantReason: "0.5.81 P4: claude_science_lab must follow the default 0.3.46 auto-dispatch contract (assignee rewrite + enqueue)",
 		},
+		{
+			// 0.5.82 WL2: timesfm pins BOTH the AutoDispatch *false and
+			// (below) the verbatim flag-key literal "timesfm" per the
+			// flag-key string duplication law — the same literal is
+			// hand-copied into install_timesfm.go, router.go, the
+			// manifest, run_loopback wiring, and migration 275's CHECK.
+			key:        "timesfm",
+			wantFalse:  true,
+			wantReason: "0.5.82 WL2: timesfm CPU inference takes seconds-minutes per call; runs stay manual/retry-driven, never auto-fired on a lab_source flip",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.key, func(t *testing.T) {

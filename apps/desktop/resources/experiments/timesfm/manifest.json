@@ -1,0 +1,53 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "timesfm",
+    "flag": "timesfm",
+    "title": { "en": "TimesFM Forecasting Lab", "zh": "TimesFM 预测实验室" },
+    "description": {
+      "en": "Local TimesFM 2.5 forecasting engine (offline torch runtime). Agents forecast numeric series from issue data via the multica-timesfm skill; quantile-band results persist per issue. Weights are user-seeded — without them a seasonal-naive fallback answers. Off by default.",
+      "zh": "本地 TimesFM 2.5 预测引擎(离线 torch 运行时)。智能体通过 multica-timesfm 技能对 issue 数据中的数值序列做预测,分位数区间结果按 issue 持久化。权重由用户手动放置 — 未放置时以季节性朴素回退应答。默认关闭。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "capabilities": {
+      "skills": ["multica-timesfm"],
+      "agents": [],
+      "squads": [],
+      "mcp_servers": [],
+      "permissions": ["agent:invoke"]
+    },
+    "entry_points": {
+      "sidebar": [],
+      "settings": { "route": "/experimental/timesfm-lab" }
+    },
+    "runtime": {
+      "kind": "subprocess",
+      "binary": "timesfm/run.sh",
+      "args": [],
+      "health_path": "/health",
+      "ready_timeout_ms": 180000,
+      "stop_grace_ms": 10000,
+      "on_ready": "registerUpstream",
+      "on_stop": "unregisterUpstream",
+      "on_missing": "service not bundled — restore apps/desktop/vendor/timesfm-src and re-run bundle-cli (weights are user-seeded at ~/.multica/models/timesfm/model.safetensors)"
+    },
+    "surface": {
+      "proxy_prefix": "/experimental/timesfm",
+      "loopback_service": "timesfm"
+    },
+    "resources": {
+      "installable": true,
+      "lockable_resources": ["agent:timesfm_oracle"],
+      "install_handler": "timesfm"
+    },
+    "safety": {
+      "init_timeout_ms": 30000,
+      "burst": { "threshold": 3, "window_seconds": 60 },
+      "panic_recover": true,
+      "ip_allowlist": ["127.0.0.0/8"]
+    }
+  }
+}

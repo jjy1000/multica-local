@@ -87,6 +87,12 @@ const staticFlagDescriptors: ReadonlyArray<ManagerFactoryDescriptor> = [
   // loadFlagDescriptors() has not resolved the server catalog yet, the IPC
   // dispatcher cannot answer experimental:semantica:get-status.
   { flagKey: "semantica", kind: "subprocess", label: "experimental_semantica" },
+  // 0.5.82 WL2: timesfm mirrors semantica — generic subprocess manager
+  // spawning resources/timesfm/run.sh (vendored TimesFM 2.5 torch stack).
+  // Static cold-boot safety net for experimental:timesfm:get-status.
+  // Flag-key literal "timesfm" is a VERBATIM copy per the duplication law
+  // (server catalog + install_timesfm.go + migration 275 CHECK pin it).
+  { flagKey: "timesfm", kind: "subprocess", label: "experimental_timesfm" },
   // 0.3.57: constitution_agent retired alongside migration 165.
 ];
 
