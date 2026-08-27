@@ -88,10 +88,16 @@ prodRoot, err := filepath.Abs(filepath.Join(fixRoot, "..", "..", "..", "..", "..
 	for _, name := range []string{"skills", "agents"} {
 		linkPath := filepath.Join(fixRoot, "claude-science", name)
 		target := filepath.Join(prodRoot, name)
-		// If linkPath exists and already points at the right target,
+		// If linkPath exists and already RESOLVES to the right target,
 		// skip — repeated TestMain invocations would otherwise error.
-		if existing, lerr := os.Readlink(linkPath); lerr == nil && existing == target {
-			continue
+		// Resolve-compare (not raw-string compare) so the repo-tracked
+		// relative symlinks survive every checkout: a raw comparison
+		// against this run's absolute target rewrote them as absolute
+		// paths on each test run, permanently dirtying other worktrees.
+		if _, lerr := os.Lstat(linkPath); lerr == nil {
+			if resolved, rerr := filepath.EvalSymlinks(linkPath); rerr == nil && resolved == target {
+				continue
+			}
 		}
 		// Remove any stale file / dir / broken symlink before creating.
 		_ = os.Remove(linkPath)
