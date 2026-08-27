@@ -16,9 +16,12 @@
 // Each receiving lab view's history list reads `?run=<id>` (via
 // useDeepLinkRun on the NavigationAdapter searchParams mirror) and uses
 // it to scroll/highlight the matching record. Wired receivers (0.5.81
-// closure):
+// closure + post-ship audit P1 follow-up):
 //   - mythos-view PastRunsPanel
 //   - pythia ReportSurface's ForecastHistoryPanel
+//   - claude-lab-view PlanTimeline (this emitter family fires MOST often
+//     toward claude_science_lab — chip + ClaudePanel — so it must accept,
+//     not silently drop, the run half)
 //   - ExecutionLogSection (an issue-detail URL with ?run=<taskId>
 //     highlights that run row — the mirrored, back-to-issue direction)
 // NO receiver exists for code-canvas (stateless render tool, nothing

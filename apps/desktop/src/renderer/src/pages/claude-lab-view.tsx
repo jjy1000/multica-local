@@ -73,6 +73,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
 import { ForecastStreamView, LabChatPanel, labChatPanelPropsFromContext } from "@multica/views/experimental";
+import { useDeepLinkRun } from "@multica/views/experimental/components";
 import { getCurrentSlug, getCurrentWsId } from "@multica/core/platform";
 import { paths } from "@multica/core/paths";
 import { useNavigation } from "@multica/views/navigation";
@@ -510,6 +511,11 @@ function PlanTimeline({
 }) {
   const { t } = useT("claude-lab");
   const ctx = useLabWorkbenchContext(wsId, selectedIssueId);
+  // 0.5.81 audit P1: both issue-side emitters (LabLastResultChip and
+  // ClaudePanel's "view full record" link) point ?issue=&run=<task id> at
+  // this view, so PlanTimeline is the run receiver for the ICP-3 contract —
+  // hooks must sit above the early returns below (rules-of-hooks).
+  const deepLink = useDeepLinkRun<HTMLLIElement>();
   if (!ctx.data) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-card/40 p-4 text-xs text-muted-foreground">
@@ -584,7 +590,13 @@ function PlanTimeline({
     return (
       <li
         key={task.id}
-        className="flex flex-col gap-1 rounded-md border border-border bg-background/40 px-3 py-2 text-xs"
+        ref={deepLink.rowRef(task.id)}
+        className={
+          "flex flex-col gap-1 rounded-md border border-border bg-background/40 px-3 py-2 text-xs" +
+          (deepLink.isDeepLinked(task.id)
+            ? " bg-primary/5 ring-1 ring-primary/30"
+            : "")
+        }
       >
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] text-muted-foreground">
