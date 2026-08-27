@@ -92,6 +92,9 @@ vi.mock("@multica/views/experimental", () => ({
     <div data-testid="swarm-graph">{roles.length}</div>
   ),
   SwarmInterruptBar: () => <div data-testid="swarm-interrupt-bar" />,
+  // 0.5.81 back-link strip added to the view head; stub it here like the
+  // other fixed-export mocks so the suite tracks view logic, not the strip.
+  IssueBreadcrumb: () => <div data-testid="issue-breadcrumb" />,
 }));
 
 function renderView(initialPath: string) {

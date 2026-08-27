@@ -107,6 +107,9 @@ vi.mock("../../navigation", () => ({
     getShareableUrl: (p: string) => `https://app.multica.com${p}`,
   }),
   NavigationProvider: ({ children }: { children: React.ReactNode }) => children,
+  // 0.5.81 C2 tails: ExecutionLogSection's useDeepLinkRun reads this —
+  // null keeps the hook's no-provider degradation (no ?run= consumed).
+  useOptionalNavigation: () => null,
 }));
 
 // Mock editor components (Tiptap requires real DOM)

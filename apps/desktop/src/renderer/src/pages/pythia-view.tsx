@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useSearchParams } from "react-router-dom";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
+import { IssueBreadcrumb } from "@multica/views/experimental/components";
 
 // PythiaView (0.3.18+)
 //
@@ -34,7 +35,6 @@ type Horizon = "day" | "week" | "month" | "year";
 export function PythiaView({ issueId: initialIssueId = null }: { issueId?: string | null } = {}) {
   const pythiaOracleEnabled = useExperimentalFlag("pythia_oracle", false);
   const { t } = useT("pythia");
-  const { t: tExp } = useT("experimental");
   const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -146,21 +146,14 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
             还没绑定?先到任务列表里给某个 issue 选 Pythia,再点上方「打开实验室面板」回来。
           </div>
         )}
-        {issueId ? (
-          <div className="flex items-center justify-end gap-1.5 border-b border-border/60 bg-muted/30 px-6 py-1.5 text-[10px] text-muted-foreground">
-            <span className="rounded border border-border bg-background/40 px-1.5 py-0.5 font-mono text-foreground/80">
-              {issueId.slice(0, 8)}…
-            </span>
-            <button
-              type="button"
-              onClick={() => setIssueId(null)}
-              aria-label={tExp(($) => $.back)}
-              className="inline-flex size-4 items-center justify-center rounded text-xs hover:bg-muted hover:text-foreground"
-            >
-              ×
-            </button>
-          </div>
-        ) : null}
+        {/* 0.5.81: replace the truncated-id-with-× strip with the shared
+            IssueBreadcrumb (reads ?issue=, resolves title via
+            issueDetailOptions, push()s back to the issue detail). The
+            bind-clearing "×" is gone — users unbind by navigating away
+            or clicking the breadcrumb, matching the other lab surfaces. */}
+        <div className="px-6 pt-3">
+          <IssueBreadcrumb />
+        </div>
         <Suspense
           fallback={
             <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">

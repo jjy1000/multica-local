@@ -7,6 +7,9 @@ export { ArtifactRenderer, type Artifact } from "./artifact-renderer";
 export { ArtifactGallery } from "./artifact-gallery";
 export { PluginShellView } from "./plugin-shell-view";
 export { LabOutputPanel } from "./lab-output-panel";
+export { IssueBreadcrumb, type IssueBreadcrumbProps } from "./issue-breadcrumb";
+export { LabRunLink, labRunHref, type LabRunLinkProps } from "./lab-run-link";
+export { useDeepLinkRun, type UseDeepLinkRunResult } from "./use-deep-link-run";
 export {
   SwarmTopologyGraph,
   type SwarmRole,

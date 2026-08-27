@@ -9,6 +9,7 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { api } from "@multica/core/api";
 import { AppLink } from "../../navigation";
 import { LabOutputPanel } from "../../experimental/components/lab-output-panel";
+import { LabLastResultChip } from "./lab-last-result-chip";
 import { LabBadge } from "./lab-badge";
 import { useT } from "../../i18n";
 
@@ -361,6 +362,22 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
               </AppLink>
             ) : null}
           </div>
+
+          {/* 0.5.81: glanceable "latest result" affordance that lives one
+              row above the LabOutputPanel reader. Shares the panel's
+              TanStack Query cache key so the network round-trip is
+              amortised. Augments — never replaces — the panel below. */}
+          {(labSource === "claude_science_lab" ||
+            labSource === "pythia_oracle" ||
+            labSource === "mythos_swarm" ||
+            labSource === "code_canvas" ||
+            labSource === "swarm_topology") && (
+            <LabLastResultChip
+              wsId={wsId}
+              issueId={issueId}
+              labSource={labSource}
+            />
+          )}
 
           {/* 0.5.18 M1: converged read-side output panel for the four
               A-class issue-bound labs. Only claude_science_lab has a

@@ -52,6 +52,9 @@ vi.mock("../../navigation", () => ({
   ),
   useNavigation: () => ({ push: vi.fn(), pathname: "/issues" }),
   NavigationProvider: ({ children }: { children: React.ReactNode }) => children,
+  // 0.5.81 C2 tails: useDeepLinkRun's optional reader — null keeps the
+  // hook's no-provider degradation (no ?run= consumed).
+  useOptionalNavigation: () => null,
 }));
 
 // Mock workspace avatar

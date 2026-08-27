@@ -5,7 +5,7 @@ import { useExperimentalFlag } from "@multica/core/experimental";
 import { getCurrentWsId } from "@multica/core/platform";
 import { useT } from "@multica/views/i18n";
 import { DragStrip } from "@multica/views/platform";
-import { SemanticaModeBanner } from "@multica/views/experimental/components";
+import { IssueBreadcrumb, SemanticaModeBanner } from "@multica/views/experimental/components";
 
 // SemanticaExplorerView (0.5.22 Phase 2)
 //
@@ -126,6 +126,12 @@ export function SemanticaExplorerView() {
           title={t(($) => $.semantica.title)}
         />
         <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+          {/* 0.5.81: back-link strip — surfaces the bound issue's
+              title + status pill when the user arrived from
+              IssueLabsSection / create-issue redirect. */}
+          <div className="self-stretch">
+            <IssueBreadcrumb infoHintWhenUnbound />
+          </div>
           <h1 className="text-lg font-semibold text-foreground">
             {t(($) => $.semantica.not_enabled_title)}
           </h1>
@@ -146,6 +152,9 @@ export function SemanticaExplorerView() {
           title={t(($) => $.semantica.title)}
         />
         <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+          <div className="self-stretch">
+            <IssueBreadcrumb infoHintWhenUnbound />
+          </div>
           <h1 className="text-lg font-semibold text-foreground">
             {t(($) => $.semantica.boot_error_title)}
           </h1>
@@ -176,11 +185,16 @@ export function SemanticaExplorerView() {
           title={t(($) => $.semantica.title)}
           status={status}
         />
-        <main className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden />
-          <span>
-            {t(($) => $.semantica.connecting)} (manager: {status})…
-          </span>
+        <main className="flex flex-1 flex-col items-stretch gap-2 p-8 text-sm text-muted-foreground">
+          <div className="mx-auto w-full max-w-3xl">
+            <IssueBreadcrumb infoHintWhenUnbound />
+          </div>
+          <div className="flex flex-1 items-center justify-center gap-2">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            <span>
+              {t(($) => $.semantica.connecting)} (manager: {status})…
+            </span>
+          </div>
         </main>
       </div>
     );
@@ -194,6 +208,12 @@ export function SemanticaExplorerView() {
         title={t(($) => $.semantica.title)}
         status={status}
       />
+      {/* 0.5.81: back-link strip in the connected branch — the
+          Explorer SPA fills the viewport below, so the breadcrumb sits
+          in the slim band between Header and the iframe. */}
+      <div className="mx-auto w-full max-w-3xl px-6 pt-3">
+        <IssueBreadcrumb infoHintWhenUnbound />
+      </div>
       <SemanticaModeBanner mode={mode} className="mx-auto my-3 max-w-3xl rounded-md border border-border bg-muted/30 px-4 py-2 text-sm" />
       <iframe
         src={`${url}/`}

@@ -43,6 +43,18 @@ export function useNavigation(): NavigationAdapter {
   return ctx;
 }
 
+/**
+ * Non-throwing sibling of useNavigation(): reads the adapter when one is
+ * mounted above, `null` otherwise. For read-only path/param consumers that
+ * must render under hosts without a NavigationProvider (e.g. useDeepLinkRun's
+ * `?run=` reader degrades to no-op rows); push/replace callers keep
+ * useNavigation()'s fail-loud contract so navigation bugs cannot hide
+ * behind a silent null.
+ */
+export function useOptionalNavigation(): NavigationAdapter | null {
+  return use(NavigationContext);
+}
+
 /** True while a transition-wrapped push/replace is committing. */
 export function useIsNavigating(): boolean {
   return use(NavigationPendingContext);

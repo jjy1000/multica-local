@@ -27,6 +27,7 @@ import { useT } from "../../i18n";
 import { ChatWindow } from "../../chat/components/chat-window";
 import { ArtifactGallery } from "./artifact-gallery";
 import { UserPluginFormDialog } from "./user-plugin-form-dialog";
+import { IssueBreadcrumb } from "./issue-breadcrumb";
 import { useSignedArtifactUrl } from "./use-signed-artifact-url";
 
 // 0.3.60 Labs sandbox — generic plugin shell view.
@@ -236,6 +237,10 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
           >
             {t(($) => $.lab_output_panel.retry)}
           </Button>
+          {/* 0.5.81: keep the existing navigation.back() button for the
+              bare `/experimental/plugin/<slug>` visit; the bound-from-
+              task affordance lives at the top of the active view below
+              (rendered unconditionally in the bound branch). */}
           <Button
             type="button"
             variant="ghost"
@@ -254,19 +259,12 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
 
   return (
     <div className="space-y-4">
-      {/* 0.5.81: issue deep-link binding strip — grounds the shell in the
-          task the user arrived from (IssueLabsSection / create-issue
-          redirect pass ?issue=<id>). Non-linking chip, matching the
-          binding chips ClaudeLabView / PythiaView render. v1 label is
-          hardcoded Chinese per the i18n-deferred note above. */}
-      {issueId ? (
-        <div className="flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
-          <span>{t(($) => $.user_plugins.issue_bound_prefix)}</span>
-          <span className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-foreground/80">
-            {issueId.slice(0, 8)}…
-          </span>
-        </div>
-      ) : null}
+      {/* 0.5.81: shared back-link strip (IssueBreadcrumb) replaces the
+          prior truncated-id chip — grounds the shell in the task the user
+          arrived from (IssueLabsSection / create-issue redirect pass
+          ?issue=<id>) AND provides a one-click jump back to that task
+          via useNavigation().push, matching the other 7 lab surfaces. */}
+      {issueId ? <IssueBreadcrumb issueId={issueId} /> : null}
       {/* Header */}
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">

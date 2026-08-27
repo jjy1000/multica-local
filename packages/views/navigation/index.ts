@@ -1,6 +1,7 @@
 export {
   NavigationProvider,
   useNavigation,
+  useOptionalNavigation,
   useIsNavigating,
 } from "./context";
 export { AppLink } from "./app-link";

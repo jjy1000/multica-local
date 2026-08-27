@@ -31,6 +31,7 @@ import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { ArtifactRenderer, type Artifact } from "./artifact-renderer";
 import { AppLink } from "../../navigation";
 import { labSourceRouteSuffix } from "../../issues/components/issue-labs-section";
+import { LabRunLink, labRunHref } from "./lab-run-link";
 import { useT } from "../../i18n";
 
 // 0.5.18 M1-M4: unified output panel for the four A-class issue-bound labs.
@@ -300,7 +301,7 @@ function TaskOutput({ task, labViewHref }: { task: LabTaskBrief; labViewHref?: s
   );
 }
 
-function ClaudePanel({ ctx, labViewHref }: { ctx: LabContext; labViewHref?: string }) {
+function ClaudePanel({ ctx, labSource, labViewHref }: { ctx: LabContext; labSource: string; labViewHref?: string }) {
   const { t } = useT("experimental");
 
   const runCount = (
@@ -308,6 +309,22 @@ function ClaudePanel({ ctx, labViewHref }: { ctx: LabContext; labViewHref?: stri
       {t(($) => $.lab_output_panel.run_count, { runs: String(ctx.lab_seq) })}
     </p>
   );
+
+  // 0.5.81 (ICP-3): the latest task's id IS the run id (AgentTask.id) for
+  // AgentTask-backed labs. Render a "View full record in lab" link that
+  // jumps to the lab view pre-scoped via ?issue=&run= — independent of
+  // the existing "View in lab" affordance so existing UX is preserved.
+  const latestForRunLink = latestTask(ctx);
+  const latestRunHref = latestForRunLink
+    ? labRunHref(labSource, ctx.issue.id, latestForRunLink.id)
+    : undefined;
+  const runLink = latestRunHref ? (
+    <LabRunLink
+      flagKey={labSource}
+      issueId={ctx.issue.id}
+      runId={latestForRunLink!.id}
+    />
+  ) : null;
 
   // Empty only when there are truly no runs — a failed/cancelled/in-progress
   // run is not "no runs" and must not masquerade as one.
@@ -354,7 +371,10 @@ function ClaudePanel({ ctx, labViewHref }: { ctx: LabContext; labViewHref?: stri
 
   return (
     <div className="space-y-3">
-      {runCount}
+      <div className="flex items-center justify-between gap-2">
+        {runCount}
+        {runLink}
+      </div>
       {showRunningHint && (
         <p className="text-xs text-muted-foreground">
           {t(($) => $.lab_output_panel.in_progress)}
@@ -1270,5 +1290,5 @@ export function LabOutputPanel({ wsId, issueId, labSource, labMode }: LabOutputP
     );
   }
 
-  return <ClaudePanel ctx={query.data?.ctx ?? EMPTY_LAB_CONTEXT} labViewHref={labViewHref} />;
+  return <ClaudePanel ctx={query.data?.ctx ?? EMPTY_LAB_CONTEXT} labSource={labSource} labViewHref={labViewHref} />;
 }

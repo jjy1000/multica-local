@@ -1,5 +1,19 @@
 {
   "back": "戻る",
+  "breadcrumb": {
+    "back_to_issue": "タスクに戻る",
+    "back_to_issue_aria": "タスクに戻る",
+    "loading": "読み込み中…",
+    "unbound_hint": "このサーフェスはワークスペースレベルで、個別のタスクにはバインドされません。",
+    "unbound_hint_aria": "ワークスペースレベル表面"
+  },
+  "lab_picker": {
+    "confirm_rewrite_title": "現在の担当者を置き換えますか?",
+    "confirm_rewrite_body": "{{lab}} を選択すると、現在の担当者 {{current}} が {{leader}} に置き換えられます。続行しますか?",
+    "confirm_rewrite_confirm": "置き換えて続行",
+    "confirm_rewrite_cancel": "キャンセル",
+    "confirm_rewrite_current_unknown": "(現在の担当者)"
+  },
   "user_plugins": {
     "title": "ユーザープラグイン",
     "create": "プラグイン作成",
@@ -169,6 +183,7 @@
     "pythia_confidence_label": "確信度",
     "pythia_synthetic_hint": "モックデータ",
     "view_in_lab": "ラボで見る",
+    "run_link_view_in_lab": "ラボで完全な記録を見る",
     "code_canvas_input_label": "コード",
     "code_canvas_language_label": "言語",
     "code_canvas_render": "描画して保存",
@@ -176,5 +191,8 @@
     "code_canvas_history_label": "保存済みの成果物",
     "code_canvas_no_artifacts": "保存済みの成果物はまだありません — 上でコードを描画してください。",
     "code_canvas_render_failed": "描画に失敗: {{error}}"
+  },
+  "lab_last_result_chip": {
+    "title": "最新の結果"
   }
 }

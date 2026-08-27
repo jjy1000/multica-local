@@ -1,5 +1,19 @@
 {
   "back": "뒤로",
+  "breadcrumb": {
+    "back_to_issue": "작업으로 돌아가기",
+    "back_to_issue_aria": "작업으로 돌아가기",
+    "loading": "로딩 중…",
+    "unbound_hint": "이 화면은 작업 공간 수준이며 단일 작업에 연결되지 않습니다.",
+    "unbound_hint_aria": "작업 공간 수준 화면"
+  },
+  "lab_picker": {
+    "confirm_rewrite_title": "현재 담당자를 바꾸시겠습니까?",
+    "confirm_rewrite_body": "{{lab}}을(를) 선택하면 현재 담당자 {{current}}이(가) {{leader}}(으)로 교체됩니다. 계속하시겠습니까?",
+    "confirm_rewrite_confirm": "교체하고 계속",
+    "confirm_rewrite_cancel": "취소",
+    "confirm_rewrite_current_unknown": "(현재 담당자)"
+  },
   "user_plugins": {
     "title": "사용자 플러그인",
     "create": "플러그인 생성",
@@ -169,6 +183,7 @@
     "pythia_confidence_label": "신뢰도",
     "pythia_synthetic_hint": "모의 데이터",
     "view_in_lab": "랩에서 보기",
+    "run_link_view_in_lab": "랩에서 전체 기록 보기",
     "code_canvas_input_label": "코드",
     "code_canvas_language_label": "언어",
     "code_canvas_render": "렌더링 및 저장",
@@ -176,5 +191,8 @@
     "code_canvas_history_label": "저장된 산출물",
     "code_canvas_no_artifacts": "저장된 산출물이 아직 없습니다 — 위에서 코드를 렌더링하세요.",
     "code_canvas_render_failed": "렌더링 실패: {{error}}"
+  },
+  "lab_last_result_chip": {
+    "title": "최신 결과"
   }
 }

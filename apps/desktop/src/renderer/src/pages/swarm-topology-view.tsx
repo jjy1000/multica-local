@@ -36,7 +36,7 @@ import { Input } from "@multica/ui/components/ui/input";
 import { Label } from "@multica/ui/components/ui/label";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 
-import { SwarmInterruptBar, SwarmTopologyGraph, type SwarmRole } from "@multica/views/experimental";
+import { SwarmInterruptBar, SwarmTopologyGraph, IssueBreadcrumb, type SwarmRole } from "@multica/views/experimental";
 
 import { useT } from "@multica/views/i18n";
 
@@ -231,6 +231,9 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-8" data-testid="swarm-topology-view">
+      {/* 0.5.81: back-link strip mounted at top of view. Reads ?issue= so
+          it tracks whatever binding drove the navigation. */}
+      <IssueBreadcrumb />
       <Header />
       {runId ? (
         <ActiveRun runId={runId} state={state.data} loading={state.isLoading} />

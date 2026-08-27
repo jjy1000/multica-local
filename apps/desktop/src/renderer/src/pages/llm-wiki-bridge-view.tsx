@@ -8,6 +8,7 @@ import {
   EMPTY_LLM_WIKI_STATUS_RESPONSE,
   type LLMWikiStatusResponse,
 } from "@multica/core/api";
+import { IssueBreadcrumb } from "@multica/views/experimental/components";
 
 // LLMWikiBridgeView (0.3.19+)
 //
@@ -76,6 +77,9 @@ export function LLMWikiBridgeView() {
       <div className="flex h-full w-full flex-col overflow-y-auto bg-background">
         <Header />
         <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-10">
+          {/* 0.5.81: LLM Wiki is workspace-level (no issue binding),
+              so the breadcrumb renders the unbound-hint variant. */}
+          <IssueBreadcrumb infoHintWhenUnbound />
           <Intro />
           <div className="rounded-md border border-amber-200 bg-amber-50/40 p-5 dark:border-amber-800 dark:bg-amber-950/30">
             <p className="text-sm text-amber-800 dark:text-amber-200">
@@ -91,6 +95,8 @@ export function LLMWikiBridgeView() {
     <div className="flex h-full w-full flex-col overflow-y-auto bg-background">
       <Header />
       <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-10">
+        {/* 0.5.81: workspace-level surface — show the unbound hint. */}
+        <IssueBreadcrumb infoHintWhenUnbound />
         <Intro />
         <StatusCard status={status} loading={loading} />
         <VerbsCard />

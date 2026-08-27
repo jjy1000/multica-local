@@ -1,5 +1,19 @@
 {
   "back": "Back",
+  "breadcrumb": {
+    "back_to_issue": "Back to task",
+    "back_to_issue_aria": "Back to task",
+    "loading": "Loading…",
+    "unbound_hint": "This surface is workspace-level and does not bind to a single task.",
+    "unbound_hint_aria": "Workspace-level surface"
+  },
+  "lab_picker": {
+    "confirm_rewrite_title": "Replace current assignee?",
+    "confirm_rewrite_body": "Selecting {{lab}} will replace your current assignee {{current}} with {{leader}}. Continue?",
+    "confirm_rewrite_confirm": "Replace and continue",
+    "confirm_rewrite_cancel": "Cancel",
+    "confirm_rewrite_current_unknown": "(current assignee)"
+  },
   "user_plugins": {
     "title": "User Plugins",
     "create": "Create Plugin",
@@ -169,6 +183,7 @@
     "pythia_confidence_label": "confidence",
     "pythia_synthetic_hint": "mock data",
     "view_in_lab": "View in lab",
+    "run_link_view_in_lab": "View full record in lab",
     "code_canvas_input_label": "Code",
     "code_canvas_language_label": "Language",
     "code_canvas_render": "Render & save",
@@ -176,5 +191,8 @@
     "code_canvas_history_label": "Saved artifacts",
     "code_canvas_no_artifacts": "No saved artifacts yet — render some code above.",
     "code_canvas_render_failed": "Render failed: {{error}}"
+  },
+  "lab_last_result_chip": {
+    "title": "Latest result"
   }
 }

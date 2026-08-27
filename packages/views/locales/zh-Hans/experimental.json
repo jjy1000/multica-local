@@ -1,5 +1,19 @@
 {
   "back": "返回",
+  "breadcrumb": {
+    "back_to_issue": "回到任务",
+    "back_to_issue_aria": "回到任务",
+    "loading": "加载中…",
+    "unbound_hint": "此表面在工作区层级,不绑定单个任务。",
+    "unbound_hint_aria": "工作区层级表面"
+  },
+  "lab_picker": {
+    "confirm_rewrite_title": "替换当前 assignee?",
+    "confirm_rewrite_body": "选择 {{lab}} 会替换你当前选择的 assignee {{current}} 为 {{leader}}。确认继续?",
+    "confirm_rewrite_confirm": "替换并继续",
+    "confirm_rewrite_cancel": "取消",
+    "confirm_rewrite_current_unknown": "(当前 assignee)"
+  },
   "user_plugins": {
     "title": "用户插件",
     "create": "创建插件",
@@ -169,6 +183,7 @@
     "pythia_confidence_label": "置信度",
     "pythia_synthetic_hint": "模拟数据",
     "view_in_lab": "在实验室查看",
+    "run_link_view_in_lab": "在实验室查看完整记录",
     "code_canvas_input_label": "代码",
     "code_canvas_language_label": "语言",
     "code_canvas_render": "渲染并保存",
@@ -176,5 +191,8 @@
     "code_canvas_history_label": "已保存的产物",
     "code_canvas_no_artifacts": "暂无已保存的产物 — 在上方渲染一些代码。",
     "code_canvas_render_failed": "渲染失败: {{error}}"
+  },
+  "lab_last_result_chip": {
+    "title": "最近结果"
   }
 }

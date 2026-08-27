@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { I18nProvider } from "@multica/core/i18n/react";
 import { EMPTY_LAB_CONTEXT } from "@multica/core/api/schemas";
+import type { NavigationAdapter } from "../../navigation";
+import { NavigationProvider } from "../../navigation";
 import enExperimental from "../../locales/en/experimental.json";
 import { LabOutputPanel } from "./lab-output-panel";
 
@@ -134,10 +136,21 @@ const pythiaRun = {
 
 function Wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // ClaudePanel renders a <LabRunLink /> (0.5.81 C2) whose AppLink calls
+  // useNavigation(); the adapter stub here mirrors the active-route query
+  // string shape without needing react-router in the tree.
+  const nav: NavigationAdapter = {
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    pathname: "/experimental/claude-lab",
+    searchParams: new URLSearchParams("?issue=issue-1"),
+    getShareableUrl: (p: string) => p,
+  };
   return (
     <QueryClientProvider client={client}>
       <I18nProvider locale="en" resources={{ en: { experimental: enExperimental } }}>
-        {children}
+        <NavigationProvider value={nav}>{children}</NavigationProvider>
       </I18nProvider>
     </QueryClientProvider>
   );
@@ -376,7 +389,11 @@ describe("LabOutputPanel", () => {
     mockRawRequest.mockResolvedValue(makeResponse(200, []));
     renderMythosPanel();
 
-    await waitFor(() => expect(screen.getByText("No runs yet")).toBeInTheDocument());
+    // Mythos renders its own never-started copy (mythos_never_started),
+    // not the generic lab_output_panel.empty string.
+    await waitFor(() =>
+      expect(screen.getByText(/No Mythos runs yet/)).toBeInTheDocument(),
+    );
   });
 
   it("renders the supervise section in enhancer mode and POSTs a tick", async () => {

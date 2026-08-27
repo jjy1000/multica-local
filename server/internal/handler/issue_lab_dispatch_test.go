@@ -53,20 +53,24 @@ func ensureReadyResearchAgent(t *testing.T, wsID pgtype.UUID, owner pgtype.UUID)
 	return id
 }
 
-// TestUpdateIssueLabSourceDispatchesResearch is the core regression for the
-// "selecting the science lab must start the research run" defect (MUL:
-// UpdateIssue path). Flipping lab_source onto claude_science_lab on an
-// unassigned, active (todo) issue must:
-//  1. auto-assign the `research` leader agent, and
-//  2. NOT enqueue a run — claude_science_lab is the 0.5.22
-//     auto-dispatch opt-out (Active Contract #6 in root CLAUDE.md);
-//     the user must explicitly click "Run research" on the lab
-//     workbench to start the run.
+// TestUpdateIssueLabSourceClaudeOptOutNoAutoDispatch — history renamed;
+// pinned semantics flipped in 0.5.81 (Plan §P4).
 //
-// Pre-0.5.22 this test asserted (2) fired. The auto-dispatch opt-out
-// broke that — the test was renamed and its assertion flipped so it
-// now pins the opt-out side of the contract. The leader-rewrite half
-// is still pinned (lines 101-106).
+// Original 0.5.22 contract: claude_science_lab was the lone auto-dispatch
+// opt-out (Active Contract #6) — flipping lab_source onto it on an
+// unassigned, active (todo) issue must auto-assign the `research` leader
+// agent but NOT enqueue a run (the user must explicitly click "Run
+// research" on the lab workbench).
+//
+// 0.5.81 (WL1 P4) flips claude_science_lab BACK to the default auto-
+// dispatch contract. The leader-rewrite half is unchanged; the
+// dispatch half now asserts a non-zero research-run count. The user-
+// facing Run-research button stays as a manual re-trigger surface.
+//
+// The plan also flips pythia_oracle to opt-out (Plan §P3, ~50s of
+// blocking SSE rounds on every create is too expensive). The pythia
+// opt-out is pinned by TestUpdateIssueLabSourcePythiaAutoDispatchStillFires
+// (now flipped to assert ZERO enqueued tasks).
 func TestUpdateIssueLabSourceClaudeOptOutNoAutoDispatch(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -109,20 +113,25 @@ func TestUpdateIssueLabSourceClaudeOptOutNoAutoDispatch(t *testing.T) {
 		t.Fatalf("expected assignee_id=%s, got %v", researchIDStr, resp.AssigneeID)
 	}
 
-	// 0.5.22: opt-out asserts NO auto-dispatch. Pre-0.5.22 the same
-	// assertion was a non-zero count — the catalog AutoDispatch=false
-	// flipped WillEnqueueRun to skip the enqueue for this lab.
-	if got := taskCountFor(t, issue.ID, researchIDStr); got != 0 {
-		t.Fatalf("claude_science_lab is auto-dispatch opt-out (Active Contract #6), but %d run(s) were enqueued", got)
+	// 0.5.81: claude_science_lab is BACK to default auto-dispatch (the
+	// catalog AutoDispatch field was cleared in commit a3ffde24e, Plan §P4).
+	// Assert the dispatch half fires: ≥1 research task must be enqueued.
+	if got := taskCountFor(t, issue.ID, researchIDStr); got == 0 {
+		t.Fatalf("claude_science_lab is default auto-dispatch (0.5.81, Plan §P4), but 0 runs were enqueued")
 	}
 }
 
-// TestUpdateIssueLabSourcePythiaAutoDispatchStillFires — 0.5.22 sibling
-// to TestUpdateIssueLabSourceClaudeOptOutNoAutoDispatch. Confirms the
-// opt-out is per-catalog, NOT global: pythia_oracle (AutoDispatch
-// unset → default true) still enqueues on lab_source flip, so the
-// 0.3.46 contract is preserved for every lab that hasn't explicitly
-// opted out.
+// TestUpdateIssueLabSourcePythiaAutoDispatchStillFires — assertion
+// flipped in 0.5.81 (Plan §P3).
+//
+// 0.5.22 contract: pythia_oracle was the default auto-dispatch
+// (AutoDispatch unset → true); flipping lab_source onto it on an
+// active issue enqueued a pythia_runtime task.
+//
+// 0.5.81 flips pythia_oracle to opt-out (per-issue forecast runs are
+// 10 SSE rounds × ~5s = ~50s of blocking UI; the user now triggers
+// forecasts from the Pythia panel's Run forecast / @mention / CLI).
+// This test now pins the opt-out side: enqueue count must be 0.
 func TestUpdateIssueLabSourcePythiaAutoDispatchStillFires(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -153,8 +162,9 @@ func TestUpdateIssueLabSourcePythiaAutoDispatchStillFires(t *testing.T) {
 		t.Fatalf("UpdateIssue lab_source (pythia): expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	if got := taskCountFor(t, issue.ID, pythiaIDStr); got == 0 {
-		t.Fatalf("pythia_oracle has no AutoDispatch=false override; lab-source flip must still auto-dispatch")
+	// 0.5.81: pythia_oracle is opt-out → no task enqueued.
+	if got := taskCountFor(t, issue.ID, pythiaIDStr); got != 0 {
+		t.Fatalf("pythia_oracle is auto-dispatch opt-out (0.5.81 Plan §P3), but %d run(s) were enqueued", got)
 	}
 }
 
@@ -263,12 +273,11 @@ func TestUpdateIssueLabSourceRewritesStaleAssignee(t *testing.T) {
 	// closes that loop. Pin a non-zero research-run count to catch any
 	// regression that drops the fold or breaks the lab-leader dispatch.
 	//
-	// 0.5.22: claude_science_lab opted out of auto-dispatch (Active
-	// Contract #6). The leader-rewrite half is still pinned above; this
-	// half now asserts NO task is enqueued (the opt-out side of the
-	// contract).
-	if got := taskCountFor(t, issue.ID, researchIDStr); got != 0 {
-		t.Fatalf("claude_science_lab is auto-dispatch opt-out (Active Contract #6), but %d run(s) were enqueued", got)
+	// 0.5.22 → 0.5.81 (Plan §P4) flips claude_science_lab BACK to the
+	// default auto-dispatch contract. The leader-rewrite half above
+	// is unchanged; this half now asserts ≥1 task is enqueued.
+	if got := taskCountFor(t, issue.ID, researchIDStr); got == 0 {
+		t.Fatalf("claude_science_lab is default auto-dispatch (0.5.81 Plan §P4), but 0 runs were enqueued")
 	}
 }
 
@@ -437,9 +446,9 @@ func TestUpdateIssueLabSourceMythosSoleNoAutoAssign(t *testing.T) {
 // dispatch path (labAutoRewrote folded into assigneeChanged). Pin
 // both the per-issue rewrite AND a non-zero research-run count.
 //
-// 0.5.22: claude_science_lab opted out of auto-dispatch (Active
-// Contract #6). The leader-rewrite half is still pinned below; the
-// dispatch half now asserts ZERO tasks (the opt-out side).
+// 0.5.22 → 0.5.81 (Plan §P4) flips claude_science_lab BACK to default
+// auto-dispatch. Leader-rewrite half unchanged below; the dispatch
+// half now asserts ≥1 task per issue (was 0 under the 0.5.22 opt-out).
 func TestBatchUpdateIssuesLabSourceAutoAssignsLeader(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -496,11 +505,11 @@ func TestBatchUpdateIssuesLabSourceAutoAssignsLeader(t *testing.T) {
 			t.Errorf("issue %s: expected assignee_id=%s, got=%v", id, researchIDStr, aid)
 		}
 
-		// 0.5.22: opt-out asserts ZERO enqueued tasks (per
-		// TestUpdateIssueLabSourceClaudeOptOutNoAutoDispatch).
-		if got := taskCountFor(t, id, researchIDStr); got != 0 {
-			t.Errorf("issue %s: claude_science_lab is auto-dispatch opt-out (Active Contract #6), but %d run(s) were enqueued",
-				id, got)
+		// 0.5.22 → 0.5.81 (Plan §P4): claude_science_lab is BACK to
+		// default auto-dispatch; assert ≥1 task per issue (was 0).
+		if got := taskCountFor(t, id, researchIDStr); got == 0 {
+			t.Errorf("issue %s: claude_science_lab is default auto-dispatch (0.5.81 Plan §P4), but 0 runs were enqueued",
+				id)
 		}
 	}
 }
@@ -565,6 +574,12 @@ func ensureReadyLabLeader(
 // research contract for the new flag). Same shape as
 // TestUpdateIssueLabSourceDispatchesResearch so the regression read
 // is mechanical.
+//
+// 0.5.81 (Plan §P3) flips pythia_oracle to opt-out (per-issue forecast
+// runs are 10 SSE rounds × ~5s = ~50s of blocking). The leader-rewrite
+// half above is unchanged; the dispatch half now asserts ZERO enqueued
+// tasks. The user triggers forecasts from the per-issue Pythia panel's
+// Run forecast / @mention / CLI (unaffected by this gate).
 func TestUpdateIssueLabSourcePythiaOracle(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -614,10 +629,10 @@ func TestUpdateIssueLabSourcePythiaOracle(t *testing.T) {
 			pythiaIDStr, resp.AssigneeID)
 	}
 
-	// Dispatch: the issue must have at least one queued task on the
-	// pythia_runtime leader so the daemon will pick it up.
-	if got := taskCountFor(t, issue.ID, pythiaIDStr); got == 0 {
-		t.Errorf("expected at least 1 pythia_runtime task for issue %s after lab_source flip, got 0", issue.ID)
+	// 0.5.81: pythia_oracle is opt-out → no task enqueued. Per-issue
+	// forecasts now fire from the Pythia panel / @mention / CLI.
+	if got := taskCountFor(t, issue.ID, pythiaIDStr); got != 0 {
+		t.Errorf("pythia_oracle is auto-dispatch opt-out (0.5.81 Plan §P3), but %d run(s) were enqueued", got)
 	}
 }
 

@@ -212,13 +212,14 @@ var Catalog = []Flag{
 		// the old per-flag check.
 		RuntimeKind:                     "inline",
 		HidesDeliverableInIssueTimeline: true,
-		// 0.5.22: opt out of the auto-dispatch contract. Research
-		// runs are expensive (~30+ min) and the user prefers the lab
-		// to remain a passive holder of the issue (IssueLabsSection
-		// link + timeline summary card) until they explicitly trigger
-		// work via @mention or the lab workbench. Leader-rewrite still
-		// applies so assignee stays = research agent.
-		AutoDispatch: ptrBool(false),
+		// 0.5.81 (plan §P4): flip from opt-out (0.5.22) back to default
+		// auto-dispatch. The standard 0.3.46 contract applies: lab_source
+		// flip on a new issue → assignee auto-rewrites to the research
+		// leader → maybeEnqueueOnAssign enqueues the research task. The
+		// workbench "Run research" button (handler/claude_science_run.go)
+		// stays as a manual re-trigger surface for retries / mid-flight
+		// kicks — it bypasses both service gates because the endpoint
+		// IS the manual opt-in. Leader-rewrite semantics unchanged.
 	},
 	{
 		Key:        "pythia_oracle",
@@ -241,6 +242,15 @@ var Catalog = []Flag{
 		ProxyPrefix:                     "/experimental/pythia",
 		LoopbackService:                 "pythia_oracle",
 		HidesDeliverableInIssueTimeline: true,
+		// 0.5.81 (plan §P3): opt out of the auto-dispatch contract.
+		// Pythia's per-issue forecast runs are 10 SSE rounds × ~5s = 50s
+		// of blocking work on every lab_source=pythia_oracle create; the
+		// user prefers to trigger forecasts explicitly via the per-issue
+		// Pythia panel's "Run forecast" button (which posts directly to
+		// /api/experimental/pythia-oracle/forecast/issue — unaffected by
+		// this gate). Leader-rewrite still applies so the assignee stays
+		// = the pythia lab agent and IssueLabsSection keeps rendering.
+		AutoDispatch: ptrBool(false),
 	},
 	{
 		// mythos_swarm: 0.3.16+ multi-agent topology inspired by OpenMythos

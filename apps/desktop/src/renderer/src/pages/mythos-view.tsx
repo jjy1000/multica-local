@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { FlaskConical, Network, Sparkles, Users, BookOpen, AlertTriangle, Loader2 } from "lucide-react";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
+import { IssueBreadcrumb, useDeepLinkRun } from "@multica/views/experimental/components";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { agentListOptions, skillListOptions } from "@multica/core/workspace/queries";
@@ -175,7 +176,6 @@ type MythosRunResult = {
 
 function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } = {}) {
   const { t } = useT("mythos");
-  const { t: tExp } = useT("experimental");
   const workspace = useCurrentWorkspace();
   const wsId = workspace?.id ?? "";
   const [problem, setProblem] = useState("");
@@ -289,19 +289,14 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
       <p className="mt-1 text-sm text-muted-foreground">
         {t(($) => $.run_form_blurb)}
       </p>
+      {/* 0.5.81: replace the truncated-id-with-× strip with the shared
+          IssueBreadcrumb (passes the form's rootIssueId explicitly so the
+          breadcrumb tracks state, not just the search param). The
+          bind-clearing "×" is gone — users unbind by navigating away or
+          clicking the breadcrumb. */}
       {rootIssueId ? (
-        <div className="mt-2 flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
-          <span className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-foreground/80">
-            {rootIssueId.slice(0, 8)}…
-          </span>
-          <button
-            type="button"
-            onClick={() => setRootIssueId(null)}
-            aria-label={tExp(($) => $.back)}
-            className="inline-flex size-4 items-center justify-center rounded text-xs hover:bg-muted hover:text-foreground"
-          >
-            ×
-          </button>
+        <div className="mt-2">
+          <IssueBreadcrumb issueId={rootIssueId} />
         </div>
       ) : null}
 
@@ -528,6 +523,9 @@ type MythosPastRun = {
 function PastRunsPanel({ rootIssueId, wsId }: { rootIssueId: string | null; wsId: string }) {
   const [runs, setRuns] = useState<MythosPastRun[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 0.5.81 (ICP-3): ?run=<id> deep-link — scroll/highlight the matching
+  // mythos run row when the user lands via a LabRunLink.
+  const { rowRef, isDeepLinked } = useDeepLinkRun<HTMLButtonElement>();
 
   useEffect(() => {
     if (!rootIssueId || !wsId) {
@@ -575,11 +573,12 @@ function PastRunsPanel({ rootIssueId, wsId }: { rootIssueId: string | null; wsId
             <button
               key={run.run_id}
               type="button"
+              ref={rowRef(run.run_id)}
               onClick={() =>
                 setExpandedId((cur) => (cur === run.run_id ? null : run.run_id))
               }
               className={`flex items-center justify-between gap-2 rounded border px-2.5 py-1.5 text-left text-xs transition-colors ${
-                expandedId === run.run_id
+                expandedId === run.run_id || isDeepLinked(run.run_id)
                   ? "border-primary/40 bg-primary/5"
                   : "border-border/60 hover:bg-accent/50"
               }`}
