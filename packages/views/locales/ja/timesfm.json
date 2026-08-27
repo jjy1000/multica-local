@@ -1,0 +1,20 @@
+{
+  "title": "TimesFM 予測ラボ",
+  "flag_off": "TimesFM は無効です。設定 → Labs で「timesfm」を有効にすると予測記録が表示されます。",
+  "unbound_title": "issue が未バインド",
+  "unbound_hint": "このビューはバインドされた issue の予測記録を表示します。issue のラボパネル(「ラボで完全な記録を見る」)から開くと ?issue=<id> が自動的にバインドされます。",
+  "records_title": "予測記録",
+  "run_count": "{{runs}} 回の予測",
+  "loading": "記録を読み込み中…",
+  "load_failed": "予測記録の読み込みに失敗しました",
+  "retry": "再試行",
+  "empty": "予測記録はまだありません。",
+  "empty_hint": "予測は issue 主導です。この issue を timesfm_oracle エージェントに割り当てる(またはコメントで予測を依頼する)と、結果が自動的にここに蓄積されます。",
+  "weights_hint": "エンジンはモデル重みなしで応答しました — 最新の記録は seasonal-naive フォールバックです。~/.multica/models/timesfm/model.safetensors を配置すると本来の TimesFM 予測が有効になります。",
+  "horizon_label": "予測ステップ数",
+  "series_count": "全 {{count}} 件の時系列 — 先頭の {{shown}} 件を表示",
+  "series_label": "系列 {{index}}",
+  "chart_legend": "中央値 · 80% 帯 · 90% 帯",
+  "no_series": "この記録には時系列データがありません。",
+  "dates_label": "未来時点"
+}
