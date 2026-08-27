@@ -70,7 +70,8 @@ export function useDeepLinkRun<T extends HTMLElement = HTMLDivElement>(): UseDee
 
   // Scroll when activeRunId matches a mounted row. Rows typically mount
   // async (fetch resolves post-paint), so poll via requestAnimationFrame
-  // until the target appears (~2s budget at 60fps), then stop quietly —
+  // until the target appears (~2s wall-clock budget — frame-count caps
+  // assume 60fps and halve on 120Hz displays), then stop quietly —
   // the highlight class still lands because isDeepLinked derives from
   // state, not DOM presence.
   useEffect(() => {
@@ -78,8 +79,8 @@ export function useDeepLinkRun<T extends HTMLElement = HTMLDivElement>(): UseDee
       scrolled.current = null;
       return;
     }
+    const startMs = performance.now();
     let raf = 0;
-    let tries = 0;
     const tick = () => {
       const el = refs.current.get(activeRunId);
       if (el && scrolled.current !== activeRunId) {
@@ -87,7 +88,8 @@ export function useDeepLinkRun<T extends HTMLElement = HTMLDivElement>(): UseDee
         el.scrollIntoView({ block: "center", behavior: "smooth" });
         return;
       }
-      if (!el && ++tries < 120) raf = requestAnimationFrame(tick);
+      if (!el && performance.now() - startMs < 2000)
+        raf = requestAnimationFrame(tick);
     };
     tick();
     return () => cancelAnimationFrame(raf);

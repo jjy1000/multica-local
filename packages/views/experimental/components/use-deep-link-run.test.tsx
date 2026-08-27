@@ -128,9 +128,9 @@ describe("useDeepLinkRun", () => {
   it("reaches rows mounted later from async-fetched lists (rAF polling)", () => {
     const view = render(hostUi(false, "?run=r1"));
     // Pre-mount window: active id resolves but no row exists yet → NO
-    // scroll attempted. A bounded drain keeps ~90 of the hook's ~120
-    // polling tries alive for the post-list-load window below (mirrors
-    // real-world pacing where frames arrive at display rate).
+    // scroll attempted. A bounded drain keeps most of the hook's ~2s
+    // wall-clock polling budget alive for the post-list-load window below
+    // (mirrors real-world pacing where frames arrive at display rate).
     drainFrames();
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
 
