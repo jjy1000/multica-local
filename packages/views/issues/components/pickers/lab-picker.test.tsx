@@ -74,27 +74,84 @@ describe("LabPicker", () => {
     expect(items[0]).toHaveTextContent("None");
   });
 
-  it("selecting a non-empty lab calls onClearAssignee THEN onUpdate", () => {
+  it("selecting a non-mutex lab keeps the assignee and still updates source+mode", () => {
     const { onUpdate, onClearAssignee } = renderPicker();
     const trigger = document.querySelector("button[aria-haspopup]")!;
     fireEvent.click(trigger);
     // The first non-None row is the claude_science_lab entry.
     const items = document.querySelectorAll("button[data-picker-item]");
     fireEvent.click(items[1]!);
-    // Order matters: the picker must clear the assignee BEFORE
-    // sending the new lab_source, so the parent's single PATCH
-    // (if it batches) carries both fields and the server's mutex
-    // gate never fires for a user-initiated swap.
-    const clearOrder = onClearAssignee.mock.invocationCallOrder[0]!;
-    const updateOrder = onUpdate.mock.invocationCallOrder[0]!;
-    expect(clearOrder).toBeLessThan(updateOrder);
-    // 0.3.31: onUpdate now carries lab_mode for non-mythos labs
-    // as well — "sole" is the implicit default for any lab that
-    // doesn't expose dual-mode tabs. The field is always present
-    // on the payload.
+    // 0.3.33 mutex narrowing (realigned 2026-07-28): only mythos_swarm
+    // sole-mode and swarm_topology reserve the roster. claude_science_lab
+    // coexists with a manual assignee — the picker must NOT clear it,
+    // otherwise a user-pinned engineer silently disappears on lab pick.
+    expect(onClearAssignee).not.toHaveBeenCalled();
+    // 0.3.31: onUpdate carries lab_mode for non-mythos labs as well —
+    // "sole" is the implicit default for any lab that doesn't expose
+    // dual-mode tabs. The field is always present on the payload.
     expect(onUpdate).toHaveBeenCalledWith({
       lab_source: "claude_science_lab",
       lab_mode: "sole",
+    });
+  });
+
+  it("selecting swarm_topology clears the assignee BEFORE onUpdate (mutex set)", () => {
+    mockFlags.value = [
+      ...mockFlags.value,
+      { key: "swarm_topology", title: { zh: "群集拓扑", en: "Swarm Topology" }, enabled: true },
+    ];
+    const { onUpdate, onClearAssignee } = renderPicker();
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(trigger);
+    // Items: None + claude_science_lab + pythia_oracle + swarm_topology.
+    const items = document.querySelectorAll("button[data-picker-item]");
+    fireEvent.click(items[3]!);
+    // Order matters: the picker must clear the assignee BEFORE sending the
+    // new lab_source, so the parent's single PATCH (if it batches) carries
+    // both fields and the server's mutex gate never fires for a
+    // user-initiated swap (Active Contract #5).
+    const clearOrder = onClearAssignee.mock.invocationCallOrder[0]!;
+    const updateOrder = onUpdate.mock.invocationCallOrder[0]!;
+    expect(clearOrder).toBeLessThan(updateOrder);
+    expect(onUpdate).toHaveBeenCalledWith({
+      lab_source: "swarm_topology",
+      lab_mode: "sole",
+    });
+  });
+
+  it("mythos_swarm sole mode clears the assignee", () => {
+    mockFlags.value = [
+      ...mockFlags.value,
+      { key: "mythos_swarm", title: { zh: "Mythos 群集", en: "Mythos Swarm" }, enabled: true },
+    ];
+    const sole = renderPicker();
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(trigger);
+    // Items: None + claude_science_lab + pythia_oracle + mythos_swarm.
+    const items = document.querySelectorAll("button[data-picker-item]");
+    fireEvent.click(items[3]!);
+    expect(sole.onClearAssignee).toHaveBeenCalledTimes(1);
+    expect(sole.onUpdate).toHaveBeenCalledWith({
+      lab_source: "mythos_swarm",
+      lab_mode: "sole",
+    });
+  });
+
+  it("mythos_swarm enhancer mode does not clear the assignee", () => {
+    mockFlags.value = [
+      ...mockFlags.value,
+      { key: "mythos_swarm", title: { zh: "Mythos 群集", en: "Mythos Swarm" }, enabled: true },
+    ];
+    // enhancer reverses the mutex: the user kept an assignee by design.
+    const enh = renderPicker({ labSource: null, labMode: "enhancer" });
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    fireEvent.click(trigger);
+    const items = document.querySelectorAll("button[data-picker-item]");
+    fireEvent.click(items[3]!);
+    expect(enh.onClearAssignee).not.toHaveBeenCalled();
+    expect(enh.onUpdate).toHaveBeenCalledWith({
+      lab_source: "mythos_swarm",
+      lab_mode: "enhancer",
     });
   });
 
@@ -207,14 +264,15 @@ describe("LabPicker", () => {
     // None + claude_science_lab + mythos_swarm.
     expect(labels.some((l) => l.includes("Claude"))).toBe(true);
     expect(labels.some((l) => l.includes("Mythos"))).toBe(true);
-    // Tapping a row still works as a normal lab bind.
+    // Tapping a row still works as a normal lab bind; claude_science_lab
+    // is non-mutex so the assignee stays put (0.3.33 narrowing).
     const claude = document.querySelectorAll("button[data-picker-item]")[1]!;
     fireEvent.click(claude);
     expect(onUpdate).toHaveBeenCalledWith({
       lab_source: "claude_science_lab",
       lab_mode: "sole",
     });
-    expect(onClearAssignee).toHaveBeenCalled();
+    expect(onClearAssignee).not.toHaveBeenCalled();
   });
 
   it("0.5.6: an empty catalog collapses the picker to a single None row", () => {

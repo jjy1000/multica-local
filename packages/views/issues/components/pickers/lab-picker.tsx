@@ -57,6 +57,15 @@ import { PropertyPicker, PickerItem } from "./property-picker";
 
 export type LabMode = "sole" | "enhancer";
 
+// Labs that reserve the issue roster via the lab ↔ assignee mutex.
+// Narrowed in 0.3.33 and realigned 2026-07-28: mythos_swarm sole-mode
+// (enhancer reverses it) and swarm_topology are the only two members.
+// Every other lab coexists with a manual assignee — the server only
+// auto-rewrites the assignee to the lab leader when NO explicit
+// assignee is carried (0.3.47), so wiping it here would discard a
+// user choice the contract promises to keep.
+const ASSIGNEE_MUTEX_LABS = new Set<string>(["mythos_swarm", "swarm_topology"]);
+
 interface LabPickerProps {
   /** Current lab_source value on the issue. null/undefined = no lab. */
   labSource: string | null | undefined;
@@ -232,14 +241,13 @@ export function LabPicker({
                     }
                     onUpdate({ lab_source: "mythos_swarm", lab_mode: effectiveMode });
                   } else {
-                    // Any non-mythos lab clears the assignee — the
-                    // lab owns the roster, and the 0.3.46 P0#4
-                    // contract will rewrite it to the lab's leader if
-                    // no assignee was carried. Mode is conceptually
-                    // irrelevant for non-mythos labs; the backend
-                    // accepts "sole" by default and the renderer
-                    // doesn't show it.
-                    if (onClearAssignee) {
+                    // Only mutex labs (swarm_topology here — mythos_swarm
+                    // is handled above with its sole/enhancer nuance)
+                    // clear the assignee. Non-mutex labs keep the
+                    // current assignee: lab + assignee coexist by
+                    // contract, and the server's leader rewrite only
+                    // fills an EMPTY assignee field.
+                    if (ASSIGNEE_MUTEX_LABS.has(nextLab) && onClearAssignee) {
                       onClearAssignee();
                     }
                     onUpdate({ lab_source: nextLab, lab_mode: "sole" });
