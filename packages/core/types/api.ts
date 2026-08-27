@@ -704,3 +704,52 @@ export interface CodeCanvasArtifact {
   html: string;
   created_at: string;
 }
+
+// Issue causal graph wire shapes (0.5.83 WL3) — mirror the handler
+// structs in server/internal/handler/causal_graph.go and the CHECK
+// sets in migrations 277/278 (types stay `string` so a future CHECK
+// addition renders verbatim).
+export interface CausalNode {
+  id: string;
+  workspace_id: string;
+  issue_id: string | null;
+  type: string;
+  label: string;
+  description: string | null;
+  metadata: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  created_at: string;
+  created_by: string | null;
+  lab_source: string | null;
+  lab_run_id: string | null;
+  status: string;
+  last_observed_at: string;
+}
+
+export interface CausalEdge {
+  id: string;
+  workspace_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  type: string;
+  weight: number | null;
+  confidence: number | null;
+  metadata: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  created_at: string;
+  created_by: string | null;
+  proposed_by: string | null;
+  status: string;
+}
+
+export interface CausalSubgraph {
+  issue_id: string;
+  depth: number;
+  nodes: CausalNode[];
+  edges: CausalEdge[];
+}
+
+export interface CausalPath {
+  nodes: CausalNode[];
+  edges: CausalEdge[];
+}

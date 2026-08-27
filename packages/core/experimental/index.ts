@@ -14,3 +14,8 @@ export {
   timesfmKeys,
   useTimesfmForecastRuns,
 } from "./timesfm-queries";
+export {
+  causalGraphKeys,
+  useCausalSubgraph,
+  useCausalGraphPath,
+} from "./causal-graph-queries";
