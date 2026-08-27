@@ -1,0 +1,20 @@
+{
+  "title": "TimesFM 预测实验室",
+  "flag_off": "TimesFM 未启用。请在 设置 → Labs 打开「timesfm」开关后查看预测记录。",
+  "unbound_title": "未绑定 issue",
+  "unbound_hint": "此页面展示某个 issue 的预测记录。请从 issue 的实验室面板(「在实验室查看完整记录」)进入,自动绑定 ?issue=<id>。",
+  "records_title": "预测记录",
+  "run_count": "{{runs}} 次预测",
+  "loading": "记录加载中…",
+  "load_failed": "预测记录加载失败",
+  "retry": "重试",
+  "empty": "还没有预测记录。",
+  "empty_hint": "预测由 issue 驱动:把该 issue 分配给 timesfm_oracle 智能体(或在评论中让它们预测),每次结果都会自动落在这里。",
+  "weights_hint": "引擎在无模型权重下应答 — 最新记录为季节性朴素回退。将权重放到 ~/.multica/models/timesfm/model.safetensors 后可获得真正的 TimesFM 预测。",
+  "horizon_label": "预测步数",
+  "series_count": "共 {{count}} 条序列 — 展示前 {{shown}} 条",
+  "series_label": "序列 {{index}}",
+  "chart_legend": "中位数 · 80% 区间 · 90% 区间",
+  "no_series": "该记录没有序列数据。",
+  "dates_label": "未来时点"
+}

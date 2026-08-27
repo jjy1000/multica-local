@@ -43,6 +43,7 @@ import enSettings from "./en/settings.json";
 import enSkills from "./en/skills.json";
 import enSquads from "./en/squads.json";
 import enSwarm from "./en/swarm.json";
+import enTimesfm from "./en/timesfm.json";
 import enUi from "./en/ui.json";
 import enUsage from "./en/usage.json";
 import enWorkspace from "./en/workspace.json";
@@ -74,6 +75,7 @@ import jaSettings from "./ja/settings.json";
 import jaSkills from "./ja/skills.json";
 import jaSquads from "./ja/squads.json";
 import jaSwarm from "./ja/swarm.json";
+import jaTimesfm from "./ja/timesfm.json";
 import jaUi from "./ja/ui.json";
 import jaUsage from "./ja/usage.json";
 import jaWorkspace from "./ja/workspace.json";
@@ -105,6 +107,7 @@ import koSettings from "./ko/settings.json";
 import koSkills from "./ko/skills.json";
 import koSquads from "./ko/squads.json";
 import koSwarm from "./ko/swarm.json";
+import koTimesfm from "./ko/timesfm.json";
 import koUi from "./ko/ui.json";
 import koUsage from "./ko/usage.json";
 import koWorkspace from "./ko/workspace.json";
@@ -136,6 +139,7 @@ import zhHansSettings from "./zh-Hans/settings.json";
 import zhHansSkills from "./zh-Hans/skills.json";
 import zhHansSquads from "./zh-Hans/squads.json";
 import zhHansSwarm from "./zh-Hans/swarm.json";
+import zhHansTimesfm from "./zh-Hans/timesfm.json";
 import zhHansUi from "./zh-Hans/ui.json";
 import zhHansUsage from "./zh-Hans/usage.json";
 import zhHansWorkspace from "./zh-Hans/workspace.json";
@@ -168,6 +172,7 @@ const en: LocaleResources = {
   skills: enSkills,
   squads: enSquads,
   swarm: enSwarm,
+  timesfm: enTimesfm,
   ui: enUi,
   usage: enUsage,
   workspace: enWorkspace,
@@ -201,6 +206,7 @@ const zhHans: LocaleResources = {
   skills: zhHansSkills,
   squads: zhHansSquads,
   swarm: zhHansSwarm,
+  timesfm: zhHansTimesfm,
   ui: zhHansUi,
   usage: zhHansUsage,
   workspace: zhHansWorkspace,
@@ -234,6 +240,7 @@ const ko: LocaleResources = {
   skills: koSkills,
   squads: koSquads,
   swarm: koSwarm,
+  timesfm: koTimesfm,
   ui: koUi,
   usage: koUsage,
   workspace: koWorkspace,
@@ -267,6 +274,7 @@ const ja: LocaleResources = {
   skills: jaSkills,
   squads: jaSquads,
   swarm: jaSwarm,
+  timesfm: jaTimesfm,
   ui: jaUi,
   usage: jaUsage,
   workspace: jaWorkspace,

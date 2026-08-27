@@ -1,0 +1,20 @@
+{
+  "title": "TimesFM Forecast Lab",
+  "flag_off": "TimesFM is disabled. Enable the “timesfm” lab in Settings → Labs to see forecast records.",
+  "unbound_title": "No issue bound",
+  "unbound_hint": "This view lists forecast records for a bound issue. Open it from an issue's lab panel (View full record in lab) to bind ?issue=<id>.",
+  "records_title": "Forecast records",
+  "run_count": "{{runs}} runs",
+  "loading": "Loading records…",
+  "load_failed": "Failed to load forecast records",
+  "retry": "Retry",
+  "empty": "No forecast runs yet.",
+  "empty_hint": "Runs are issue-driven: assign this issue to the timesfm_oracle agent (or ask it in a comment) and every forecast lands here automatically.",
+  "weights_hint": "The engine answered without model weights — latest runs carry the seasonal-naive fallback. Seed ~/.multica/models/timesfm/model.safetensors to enable real TimesFM forecasts.",
+  "horizon_label": "horizon",
+  "series_count": "{{count}} series — showing the first {{shown}}",
+  "series_label": "series {{index}}",
+  "chart_legend": "median · 80% band · 90% band",
+  "no_series": "This run has no series data.",
+  "dates_label": "future points"
+}

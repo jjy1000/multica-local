@@ -33,6 +33,7 @@ import { ClaudeLabView } from "./pages/claude-lab-view";
 import { MythosView } from "./pages/mythos-view";
 import { SwarmTopologyView } from "./pages/swarm-topology-view";
 import { PythiaView } from "./pages/pythia-view";
+import { TimesfmView } from "./pages/timesfm-view";
 import { LLMWikiBridgeView } from "./pages/llm-wiki-bridge-view";
 import { CodeCanvasView } from "./pages/code-canvas-view";
 import { SemanticaExplorerView } from "./pages/semantica-explorer-view";
@@ -165,6 +166,17 @@ export const appRoutes: RouteObject[] = [
             path: "pythia",
             element: <PythiaView />,
             handle: { title: "Pythia Oracle" },
+          },
+          {
+            // 0.5.82: TimesFM forecasting lab — records-only surface
+            // (ICP-1: runs fire from issues via the timesfm_oracle
+            // agent; no manual trigger here). URL is
+            // /experimental/timesfm-lab, NOT /experimental/timesfm —
+            // that path is the bare REST proxy the agent subprocess
+            // calls (semantica / semantica-explorer split precedent).
+            path: "timesfm-lab",
+            element: <TimesfmView />,
+            handle: { title: "TimesFM Forecast Lab" },
           },
           {
             path: "mythos",
