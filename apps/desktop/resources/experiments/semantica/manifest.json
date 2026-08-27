@@ -37,6 +37,10 @@
       "stop_grace_ms": 10000,
       "on_missing": "service not bundled — install Semantica (pip install -e $SEMANTICA_REPO_PATH) and set SEMANTICA_REPO_PATH in the desktop env"
     },
+    "surface": {
+      "proxy_prefix": "/experimental/semantica",
+      "loopback_service": "semantica"
+    },
     "resources": {
       "installable": true,
       "lockable_resources": ["agent:semantica_decision_advisor"],
