@@ -26,7 +26,7 @@ directive. This release:
     map. Records are now stable-deep-linkable
     (`/experimental/<suffix>?issue=<id>&run=<id>`).
 
-== Atomic commits (7) ==
+== Atomic commits (9) ==
   b897aab5c feat(views): C1 — unified IssueBreadcrumb back-link across all lab views
   a3ffde24e feat(experimental): trigger defaults — pythia_oracle opt-out, claude_science_lab default
   ee6b3869c feat(views): C2 — lab record deep links (ICP-3 out-bound half)
@@ -34,6 +34,8 @@ directive. This release:
   6174dbfc3 feat(views): C6 — consistent last-result chip in IssueLabsSection
   f03637ff3 test(views): IssueBreadcrumb NavStub type fix (C1 carryover)
   6bad73469 test(handler): flip 5 AutoDispatch regression pins to match catalog
+  19083369e fix(server): hygiene — testdata claude-science fixture symlinks absolute→relative (worktree-portable)
+  e7f0aa69c fix(migrate): register 262–272 concurrent index builds in the MUL-6288 cleanup registry
   + chore(release): bump 0.5.80 → 0.5.81 (this commit)
 
 == Upgrade notes ==
@@ -56,6 +58,20 @@ directive. This release:
 - Roadmap: .omc/plans/0.5.81-0.5.83-labs-evolution-roadmap.md
 - Ship log: .omc/0.5.81-ship-2026-08-27.md
 - Memory: ~/.claude/projects/.../memory/0.5.81-0.5.83-labs-evolution-roadmap-2026-08-27.md
+
+== Gate integrity findings (0.5.81 closure re-audit, both recorded) ==
+1. Past green Go gates ran `./internal/... ./pkg/agent/...` = 37 packages,
+   never reaching `cmd/migrate`. Full `./...` with a real DATABASE_URL
+   exposed TestEveryConcurrentUpBuildHasCleanup RED: migrations 262–267
+   and 270–272 build indexes CONCURRENTLY without MUL-6288 registry
+   entries. Fixed by map registration only (e7f0aa69c; hooks auto-generate;
+   no migration SQL touched); `./cmd/...` re-run ok with DB.
+2. Pre-existing TS baseline debt reproduced bit-for-bit on the base tree
+   (NOT this branch — zero file overlap): core api/schemas.test.ts
+   IssueStatusEntrySchema color-default '' (1), core auth/store.test.ts
+   refreshMe non-401/network keeps-user (2), views inbox-page.test.tsx
+   toast mock-drift (29/31). Otherwise suites fully green; ledger entry
+   added to roadmap follow-ups.
 
 == Backlinks ==
 - 0.5.80 ship (baseline): 93d78ef26
