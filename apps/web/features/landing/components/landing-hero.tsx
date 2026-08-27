@@ -104,11 +104,14 @@ export function LandingHero() {
 function LandingBackdrop() {
   return (
     <div className="pointer-events-none absolute inset-0">
+      {/* This artwork is above the fold, so preload it alongside the product preview. */}
       <Image
         src="/images/landing-bg.jpg"
         alt=""
         fill
+        preload
         className="object-cover object-center"
+        sizes="100vw"
       />
     </div>
   );
@@ -123,7 +126,7 @@ function ProductImage({ alt }: { alt: string }) {
           alt={alt}
           width={3532}
           height={2382}
-          priority
+          preload
           className="block h-auto w-full"
           sizes="(max-width: 1320px) 100vw, 1320px"
           quality={85}
