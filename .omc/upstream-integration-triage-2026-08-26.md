@@ -528,3 +528,18 @@ CLI commands, skill listings, token rejection.
 - Per-commit gate: `pnpm typecheck` + `cd server && go test -count=1 ./internal/... ./pkg/agent/...` (CLAUDE.md §Ship gate).
 - Cherry-pick one at a time, not batched (0.5.36 wholesale-adoption lesson).
 - DEFER Batch 5 commits require explicit user decision before any port.
+
+## Post-triage re-grade #2 (2026-08-27, 0.5.79 cycle)
+
+Upstream advanced 1 commit past the last re-grade head (`09a2410e8` → `9a19c90f8`).
+
+| SHA | Subject | Verdict | Notes |
+|---|---|---|---|
+| `9a19c90f8` | MUL-6703: feat(skills) Import from local in New skill dialog (+1638) | **APPLY — landed as a split port** | Pure-local feature (folder/.skill/.zip import), no cloud/telemetry surface, aligned with fork philosophy. Split into 3 commits: server multipart branch + finishSkillImport extraction (`701deb32b`), core pack-archive + client method (`a78df9892`, fork idiom WITHOUT upstream's zod envelope layer — fork has no SkillSchema), views dialog + locales ×4 + docs (`8194b1198`). Upstream client.test additions + webp asset skipped (pin absent layers). Gates: go handler suite, core tsc+11 vitest, dialog 8 vitest, turbo typecheck all green. |
+
+### MUL-6632 / inbox archive family — verdict UPGRADED to decision-gate
+
+The 0.5.77 B5-inbox STOP note framed the blockers as "port ~3–5 foundation commits first". Verified on 2026-08-27: **no such foundation chain exists.** Upstream's inbox architecture (filter-store.ts, inbox-view.ts, inbox-context-menu, inbox-filter-menu, inbox-list …19 files ≈ 4400 LOC under packages/{views,core}) was born inside MUL-6632 itself; the shared-name files fork DOES have are whole-file rewrites vs upstream (inbox-page 911↔523 lines, ~870 diff lines). Porting = architecture replacement of fork's inbox across desktop shell nav + realtime ws-updaters + locales ×4, not cherry-picking.
+
+- Status: **GATE — needs explicit user decision** (adopt upstream inbox architecture as multi-session project, or keep fork inbox and treat status/priority filtering as future fork-local work).
+- Until decided: MUL-6583 `9622dd55a`, MUL-6660 dependency chain items that touch inbox UI stay SKIP-DIVERGENCE.
