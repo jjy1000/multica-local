@@ -235,10 +235,10 @@ func scopeWorkspace(w http.ResponseWriter, r *http.Request) (pgtype.UUID, bool) 
 
 func writeCausalDBError(w http.ResponseWriter, err error) {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23514" {
-		// CHECK / partial-unique violations surface as 409 conflicts,
-		// not raw 500s — the client can act on them (e.g. an active
-		// edge with the same triple already exists).
+	if errors.As(err, &pgErr) && (pgErr.Code == "23514" || pgErr.Code == "23505") {
+		// CHECK and partial-unique violations surface as 409 conflicts,
+		// not raw 500s — the client can act on them (an active edge
+		// with the same triple already exists; a CHECK grip fired).
 		writeError(w, http.StatusConflict, "conflicts with an existing graph constraint: "+pgErr.Detail)
 		return
 	}
