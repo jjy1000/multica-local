@@ -78,9 +78,11 @@ describe("TimesfmForecastRunListSchema / parseWithFallback shapes", () => {
   it("parses a well-formed run list and preserves the quantile map", () => {
     const parsed = TimesfmForecastRunListSchema.parse([runRow]);
     expect(parsed).toHaveLength(1);
-    expect(parsed[0].id).toBe("run-1");
-    expect(parsed[0].result?.series[0].quantiles?.median).toEqual([10.2, 10.4, 10.1]);
-    expect(parsed[0].result?.model_present).toBe(true);
+    expect(parsed[0]?.id).toBe("run-1");
+    expect(parsed[0]?.result?.series[0]?.quantiles?.median).toEqual([
+      10.2, 10.4, 10.1,
+    ]);
+    expect(parsed[0]?.result?.model_present).toBe(true);
   });
 
   it("applies defaults for absent optional fields (dates, quantiles)", () => {
@@ -96,9 +98,10 @@ describe("TimesfmForecastRunListSchema / parseWithFallback shapes", () => {
         horizon: 24,
       },
     });
-    expect(parsed.result?.series[0].quantiles).toBeUndefined();
-    expect(parsed.result?.series[0].provenance).toBe("");
-    expect(parsed.result?.series[0].dates).toBeUndefined();
+    const s0 = parsed.result?.series[0];
+    expect(s0?.quantiles).toBeUndefined();
+    expect(s0?.provenance).toBe("");
+    expect(s0?.dates).toBeUndefined();
   });
 
   it("degrades a drifted payload to the fallback instead of throwing", () => {
@@ -162,7 +165,7 @@ describe("useTimesfmForecastRuns", () => {
     const { result } = renderHook(() => useTimesfmForecastRuns("issue-1"), { wrapper });
 
     await waitFor(() => expect(result.current.data).toHaveLength(1));
-    expect(result.current.data?.[0].id).toBe("run-1");
+    expect(result.current.data?.[0]?.id).toBe("run-1");
     expect(mockRawRequest).toHaveBeenCalledWith(
       expect.stringContaining(
         "/api/experimental/timesfm/forecast/issue/runs?issue_id=issue-1&limit=10",

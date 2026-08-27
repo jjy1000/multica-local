@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import {
   useExperimentalFlag,
   useTimesfmForecastRuns,
@@ -241,8 +241,10 @@ function RunDetail({ run }: { run: TimesfmForecastRun }) {
       {series.length > MAX_RENDERED_SERIES && (
         <p className="text-[11px] text-muted-foreground">
           {t(($) => $.series_count, {
-            count: String(series.length),
-            shown: String(shown.length),
+            // i18next reserves `count` for pluralization — it must stay a
+            // number, not a pre-stringified value.
+            count: series.length,
+            shown: shown.length,
           })}
         </p>
       )}

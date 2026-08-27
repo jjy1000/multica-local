@@ -30,6 +30,7 @@ import type pythia from "../locales/en/pythia.json";
 import type mythos from "../locales/en/mythos.json";
 import type swarm from "../locales/en/swarm.json";
 import type claudeLab from "../locales/en/claude-lab.json";
+import type timesfm from "../locales/en/timesfm.json";
 // 0.5.4: experimental namespace now hosts user_plugins /
 // forecast_stream. The agent_creation_studio creator page was
 // deleted — the studio is now a product-level resource reachable
@@ -80,6 +81,7 @@ declare global {
     mythos: typeof mythos;
     swarm: typeof swarm;
     "claude-lab": typeof claudeLab;
+    timesfm: typeof timesfm;
     experimental: typeof experimental;
   }
 }
