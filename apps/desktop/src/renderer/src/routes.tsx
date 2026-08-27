@@ -4,13 +4,8 @@ import {
   Navigate,
   Outlet,
   useMatches,
-  useNavigate,
 } from "react-router-dom";
 import type { RouteObject } from "react-router-dom";
-import type { CSSProperties } from "react";
-import { ArrowLeft } from "lucide-react";
-import { Button } from "@multica/ui/components/ui/button";
-import { useT } from "@multica/views/i18n";
 import { IssueDetailPage } from "./pages/issue-detail-page";
 import { ProjectDetailPage } from "./pages/project-detail-page";
 import { AutopilotDetailPage } from "./pages/autopilot-detail-page";
@@ -115,36 +110,18 @@ function PageShell() {
 }
 
 /**
- * Experimental view shell — wraps every `/experimental/*` route. Provides
- * a fixed top-left "Back" affordance so the user always has a way out
- * of the full-window lab view (audit: "lab plugin panel covers the left
- * task panel — no way back"). The back button is positioned outside the
- * DragStrip region (which the lab views render themselves) with
- * WebkitAppRegion: "no-drag" so window dragging still works on the
- * rest of the strip.
+ * 0.5.80: ExperimentalViewShell no longer renders a fixed "Back" button.
+ * It was the escape hatch for a bug where navigating to /experimental/*
+ * dropped the workspace singleton and hid AppSidebar + WindowToolbar (the
+ * lab read as a fullscreen takeover — audit: "lab plugin panel covers the
+ * left task panel — no way back"). The root cause is fixed at the
+ * navigation/teardown layer (workspace-singleton-release-guard.ts): the
+ * shell chrome now stays mounted over labs, and WindowToolbar's back
+ * button covers egress. An extra overlay button on top of DragStrip space
+ * just collided with lab content.
  */
 function ExperimentalViewShell() {
-  const navigate = useNavigate();
-  const { t } = useT("experimental");
-  return (
-    <>
-      <div
-        className="fixed left-3 top-2 z-50"
-        style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
-      >
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate(-1)}
-          aria-label={t(($) => $.back)}
-        >
-          <ArrowLeft className="size-3.5" aria-hidden />
-          {t(($) => $.back)}
-        </Button>
-      </div>
-      <Outlet />
-    </>
-  );
+  return <Outlet />;
 }
 
 /**

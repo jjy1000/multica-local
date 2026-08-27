@@ -423,23 +423,43 @@ function ArtifactDownloadLink({ src, downloadName, className, children }: Artifa
 }
 
 function SvgInline({ url }: { url: string }) {
-  const [markup, setMarkup] = useState<string | null>(null);
+  // 0.5.81: three-state instead of the old two-value markup sentinel.
+  // Previously `if (!r.ok) return;` left markup null on any HTTP error
+  // and the component rendered "loading svg…" forever — a failed
+  // artifact fetch was indistinguishable from a slow one ("clicked
+  // into the lab, nothing delivers"). Now failures surface as an
+  // explicit error block.
+  const [state, setState] = useState<
+    { kind: "loading" } | { kind: "done"; markup: string } | { kind: "error" }
+  >({ kind: "loading" });
   useEffect(() => {
     let cancelled = false;
+    setState({ kind: "loading" });
     void (async () => {
-      const r = await api.rawRequest(url);
-      if (!r.ok) return;
-      const text = await r.text();
-      if (!cancelled) setMarkup(text);
+      try {
+        const r = await api.rawRequest(url);
+        if (!r.ok) throw new Error(`svg fetch failed: ${r.status}`);
+        const text = await r.text();
+        if (!cancelled) setState({ kind: "done", markup: text });
+      } catch {
+        if (!cancelled) setState({ kind: "error" });
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, [url]);
-  if (!markup) {
+  if (state.kind === "error") {
+    return (
+      <div className="flex h-32 items-center justify-center text-xs text-destructive">
+        SVG 加载失败
+      </div>
+    );
+  }
+  if (state.kind !== "done") {
     return <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">loading svg…</div>;
   }
-  return <div className="max-h-72 overflow-auto" dangerouslySetInnerHTML={{ __html: markup }} />;
+  return <div className="max-h-72 overflow-auto" dangerouslySetInnerHTML={{ __html: state.markup }} />;
 }
 
 // InteractiveChartCard — 0.3.24+.

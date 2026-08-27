@@ -77,7 +77,8 @@
       "delete_success": "插件已删除",
       "delete_failed": "删除失败: {{msg}}",
       "toggle_failed": "切换失败"
-    }
+    },
+    "issue_bound_prefix": "来自任务"
   },
   "forecast_stream": {
     "title": "实时预测",

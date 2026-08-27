@@ -36,6 +36,14 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   // claude_science_lab. Per-issue swarm view (IssueLabsSection) +
   // dedicated /experimental/swarm-topology view (sidebar entry).
   swarm_topology: "swarm-topology",
+  // 0.5.81: semantica issues had NO jump target at all — this map is
+  // the single source of truth for the PropRow external-link icon,
+  // the create-issue post-create redirect and the trailing timeline
+  // summary card, so a missing entry silently killed every one of
+  // those affordances for semantica-bound issues. The URL matches
+  // routes.tsx (`/experimental/semantica-explorer`, NOT
+  // `/experimental/semantica` — that path is the REST proxy).
+  semantica: "semantica-explorer",
   // (0.3.57: constitution_agent entry removed alongside the lab
   // retirement in migration 165.)
 };
@@ -156,11 +164,15 @@ const SWARM_STATUS_TONES: Record<string, string> = {
   failed: "bg-red-100 text-red-700",
 };
 
-function SwarmRunStatusPill({ run }: { run: SwarmRunStatus }) {
+// 0.5.81: the pill carries ?issue=<id> so the swarm-topology view can
+// resume the bound run on arrival (swarm-topology-view fetchRunByIssue).
+// The previous bare href landed on the empty BootstrapForm even when a
+// run existed — the "click the result, nothing delivers" bug class.
+function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: string }) {
   const tone = SWARM_STATUS_TONES[run.status] ?? "bg-slate-100 text-slate-700";
   return (
     <AppLink
-      href="/experimental/swarm-topology"
+      href={`/experimental/swarm-topology?issue=${encodeURIComponent(issueId)}`}
       className="shrink-0"
       aria-label={`swarm run: ${run.status}`}
     >
@@ -334,9 +346,12 @@ function SwarmRunStatusPill({ run }: { run: SwarmRunStatus }) {
                 instead of nothing — with every run table empty on a
                 fresh install, silence read as "broken". */}
             {swarmRun.data ? (
-              <SwarmRunStatusPill run={swarmRun.data} />
+              <SwarmRunStatusPill run={swarmRun.data} issueId={issueId} />
             ) : swarmRun.isSuccess && !swarmRun.data ? (
-              <AppLink href="/experimental/swarm-topology" className="shrink-0">
+              <AppLink
+                href={`/experimental/swarm-topology?issue=${encodeURIComponent(issueId)}`}
+                className="shrink-0"
+              >
                 <span
                   className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500"
                   data-swarm-status="never_started"
@@ -363,12 +378,22 @@ function SwarmRunStatusPill({ run }: { run: SwarmRunStatus }) {
             />
           )}
 
-          {suffix && labEnabled && hasWorkspaceView ? (
+          {suffix && labEnabled && (hasWorkspaceView || labSource.startsWith("user_")) ? (
             // 0.3.35: include ?issue=<id> so the lab panel opens
             // pre-scoped to this issue (ClaudeLabView / PythiaView /
             // MythosView all read the search param). Without it the
             // user lands on the workspace-scoped empty state and has
             // to re-pick the issue in the picker.
+            //
+            // 0.5.81: user plugins (user_*) never set
+            // hides_deliverable_in_issue_timeline (plugin_scanner.go
+            // leaves it false — sandbox runs are not issue-bound), so
+            // hasWorkspaceView was false forever and this "open lab
+            // panel" affordance was suppressed for every plugin issue:
+            // created from a task, yet no way back into its surface.
+            // The plugin shell exists and is usable (run / artifacts /
+            // chat) even though it can't issue-scope artifacts yet, so
+            // let user plugins through.
             <AppLink
               href={`/experimental/${suffix}?issue=${encodeURIComponent(issueId)}`}
               className="inline-flex items-center gap-1 text-caption text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"

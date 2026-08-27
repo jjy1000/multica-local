@@ -19,6 +19,7 @@ import { useNavigation } from "@multica/views/navigation";
 import { getCurrentSlug, subscribeToCurrentSlug } from "@multica/core/platform";
 import { useDesktopUnreadBadge } from "@multica/views/platform";
 import { DesktopNavigationProvider } from "@/platform/navigation";
+import { suppressNextWorkspaceRelease } from "@/platform/workspace-singleton-release-guard";
 import { TabBar } from "./tab-bar";
 import { TabContent } from "./tab-content";
 import { WindowOverlay } from "./window-overlay";
@@ -155,6 +156,12 @@ function useInternalLinkHandler() {
       if (!path) return;
       const icon = resolveRouteIcon(path);
       const store = useTabStore.getState();
+      // Mirror the navigation adapters: a Labs route replaces this tab's
+      // WorkspaceRouteLayout without a successor, so arm the singleton
+      // release-suppression before openTab swaps the mounted router.
+      if (path === "/experimental" || path.startsWith("/experimental/")) {
+        suppressNextWorkspaceRelease();
+      }
       const tabId = store.openTab(path, path, icon);
       store.setActiveTab(tabId);
     };

@@ -77,7 +77,8 @@
       "delete_success": "플러그인 삭제됨",
       "delete_failed": "삭제 실패: {{msg}}",
       "toggle_failed": "전환 실패"
-    }
+    },
+    "issue_bound_prefix": "태스크 연동"
   },
   "forecast_stream": {
     "title": "실시간 예측",

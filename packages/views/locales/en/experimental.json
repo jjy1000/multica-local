@@ -77,7 +77,8 @@
       "delete_success": "Plugin deleted",
       "delete_failed": "Delete failed: {{msg}}",
       "toggle_failed": "Toggle failed"
-    }
+    },
+    "issue_bound_prefix": "Bound to task"
   },
   "forecast_stream": {
     "title": "Live forecast",

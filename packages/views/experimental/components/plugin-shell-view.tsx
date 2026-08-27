@@ -43,6 +43,8 @@ import { useSignedArtifactUrl } from "./use-signed-artifact-url";
 
 export interface PluginShellViewProps {
   pluginSlug: string;
+  /** 0.5.81: issue id from a `?issue=` deep link (issue side → shell). */
+  issueId?: string;
 }
 
 /** One tab declared in `manifest.ui.tabs`. */
@@ -112,7 +114,7 @@ function tabLabel(tab: PluginTabDef): string {
   return tab.label ?? DEFAULT_TAB_LABELS[tab.key] ?? tab.key;
 }
 
-export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
+export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
   const { t } = useT("experimental");
   const qc = useQueryClient();
   const updateFlag = useUpdateExperimentalFlag();
@@ -252,6 +254,19 @@ export function PluginShellView({ pluginSlug }: PluginShellViewProps) {
 
   return (
     <div className="space-y-4">
+      {/* 0.5.81: issue deep-link binding strip — grounds the shell in the
+          task the user arrived from (IssueLabsSection / create-issue
+          redirect pass ?issue=<id>). Non-linking chip, matching the
+          binding chips ClaudeLabView / PythiaView render. v1 label is
+          hardcoded Chinese per the i18n-deferred note above. */}
+      {issueId ? (
+        <div className="flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
+          <span>{t(($) => $.user_plugins.issue_bound_prefix)}</span>
+          <span className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-foreground/80">
+            {issueId.slice(0, 8)}…
+          </span>
+        </div>
+      ) : null}
       {/* Header */}
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">

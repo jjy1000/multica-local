@@ -88,6 +88,14 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
   const [searchParams] = useSearchParams();
   const urlIssueId = searchParams.get("issue");
   const [issueId, setIssueId] = useState<string | null>(initialIssueId ?? urlIssueId);
+  // 0.5.81: sync subsequent URL changes into issueId — same regression
+  // class claude-lab-view fixed in 0.3.43 (navigating ?issue=A → ?issue=B
+  // while this view is mounted left the report bound to A). The prop wins
+  // when both are set (inline-render path).
+  useEffect(() => {
+    const next = initialIssueId ?? urlIssueId ?? null;
+    setIssueId((prev) => (prev === next ? prev : next));
+  }, [initialIssueId, urlIssueId]);
   const [horizon, setHorizon] = useState<Horizon>("week");
   const [persona, setPersona] = useState<Persona>("strategist");
   const [subscribed, setSubscribed] = useState(true);

@@ -28,6 +28,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 
 import { api } from "@multica/core/api";
+import { getCurrentWsId } from "@multica/core/platform";
 import type { Issue } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@multica/ui/components/ui/card";
@@ -113,14 +114,74 @@ async function fetchPastSwarmRuns(workspaceId: string): Promise<SwarmRun[]> {
   return resp.json();
 }
 
+// Issue-side reverse lookup: GET /api/issues/{id}/swarm-runs returns the
+// single swarm_run bound to the issue (UNIQUE on root_issue_id) or 404.
+// The same shape the issue-detail status pill consumes
+// (issue-labs-section.tsx SwarmRunStatusPill).
+interface SwarmRunSummary {
+  id: string;
+  status: string;
+  current_phase: string;
+}
+
+async function fetchRunByIssue(issueId: string): Promise<SwarmRunSummary | null> {
+  const resp = await api.rawRequest(`/api/issues/${encodeURIComponent(issueId)}/swarm-runs`);
+  if (resp.status === 404) return null;
+  if (!resp.ok) throw new Error(`swarm run fetch failed: ${resp.status}`);
+  return resp.json();
+}
+
 export interface SwarmTopologyViewProps {
   initialRunId?: string;
   workspaceId?: string;
 }
 
+// 0.5.81 fix: the standalone sidebar entry renders <SwarmTopologyView />
+// bare (routes.tsx passes no props), so `workspaceId` stayed undefined
+// forever — PastRunsPanel never fetched and the BootstrapForm submit sat
+// disabled behind "请先选择或创建一个工作区" even with a live workspace
+// singleton. Mirror claude-lab-view.tsx / plugin-shell-view.tsx: poll
+// getCurrentWsId() at 500ms so a pre-workspace lab surface tracks the
+// active workspace without unmounting. The explicit prop still wins.
+function useCurrentWsIdPoll(fallback?: string): string | undefined {
+  const [polled, setPolled] = useState<string | null>(() => getCurrentWsId());
+  useEffect(() => {
+    const id = setInterval(() => {
+      setPolled((prev) => {
+        const next = getCurrentWsId();
+        return prev === next ? prev : next;
+      });
+    }, 500);
+    return () => clearInterval(id);
+  }, []);
+  return fallback ?? polled ?? undefined;
+}
+
 export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyViewProps) {
   const queryClient = useQueryClient();
-  const [runId, setRunId] = useState<string | undefined>(initialRunId);
+  const [searchParams] = useSearchParams();
+  const urlIssueId = searchParams.get("issue");
+  const effectiveWorkspaceId = useCurrentWsIdPoll(workspaceId);
+
+  // Explicit selection wins: an initialRunId prop or a bootstrap started in
+  // this mount must beat any issue-bound run below.
+  const [explicitRunId, setExplicitRunId] = useState<string | undefined>(initialRunId);
+
+  // 0.5.81 resume-on-arrival: clicking the issue-detail swarm status pill /
+  // "never started" pill lands here from an issue; without issue binding the
+  // page showed the empty BootstrapForm even though the run existed — the
+  // "run completed in the task but the lab delivers nothing" bug class.
+  // Derived (not effect-copied) so navigating ?issue=A → ?issue=B rebinds,
+  // mirroring the claude-lab-view 0.3.43 sync-fix semantics.
+  const boundRun = useQuery({
+    queryKey: ["swarm-topology", "run-by-issue", urlIssueId],
+    queryFn: () => fetchRunByIssue(urlIssueId!),
+    enabled: Boolean(urlIssueId),
+    staleTime: 5_000,
+  });
+  const resumedRunId =
+    urlIssueId && boundRun.data && !boundRun.isError ? boundRun.data.id : undefined;
+  const runId = explicitRunId ?? resumedRunId;
 
   // Past runs (Mode B polling per Active Contract #1: 30s idle).
   // Server endpoint: GET /api/experimental/swarm-topology/runs?workspace_id=
@@ -129,9 +190,9 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
   // runs (capped server-side); polling idle at 30s keeps the panel
   // fresh without thrashing the workspace-scoped query.
   const pastRuns = useQuery({
-    queryKey: ["swarm-topology", "past-runs", workspaceId],
-    queryFn: () => fetchPastSwarmRuns(workspaceId!),
-    enabled: Boolean(workspaceId),
+    queryKey: ["swarm-topology", "past-runs", effectiveWorkspaceId],
+    queryFn: () => fetchPastSwarmRuns(effectiveWorkspaceId!),
+    enabled: Boolean(effectiveWorkspaceId),
     refetchInterval: (query) => (query.state.data ? 30_000 : false),
     staleTime: 30_000,
   });
@@ -157,7 +218,7 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
       postInterrupt(runId!, args.kind, args.payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["swarm-topology", "state", runId] });
-      queryClient.invalidateQueries({ queryKey: ["swarm-topology", "past-runs", workspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["swarm-topology", "past-runs", effectiveWorkspaceId] });
     },
   });
 
@@ -174,7 +235,15 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
       {runId ? (
         <ActiveRun runId={runId} state={state.data} loading={state.isLoading} />
       ) : (
-        <BootstrapForm workspaceId={workspaceId} onBootstrapped={(run) => setRunId(run.id)} />
+        <BootstrapForm
+          workspaceId={effectiveWorkspaceId}
+          onBootstrapped={(run) => {
+            setExplicitRunId(run.id);
+            void queryClient.invalidateQueries({
+              queryKey: ["swarm-topology", "past-runs", effectiveWorkspaceId],
+            });
+          }}
+        />
       )}
       {runId ? (
         <RoleList roles={state.data?.roles ?? []} />

@@ -14,6 +14,18 @@ import {
   getActiveTab,
 } from "@/stores/tab-store";
 import { useWindowOverlayStore } from "@/stores/window-overlay-store";
+import { suppressNextWorkspaceRelease } from "@/platform/workspace-singleton-release-guard";
+
+/**
+ * True when `path` targets a Labs surface. Navigating there tears down
+ * WorkspaceRouteLayout without mounting a successor, so the adapter arms a
+ * release-suppression token first — see workspace-singleton-release-guard.ts.
+ * Deliberately narrow: only /experimental/* (the other reserved prefixes are
+ * either overlay-handled earlier or must keep releasing normally).
+ */
+function isLabsRoute(path: string): boolean {
+  return path === "/experimental" || path.startsWith("/experimental/");
+}
 
 function requireRuntimeAppUrl(scope: string): string {
   const runtimeConfig = window.desktopAPI.runtimeConfig;
@@ -134,6 +146,7 @@ function tryRouteToPinnedNewTab(path: string): boolean {
   if (currentPathname === newPathname) return false;
 
   const icon = resolveRouteIcon(path);
+  if (isLabsRoute(path)) suppressNextWorkspaceRelease();
   const newId = store.openTab(path, path, icon);
   if (newId) store.setActiveTab(newId);
   return true;
@@ -198,12 +211,14 @@ export function DesktopNavigationProvider({
         if (active && routerLocationPath(active.router) === path) return;
         if (tryRouteToOtherWorkspace(path)) return;
         if (tryRouteToPinnedNewTab(path)) return;
+        if (isLabsRoute(path)) suppressNextWorkspaceRelease();
         active?.router.navigate(path);
       },
       replace: (path: string) => {
         const active = currentActiveTab();
         if (tryRouteToOverlay(path, active?.router)) return;
         if (tryRouteToOtherWorkspace(path)) return;
+        if (isLabsRoute(path)) suppressNextWorkspaceRelease();
         active?.router.navigate(path, { replace: true });
       },
       back: () => {
@@ -228,6 +243,7 @@ export function DesktopNavigationProvider({
           return;
         }
         const icon = resolveRouteIcon(path);
+        if (isLabsRoute(path)) suppressNextWorkspaceRelease();
         const newId = store.openTab(path, title ?? path, icon);
         if (opts?.activate && newId) {
           store.setActiveTab(newId);
@@ -275,11 +291,13 @@ export function TabNavigationProvider({
         if (routerLocationPath(router) === path) return;
         if (tryRouteToOtherWorkspace(path)) return;
         if (tryRouteToPinnedNewTab(path)) return;
+        if (isLabsRoute(path)) suppressNextWorkspaceRelease();
         router.navigate(path);
       },
       replace: (path: string) => {
         if (tryRouteToOverlay(path, router)) return;
         if (tryRouteToOtherWorkspace(path)) return;
+        if (isLabsRoute(path)) suppressNextWorkspaceRelease();
         router.navigate(path, { replace: true });
       },
       back: () => router.navigate(-1),
@@ -297,6 +315,7 @@ export function TabNavigationProvider({
           return;
         }
         const icon = resolveRouteIcon(path);
+        if (isLabsRoute(path)) suppressNextWorkspaceRelease();
         const newId = store.openTab(path, title ?? path, icon);
         if (opts?.activate && newId) {
           store.setActiveTab(newId);

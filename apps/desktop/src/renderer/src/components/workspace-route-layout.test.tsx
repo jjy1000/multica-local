@@ -105,6 +105,16 @@ vi.mock("@/stores/tab-store", () => ({
   }),
 }));
 
+// The release guard is imported by the layout's cleanup; keep the real
+// implementation so the labs-navigation regression test below exercises
+// the actual token handshake.
+vi.mock("@/platform/workspace-singleton-release-guard", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/platform/workspace-singleton-release-guard")
+  >("@/platform/workspace-singleton-release-guard");
+  return actual;
+});
+
 vi.mock("@/stores/window-overlay-store", () => {
   const useWindowOverlayStore = (selector: (s: typeof state) => unknown) =>
     selector(state);
@@ -244,6 +254,35 @@ describe("WorkspaceRouteLayout across a tab swap", () => {
 
     unmount();
 
+    expect(state.currentSlug).toBeNull();
+  });
+
+  /**
+   * Labs in-tab navigation regression (0.5.80). Navigating from a workspace
+   * route to /experimental/* unmounts this layout with NO successor — the
+   * labs surfaces are pre-workspace routes that read the ACTIVE workspace
+   * implicitly. The navigation adapter arms a suppression token before the
+   * push; the cleanup must consume it and keep the singleton, or
+   * DesktopShell's `{slug && <AppSidebar />}` gate drops the whole left rail
+   * (the "labs go fullscreen" bug 0.5.73 only half-fixed).
+   */
+  it("keeps the singleton when the teardown was a labs navigation (armed suppression)", async () => {
+    const {
+      suppressNextWorkspaceRelease,
+    } = await import("@/platform/workspace-singleton-release-guard");
+
+    const { unmount } = render(<TabHost key="tab-labs" slug="acme" />);
+    expect(state.currentSlug).toBe("acme");
+
+    // Mirrors the adapters' pre-push arm.
+    suppressNextWorkspaceRelease();
+    unmount();
+
+    expect(state.currentSlug).toBe("acme");
+    // Token is one-shot: an unrelated later teardown releases normally again.
+    const second = render(<TabHost key="tab-next" slug="acme" />);
+    expect(state.currentSlug).toBe("acme");
+    second.unmount();
     expect(state.currentSlug).toBeNull();
   });
 });

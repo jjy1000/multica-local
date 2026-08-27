@@ -14,6 +14,7 @@ import { WorkspacePresencePrefetch } from "@multica/views/layout";
 import { SourceBackfillModal } from "@multica/views/onboarding";
 import { useTabStore } from "@/stores/tab-store";
 import { useWindowOverlayStore } from "@/stores/window-overlay-store";
+import { consumeWorkspaceReleaseSuppression } from "@/platform/workspace-singleton-release-guard";
 
 /**
  * Which mounted layout instance currently owns the platform workspace
@@ -156,6 +157,15 @@ export function WorkspaceRouteLayout() {
       if (singletonOwner !== instanceId) return;
       if (getCurrentSlug() !== workspaceSlug) return;
       singletonOwner = null;
+      // In-tab navigation to /experimental/* unmounts this layout WITHOUT a
+      // successor: the lab surfaces are pre-workspace routes that read the
+      // ACTIVE workspace implicitly (X-Workspace-Slug header, getCurrentWsId
+      // polling). Navigating into them arms a suppression token first
+      // (see workspace-singleton-release-guard.ts) — consuming it here keeps
+      // the singleton populated so the shell chrome ({slug && <AppSidebar/>})
+      // stays visible over the lab view instead of the labs reading as a
+      // fullscreen takeover. All other teardowns release normally.
+      if (consumeWorkspaceReleaseSuppression()) return;
       setCurrentWorkspace(null, null);
     };
   }, [workspaceSlug, instanceId]);
