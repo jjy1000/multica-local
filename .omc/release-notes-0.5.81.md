@@ -26,7 +26,7 @@ directive. This release:
     map. Records are now stable-deep-linkable
     (`/experimental/<suffix>?issue=<id>&run=<id>`).
 
-== Atomic commits (9) ==
+== Atomic commits (13) ==
   b897aab5c feat(views): C1 — unified IssueBreadcrumb back-link across all lab views
   a3ffde24e feat(experimental): trigger defaults — pythia_oracle opt-out, claude_science_lab default
   ee6b3869c feat(views): C2 — lab record deep links (ICP-3 out-bound half)
@@ -36,6 +36,10 @@ directive. This release:
   6bad73469 test(handler): flip 5 AutoDispatch regression pins to match catalog
   19083369e fix(server): hygiene — testdata claude-science fixture symlinks absolute→relative (worktree-portable)
   e7f0aa69c fix(migrate): register 262–272 concurrent index builds in the MUL-6288 cleanup registry
+  3d7d6f0af feat(views): C2 in-bound — useDeepLinkRun on useOptionalNavigation (rAF retry, one-shot dedupe)
+  6f7f003c3 feat(views+desktop): C2 receivers — pythia ForecastHistoryPanel + ExecutionLogSection (code-canvas/plugin-shell SKIP-reasoned)
+  08ff89b3a test(views): repair C2-era fallout — lab-output-panel wrapper + issues-trio nav mocks
+  d5b0d5f8e test(desktop): swarm-topology mock gains IssueBreadcrumb stub → desktop vitest 46/46 files, 365/365
   + chore(release): bump 0.5.80 → 0.5.81 (this commit)
 
 == Upgrade notes ==
