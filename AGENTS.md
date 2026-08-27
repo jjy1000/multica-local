@@ -4,7 +4,7 @@ This file provides guidance to Qoder (qoder.com) when working with code in this 
 
 > **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. **Guarded sections** — toolchain versions, package boundaries, verification commands, and the Critical Constraints tokens (localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) — are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook. **Unguarded sections** (Quick Reference, Architecture, Sub-domain Guides, Testing Strategy, Dependency Management prose) are not machine-checked — verify them against `CLAUDE.md` before relying on them.
 
-> **Current release: 0.5.51** (2026-08-21, head `603c0765d` on `epic/0.5.13-integration`, 5 commits on top of 0.5.50: MUL-6310 closure — protocol/taskfailure stubs upstream-aligned + NUL-byte regression tests — plus the MUL-6471 opencode/pi custom-provider fix). MUL-6310 honestly closed: NUL sanitization regression-pinned; the chat-cancel deferred-finalization chain is SKIP-DEAD-CASE (fork `chat.sql` 219 vs upstream 1491, no daemon cancel-ack/worktree). MUL-6471 landed: opencode reaches custom gateway providers, pi passes model selectors whole to `--model`. MUL-6417 deferred (817-line brief divergence, no `ChatChannelType`/`kindIssue`). `go build`/`go vet` clean, `pkg/agent` + `internal/daemon` suites pass; ship not run (user paused porting). Historical release notes (0.5.12 → 0.5.41) archived at [`.omc/_legacy/release-notes-archive.md`](.omc/_legacy/release-notes-archive.md); 0.5.43-0.5.51 notes at `.omc/release-notes-0.5.{43..51}.md`; load-bearing contracts from those releases live in the root [`CLAUDE.md`](CLAUDE.md) sections Known Stability Surfaces / Active Contracts / Fork-Applicable HIGH Vuln Contracts. This digest is a hand-maintained Qoder parallel — it is NOT a verbatim mirror of `CLAUDE.md`; the 5 guarded constraint categories (toolchain versions, package boundaries, verification commands, critical-constraint tokens, sub-domain guides) are token-enforced by `scripts/check-agents-docs-sync.mjs`.
+> **Current release: 0.5.79** (2026-08-27, ship head `8fb88ce1b` on `epic/0.5.72-followups`; shipped & verified: `/Applications/Multica.app` = 0.5.79, official cold-start verify PASS). Recent chain on top of 0.5.76: **0.5.77** — Batch 5 REVIEW-tier upstream cherry-picks (MUL-6639 skill file metadata + CLI stall detection, MUL-6658 per-backend process-tree ownership; 22 atomic sub-commits); **0.5.78** — labs hardening batch (user-plugin visibility purge on delete/reseed, lab-picker assignee-mutex narrowed to `mythos_swarm`/`swarm_topology`, UTC-anchored dashboard test seeds, semantica wheel builder); **0.5.79** — MUL-6703 split-port: "Import from local" skill archive upload (server multipart branch via `finishSkillImport`, core `skills/pack-archive`, views dialog + locales ×4; fork keeps raw-JSON idiom — no zod envelope layer). Authoritative upstream triage: [`.omc/upstream-integration-triage-2026-08-26.md`](.omc/upstream-integration-triage-2026-08-26.md) (through incremental #3). Open decision gate: upstream inbox architecture (MUL-6632, 19 files ≈ 4400 LOC) — adopt vs fork-local filtering, awaiting user decision; until decided, inbox-family upstream commits stay SKIP-DIVERGENCE. Historical release notes (0.5.12 → 0.5.41) archived at [`.omc/_legacy/release-notes-archive.md`](.omc/_legacy/release-notes-archive.md); 0.5.43-0.5.79 notes at `.omc/release-notes-0.5.{43..79}.md`; load-bearing contracts from those releases live in the root [`CLAUDE.md`](CLAUDE.md) sections Known Stability Surfaces / Active Contracts / Fork-Applicable HIGH Vuln Contracts. This digest is a hand-maintained Qoder parallel — it is NOT a verbatim mirror of `CLAUDE.md`; the 5 guarded constraint categories (toolchain versions, package boundaries, verification commands, critical-constraint tokens, sub-domain guides) are token-enforced by `scripts/check-agents-docs-sync.mjs`.
 
 ## Quick Reference
 
@@ -32,6 +32,12 @@ pnpm test path/to/file.test.ts
 
 # After SQL changes
 cd server && sqlc generate
+
+# Verified ship (7 steps: build→migrate→bundle→sign→backup→install→cold-start)
+bash scripts/ship-mac.sh --yes
+
+# Packaged-app check (dev .env PORT=8080; the packaged app's server listens on :8090)
+bash ~/.multica/scripts/verify-desktop-cold-start.sh
 ```
 
 ## Architecture
@@ -137,6 +143,8 @@ Selectors MUST be arrow expressions: `t(($) => $.foo.bar)` ✓ — block body `t
 | Backend | `server/**/*_test.go` | `go test` |
 
 Go tests run with `-p 1` (serialized packages) because DB-backed packages share one `DATABASE_URL`.
+
+**Gotcha**: DB-backed Go tests **silently skip** when `DATABASE_URL` is unset — a suspiciously fast green run means nothing ran. Export it first: `export $(grep -E '^DATABASE_URL=' .env | xargs)` (then confirm the runner prints your DB-set marker before trusting results).
 
 ## Verification Sequence
 
