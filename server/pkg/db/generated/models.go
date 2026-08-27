@@ -314,6 +314,39 @@ type AutopilotTrigger struct {
 	EventFilters   []byte             `json:"event_filters"`
 }
 
+type CausalEdge struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	FromNodeID  pgtype.UUID        `json:"from_node_id"`
+	ToNodeID    pgtype.UUID        `json:"to_node_id"`
+	Type        string             `json:"type"`
+	Weight      pgtype.Numeric     `json:"weight"`
+	Confidence  pgtype.Numeric     `json:"confidence"`
+	Metadata    []byte             `json:"metadata"`
+	Provenance  []byte             `json:"provenance"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	CreatedBy   pgtype.Text        `json:"created_by"`
+	ProposedBy  pgtype.Text        `json:"proposed_by"`
+	Status      string             `json:"status"`
+}
+
+type CausalNode struct {
+	ID             pgtype.UUID        `json:"id"`
+	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
+	IssueID        pgtype.UUID        `json:"issue_id"`
+	Type           string             `json:"type"`
+	Label          string             `json:"label"`
+	Description    pgtype.Text        `json:"description"`
+	Metadata       []byte             `json:"metadata"`
+	Provenance     []byte             `json:"provenance"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	CreatedBy      pgtype.Text        `json:"created_by"`
+	LabSource      pgtype.Text        `json:"lab_source"`
+	LabRunID       pgtype.UUID        `json:"lab_run_id"`
+	Status         string             `json:"status"`
+	LastObservedAt pgtype.Timestamptz `json:"last_observed_at"`
+}
+
 type ChannelBindingToken struct {
 	TokenHash      string             `json:"token_hash"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -724,10 +757,14 @@ type Issue struct {
 }
 
 type IssueDependency struct {
-	ID               pgtype.UUID `json:"id"`
-	IssueID          pgtype.UUID `json:"issue_id"`
-	DependsOnIssueID pgtype.UUID `json:"depends_on_issue_id"`
-	Type             string      `json:"type"`
+	ID                pgtype.UUID        `json:"id"`
+	IssueID           pgtype.UUID        `json:"issue_id"`
+	DependsOnIssueID  pgtype.UUID        `json:"depends_on_issue_id"`
+	Type              string             `json:"type"`
+	EvidenceCommentID pgtype.UUID        `json:"evidence_comment_id"`
+	CreatedBy         pgtype.Text        `json:"created_by"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 }
 
 type IssueLabel struct {

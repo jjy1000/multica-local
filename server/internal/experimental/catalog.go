@@ -447,6 +447,39 @@ var Catalog = []Flag{
 		// set: the agent's forecast comment IS the issue-first
 		// deliverable and must stay visible in the plain timeline.
 	},
+	{
+		// 0.5.83 WL3: issue causal graph — Tier A/B/C/D decision
+		// tracking. Server-NATIVE: causal_node / causal_edge tables +
+		// the gated REST surface live in the Go server; there is no
+		// subprocess, no loopback proxy prefix, and no manager (the
+		// desktop descriptor is kind "none"). The manifest carries the
+		// real sidebar entry point (/experimental/causal-graph) — the
+		// user asked for a visible full-graph surface, not a
+		// settings-toggle-only lab. Off by default; the Tier A/B
+		// recorders no-op unless the flag is on.
+		//
+		// Flag-key literal "causal_graph" is a VERBATIM copy per the
+		// duplication law (router gate + lock.go SourceCausalGraph +
+		// migration 279 CHECK + this catalog — pinned by
+		// TestCatalogAutoDispatchContract + the migration static test).
+		Key:        "causal_graph",
+		DefaultVal: false,
+		Title: LocalizedString{
+			En: "Issue Causal Graph",
+			Zh: "问题因果图谱",
+		},
+		Description: LocalizedString{
+			En: "Decision tracking across issues: runs, decisions, and outcomes become a typed causal graph (native task hooks + Semantica decision mirrors + Pythia hypothesis closure + LLM-curated proposals behind a human-confirm gate). Adds the /experimental/causal-graph surface. Off by default.",
+			Zh: "跨 issue 的决策追踪:运行、决策与结果汇成类型化因果图(原生任务钩子 + Semantica 决策镜像 + Pythia 假设闭环 + 人工确认门控的 LLM 提议)。新增 /experimental/causal-graph 页面。默认关闭。",
+		},
+		ManifestPath: "experiments/causal_graph/manifest.json",
+		RuntimeKind:  "inline",
+		AutoDispatch: ptrBool(false),
+		// HideFromIssueLabPicker deliberately NOT set: the graph is
+		// issue-bound (the subgraph seeds from issue nodes and the
+		// causal icon lives on the issue header), so per-issue binding
+		// is meaningful.
+	},
 	// 0.5.6: `agent_self_optimization` and `agent_creation_studio`
 	// are no longer catalog entries. The two flags were promoted to
 	// product-level resources in 0.5.5 (boot-provisioned leader

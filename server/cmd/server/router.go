@@ -1127,6 +1127,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			handler.RegisterTimesfmIssueForecastRoutes(r, h)
 		})
 
+		// 0.5.83 WL3: issue causal-graph surface (dependencies revive +
+		// causal_node/causal_edge CRUD + subgraph/path + Tier D curation
+		// gate). Same uniform-404 gate shape. This lab is server-native
+		// — no loopback proxy prefix exists for it.
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("causal_graph"))
+			handler.RegisterCausalGraphRoutes(r, h)
+		})
+
 		// 0.3.45.1: agent_self_optimization history view endpoints.
 		// Flag-gated inside the handlers themselves (returns 404 when
 		// the flag is OFF) so the route table is uniform across the

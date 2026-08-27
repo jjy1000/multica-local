@@ -93,6 +93,15 @@ const staticFlagDescriptors: ReadonlyArray<ManagerFactoryDescriptor> = [
   // Flag-key literal "timesfm" is a VERBATIM copy per the duplication law
   // (server catalog + install_timesfm.go + migration 275 CHECK pin it).
   { flagKey: "timesfm", kind: "subprocess", label: "experimental_timesfm" },
+  // 0.5.83 WL3: causal_graph is server-NATIVE — the graph tables and
+  // gated REST surface live in the Go server, so the desktop owns no
+  // subprocess for it (kind "none" = get-status answers "not running"
+  // with the honest message instead of an unknown-flag error). The
+  // sidebar entry comes from the manifest's entry_points.sidebar.
+  // Flag-key literal "causal_graph" is a VERBATIM copy per the
+  // duplication law (server catalog + router gate + lock.go +
+  // migration 279 CHECK pin it).
+  { flagKey: "causal_graph", kind: "none", label: "experimental_causal_graph" },
   // 0.3.57: constitution_agent retired alongside migration 165.
 ];
 
