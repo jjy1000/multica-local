@@ -36,10 +36,12 @@ type preMigrationHook func(ctx context.Context, pool *pgxpool.Pool) error
 // pre-migration hook that drops the INVALID leftover before the retry
 // rebuilds cleanly.
 //
-// MUL-6288 (upstream #7073) — the registry covers all 24 concurrent up
-// builds in the fork's own migrations (035–260; fork numbering diverges
+// MUL-6288 (upstream #7073) — every fork migration whose up direction
+// builds an index concurrently must appear here (fork numbering diverges
 // from upstream, so every key/value pair is verified against the fork's
-// migration files by TestEveryConcurrentUpBuildHasCleanup). No fork
+// migration files by TestEveryConcurrentUpBuildHasCleanup; 262–272 were
+// registered late in 0.5.81 after a DB-backed ./... run finally reached
+// cmd/migrate and the invariant caught them). No fork
 // migration's down file rebuilds an index with CREATE INDEX
 // CONCURRENTLY, so there is deliberately no down-direction registry.
 var concurrentIndexCleanups = map[string]string{
@@ -72,6 +74,15 @@ var concurrentIndexCleanups = map[string]string{
 	"254_issue_status_workspace_name_index":            "idx_issue_status_workspace_name_active",
 	"259_agent_task_queue_chat_terminal_resume_index":  "idx_agent_task_queue_chat_terminal_resume",
 	"260_agent_task_queue_chat_retired_session_index":  "idx_agent_task_queue_chat_retired_session",
+	"262_autopilot_quota_period_scope_index":           "uq_autopilot_quota_period_scope",
+	"263_autopilot_quota_reservation_id_index":         "autopilot_quota_reservation_pkey_uidx",
+	"264_autopilot_quota_reservation_key_index":        "uq_autopilot_quota_reservation_key",
+	"265_autopilot_run_quota_reservation_index":        "uq_autopilot_run_quota_reservation",
+	"266_webhook_delivery_replay_idempotency_index":    "uq_webhook_delivery_replay_idempotency",
+	"267_autopilot_quota_reservation_state_index":      "idx_autopilot_quota_reservation_state",
+	"270_agent_task_queue_runtime_id_index":            "idx_agent_task_queue_runtime_id",
+	"271_agent_task_queue_agent_id_keyset_index":       "idx_agent_task_queue_agent_id_keyset",
+	"272_agent_task_queue_issue_id_keyset_index":       "idx_agent_task_queue_issue_id_keyset",
 }
 
 // preMigrationHooks wires migration version → hook. The version key is
