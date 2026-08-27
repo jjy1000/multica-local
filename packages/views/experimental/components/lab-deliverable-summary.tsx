@@ -7,6 +7,7 @@ import { EMPTY_LAB_CONTEXT, LabContextSchema } from "@multica/core/api/schemas";
 import type { LabContext, LabTaskBrief } from "@multica/core/types/api";
 import { AppLink } from "../../navigation";
 import { labSourceRouteSuffix } from "../../issues/components/issue-labs-section";
+import { LabRunLink } from "./lab-run-link";
 import { useT } from "../../i18n";
 
 // Timeline summary card for labs that declare
@@ -140,7 +141,13 @@ export function LabDeliverableSummary({
           {latest.result_summary}
         </p>
       )}
-      {openLink}
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {openLink}
+        {/* 0.5.81 (ICP-3): deep-link to the lab view pre-scoped to this
+            specific run via ?issue=&run=. Renders alongside the existing
+            "Open in lab" link, not in place of it. */}
+        <LabRunLink flagKey={labSource} issueId={issueId} runId={latest.id} />
+      </div>
     </div>
   );
 }
