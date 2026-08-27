@@ -24,11 +24,12 @@ Workspace skills still sync into the same provider-native location for tools tha
 
 ## Importing a skill
 
-Workspace skills come from four sources:
+Workspace skills come from five sources:
 
 - **New** — write the `SKILL.md` and related files directly in the UI
 - **From GitHub** — paste a repo URL (e.g. `https://github.com/owner/repo/tree/main/skills/my-skill`) and Multica pulls the `SKILL.md` and every file in that directory
 - **From ClawHub** — search and import from the [ClawHub](https://clawhub.io) public marketplace, with version selection
+- **From a local folder or archive** — pick a folder containing `SKILL.md`, or a `.skill` / `.zip` archive on this computer, and pack it straight into the workspace
 - **From local** — the daemon scans skill directories on your machine, and you pick which to bring into the workspace
 
 Both individual files and whole skill packs have size caps (single-file cap around 1 MB when importing from GitHub). The exact rules appear in the import dialog — exceeding them returns an error.

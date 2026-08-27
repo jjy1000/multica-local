@@ -24,11 +24,12 @@ Multica 支持两种 Skill 来源：
 
 ## 导入 Skill
 
-工作区 Skill 有四种来源：
+工作区 Skill 有五种来源：
 
 - **新建** —— 在 UI 里直接写 `SKILL.md` 和相关文件
 - **从 GitHub** —— 贴一个仓库 URL（例如 `https://github.com/owner/repo/tree/main/skills/my-skill`），Multica 自动拉取目录下的 `SKILL.md` 和所有文件
 - **从 ClawHub** —— 从 [ClawHub](https://clawhub.io) 公开市场搜索并导入，支持选版本
+- **从本地文件夹 / 归档** —— 选择包含 `SKILL.md` 的文件夹，或本机上的 `.skill` / `.zip` 归档，直接打包导入工作区
 - **从本机** —— 守护进程扫描你本机的 skill 目录，你选要用的导入到工作区
 
 单个文件和整个 Skill 包都有容量上限（从 GitHub 导入时单文件上限约 1 MB）。精确规则会在导入界面里提示——超过时会报错。
