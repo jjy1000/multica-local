@@ -58,6 +58,13 @@ asarUnpack:
   - resources/pythia/**
   - resources/openscience/**
   - resources/openscience-prompts/**
+  # 0.5.82: timesfm/ — vendored TimesFM 2.5 torch-stack forecasting lab
+  # (python package + run_loopback.py FastAPI wrapper + offline
+  # wheelhouse), spawned by the generic subprocess manager when the
+  # timesfm Labs flag is on and reverse-proxied at
+  # /experimental/timesfm. Same child_process/asar rule as pythia:
+  # run.sh must exist at a real filesystem path for spawn.
+  - resources/timesfm/**
   - node_modules/embedded-postgres/**
   - node_modules/@embedded-postgres/darwin-arm64/**
 mac:
