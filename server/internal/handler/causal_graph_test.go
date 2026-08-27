@@ -371,7 +371,11 @@ func TestCausalGraphRecorderFlagGate(t *testing.T) {
 		t.Fatalf("reset pref rows: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = testPool.Exec(t.Context(), `DELETE FROM experimental_pref WHERE flag_key = 'causal_graph'`)
+		// context.Background, NOT t.Context: the test context is
+		// cancelled before cleanup functions run, which silently
+		// killed the DELETE and leaked an enabled row into
+		// TestListExperimentalFlags_DefaultValues.
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM experimental_pref WHERE flag_key = 'causal_graph'`)
 	})
 
 	issue := causalTestIssue(t, "Causal recorder gate")
