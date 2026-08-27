@@ -2072,6 +2072,14 @@ func (h *Handler) ImportSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	creatorUUID := parseUUID(creatorID)
 
+	// An uploaded skill archive (.skill / .zip) arrives as multipart/form-data;
+	// a hosted-URL import arrives as JSON. Both converge on the same create +
+	// conflict tail via finishSkillImport.
+	if isMultipartForm(r) {
+		h.importSkillFromArchive(w, r, workspaceID, workspaceUUID, creatorUUID, creatorID)
+		return
+	}
+
 	var req ImportSkillRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -2109,6 +2117,14 @@ func (h *Handler) ImportSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.finishSkillImport(w, r, workspaceID, workspaceUUID, creatorUUID, creatorID, strategy, structuredResult, imported)
+}
+
+// finishSkillImport is the shared tail of POST /api/skills/import. The
+// hosted-URL path (structured envelope only when on_conflict was supplied)
+// and the archive-upload path (always structured; skill_import_archive.go)
+// both land here with a fully parsed importedSkill.
+func (h *Handler) finishSkillImport(w http.ResponseWriter, r *http.Request, workspaceID string, workspaceUUID, creatorUUID pgtype.UUID, creatorID string, strategy string, structuredResult bool, imported *importedSkill) {
 	files := make([]CreateSkillFileRequest, 0, len(imported.files))
 	for _, f := range imported.files {
 		if !validateFilePath(f.path) {
