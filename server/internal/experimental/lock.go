@@ -220,6 +220,21 @@ var ErrUnknownSource = errors.New("experimental lock: unknown source")
 // ResourceType the SQL enum does not allow. Mapped to 400 Bad Request.
 var ErrUnknownResourceType = errors.New("experimental lock: unknown resource type")
 
+// Lock-release contract by resource type (labs audit 2026-08-24 residual):
+//
+//   - agent / squad / skill / member / workspace rows left behind after a
+//     hard delete are swept by the periodic orphan GC
+//     (lock_gc.SweepOrphanedExperimentalResources, wired into the swarm_gc
+//     6h tick; migration 274 did the one-shot backfill).
+//   - swarm_run locks are released by the swarm runner itself
+//     (swarm_gc.go DeleteExperimentalResourceLockByID).
+//   - **mcp_server has NO GC fallback, on purpose.** The schema CHECK allows
+//     it but neither migration 274 nor the sweep covers resource_type
+//     'mcp_server' (no writer produces those rows today). Any future lab
+//     that claims an mcp_server lock MUST release it through its own
+//     lifecycle (install/rollback or runtime teardown) — orphaned rows will
+//     linger silently. Extend the sweep BEFORE the first such writer lands.
+
 // Claim attaches a lock to (source, type, id). Idempotent: re-claiming
 // the same triple is a no-op (the SQL ON CONFLICT DO NOTHING swallows
 // the duplicate). The new row is created with hidden=false; use Hide

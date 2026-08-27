@@ -112,6 +112,8 @@ All five share: `resolveLabWorkspace` (X-Workspace-ID UUID → else first user w
 
 Lock vocabulary (`lock.go`): `Source` enum, `ResourceType` (workspace/skill/agent/squad/member/mcp_server), `Claim`/`Hide`/`Restore`/`RestoreOne`, `LifecycleMarker` (SHA-256-derived UUID, prefix `0xEC`).
 
+> **0.5.78 addendum — lock release contract by type**: agent / squad / skill / member / workspace orphans are swept by `lock_gc.SweepOrphanedExperimentalResources` (swarm_gc 6h tick; migration 274 did the one-shot backfill); swarm_run locks are released by the runner. **mcp_server has NO GC fallback by design** — no writer produces those rows today; the first lab that claims one must own its release lifecycle, and must extend the sweep BEFORE landing. Full comment lives at `lock.go::Claim`.
+
 ## 6. Skill boot loading (`server/internal/service/builtin_skills.go`)
 
 `loadBuiltinSkills()` = `loadMainProductSkills()` (`//go:embed builtin_skills`) **+** `loadExperimentSkills()`.
