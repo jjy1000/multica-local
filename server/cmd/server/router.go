@@ -585,6 +585,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallSemantica(context.Background(), userID, workspaceID)
 			})
+		// 0.5.82 WL2: install handler for the timesfm lab. Mirrors
+		// pythia_oracle / semantica shape — a single-leader install that
+		// provisions the timesfm_oracle agent + purge-before-seed
+		// visibility rows. The vendored TimesFM subprocess itself is
+		// owned by the desktop manager-factory; the install handler only
+		// writes the DB rows the issue-driven dispatch path lands on.
+		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceTimesfm),
+			func(userID, workspaceID string) error {
+				return hh.InstallTimesfm(context.Background(), userID, workspaceID)
+			})
 		// 0.5.3: agent_creation_studio upgraded from an action-only lab to
 		// an issue-bound lab: selecting it in LabPicker writes
 		// issue.lab_source='agent_creation_studio' and the leader agent
@@ -1106,6 +1116,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Group(func(r chi.Router) {
 			r.Use(h.RequireExperimentalFlag("code_canvas"))
 			handler.RegisterCodeCanvasRoutes(r, h)
+		})
+		// 0.5.82 WL2: TimesFM per-issue forecast surface. Gated like
+		// pythia_oracle; off-flag the routes physically vanish (uniform
+		// 404 per experimental_guard.go). The /experimental/timesfm
+		// proxy prefix (no /api/) auto-mounts in MountExperimentalProxies
+		// from the catalog entry alone — no manual proxy code here.
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("timesfm"))
+			handler.RegisterTimesfmIssueForecastRoutes(r, h)
 		})
 
 		// 0.3.45.1: agent_self_optimization history view endpoints.
