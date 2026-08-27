@@ -25,6 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@multica/core/api";
 import { getCurrentWsId } from "@multica/core/platform";
 import { useT } from "@multica/views/i18n";
+import { useDeepLinkRun } from "@multica/views/experimental/components";
 import type { PythiaPrediction } from "./types";
 import { GlobeSVG } from "./globe-svg";
 import { SwarmVoteBars } from "./swarm-vote-bars";
@@ -957,6 +958,10 @@ function ForecastHistoryPanel({ issueId }: { issueId: string | null }) {
   const [runs, setRuns] = useState<ForecastRunSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 0.5.81 ICP-3 closure: landing on /experimental/pythia?issue=<id>&run=<id>
+  // (e.g. from a LabRunLink) scrolls to and highlights the matching
+  // forecast-history row.
+  const { rowRef, isDeepLinked } = useDeepLinkRun<HTMLButtonElement>();
 
   useEffect(() => {
     if (!issueId) {
@@ -1011,11 +1016,12 @@ function ForecastHistoryPanel({ issueId }: { issueId: string | null }) {
             <button
               key={run.id}
               type="button"
+              ref={rowRef(run.id)}
               onClick={() =>
                 setExpandedId((cur) => (cur === run.id ? null : run.id))
               }
               className={`flex items-center justify-between gap-2 rounded border px-2.5 py-1.5 text-left text-xs transition-colors ${
-                expandedId === run.id
+                expandedId === run.id || isDeepLinked(run.id)
                   ? "border-primary/40 bg-primary/5"
                   : "border-border/60 hover:bg-accent/50"
               }`}

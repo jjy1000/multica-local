@@ -29,6 +29,10 @@ import { TerminateTaskConfirmDialog } from "./terminate-task-confirm-dialog";
 import { IssueUsageDialog } from "./issue-usage-dialog";
 import { TaskStatusIcon } from "./task-status-icon";
 import { useStatusLabel, useTriggerText } from "./task-run-labels";
+// Direct-file import per repo idiom (lab-deliverable-summary precedent):
+// pulling the experimental barrel into issue-detail's graph would drag
+// plugin-shell-view et al. into every consumer bundle and mock surface.
+import { useDeepLinkRun } from "../../experimental/components/use-deep-link-run";
 
 // Right-panel section that lists every agent run for this issue. Active
 // runs sit at the top (always visible when present); past runs (terminal
@@ -121,6 +125,16 @@ export function ExecutionLogSection({ issueId, identifier }: ExecutionLogSection
     });
   }, [tasks]);
 
+  // 0.5.81 ICP-3 closure: an issue-detail URL carrying ?run=<taskId> — the
+  // mirrored direction of <LabRunLink /> — deep-links straight to that run's
+  // row here: scroll it into view and highlight it, force-opening the
+  // collapsed past-runs bucket when the target is terminal.
+  const { activeRunId, rowRef, isDeepLinked } = useDeepLinkRun<HTMLDivElement>();
+  const linkedIsPast = !!activeRunId && pastTasks.some((t) => t.id === activeRunId);
+  useEffect(() => {
+    if (linkedIsPast) setShowPast(true);
+  }, [linkedIsPast]);
+
   if (activeTasks.length === 0 && pastTasks.length === 0) return null;
 
   return (
@@ -159,7 +173,13 @@ export function ExecutionLogSection({ issueId, identifier }: ExecutionLogSection
       {open && (
         <div className="space-y-0.5 pl-2">
           {activeTasks.map((task) => (
-            <ActiveTaskRow key={task.id} task={task} issueId={issueId} />
+            <ActiveTaskRow
+              key={task.id}
+              task={task}
+              issueId={issueId}
+              refCb={rowRef(task.id)}
+              highlight={isDeepLinked(task.id)}
+            />
           ))}
 
           {pastTasks.length > 0 && (
@@ -188,6 +208,8 @@ export function ExecutionLogSection({ issueId, identifier }: ExecutionLogSection
                       key={task.id}
                       task={task}
                       issueId={issueId}
+                      refCb={rowRef(task.id)}
+                      highlight={isDeepLinked(task.id)}
                       // 0.3.45.8: auto-open the transcript for the most
                       // recent past run (idx 0 — pastTasks is sorted
                       // newest-first) so a freshly-finished Claude Lab /
@@ -290,9 +312,14 @@ const STATUS_TONE: Record<AgentTask["status"], string> = {
 export function ActiveTaskRow({
   task,
   issueId,
+  refCb,
+  highlight = false,
 }: {
   task: AgentTask;
   issueId: string;
+  /** Deep-link plumbing (0.5.81 ICP-3): thread through from ExecutionLogSection. */
+  refCb?: ((el: HTMLDivElement | null) => void) | undefined;
+  highlight?: boolean;
 }) {
   const { t } = useT("issues");
   const [cancelling, setCancelling] = useState(false);
@@ -346,7 +373,7 @@ export function ActiveTaskRow({
   // test that asserts a scenario production cannot produce. Restore it in the
   // same change that adds incremental reporting + cache invalidation.
   return (
-    <RowShell task={task}>
+    <RowShell task={task} refCb={refCb} highlight={highlight}>
       <TriggerText text={trigger} />
       <RowStatus title={label}>
         {task.status === "running" ? (
@@ -404,7 +431,20 @@ export function ActiveTaskRow({
 
 // ─── Past row ──────────────────────────────────────────────────────────────
 
-function PastRow({ task, issueId, autoOpen = false }: { task: AgentTask; issueId: string; autoOpen?: boolean }) {
+function PastRow({
+  task,
+  issueId,
+  autoOpen = false,
+  refCb,
+  highlight = false,
+}: {
+  task: AgentTask;
+  issueId: string;
+  autoOpen?: boolean;
+  /** Deep-link plumbing (0.5.81 ICP-3): thread through from ExecutionLogSection. */
+  refCb?: ((el: HTMLDivElement | null) => void) | undefined;
+  highlight?: boolean;
+}) {
   const { t } = useT("issues");
   const timeAgo = useTimeAgo();
   const [retrying, setRetrying] = useState(false);
@@ -462,7 +502,7 @@ function PastRow({ task, issueId, autoOpen = false }: { task: AgentTask; issueId
   };
 
   return (
-    <RowShell task={task} title={rowTitle}>
+    <RowShell task={task} title={rowTitle} refCb={refCb} highlight={highlight}>
       <TriggerText text={trigger} />
       <RowStatus title={failureLabel ?? label}>
         <TaskStatusIcon status={task.status} />
@@ -515,6 +555,8 @@ function RowShell({
   task,
   title,
   children,
+  refCb,
+  highlight = false,
 }: {
   task: AgentTask;
   /** Carries the details the right column no longer has room for (time,
@@ -523,11 +565,21 @@ function RowShell({
    *  disappear at exactly the moment the pointer arrives. */
   title?: string;
   children: React.ReactNode;
+  /** Deep-link ref callback — attaches the row element to useDeepLinkRun's
+   *  registry so ?run=<taskId> can scroll this row into view on landing. */
+  refCb?: ((el: HTMLDivElement | null) => void) | undefined;
+  /** Highlight style for the ?run= target row (pairs with scrollIntoView).
+   *  Kept visually distinct from hover's bg-accent so a deep-linked row stays
+   *  findable while the pointer is elsewhere. */
+  highlight?: boolean;
 }) {
   return (
     <div
+      ref={refCb}
       title={title || undefined}
-      className="group/execution-log-row flex items-center gap-2 overflow-hidden rounded px-1 py-1.5 transition-colors hover:bg-accent/40"
+      className={`group/execution-log-row flex items-center gap-2 overflow-hidden rounded px-1 py-1.5 transition-colors hover:bg-accent/40${
+        highlight ? " bg-primary/5 ring-1 ring-primary/30" : ""
+      }`}
     >
       {task.agent_id ? (
         <ActorAvatar
