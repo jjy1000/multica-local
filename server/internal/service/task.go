@@ -20,6 +20,7 @@ import (
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service/agent_trust"
+	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -48,6 +49,14 @@ type TaskService struct {
 	// agent (and the user) treats it as accepted. Nil disables the gate
 	// (default in tests / minimal builds).
 	Trust *agent_trust.Service
+	// CausalRecorder is the 0.5.83 WL3 Tier A native-provenance hook
+	// (roadmap §3.0 Tier A). When set, the enqueue funnels and
+	// CompleteTask write causal_node/causal_edge rows (action/outcome
+	// nodes + enables/causes edges) behind the causal_graph flag
+	// check — every write inside the recorder is best-effort and can
+	// never fail the task path. Nil disables recording (tests /
+	// minimal builds). Wired in cmd/server/main.go.
+	CausalRecorder *causalgraph.Recorder
 
 	analyticsContextMu    sync.Mutex
 	analyticsContextCache map[string]analytics.TaskContext
@@ -619,6 +628,12 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, trig
 	// in the desired observe-order makes correctness independent of timing.
 	s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
 	s.NotifyTaskEnqueued(ctx, task)
+	// 0.5.83 WL3 Tier A: action node + trigger --enables--> action.
+	// Best-effort; nil recorder (tests / minimal builds) or flag-off
+	// means zero writes.
+	if s.CausalRecorder != nil {
+		s.CausalRecorder.RecordTaskAction(ctx, issue, task, "issue")
+	}
 	return task, nil
 }
 
@@ -712,6 +727,16 @@ func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.Issue, ag
 	// See EnqueueTaskForIssue for ordering rationale.
 	s.broadcastTaskEvent(ctx, protocol.EventTaskQueued, task)
 	s.NotifyTaskEnqueued(ctx, task)
+	// 0.5.83 WL3 Tier A: same hook as the issue funnel — covers the
+	// @mention and squad-leader funnels ("squad_leader" when the task
+	// carries is_leader_task).
+	if s.CausalRecorder != nil {
+		trigger := "mention"
+		if isLeader {
+			trigger = "squad_leader"
+		}
+		s.CausalRecorder.RecordTaskAction(ctx, issue, task, trigger)
+	}
 	return task, nil
 }
 
@@ -1518,6 +1543,19 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 
 	slog.Info("task completed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID))
 	s.captureTaskCompleted(ctx, task)
+
+	// 0.5.83 WL3 Tier A: outcome node + action --causes--> outcome.
+	// Reached only on the real terminal transition (the
+	// already-finalized fast path returned above). Best-effort; nil
+	// recorder or flag-off means zero writes.
+	if s.CausalRecorder != nil && task.IssueID.Valid {
+		var output string
+		var payload protocol.TaskCompletedPayload
+		if err := json.Unmarshal(result, &payload); err == nil {
+			output = payload.Output
+		}
+		s.CausalRecorder.RecordTaskOutcome(ctx, task, output)
+	}
 
 	// Invariant: every completed issue task must have at least one agent
 	// comment on the issue, so the user always sees something when a run

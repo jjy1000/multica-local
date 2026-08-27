@@ -64,6 +64,29 @@ LIMIT 1;
 UPDATE causal_node SET last_observed_at = now()
 WHERE id = sqlc.arg('node_id')::uuid;
 
+-- Recorder gate: the Tier A/B hooks ride the hot enqueue/complete
+-- paths, so the enabled check is one indexed EXISTS rather than the
+-- ListEnabledFlagKeys enumeration. Same "any user" semantics — in
+-- this single-user fork the set collapses to the one user.
+-- name: FlagEnabledForAnyUser :one
+SELECT EXISTS(
+    SELECT 1 FROM experimental_pref
+    WHERE flag_key = sqlc.arg('flag_key')::text AND enabled = true
+) AS enabled;
+
+-- Trigger-node resolution for Tier A enables edges: the latest
+-- outcome node recorded for the issue, if any. Recorders chain
+-- action → outcome → next action so the graph grows along the
+-- issue's real execution history.
+-- name: FindLatestOutcomeNodeForIssue :one
+SELECT *
+FROM causal_node
+WHERE issue_id = sqlc.arg('issue_id')::uuid
+  AND type = 'outcome'
+  AND status = 'active'
+ORDER BY created_at DESC
+LIMIT 1;
+
 -- name: CreateCausalEdge :one
 INSERT INTO causal_edge (
     workspace_id, from_node_id, to_node_id, type,

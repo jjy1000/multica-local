@@ -286,6 +286,60 @@ func (q *Queries) FindCausalNodeByDedupKey(ctx context.Context, arg FindCausalNo
 	return i, err
 }
 
+const findLatestOutcomeNodeForIssue = `-- name: FindLatestOutcomeNodeForIssue :one
+SELECT id, workspace_id, issue_id, type, label, description, metadata, provenance, created_at, created_by, lab_source, lab_run_id, status, last_observed_at
+FROM causal_node
+WHERE issue_id = $1::uuid
+  AND type = 'outcome'
+  AND status = 'active'
+ORDER BY created_at DESC
+LIMIT 1
+`
+
+// Trigger-node resolution for Tier A enables edges: the latest
+// outcome node recorded for the issue, if any. Recorders chain
+// action → outcome → next action so the graph grows along the
+// issue's real execution history.
+func (q *Queries) FindLatestOutcomeNodeForIssue(ctx context.Context, issueID pgtype.UUID) (CausalNode, error) {
+	row := q.db.QueryRow(ctx, findLatestOutcomeNodeForIssue, issueID)
+	var i CausalNode
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.IssueID,
+		&i.Type,
+		&i.Label,
+		&i.Description,
+		&i.Metadata,
+		&i.Provenance,
+		&i.CreatedAt,
+		&i.CreatedBy,
+		&i.LabSource,
+		&i.LabRunID,
+		&i.Status,
+		&i.LastObservedAt,
+	)
+	return i, err
+}
+
+const flagEnabledForAnyUser = `-- name: FlagEnabledForAnyUser :one
+SELECT EXISTS(
+    SELECT 1 FROM experimental_pref
+    WHERE flag_key = $1::text AND enabled = true
+) AS enabled
+`
+
+// Recorder gate: the Tier A/B hooks ride the hot enqueue/complete
+// paths, so the enabled check is one indexed EXISTS rather than the
+// ListEnabledFlagKeys enumeration. Same "any user" semantics — in
+// this single-user fork the set collapses to the one user.
+func (q *Queries) FlagEnabledForAnyUser(ctx context.Context, flagKey string) (bool, error) {
+	row := q.db.QueryRow(ctx, flagEnabledForAnyUser, flagKey)
+	var enabled bool
+	err := row.Scan(&enabled)
+	return enabled, err
+}
+
 const getCausalEdge = `-- name: GetCausalEdge :one
 SELECT id, workspace_id, from_node_id, to_node_id, type, weight, confidence, metadata, provenance, created_at, created_by, proposed_by, status FROM causal_edge WHERE id = $1::uuid
 `
