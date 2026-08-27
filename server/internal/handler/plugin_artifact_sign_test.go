@@ -90,6 +90,19 @@ func TestServePluginArtifactRawSignedPath(t *testing.T) {
 		}
 	})
 
+	t.Run("expired signature rejected without bearer", func(t *testing.T) {
+		// The TTL boundary belongs in the request path too: prove the raw
+		// endpoint enforces expiry BEFORE artifact lookup / any file IO,
+		// not just inside verifyPluginArtifactSignature's unit contract.
+		exp := time.Now().Add(-time.Minute).Unix()
+		sig := signPluginArtifactURL(uid, slug, artifactID, exp)
+		w := httptest.NewRecorder()
+		h.ServePluginArtifactRaw(w, buildReq(sig, exp, uid))
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 for an expired signature, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
 	t.Run("valid signature skips bearer and reaches artifact lookup", func(t *testing.T) {
 		exp := time.Now().Add(5 * time.Minute).Unix()
 		sig := signPluginArtifactURL(uid, slug, artifactID, exp)

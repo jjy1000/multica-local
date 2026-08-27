@@ -50,6 +50,25 @@ func (q *Queries) DeleteOrphanResourceVisibilityRows(ctx context.Context) (int64
 	return result.RowsAffected(), nil
 }
 
+const deletePluginResourceVisibilityByFlagKey = `-- name: DeletePluginResourceVisibilityByFlagKey :execrows
+DELETE FROM experimental_resource_visibility WHERE flag_key = $1
+`
+
+// 0.5.78 (labs plan P2-1a): user-plugin lifecycle purge. seedPluginVisibility
+// runs this before seeding so manifest capability removals (update path) and
+// slug reuse after a soft-delete never leave stale rows behind, and
+// DeleteUserPlugin runs it at teardown. Stale rows matter beyond hidden=TRUE:
+// ListLabManagedResourceIDs stamps `lab_managed` from row EXISTENCE alone
+// (flag-agnostic), so an orphaned row keeps greying the user's own
+// agent/squad out of regular pickers after the plugin is gone.
+func (q *Queries) DeletePluginResourceVisibilityByFlagKey(ctx context.Context, flagKey string) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePluginResourceVisibilityByFlagKey, flagKey)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertExperimentalResourceVisibility = `-- name: InsertExperimentalResourceVisibility :exec
 INSERT INTO experimental_resource_visibility (flag_key, resource_type, resource_id, hidden)
 VALUES ($1, $2, $3, TRUE)

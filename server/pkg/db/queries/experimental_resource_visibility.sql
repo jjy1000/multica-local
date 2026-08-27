@@ -62,3 +62,13 @@ WHERE resource_type = $1 AND resource_id = $2;
 DELETE FROM experimental_resource_visibility v
 WHERE (v.resource_type = 'agent' AND NOT EXISTS (SELECT 1 FROM agent a WHERE a.id = v.resource_id))
    OR (v.resource_type = 'squad' AND NOT EXISTS (SELECT 1 FROM squad s WHERE s.id = v.resource_id));
+
+-- name: DeletePluginResourceVisibilityByFlagKey :execrows
+-- 0.5.78 (labs plan P2-1a): user-plugin lifecycle purge. seedPluginVisibility
+-- runs this before seeding so manifest capability removals (update path) and
+-- slug reuse after a soft-delete never leave stale rows behind, and
+-- DeleteUserPlugin runs it at teardown. Stale rows matter beyond hidden=TRUE:
+-- ListLabManagedResourceIDs stamps `lab_managed` from row EXISTENCE alone
+-- (flag-agnostic), so an orphaned row keeps greying the user's own
+-- agent/squad out of regular pickers after the plugin is gone.
+DELETE FROM experimental_resource_visibility WHERE flag_key = $1;

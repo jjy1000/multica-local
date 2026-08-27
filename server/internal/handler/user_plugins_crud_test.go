@@ -87,12 +87,14 @@ type userPluginMockDB struct {
 	updateCalls     int
 	deleteCalls     int
 	prefDeleteCalls int
+	visPurgeCalls   int
 
 	// captured args — used in assertions
-	lastCreatedFlagKey  string
-	lastCreatedSlug     string
-	lastUpdatedStatus   string
-	lastUpdatedManifest []byte
+	lastCreatedFlagKey           string
+	lastCreatedSlug              string
+	lastUpdatedStatus            string
+	lastUpdatedManifest          []byte
+	lastPurgedVisibilityFlagKey  string
 
 	stagedCreateErr error // optional, set by tests that want to force 23505 from the INSERT path
 }
@@ -295,6 +297,19 @@ func (m *userPluginMockDB) Exec(ctx context.Context, sql string, args ...interfa
 	case strings.Contains(s, "delete from experimental_pref"):
 		m.prefDeleteCalls++
 		return pgconn.NewCommandTag("DELETE 1"), nil
+
+	case strings.Contains(s, "delete from experimental_resource_visibility"),
+		strings.Contains(s, "delete from \"experimental_resource_visibility\""):
+		// P2-1a purge (seedPluginVisibility + DeleteUserPlugin). Record
+		// the flag key so tests can pin the purge-before-seed and
+		// teardown cleanup contracts.
+		m.visPurgeCalls++
+		if len(args) > 0 {
+			if fk, ok := args[0].(string); ok {
+				m.lastPurgedVisibilityFlagKey = fk
+			}
+		}
+		return pgconn.NewCommandTag("DELETE 2"), nil
 
 	case strings.Contains(s, "insert into \"experimental_resource_visibility\""),
 		strings.Contains(s, "insert into experimental_resource_visibility"):
@@ -899,5 +914,40 @@ func TestUserPluginListFiltersDeletedRows(t *testing.T) {
 		if r.Slug == tombSlug {
 			t.Fatalf("tombstone leaked into list: %+v", r)
 		}
+	}
+}
+
+// P2-1a (labs plan): DeleteUserPlugin must purge the visibility rows seeded
+// under the plugin's flag key. Leftover rows keep the user's own agents and
+// squads stamped lab_managed (ListLabManagedResourceIDs is flag-agnostic) —
+// i.e. greyed out of regular pickers long after the plugin is gone.
+func TestUserPluginDeletePurgesVisibilityRows(t *testing.T) {
+	mock := newUserPluginMockDB()
+	h := newTestHandler(Config{})
+	h.Queries = db.New(mock)
+
+	const slug = "purge-on-delete"
+	created, status, raw := doCreate(t, h, pluginCreateBody(slug, "v1"))
+	if status != http.StatusCreated {
+		t.Fatalf("create: got %d want 201, body=%q", status, raw)
+	}
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/user-plugins/"+slug, nil)
+	delReq.Header.Set("X-User-ID", "11111111-1111-1111-1111-111111111111")
+	delReq = withChiURLParam(delReq, "slug", slug)
+	delRR := httptest.NewRecorder()
+	h.DeleteUserPlugin(delRR, delReq)
+	if delRR.Code != http.StatusNoContent {
+		t.Fatalf("delete: got %d want 204, body=%q", delRR.Code, delRR.Body.String())
+	}
+
+	mock.mu.Lock()
+	defer mock.mu.Unlock()
+	if mock.visPurgeCalls != 1 {
+		t.Fatalf("expected exactly 1 visibility purge on delete path, got %d", mock.visPurgeCalls)
+	}
+	if mock.lastPurgedVisibilityFlagKey != created.FlagKey {
+		t.Fatalf("purged wrong flag key: got %q want %q",
+			mock.lastPurgedVisibilityFlagKey, created.FlagKey)
 	}
 }

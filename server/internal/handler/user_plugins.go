@@ -429,7 +429,7 @@ func (h *Handler) DeleteUserPlugin(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.Queries.SoftDeleteUserPlugin(r.Context(), slug); err != nil {
 		slog.Error("user plugin delete: soft delete failed", "slug", slug, "error", err)
-		writeError(w, http.StatusInternalServerError, "failed to delete user plugin")
+		writeError(w, http.StatusInternalServerError, "failed to delete plugin")
 		return
 	}
 
@@ -440,6 +440,17 @@ func (h *Handler) DeleteUserPlugin(w http.ResponseWriter, r *http.Request) {
 	experimental.UnregisterUserPlugin(flagKey)
 	if h.ExperimentRegistry != nil {
 		h.ExperimentRegistry.RemoveUserPlugin(flagKey)
+	}
+
+	// Purge the visibility rows seeded under this flag key (labs plan
+	// P2-1a). ListLabManagedResourceIDs stamps `lab_managed` from row
+	// existence alone, so leftover rows keep the user's own agents/squads
+	// greyed out of regular pickers long after the plugin is gone.
+	// Best-effort: the tombstone is already committed and recreate purges
+	// again, so a failure here must not turn a successful DELETE into 500.
+	if _, err := h.Queries.DeletePluginResourceVisibilityByFlagKey(r.Context(), flagKey); err != nil {
+		slog.Error("user plugin delete: failed to purge visibility rows",
+			"slug", slug, "flag_key", flagKey, "error", err)
 	}
 
 	// Clear the caller's preference row for the retired flag. This is a
@@ -491,6 +502,18 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 	if h.Queries == nil || h.DB == nil {
 		return
 	}
+
+	// Purge-then-seed (labs plan P2-1a): drop every visibility row previously
+	// seeded under this flag key so manifest capability removals on update
+	// and slug reuse after a soft-delete never leave orphans behind
+	// (lab_managed is stamped from row existence, flag-agnostic). Runs before
+	// the workspace / caps early-returns so a manifest that DROPPED its
+	// capabilities block still cleans up after itself. Best-effort.
+	if _, err := h.Queries.DeletePluginResourceVisibilityByFlagKey(ctx, flagKey); err != nil {
+		slog.Warn("plugin visibility: purge before seed failed",
+			"flag_key", flagKey, "error", err)
+	}
+
 	if !workspaceID.Valid {
 		// No installer workspace → nothing to seed. Seeding must never run
 		// against resources in another workspace (F-013).
