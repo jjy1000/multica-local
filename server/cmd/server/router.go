@@ -595,6 +595,18 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallTimesfm(context.Background(), userID, workspaceID)
 			})
+		// 0.5.83 WL3: install handler for the causal_graph lab. Provisions
+		// the hidden three-agent team (curator / historian / verifier —
+		// NO dispatch leader; AutoDispatch=false and no
+		// defaultLabLeaderForKey case, timesfm precedent) + purge-before-
+		// seed visibility rows. The graph itself is native Go storage
+		// (causal_node/causal_edge, migs 277-278) — there is no subprocess;
+		// the install handler only writes the DB rows the tier A/B recorders
+		// and the REST surface rely on.
+		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceCausalGraph),
+			func(userID, workspaceID string) error {
+				return hh.InstallCausalGraph(context.Background(), userID, workspaceID)
+			})
 		// 0.5.3: agent_creation_studio upgraded from an action-only lab to
 		// an issue-bound lab: selecting it in LabPicker writes
 		// issue.lab_source='agent_creation_studio' and the leader agent
@@ -1125,6 +1137,15 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Group(func(r chi.Router) {
 			r.Use(h.RequireExperimentalFlag("timesfm"))
 			handler.RegisterTimesfmIssueForecastRoutes(r, h)
+		})
+
+		// 0.5.83 WL3: issue causal-graph surface (dependencies revive +
+		// causal_node/causal_edge CRUD + subgraph/path + Tier D curation
+		// gate). Same uniform-404 gate shape. This lab is server-native
+		// — no loopback proxy prefix exists for it.
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("causal_graph"))
+			handler.RegisterCausalGraphRoutes(r, h)
 		})
 
 		// 0.3.45.1: agent_self_optimization history view endpoints.

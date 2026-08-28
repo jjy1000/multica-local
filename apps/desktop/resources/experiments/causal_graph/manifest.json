@@ -1,0 +1,36 @@
+{
+  "apiVersion": "multica.dev/experiment/v1",
+  "kind": "Experiment",
+  "metadata": {
+    "name": "causal_graph",
+    "flag": "causal_graph",
+    "title": { "en": "Issue Causal Graph", "zh": "问题因果图谱" },
+    "description": {
+      "en": "Decision tracking across issues: runs, decisions, and outcomes become a typed causal graph (native task hooks + Semantica decision mirrors + Pythia hypothesis closure + LLM-curated proposals behind a human-confirm gate). Adds the /experimental/causal-graph surface. Off by default.",
+      "zh": "跨 issue 的决策追踪:运行、决策与结果汇成类型化因果图(原生任务钩子 + Semantica 决策镜像 + Pythia 假设闭环 + 人工确认门控的 LLM 提议)。新增 /experimental/causal-graph 页面。默认关闭。"
+    },
+    "default_enabled": false
+  },
+  "spec": {
+    "capabilities": {
+      "skills": [],
+      "agents": [],
+      "squads": [],
+      "permissions": ["issue:read"]
+    },
+    "entry_points": {
+      "sidebar": [
+        {
+          "key": "experimental_causal_graph",
+          "label_key": "experimental_causal_graph",
+          "route": "/experimental/causal-graph"
+        }
+      ],
+      "settings": { "route": "/experimental/causal-graph" }
+    },
+    "surface": {
+      "type": "page",
+      "route": "/experimental/causal-graph"
+    }
+  }
+}

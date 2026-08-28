@@ -62,6 +62,7 @@
     "experimental_swarm_topology": "스웜 토폴로지",
     "experimental_semantica": "Semantica 탐색기",
     "error_fallback": "사이드바를 렌더링하지 못했습니다.",
-    "error_retry": "다시 시도"
+    "error_retry": "다시 시도",
+    "experimental_causal_graph": "이슈 인과 그래프"
   }
 }

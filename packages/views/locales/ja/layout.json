@@ -62,6 +62,7 @@
     "experimental_swarm_topology": "スウォームトポロジー",
     "experimental_semantica": "Semantica エクスプローラー",
     "error_fallback": "サイドバーのレンダリングに失敗しました。",
-    "error_retry": "再試行"
+    "error_retry": "再試行",
+    "experimental_causal_graph": "イシュー因果グラフ"
   }
 }

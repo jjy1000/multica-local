@@ -1790,6 +1790,80 @@ export const TimesfmForecastRunSchema = z.object({
 export const TimesfmForecastRunListSchema = z.array(TimesfmForecastRunSchema);
 
 // ---------------------------------------------------------------------------
+// Issue causal graph schemas (0.5.83 WL3)
+//
+// Backs the gated causal-graph REST surface (server/internal/handler/
+// causal_graph.go; see .omc/wl3-server-contract.md in the 0583
+// worktree). Node/edge `type` values are CONTRACT shared verbatim with
+// migrations 277/278 CHECKs; like the timesfm provenance labels they
+// stay z.string() so a future CHECK addition parses and renders
+// verbatim instead of crashing the reader. Everything is lenient
+// (.loose() + defaults) — a drifted row degrades, never throws.
+export const CausalNodeSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  issue_id: z.string().nullable().default(null),
+  type: z.string(),
+  label: z.string().default(""),
+  description: z.string().nullable().default(null),
+  metadata: z.object({}).loose().default({}),
+  provenance: z.object({}).loose().default({}),
+  created_at: z.string().default(""),
+  created_by: z.string().nullable().default(null),
+  lab_source: z.string().nullable().default(null),
+  lab_run_id: z.string().nullable().default(null),
+  status: z.string().default("active"),
+  last_observed_at: z.string().default(""),
+}).loose();
+
+export const CausalEdgeSchema = z.object({
+  id: z.string(),
+  workspace_id: z.string(),
+  from_node_id: z.string(),
+  to_node_id: z.string(),
+  type: z.string(),
+  weight: z.number().nullable().default(null),
+  confidence: z.number().nullable().default(null),
+  metadata: z.object({}).loose().default({}),
+  provenance: z.object({}).loose().default({}),
+  created_at: z.string().default(""),
+  created_by: z.string().nullable().default(null),
+  proposed_by: z.string().nullable().default(null),
+  status: z.string().default("active"),
+}).loose();
+
+export const CausalSubgraphSchema = z.object({
+  issue_id: z.string().default(""),
+  depth: z.number().default(2),
+  nodes: z.array(CausalNodeSchema).default([]),
+  edges: z.array(CausalEdgeSchema).default([]),
+}).loose();
+
+export const CausalPathSchema = z.object({
+  nodes: z.array(CausalNodeSchema).default([]),
+  edges: z.array(CausalEdgeSchema).default([]),
+}).loose();
+
+export const CausalNodeListSchema = z.array(CausalNodeSchema);
+export const CausalEdgeListSchema = z.array(CausalEdgeSchema);
+
+export const IssueDependencySchema = z.object({
+  id: z.string(),
+  issue_id: z.string(),
+  depends_on_issue_id: z.string(),
+  type: z.string().default("blocked_by"),
+  evidence_comment_id: z.string().nullable().default(null),
+  created_by: z.string().nullable().default(null),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const IssueDependencyListSchema = z.object({
+  dependencies: z.array(IssueDependencySchema).default([]),
+  dependents: z.array(IssueDependencySchema).default([]),
+}).loose();
+
+// ---------------------------------------------------------------------------
 // Code Canvas artifact schema (GET/POST
 // /api/experimental/code-canvas/issues/:id/artifacts)
 //

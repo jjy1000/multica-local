@@ -53,6 +53,18 @@ func TestCatalogAutoDispatchContract(t *testing.T) {
 			wantFalse:  true,
 			wantReason: "0.5.82 WL2: timesfm CPU inference takes seconds-minutes per call; runs stay manual/retry-driven, never auto-fired on a lab_source flip",
 		},
+		{
+			// 0.5.83 WL3: causal_graph is opt-in the same way — the Tier
+			// A/B recorders cost writes on every enqueue/complete once
+			// enabled, so they must never wake from a lab_source flip.
+			// The verbatim "causal_graph" literal is hand-copied into
+			// router.go's gate, lock.go's SourceCausalGraph, migration
+			// 279's CHECK, the manifest, and the desktop manager
+			// descriptor.
+			key:        "causal_graph",
+			wantFalse:  true,
+			wantReason: "0.5.83 WL3: causal_graph Tier A/B recorders add writes to the task enqueue/complete paths; they are flag-gated and must never auto-fire",
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.key, func(t *testing.T) {

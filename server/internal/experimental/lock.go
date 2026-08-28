@@ -127,6 +127,18 @@ const (
 	// packages (import cycles forbid sharing a constant) — pinned by
 	// TestCatalogAutoDispatchContract + the migration 275 static test.
 	SourceTimesfm Source = "timesfm"
+	// SourceCausalGraph is the 0.5.83 WL3 issue causal-graph lab. It is
+	// server-native (no subprocess, no leader agent in this phase): the
+	// causal_node / causal_edge tables, the gated REST surface, and the
+	// Tier A/B recorders all live in the Go server. The lock source is
+	// reserved now so a later phase can Claim the lab's lifecycle
+	// marker; migration 279 widened the SQL CHECK in the same release —
+	// without it Claim("causal_graph") would reject with 23514 (the
+	// 0.5.82 lesson). Same duplication law as timesfm: the literal
+	// "causal_graph" is VERBATIM across experimental/handler/desktop
+	// packages — pinned by TestCatalogAutoDispatchContract + the
+	// migration 276-279 static test.
+	SourceCausalGraph Source = "causal_graph"
 )
 
 // AllSources is the developer-facing read-only list of every known
@@ -147,6 +159,7 @@ var AllSources = []Source{
 	SourceSwarmTopology,
 	SourceSemantica,
 	SourceTimesfm,
+	SourceCausalGraph,
 }
 
 // Valid reports whether s is in AllSources.

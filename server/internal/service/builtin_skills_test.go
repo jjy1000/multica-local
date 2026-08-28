@@ -685,3 +685,59 @@ func splitFrontmatter(content string) (map[string]string, string, bool) {
 	}
 	return fm, body, true
 }
+
+// TestCausalGraphCuratorSkillContract locks the 0.5.83 WL3 tier-D
+// contract: the curator skill is hidden (no user invocation), speaks
+// the real suggestions endpoint, requires rationale, respects the 0.5
+// ceiling and the suggested gate, stays out of the issue thread — and
+// never coaches a direct active-edge write or self-confirmation.
+func TestCausalGraphCuratorSkillContract(t *testing.T) {
+	skill, ok := findSkill(t, "multica-causal-graph-curator")
+	if !ok {
+		return
+	}
+	fm, body, _ := splitFrontmatter(skill.Content)
+
+	if got := strings.TrimSpace(fm["user-invocable"]); got != "false" {
+		t.Errorf("user-invocable = %q, want false (the curator is hidden-team only)", got)
+	}
+	if got := strings.TrimSpace(fm["allowed-tools"]); !strings.Contains(got, "Bash(multica *)") {
+		t.Errorf("allowed-tools = %q, want access to the Multica CLI", got)
+	}
+
+	mustContain := []string{
+		"/api/causal-graph/suggestions",
+		"multica experimental flags list",
+		"causal_graph",
+		// The tier-D gate, stated as the contract.
+		"status='suggested'",
+		"0.5",
+		// Evidence discipline.
+		"rationale",
+		"Never fabricate",
+		// Read window via the CLI.
+		"multica issue get",
+		"multica issue comment list",
+		// Graph reads before writes.
+		"/api/causal-graph/nodes",
+		// Conversation discipline.
+		"Stay silent in the issue thread",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(body, want) {
+			t.Errorf("curator skill missing %q", want)
+		}
+	}
+
+	// The curator must never be taught the bypass surface: direct
+	// active-edge writes or self-confirmation of proposals.
+	mustNotContain := []string{
+		"POST /api/causal-graph/edges",
+		"/edges/{edgeID}/confirm",
+	}
+	for _, bad := range mustNotContain {
+		if strings.Contains(body, bad) {
+			t.Errorf("curator skill must not teach %q", bad)
+		}
+	}
+}

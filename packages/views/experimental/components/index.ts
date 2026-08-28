@@ -16,4 +16,4 @@ export {
   type SwarmTopologyGraphProps,
 } from "./swarm-topology-graph";
 export { SwarmInterruptBar, type SwarmInterruptBarProps } from "./swarm-interrupt-bar";
-export { SemanticaModeBanner, type SemanticaMode } from "./semantica-mode-banner";
+export { SemanticaModeBanner, type SemanticaMode } from "./semantica-mode-banner";export { CausalMinimap, CAUSAL_NODE_TYPE_COLORS } from "./causal-minimap";

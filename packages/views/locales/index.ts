@@ -43,6 +43,7 @@ import enSettings from "./en/settings.json";
 import enSkills from "./en/skills.json";
 import enSquads from "./en/squads.json";
 import enSwarm from "./en/swarm.json";
+import enCausalGraph from "./en/causal-graph.json";
 import enTimesfm from "./en/timesfm.json";
 import enUi from "./en/ui.json";
 import enUsage from "./en/usage.json";
@@ -75,6 +76,7 @@ import jaSettings from "./ja/settings.json";
 import jaSkills from "./ja/skills.json";
 import jaSquads from "./ja/squads.json";
 import jaSwarm from "./ja/swarm.json";
+import jaCausalGraph from "./ja/causal-graph.json";
 import jaTimesfm from "./ja/timesfm.json";
 import jaUi from "./ja/ui.json";
 import jaUsage from "./ja/usage.json";
@@ -107,6 +109,7 @@ import koSettings from "./ko/settings.json";
 import koSkills from "./ko/skills.json";
 import koSquads from "./ko/squads.json";
 import koSwarm from "./ko/swarm.json";
+import koCausalGraph from "./ko/causal-graph.json";
 import koTimesfm from "./ko/timesfm.json";
 import koUi from "./ko/ui.json";
 import koUsage from "./ko/usage.json";
@@ -139,6 +142,7 @@ import zhHansSettings from "./zh-Hans/settings.json";
 import zhHansSkills from "./zh-Hans/skills.json";
 import zhHansSquads from "./zh-Hans/squads.json";
 import zhHansSwarm from "./zh-Hans/swarm.json";
+import zhHansCausalGraph from "./zh-Hans/causal-graph.json";
 import zhHansTimesfm from "./zh-Hans/timesfm.json";
 import zhHansUi from "./zh-Hans/ui.json";
 import zhHansUsage from "./zh-Hans/usage.json";
@@ -172,6 +176,7 @@ const en: LocaleResources = {
   skills: enSkills,
   squads: enSquads,
   swarm: enSwarm,
+  "causal-graph": enCausalGraph,
   timesfm: enTimesfm,
   ui: enUi,
   usage: enUsage,
@@ -206,6 +211,7 @@ const zhHans: LocaleResources = {
   skills: zhHansSkills,
   squads: zhHansSquads,
   swarm: zhHansSwarm,
+  "causal-graph": zhHansCausalGraph,
   timesfm: zhHansTimesfm,
   ui: zhHansUi,
   usage: zhHansUsage,
@@ -240,6 +246,7 @@ const ko: LocaleResources = {
   skills: koSkills,
   squads: koSquads,
   swarm: koSwarm,
+  "causal-graph": koCausalGraph,
   timesfm: koTimesfm,
   ui: koUi,
   usage: koUsage,
@@ -274,6 +281,7 @@ const ja: LocaleResources = {
   skills: jaSkills,
   squads: jaSquads,
   swarm: jaSwarm,
+  "causal-graph": jaCausalGraph,
   timesfm: jaTimesfm,
   ui: jaUi,
   usage: jaUsage,

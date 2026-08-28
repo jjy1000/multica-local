@@ -62,6 +62,7 @@
     "experimental_swarm_topology": "蜂群拓扑",
     "experimental_semantica": "Semantica 探索器",
     "error_fallback": "侧边栏渲染失败。",
-    "error_retry": "重试"
+    "error_retry": "重试",
+    "experimental_causal_graph": "问题因果图谱"
   }
 }

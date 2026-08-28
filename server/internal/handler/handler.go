@@ -24,14 +24,15 @@ import (
 	"github.com/multica-ai/multica/server/internal/featureflagdispatch"
 	"github.com/multica-ai/multica/server/internal/integrations/channel/engine"
 	"github.com/multica-ai/multica/server/internal/integrations/lark"
-	"github.com/multica-ai/multica/server/internal/llmwiki"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
+	"github.com/multica-ai/multica/server/internal/llmwiki"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/service"
 	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
 	agenttrust "github.com/multica-ai/multica/server/internal/service/agent_trust"
+	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	swarmsvc "github.com/multica-ai/multica/server/internal/service/swarm"
 	"github.com/multica-ai/multica/server/internal/storage"
@@ -128,7 +129,7 @@ type Handler struct {
 	// (MUL-6243 custom issue statuses). Wired from RouterOptions.FeatureFlags
 	// in cmd/server/router.go. Nil is valid — pkg/featureflag.Service is
 	// nil-tolerant and reads every flag as its default (off).
-	FeatureFlags       *featureflag.Service
+	FeatureFlags *featureflag.Service
 	// IssueStatusCatalog reads the workspace status catalog. Defaults to
 	// Queries; a test can substitute a counting wrapper to assert HOW MANY
 	// catalog reads a request performs, which is the only property that
@@ -340,6 +341,11 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 
 	taskSvc := service.NewTaskService(queries, txStarter, hub, bus, daemonHub)
 	taskSvc.Analytics = analyticsClient
+	// 0.5.83 WL3: Tier A native-provenance recorder for the issue
+	// causal graph. Flag-gated internally (FlagEnabledForAnyUser);
+	// flag-off costs one indexed EXISTS and zero writes. Nil would
+	// disable recording entirely (tests / minimal builds).
+	taskSvc.CausalRecorder = causalgraph.New(queries)
 	return &Handler{
 		Queries:               queries,
 		DB:                    executor,

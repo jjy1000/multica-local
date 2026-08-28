@@ -85,6 +85,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/experimental"
+	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -273,6 +274,16 @@ func (h *Handler) postDecisionSync(
 		"visibility", visibility,
 		"mode", mode)
 
+	// 0.5.83 WL3 Tier B: mirror the exported decision BACK into the
+	// causal graph as a decision node (roadmap §3.0 Tier B — the
+	// semantica listener above stays exactly as-is; this is the second,
+	// causal_graph-flag-scoped write). Best-effort and gated: when the
+	// causal_graph flag is off (or the mirror errors) nothing here can
+	// affect the decision export. The mirror rides the same goroutine,
+	// after the upstream 2xx, so a mirrored node implies a delivered
+	// decision.
+	h.mirrorDecisionToCausalGraph(row, status, actorType, actorID, decision.ID)
+
 	// Write-through to semantica_local_decision_acl. Best-effort: a
 	// transient DB error here does NOT roll back the upstream POST
 	// (the upstream is the source of truth — its own upsert-on-id
@@ -346,4 +357,79 @@ func buildSemanticaDecision(row db.Issue, status, actorType string, actorID pgty
 	}
 	d.Provenance.OccurredAt = time.Now().UTC().Format(time.RFC3339)
 	return d
+}
+
+// mirrorDecisionToCausalGraph is the Tier B mirror body (0.5.83 WL3,
+// roadmap §3.0). Factored out of postDecisionSync so the causal-graph
+// write stays out of the decision-export fast path's error contract:
+// nil queries, flag-off, and every write error are swallowed with a
+// WRN — the decision export already succeeded by the time this runs.
+//
+// The decision node dedups on provenance dedup_key "decision:<id>"
+// (the export's decision id is deterministic per issue: multica_<uuid>),
+// so a re-export of the same issue collapses onto the existing node —
+// only last_observed_at staleness is possible, which the maintenance
+// ticker reconciles (S2 phase).
+func (h *Handler) mirrorDecisionToCausalGraph(
+	row db.Issue,
+	status string,
+	actorType string,
+	actorID pgtype.UUID,
+	decisionID string,
+) {
+	if h == nil || h.Queries == nil {
+		return
+	}
+	rec := causalgraph.New(h.Queries)
+	if !rec.Enabled(context.Background()) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), semanticaDecisionTimeout)
+	defer cancel()
+
+	dedupKey := "decision:" + decisionID
+	if _, err := h.Queries.FindCausalNodeByDedupKey(ctx, db.FindCausalNodeByDedupKeyParams{
+		WorkspaceID: row.WorkspaceID,
+		DedupKey:    dedupKey,
+	}); err == nil {
+		return
+	}
+
+	if _, err := h.Queries.CreateCausalNode(ctx, db.CreateCausalNodeParams{
+		WorkspaceID: row.WorkspaceID,
+		IssueID:     pgtype.UUID{Valid: true, Bytes: row.ID.Bytes},
+		NodeType:    "decision",
+		Label:       truncateCausalLabel(row.Title, 120),
+		Provenance: mustJSONCausal(map[string]string{
+			"source":      "semantica_decision_sync",
+			"dedup_key":   dedupKey,
+			"decision_id": decisionID,
+			"issue_id":    util.UUIDToString(row.ID),
+			"actor_type":  actorType,
+			"actor_id":    util.UUIDToString(actorID),
+			"status":      status,
+		}),
+		CreatedBy: pgtype.Text{Valid: true, String: "system"},
+	}); err != nil {
+		slog.Warn("causal mirror: decision node write failed",
+			"issue_id", util.UUIDToString(row.ID),
+			"decision_id", decisionID,
+			"error", err)
+	}
+}
+
+func truncateCausalLabel(s string, max int) string {
+	if utf8.RuneCountInString(s) > max {
+		runes := []rune(s)
+		return string(runes[:max]) + "…"
+	}
+	return s
+}
+
+func mustJSONCausal(v map[string]string) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte("{}")
+	}
+	return b
 }
