@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > **TL;DR**: **localized single-user fork** of Multica (no telemetry, no OAuth, no cloud, username-only login — see **Localized Fork** below). Memory: `~/.claude/projects/-Users-jiangjianyan-jjy-multica-exploration-dev/memory/`. Backup: `.omc/backups/<date>/<release>-ship/` (auto per `ship-mac`). Single-command ship: `bash scripts/ship-mac.sh --yes`. Below: current release → key contracts → routing → ship chain → deferred/SKIPs.
 >
-> **Current release: 0.5.85** (2026-08-28, shipped from `epic/0.5.72-followups`; `/Applications/Multica.app` = 0.5.85, cold-start verify pending ship-mac). **0.5.85 — Causal graph P1 read-side (agent reads the graph).** The headline missing piece from the 0.5.83 audit is now closed: `handler/daemon.go::ClaimTaskByRuntime` injects a compact causal subgraph context into the agent briefing at claim time (read-once, BFS depth ≤ 2 from issue, top-20 nodes/edges, skip Tier D + status≠active, filter `blocks`/`contradicts` edge types + `assumption`/`evidence` node types, confidence ≥ 0.6, hard cap 16 000 bytes / ~4 000 tokens with `…(truncated, N more edges)` suffix, 200 ms `context.WithTimeout`, silent fallback on every error path — broken causal read must NEVER block claim). Files: `server/internal/service/causal_graph/claim_brief.go` (new, 435 LOC, BFS + filter + render) + `claim_brief_test.go` (new, 456 LOC, 15 DB-less unit tests, all PASS) + `handler/daemon.go` (+31 lines, wiring at line 1961 after WorkspaceContext injection, before token-mint — mirrors the existing `squad_briefing.go` pattern). No new flag, no new migration — pure code on existing schema. Flag-gated upstream via `experimental.DefaultFor("causal_graph")` so off-flag installs pay zero overhead. Cooperation projection: **read side 0% → ~70%**, **overall ≈ 40-45% → ≈ 70-75%** — the loop is finally closed both ways (write side ~90% since 0.5.83, read side ~70% since 0.5.85). The 0.5.84 contracts (#8 trust ladder + #9 FLAG_ROUTE_SUFFIX + never-nag + TouchCausalNode callsite) all still hold. **0.5.86 next**: DB-backed handler integration tests for `ClaimTaskByRuntime` with the subgraph path active (the 15 unit tests cover pure logic, handler pin is a follow-up) + Tier C Pythia hypothesis→evidence closure + historian/verifier automation + evolver window bound. **0.5.85 ship gate had one unexpected detour**: `node_modules/turbo` was deleted by something between the 0.5.84 ship (12:30) and the 0.5.85 gate (15:49) — recovery is `CI=true pnpm install --frozen-lockfile` (28 s, no TTY prompt). Consider adding a `pnpm typecheck` integrity pre-check to `scripts/ship-mac.sh` so the gate fails fast instead of mid-build. Ship log: [`.omc/0.5.85-ship-2026-08-28.md`](.omc/0.5.85-ship-2026-08-28.md); release notes [`.omc/release-notes-0.5.85.md`](.omc/release-notes-0.5.85.md); 0.5.84 [`.omc/0.5.84-ship-2026-08-28.md`](.omc/0.5.84-ship-2026-08-28.md); audit [`.omc/0.5.83-post-ship-verification.md`](.omc/0.5.83-post-ship-verification.md).
+> **Current release: 0.5.85** (2026-08-28, shipped from `epic/0.5.72-followups`; `/Applications/Multica.app` = 0.5.85). **Causal graph loop finally closed both ways** — write side ~90% since 0.5.83 (Tier A native hooks + Tier B Semantica mirrors + nightly evolver + DB-anchored maintenance via mig 281), read side **0% → ~70%** since 0.5.85 (`handler/daemon.go::ClaimTaskByRuntime` injects compact causal subgraph context at claim time). Overall cooperation **~40-45% → ~70-75%**. The 0.5.84 contracts (#8 trust ladder + #9 FLAG_ROUTE_SUFFIX + never-nag + TouchCausalNode callsite) all still hold.
+>
+> **0.5.85 — Causal graph P1 read-side (agent reads the graph).** New file `server/internal/service/causal_graph/claim_brief.go` (435 LOC, BFS + filter + render) + `claim_brief_test.go` (456 LOC, 15 DB-less unit tests, all PASS) + `handler/daemon.go` (+31 lines, wiring at line 1961 after WorkspaceContext injection, before token-mint — mirrors `squad_briefing.go` pattern). Read-once at claim time, BFS depth ≤ 2, top-20 nodes/edges, skip Tier D + status≠active, filter `blocks`/`contradicts` edge types + `assumption`/`evidence` node types, confidence ≥ 0.6, hard cap 16 000 bytes / ~4 000 tokens with `…(truncated, N more edges)` suffix, 200 ms `context.WithTimeout`, silent fallback on every error path. No new flag, no new migration — pure code on existing schema. Flag-gated upstream via `experimental.DefaultFor("causal_graph")` so off-flag installs pay zero overhead. **0.5.86 next**: DB-backed handler integration tests for `ClaimTaskByRuntime` with the subgraph path active (the 15 unit tests cover pure logic, handler pin is a follow-up) + Tier C Pythia hypothesis→evidence closure + historian/verifier automation + evolver window bound. **0.5.85 ship gate detour**: `node_modules/turbo` was deleted between the 0.5.84 ship (12:30) and the 0.5.85 gate (15:49) — recovery is `CI=true pnpm install --frozen-lockfile` (28 s, no TTY prompt). Ship log: [`.omc/0.5.85-ship-2026-08-28.md`](.omc/0.5.85-ship-2026-08-28.md); release notes [`.omc/release-notes-0.5.85.md`](.omc/release-notes-0.5.85.md); 0.5.84 [`.omc/0.5.84-ship-2026-08-28.md`](.omc/0.5.84-ship-2026-08-28.md); audit [`.omc/0.5.83-post-ship-verification.md`](.omc/0.5.83-post-ship-verification.md).
 >
 > **0.5.82** (prior, WL2 TimesFM forecasting lab) load-bearing residues: flag key `timesfm` VERBATIM (same duplication law) + route split `/experimental/timesfm-lab` view vs bare `/experimental/timesfm` REST proxy (add BOTH sides to `FLAG_ROUTE_SUFFIX` + `routes.tsx` together); engine-down honesty (POST forecast 503s with NO synthetic envelope; `provenance` `model|seasonal_naive|mixed` never stripped when reporting); ICP-1 records-only (no manual trigger client-side, pinned); mig 275 taught the lock-CHECK-widen lesson. Full detail: [`.omc/release-notes-0.5.82.md`](.omc/release-notes-0.5.82.md). **0.5.81** (WL1 labs task-issue-first UX): `<IssueBreadcrumb/>` everywhere; ICP-3 deep-link round trip (`labRunHref()` out, `?run=` + `useDeepLinkRun` back; deep-link poll budget is **wall-clock 2s**, not frame-count); **gate-integrity lesson (load-bearing)**: final gates must be uncached, sequential `go test ./...` with `DATABASE_URL` exported — 0.5.83 re-confirmed it (concurrent CPU load flaked two wall-clock timing tests; serial rerun clean, 47 packages 0 FAIL).
 >
@@ -34,6 +36,36 @@ Each guide directory also carries an auto-synced `AGENTS.md` mirror (same
 content, discoverable by agent platforms that load `AGENTS.md`). The co-located
 `CLAUDE.md` is the source of truth; parity is enforced by
 `scripts/check-agents-docs-sync.mjs`.
+
+## Commands
+
+> **Single-command release**: `bash scripts/ship-mac.sh --yes` runs every ship-chain step end-to-end (snapshot → bundle-cli → build → package → nested-binary signing → cold-start verify), aborts on first failure, and is the canonical ship entry point per **Ship chain** below. `--build-only` stops before `/Applications` overwrite.
+
+For dev workflow (bootstrap, daily commands, worktree, run/serve/test, troubleshooting, destructive reset), see [`CONTRIBUTING.md`](./CONTRIBUTING.md) — the authoritative dev doc. Three compact reference patterns below are the ones that come up in every fix + ship cycle:
+
+```bash
+# Single Go test (from server/)
+cd server && go test -run TestName -count=1 -timeout 60s ./internal/handler/
+
+# Single Vitest test (from repo root)
+pnpm test path/to/file.test.ts
+
+# Docs-sync check (run after any root CLAUDE.md edit, before commit)
+node scripts/check-agents-docs-sync.mjs
+```
+
+### Before packaging (fork-specific, NOT in CONTRIBUTING.md)
+
+```bash
+# 1. Data-safety snapshot (mandatory; exit 1 blocks packaging).
+bash ~/.multica/scripts/pre-update-snapshot.sh
+# 2. Apply pending migrations (surface SQL errors at build time, not first launch).
+cd server && go run ./cmd/migrate up
+```
+
+### Version source (fork-specific)
+
+This checkout's tags are `pre-update-*` snapshot markers, not release tags — `git describe --tags` returns `pre-update-...-g<sha>`. `bundle-cli.mjs` falls back to `apps/desktop/package.json` → `version` whenever the result is empty or a `pre-update-` marker. **`apps/desktop/package.json` is the canonical version source. Bump only that file.**
 
 ## Localized Fork
 
@@ -185,36 +217,6 @@ Pinned versions — do not bump casually:
 | PostgreSQL | 17 with pgvector | `pgvector/pgvector:pg17` (CI service) |
 
 `apps/mobile/` pins Expo / React Native versions directly and is excluded from root turbo pipelines.
-
-## Commands
-
-> **Single-command release**: `bash scripts/ship-mac.sh --yes` runs every ship-chain step end-to-end (snapshot → bundle-cli → build → package → nested-binary signing → cold-start verify), aborts on first failure, and is the canonical ship entry point per **Ship chain** below. `--build-only` stops before `/Applications` overwrite.
-
-For dev workflow (bootstrap, daily commands, worktree, run/serve/test, troubleshooting, destructive reset), see [`CONTRIBUTING.md`](./CONTRIBUTING.md) — the authoritative dev doc. Three compact reference patterns below are the ones that come up in every fix + ship cycle:
-
-```bash
-# Single Go test (from server/)
-cd server && go test -run TestName -count=1 -timeout 60s ./internal/handler/
-
-# Single Vitest test (from repo root)
-pnpm test path/to/file.test.ts
-
-# Docs-sync check (run after any root CLAUDE.md edit, before commit)
-node scripts/check-agents-docs-sync.mjs
-```
-
-### Before packaging (fork-specific, NOT in CONTRIBUTING.md)
-
-```bash
-# 1. Data-safety snapshot (mandatory; exit 1 blocks packaging).
-bash ~/.multica/scripts/pre-update-snapshot.sh
-# 2. Apply pending migrations (surface SQL errors at build time, not first launch).
-cd server && go run ./cmd/migrate up
-```
-
-### Version source (fork-specific)
-
-This checkout's tags are `pre-update-*` snapshot markers, not release tags — `git describe --tags` returns `pre-update-...-g<sha>`. `bundle-cli.mjs` falls back to `apps/desktop/package.json` → `version` whenever the result is empty or a `pre-update-` marker. **`apps/desktop/package.json` is the canonical version source. Bump only that file.**
 
 ## Authentication
 
