@@ -4,12 +4,19 @@
 //
 //   - stale-marking: causal_node rows not observed for 30 days go
 //     status='stale'. Constraint/assumption nodes are EXEMPT — they
-//     are the long-lived anchors (issue roots especially: nothing
-//     touches them after creation, TouchCausalNode has no callers
-//     yet, and the issue icon popup reads status='active').
+//     are the long-lived anchors (issue roots especially).
 //   - suggested GC: unconfirmed tier-D proposals older than 30 days
 //     are deleted. Rejected tombstones (mig 280) are the audit trail
 //     and are kept FOREVER — they are what keeps proposers silent.
+//
+// 0.5.84 P0 #3: TouchCausalNode + the bulk RefreshCausalNodesForIssue
+// helper are now wired into the hot paths (UpdateIssue,
+// CreateComment, enqueueIssueTask, enqueueMentionTask, CompleteTask
+// via the Recorder.RefreshForIssue wrapper). last_observed_at
+// therefore tracks real activity on the issue instead of being
+// frozen at INSERT — chains stay alive past the 30-day stale
+// ladder instead of going dark. The recorder is best-effort
+// and flag-gated; flag-off keeps the existing dormant state.
 //
 // Orphan reconcile needs no pass: every FK in causal_node /
 // causal_edge is ON DELETE CASCADE (migs 277-278), so issue or node

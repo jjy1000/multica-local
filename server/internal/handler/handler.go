@@ -119,6 +119,14 @@ type Handler struct {
 	TaskService           *service.TaskService
 	IssueService          *service.IssueService
 	AutopilotService      *service.AutopilotService
+	// CausalRecorder is the 0.5.83/0.5.84 WL3 native-provenance hook
+	// for the issue causal graph. Same instance wired into
+	// taskSvc.CausalRecorder; duplicated on Handler so the
+	// handler-layer hot paths (UpdateIssue, CreateComment) can
+	// touch last_observed_at without reaching through TaskService.
+	// Flag-gated internally; nil disables recording (tests /
+	// minimal builds). Wired in New() alongside taskSvc wiring.
+	CausalRecorder        *causalgraph.Recorder
 	EmailService          *service.EmailService
 	UpdateStore           UpdateStore
 	ModelListStore        ModelListStore
@@ -356,6 +364,10 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 		Bus:                   bus,
 		TaskService:           taskSvc,
 		IssueService:          service.NewIssueService(queries, txStarter, bus, analyticsClient, taskSvc),
+		// 0.5.84 P0 #3: share the same recorder instance so the
+		// handler-layer UpdateIssue / CreateComment hot paths can
+		// call RefreshForIssue without bouncing through TaskService.
+		CausalRecorder:        taskSvc.CausalRecorder,
 		AutopilotService:      service.NewAutopilotService(queries, txStarter, bus, taskSvc),
 		EmailService:          emailService,
 		UpdateStore:           NewInMemoryUpdateStore(),

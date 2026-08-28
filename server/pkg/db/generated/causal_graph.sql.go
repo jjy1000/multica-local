@@ -853,6 +853,45 @@ func (q *Queries) ListIssueDependents(ctx context.Context, issueID pgtype.UUID) 
 	return items, nil
 }
 
+const refreshCausalNodesForIssue = `-- name: RefreshCausalNodesForIssue :execrows
+WITH touch AS (
+    SELECT id FROM causal_node
+    WHERE status = 'active' AND issue_id = $1::uuid
+    UNION
+    SELECT DISTINCT e.from_node_id AS id FROM causal_edge e
+    JOIN causal_node n ON e.to_node_id = n.id
+    WHERE n.issue_id = $1::uuid
+      AND n.status = 'active'
+      AND e.from_node_id <> n.id
+    UNION
+    SELECT DISTINCT e.to_node_id AS id FROM causal_edge e
+    JOIN causal_node n ON e.from_node_id = n.id
+    WHERE n.issue_id = $1::uuid
+      AND n.status = 'active'
+      AND e.to_node_id <> n.id
+)
+UPDATE causal_node SET last_observed_at = now()
+WHERE status = 'active' AND id IN (SELECT id FROM touch)
+`
+
+// 0.5.84 P0 #3 fix: bulk-touch last_observed_at on every active
+// node whose primary issue matches AND on every active 1-hop
+// graph neighbor (nodes linked via an edge to any primary node).
+// Wired from UpdateIssue / CreateComment / enqueueTask /
+// CompleteTask hot paths so volatile node types (action /
+// outcome / decision / evidence) do not flip to status='stale'
+// after 30 days. Constraint/assumption nodes are exempt from the
+// stale ladder (the maintenance ticker keeps them exempt), but
+// touching them here is harmless and keeps recent issue activity
+// surfaced on long-lived anchor nodes.
+func (q *Queries) RefreshCausalNodesForIssue(ctx context.Context, issueID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, refreshCausalNodesForIssue, issueID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const rejectCausalEdge = `-- name: RejectCausalEdge :one
 UPDATE causal_edge
 SET status = 'rejected'

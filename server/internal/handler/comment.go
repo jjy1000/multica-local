@@ -1347,6 +1347,15 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	// must keep the resolved root in sync.
 	h.TaskService.AutoUnresolveThreadOnReply(r.Context(), rootComment, uuidToString(issue.WorkspaceID), authorType, authorID)
 
+	// 0.5.84 P0 #3: bulk-touch the causal graph for this issue.
+	// Comments are user-visible activity on the issue — they must
+	// keep the issue's nodes alive past the 30-day stale ladder
+	// the same way UpdateIssue / enqueueTask / CompleteTask do.
+	// nil-safe / flag-gated inside the recorder.
+	if h.CausalRecorder != nil {
+		h.CausalRecorder.RefreshForIssue(r.Context(), issue.ID)
+	}
+
 	// The comment is already saved; a blocked mention must not fail the whole
 	// request. Surface the per-target outcomes so the client can show partial
 	// success instead of a silent no-op (MUL-4525 §2).
