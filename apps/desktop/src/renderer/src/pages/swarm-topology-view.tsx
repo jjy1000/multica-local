@@ -42,6 +42,13 @@ import { useT } from "@multica/views/i18n";
 
 const API_BASE = "/api/experimental/swarm-topology";
 
+// 0.5.86 swarm consolidation notice text (kept as a tiny component so
+// the hook ordering of the main view is untouched).
+function BannerT() {
+  const { t } = useT("swarm");
+  return <>{t(($) => $.consolidation_notice)}</>;
+}
+
 interface SwarmRunState {
   run_id: string;
   status: string;
@@ -231,6 +238,17 @@ export function SwarmTopologyView({ initialRunId, workspaceId }: SwarmTopologyVi
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-8" data-testid="swarm-topology-view">
+      {/* 0.5.86 swarm consolidation: deprecation banner. The sidebar entry
+          point was removed from the manifest and new issue bindings are
+          frozen (HideFromIssueLabPicker) — mythos_swarm is the single
+          蜂群 lab. This view stays mounted (forward-only law) so the
+          historical runs remain readable. */}
+      <div
+        className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300"
+        data-testid="swarm-consolidation-notice"
+      >
+        <BannerT />
+      </div>
       {/* 0.5.81: back-link strip mounted at top of view. Reads ?issue= so
           it tracks whatever binding drove the navigation. */}
       <IssueBreadcrumb />

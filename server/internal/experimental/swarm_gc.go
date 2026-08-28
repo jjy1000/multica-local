@@ -238,6 +238,29 @@ func (g *SwarmGC) sweep() {
 	}
 	g.cfg.Logger.Info("swarm_gc sweep done", "count", len(rows))
 
+	// 0.5.86 GC hardening: reap NON-terminal runs whose wall-clock
+	// age exceeds 2× their own max_runtime_hours. ResumeOrchestration
+	// re-adopts every non-terminal run at server boot, which reset the
+	// old in-process 72h timer on every restart — migration 283 had to
+	// fail the resulting immortal zombies. Marking them failed here
+	// first lets the normal archiveOne path (next sweep) cascade the
+	// roles, visibility, lock, and agent rows.
+	stalled, err := g.cfg.Queries.ListStalledSwarmRunsForGC(ctx, int32(100))
+	if err != nil {
+		g.cfg.Logger.Warn("swarm_gc stalled list failed", "err", err.Error())
+	} else if len(stalled) > 0 {
+		g.cfg.Logger.Info("swarm_gc reaping stalled runs", "count", len(stalled))
+		for _, row := range stalled {
+			if _, err := g.cfg.Queries.SetSwarmRunStatus(ctx, db.SetSwarmRunStatusParams{
+				ID:     row.ID,
+				Status: "failed",
+			}); err != nil {
+				g.cfg.Logger.Warn("swarm_gc stall-fail failed",
+					"id", row.ID.String(), "err", err.Error())
+			}
+		}
+	}
+
 	// Always run the trash sweep after archive; the GC is
 	// monolithic by design (one sweep per tick keeps failure
 	// handling simple).
@@ -293,6 +316,16 @@ func (g *SwarmGC) archiveOne(ctx context.Context, row db.SwarmRun) error {
 	}{
 		{"archive_roles", func() error {
 			return g.cfg.Queries.ArchiveSwarmRolesByRun(ctx, row.ID)
+		}},
+		// 0.5.86 GC hardening: soft-delete the role AGENT rows
+		// themselves. The 0.5.22 cascade archived role rows and
+		// removed visibility, but an interrupted bootstrap could
+		// still strand a live agent row forever (the SKILL.md's
+		// "archive the agents" cleanup step was prose-only).
+		// ArchiveSwarmRoleAgentRows is WHERE-guarded on
+		// archived_at IS NULL so it never touches anything else.
+		{"archive_role_agent_rows", func() error {
+			return g.cfg.Queries.ArchiveSwarmRoleAgentRows(ctx, roleAgentIDs)
 		}},
 		{"remove_visibility_rows", func() error {
 			for _, agentID := range roleAgentIDs {

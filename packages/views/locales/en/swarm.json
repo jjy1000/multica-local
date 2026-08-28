@@ -72,5 +72,6 @@
     "ready": "Ready",
     "idle": "Idle",
     "archived": "Archived"
-  }
+  },
+  "consolidation_notice": "This swarm plugin has been consolidated and retired: use the single \"Mythos Swarm\" entry in the sidebar. Past runs remain viewable here."
 }

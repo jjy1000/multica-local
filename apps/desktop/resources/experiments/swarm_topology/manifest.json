@@ -14,9 +14,7 @@
   "spec": {
     "capabilities": {},
     "entry_points": {
-      "sidebar": [
-        { "key": "swarm_topology", "label_key": "experimental_swarm_topology", "route": "/experimental/swarm-topology" }
-      ]
+      "sidebar": []
     },
     "runtime": { "kind": "headless" }
   }

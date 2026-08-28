@@ -72,5 +72,6 @@
     "ready": "就绪",
     "idle": "空闲",
     "archived": "已归档"
-  }
+  },
+  "consolidation_notice": "此蜂群插件已合并退役：请改用侧边栏的「Mythos 蜂群」(Mythos Swarm)。旧运行记录仍可在此查看。"
 }

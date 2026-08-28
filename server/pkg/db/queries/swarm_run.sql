@@ -287,3 +287,28 @@ SET status = 'running',
     last_heartbeat_at = now()
 WHERE id = @role_id::uuid
   AND status = 'ready';
+
+-- name: ListStalledSwarmRunsForGC :many
+-- 0.5.86 GC hardening: non-terminal runs whose wall-clock started_at is
+-- older than 2× their own max_runtime_hours. ResumeOrchestration
+-- re-adopts every non-terminal run at boot (resetting the in-process
+-- reap timer each time), so started_at is the only honest clock — the
+-- historical zombies migration 283 fails are now impossible to grow
+-- back. make_interval keeps the arithmetic in SQL (integer column).
+SELECT * FROM swarm_run
+WHERE status NOT IN ('completed','aborted','failed','cancelled')
+  AND started_at < now() - make_interval(hours => GREATEST(max_runtime_hours, 1)::int * 2)
+ORDER BY started_at ASC
+LIMIT $1;
+
+-- name: ArchiveSwarmRoleAgentRows :exec
+-- 0.5.86 GC hardening: archiveOne archived swarm_role rows and removed
+-- agent visibility rows, but the AGENT rows themselves stayed live —
+-- an interrupted bootstrap could strand a role agent forever (the
+-- SKILL.md's "archive the agents" step was prose-only). Soft-delete the
+-- run's role agents; never touches already-archived rows.
+UPDATE agent
+SET archived_at = now(),
+    status = 'offline'
+WHERE id = ANY($1::uuid[])
+  AND archived_at IS NULL;

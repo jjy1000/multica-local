@@ -72,5 +72,6 @@
     "ready": "준비됨",
     "idle": "유휴",
     "archived": "보관됨"
-  }
+  },
+  "consolidation_notice": "이 스웜 플러그인은 통합되었습니다. 사이드바의 \"Mythos Swarm\"을 이용해 주세요. 과거 실행 기록은 여기서 계속 볼 수 있습니다."
 }

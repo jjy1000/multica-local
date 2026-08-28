@@ -11,6 +11,24 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const archiveSwarmRoleAgentRows = `-- name: ArchiveSwarmRoleAgentRows :exec
+UPDATE agent
+SET archived_at = now(),
+    status = 'offline'
+WHERE id = ANY($1::uuid[])
+  AND archived_at IS NULL
+`
+
+// 0.5.86 GC hardening: archiveOne archived swarm_role rows and removed
+// agent visibility rows, but the AGENT rows themselves stayed live —
+// an interrupted bootstrap could strand a role agent forever (the
+// SKILL.md's "archive the agents" step was prose-only). Soft-delete the
+// run's role agents; never touches already-archived rows.
+func (q *Queries) ArchiveSwarmRoleAgentRows(ctx context.Context, dollar_1 []pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, archiveSwarmRoleAgentRows, dollar_1)
+	return err
+}
+
 const archiveSwarmRolesByRun = `-- name: ArchiveSwarmRolesByRun :exec
 UPDATE swarm_role SET status = 'archived' WHERE swarm_run_id = $1
 `
@@ -540,6 +558,55 @@ func (q *Queries) ListReadySwarmRolesByRun(ctx context.Context, swarmRunID pgtyp
 			&i.LastHeartbeatAt,
 			&i.CurrentStep,
 			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listStalledSwarmRunsForGC = `-- name: ListStalledSwarmRunsForGC :many
+SELECT id, workspace_id, creator_user_id, root_issue_id, problem, status, current_phase, topology_spec, max_runtime_hours, interrupted_at, interrupt_reason, started_at, completed_at, is_paused FROM swarm_run
+WHERE status NOT IN ('completed','aborted','failed','cancelled')
+  AND started_at < now() - make_interval(hours => GREATEST(max_runtime_hours, 1)::int * 2)
+ORDER BY started_at ASC
+LIMIT $1
+`
+
+// 0.5.86 GC hardening: non-terminal runs whose wall-clock started_at is
+// older than 2× their own max_runtime_hours. ResumeOrchestration
+// re-adopts every non-terminal run at boot (resetting the in-process
+// reap timer each time), so started_at is the only honest clock — the
+// historical zombies migration 283 fails are now impossible to grow
+// back. make_interval keeps the arithmetic in SQL (integer column).
+func (q *Queries) ListStalledSwarmRunsForGC(ctx context.Context, limit int32) ([]SwarmRun, error) {
+	rows, err := q.db.Query(ctx, listStalledSwarmRunsForGC, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SwarmRun{}
+	for rows.Next() {
+		var i SwarmRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CreatorUserID,
+			&i.RootIssueID,
+			&i.Problem,
+			&i.Status,
+			&i.CurrentPhase,
+			&i.TopologySpec,
+			&i.MaxRuntimeHours,
+			&i.InterruptedAt,
+			&i.InterruptReason,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.IsPaused,
 		); err != nil {
 			return nil, err
 		}
