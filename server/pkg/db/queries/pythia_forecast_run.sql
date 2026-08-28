@@ -22,3 +22,15 @@ FROM pythia_forecast_run
 WHERE issue_id = $1
 ORDER BY created_at DESC
 LIMIT $2;
+
+-- name: SetPythiaForecastRunReportComment :one
+-- 0.5.86: idempotency marker for the issue report writeback — the
+-- handler posts the report comment, then records its id here.
+-- COALESCE makes this exactly-once: a run whose marker is already set
+-- KEEPS it (the $2 value is ignored), and the query still returns the
+-- row instead of "no rows", so caller re-entry is a harmless no-op.
+UPDATE pythia_forecast_run
+SET report_comment_id = COALESCE(report_comment_id, $2)
+WHERE id = $1
+RETURNING *;
+

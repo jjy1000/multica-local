@@ -322,6 +322,23 @@ func (h *Handler) timesfmIssueForecast(w http.ResponseWriter, r *http.Request) {
 			"run_id", runID,
 			"horizon", horizon,
 			"provenance", provenance)
+
+		// 0.5.86 issue-delivery batch: the forecast summary lands IN
+		// the issue as the timesfm_oracle leader's comment (migration
+		// 282 report_comment_id = idempotency marker). Engine-down 503
+		// paths above return BEFORE any persist — nothing happened, so
+		// nothing is commented (honesty law). seasonal_naive /
+		// mixed provenance are labeled as such on the issue surface.
+		content := timesfmIssueReportContent(issue.Title, engineResp, provenance, horizon)
+		if commentID := postLabRunReportComment(persistCtx, h, issue.ID, issue.WorkspaceID, "timesfm_oracle", content); commentID.Valid {
+			if _, err := h.Queries.SetTimesfmForecastRunReportComment(persistCtx, dbpkg.SetTimesfmForecastRunReportCommentParams{
+				ID:              run.ID,
+				ReportCommentID: commentID,
+			}); err != nil {
+				slog.Warn("timesfm forecast: report_comment_id update failed",
+					"run_id", runID, "error", err)
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -441,4 +458,62 @@ func (h *Handler) timesfmIssueForecastRuns(w http.ResponseWriter, r *http.Reques
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// timesfmIssueReportContent renders the issue-first text summary of a
+// persisted forecast run. Provenance keeps the honesty law visible:
+// seasonal_naive / mixed are labeled as such instead of passing as
+// model output. Best-effort companion to the /experimental/timesfm-lab
+// view, which keeps the full quantile-band chart.
+func timesfmIssueReportContent(title string, resp timesfmEngineResponse, provenance string, horizon int) string {
+	var b strings.Builder
+	b.WriteString("📈 **TimesFM 预测报告**")
+	if title != "" {
+		b.WriteString(" ·《" + title + "》")
+	}
+	b.WriteString("\n\n")
+	b.WriteString("预测步长：" + strconv.Itoa(horizon) + " · 数据来源：" + timesfmProvenanceLabelZH(provenance) + "\n")
+	for i, sr := range resp.Series {
+		if i >= 5 {
+			b.WriteString("\n（仅展示前 5 条序列，完整分位数区间见实验室面板）\n")
+			break
+		}
+		last := "?"
+		mean := 0.0
+		if len(sr.Point) > 0 {
+			mean = sr.Point[len(sr.Point)-1]
+			last = strconv.FormatFloat(sr.Point[len(sr.Point)-1], 'f', -1, 64)
+			sum := 0.0
+			for _, v := range sr.Point {
+				sum += v
+			}
+			mean = sum / float64(len(sr.Point))
+		}
+		b.WriteString("\n**序列 " + strconv.Itoa(i+1) + "**：终值 " + last)
+		if len(sr.Point) > 1 {
+			b.WriteString(" · 均值 " + strconv.FormatFloat(mean, 'f', -1, 64))
+		}
+		if len(sr.Dates) > 0 {
+			b.WriteString(" · 末点 " + sr.Dates[len(sr.Dates)-1])
+		}
+		b.WriteString("\n")
+	}
+	if !resp.ModelPresent || provenance == "seasonal_naive" {
+		b.WriteString("\n说明：TimesFM 权重未放置，本结果为季节性朴素回退（非模型推理）。\n")
+	}
+	b.WriteString("\n完整分位数区间图见实验室「TimesFM 预测实验室」面板。")
+	return b.String()
+}
+
+func timesfmProvenanceLabelZH(provenance string) string {
+	switch provenance {
+	case "model":
+		return "TimesFM 模型推理"
+	case "seasonal_naive":
+		return "季节性朴素回退"
+	case "mixed":
+		return "模型推理 + 回退混合"
+	default:
+		return provenance
+	}
 }

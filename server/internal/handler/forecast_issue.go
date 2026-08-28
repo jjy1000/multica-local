@@ -361,13 +361,14 @@ func persistIssueForecastRun(r *http.Request, ifc *issueForecastContext, envelop
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
 	defer cancel()
-	if _, err := h.Queries.CreatePythiaForecastRun(ctx, dbpkg.CreatePythiaForecastRunParams{
+	run, err := h.Queries.CreatePythiaForecastRun(ctx, dbpkg.CreatePythiaForecastRunParams{
 		WorkspaceID: wsUUID,
 		IssueID:     issueUUID,
 		Rounds:      int32(len(envelopes)),
 		Source:      forecastRunSource(envelopes),
 		Envelopes:   payload,
-	}); err != nil {
+	})
+	if err != nil {
 		slog.Warn("pythia forecast: persist run failed",
 			"issue_id", ifc.IssueID,
 			"workspace_id", ifc.WorkspaceID,
@@ -381,6 +382,112 @@ func persistIssueForecastRun(r *http.Request, ifc *issueForecastContext, envelop
 		"workspace_id", ifc.WorkspaceID,
 		"rounds", len(envelopes),
 		"source", forecastRunSource(envelopes))
+
+	// 0.5.86 issue-delivery batch: the text report lands IN the issue
+	// as the pythia_runtime leader's comment (migration 282
+	// report_comment_id is the idempotency marker). Best-effort — a
+	// failed writeback must never fail the run. Auxiliary/trace labs
+	// never reach this path (InteractionModelAssignee contract).
+	wbCtx, wbCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 6*time.Second)
+	defer wbCancel()
+	content := pythiaIssueReportContent(ifc, envelopes, forecastRunSource(envelopes))
+	if commentID := postLabRunReportComment(wbCtx, h, issueUUID, wsUUID, "pythia_runtime", content); commentID.Valid {
+		if _, err := h.Queries.SetPythiaForecastRunReportComment(wbCtx, dbpkg.SetPythiaForecastRunReportCommentParams{
+			ID:              run.ID,
+			ReportCommentID: commentID,
+		}); err != nil {
+			slog.Warn("pythia forecast: report_comment_id update failed",
+				"run_id", util.UUIDToString(run.ID), "error", err)
+		}
+	}
+}
+
+// pythiaIssueReportContent renders the issue-first text report from the
+// run's envelopes. Chinese-first (the workspace owner reads zh); the
+// provenance line keeps the honesty law — synthetic / failover / mixed
+// runs are labeled as such instead of passing as engine output.
+func pythiaIssueReportContent(ifc *issueForecastContext, envelopes []forecastEnvelope, source string) string {
+	title := ""
+	if ifc != nil {
+		title = ifc.Title
+	}
+	var b strings.Builder
+	b.WriteString("🔮 **Pythia 预测报告**")
+	if title != "" {
+		b.WriteString(" ·《" + title + "》")
+	}
+	b.WriteString("\n\n")
+	b.WriteString("轮数：" + strconv.Itoa(len(envelopes)) + " · 来源：" + pythiaSourceLabelZH(source) + "\n")
+	for i, e := range envelopes {
+		if i >= 10 {
+			b.WriteString("\n（仅展示前 10 轮，完整结果见实验室面板）\n")
+			break
+		}
+		b.WriteString("\n**" + strconv.Itoa(i+1) + ". " + e.Scenario + "**")
+		details := ""
+		if e.Persona != "" {
+			details += "视角 " + e.Persona
+		}
+		if e.Horizon != "" {
+			if details != "" {
+				details += " · "
+			}
+			details += "时间尺度 " + e.Horizon
+		}
+		if details != "" {
+			b.WriteString("（" + details + "）")
+		}
+		b.WriteString("\n")
+		b.WriteString("概率 " + strconv.FormatFloat(e.Probability*100, 'f', 0, 64) + "% · 置信度 " + strconv.FormatFloat(e.Confidence*100, 'f', 0, 64) + "%\n")
+		if n := truncateReportRunes(e.Narrative, 140); n != "" {
+			b.WriteString(n + "\n")
+		}
+	}
+	b.WriteString("\n数据来源：" + pythiaSourceNoteZH(source) + "完整推演（世界视图 / 校准记录 / 对话推演）见实验室「Pythia 多视角预测」面板。")
+	return b.String()
+}
+
+// pythiaSourceLabelZH / pythiaSourceNoteZH keep the 0.5.82 honesty law
+// on the issue surface: a reader must be able to tell engine output
+// from seeded fallback data without opening the lab view.
+func pythiaSourceLabelZH(source string) string {
+	switch source {
+	case "oracle":
+		return "真实引擎推演"
+	case "synthetic":
+		return "本地回退数据"
+	case "synthetic_oracle_failover":
+		return "引擎失败后本地回退"
+	case "mixed":
+		return "混合来源"
+	default:
+		return source
+	}
+}
+
+func pythiaSourceNoteZH(source string) string {
+	switch source {
+	case "oracle":
+		return "全部轮次由 Pythia 引擎真实推演。"
+	case "synthetic":
+		return "引擎不可用，结果为本地回退数据（非真实推演）。"
+	case "synthetic_oracle_failover":
+		return "部分轮次引擎失败后由本地回退数据补充。"
+	case "mixed":
+		return "轮次来自多个来源（含真实推演与回退数据）。"
+	default:
+		return ""
+	}
+}
+
+// truncateReportRunes caps a narrative at n runes so a long LLM answer
+// cannot flood the issue timeline; the full text stays in the lab view.
+func truncateReportRunes(s string, n int) string {
+	runes := []rune(strings.TrimSpace(s))
+	if len(runes) <= n {
+		return string(runes)
+	}
+	return string(runes[:n]) + "…"
 }
 
 // forecastRunSource collapses the per-envelope `lab_source` provenance

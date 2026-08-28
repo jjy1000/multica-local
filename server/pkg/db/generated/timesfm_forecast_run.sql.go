@@ -18,7 +18,7 @@ INSERT INTO timesfm_forecast_run (
 ) VALUES (
     $1, $2, $3, $4, $5
 )
-RETURNING id, workspace_id, issue_id, horizons, provenance, result, created_at
+RETURNING id, workspace_id, issue_id, horizons, provenance, result, created_at, report_comment_id
 `
 
 type CreateTimesfmForecastRunParams struct {
@@ -51,12 +51,13 @@ func (q *Queries) CreateTimesfmForecastRun(ctx context.Context, arg CreateTimesf
 		&i.Provenance,
 		&i.Result,
 		&i.CreatedAt,
+		&i.ReportCommentID,
 	)
 	return i, err
 }
 
 const getTimesfmForecastRun = `-- name: GetTimesfmForecastRun :one
-SELECT id, workspace_id, issue_id, horizons, provenance, result, created_at
+SELECT id, workspace_id, issue_id, horizons, provenance, result, created_at, report_comment_id
 FROM timesfm_forecast_run
 WHERE id = $1
 `
@@ -72,12 +73,13 @@ func (q *Queries) GetTimesfmForecastRun(ctx context.Context, id pgtype.UUID) (Ti
 		&i.Provenance,
 		&i.Result,
 		&i.CreatedAt,
+		&i.ReportCommentID,
 	)
 	return i, err
 }
 
 const listTimesfmForecastRunsByIssue = `-- name: ListTimesfmForecastRunsByIssue :many
-SELECT id, workspace_id, issue_id, horizons, provenance, result, created_at
+SELECT id, workspace_id, issue_id, horizons, provenance, result, created_at, report_comment_id
 FROM timesfm_forecast_run
 WHERE issue_id = $1
 ORDER BY created_at DESC
@@ -106,6 +108,7 @@ func (q *Queries) ListTimesfmForecastRunsByIssue(ctx context.Context, arg ListTi
 			&i.Provenance,
 			&i.Result,
 			&i.CreatedAt,
+			&i.ReportCommentID,
 		); err != nil {
 			return nil, err
 		}
@@ -115,4 +118,34 @@ func (q *Queries) ListTimesfmForecastRunsByIssue(ctx context.Context, arg ListTi
 		return nil, err
 	}
 	return items, nil
+}
+
+const setTimesfmForecastRunReportComment = `-- name: SetTimesfmForecastRunReportComment :one
+UPDATE timesfm_forecast_run
+SET report_comment_id = COALESCE(report_comment_id, $2)
+WHERE id = $1
+RETURNING id, workspace_id, issue_id, horizons, provenance, result, created_at, report_comment_id
+`
+
+type SetTimesfmForecastRunReportCommentParams struct {
+	ID              pgtype.UUID `json:"id"`
+	ReportCommentID pgtype.UUID `json:"report_comment_id"`
+}
+
+// 0.5.86: idempotency marker for the issue report writeback (see
+// SetPythiaForecastRunReportComment).
+func (q *Queries) SetTimesfmForecastRunReportComment(ctx context.Context, arg SetTimesfmForecastRunReportCommentParams) (TimesfmForecastRun, error) {
+	row := q.db.QueryRow(ctx, setTimesfmForecastRunReportComment, arg.ID, arg.ReportCommentID)
+	var i TimesfmForecastRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.IssueID,
+		&i.Horizons,
+		&i.Provenance,
+		&i.Result,
+		&i.CreatedAt,
+		&i.ReportCommentID,
+	)
+	return i, err
 }

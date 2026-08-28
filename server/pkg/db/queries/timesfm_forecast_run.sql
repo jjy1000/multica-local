@@ -23,3 +23,12 @@ FROM timesfm_forecast_run
 WHERE issue_id = $1
 ORDER BY created_at DESC
 LIMIT $2;
+
+-- name: SetTimesfmForecastRunReportComment :one
+-- 0.5.86: idempotency marker for the issue report writeback (see
+-- SetPythiaForecastRunReportComment).
+UPDATE timesfm_forecast_run
+SET report_comment_id = COALESCE(report_comment_id, $2)
+WHERE id = $1
+RETURNING *;
+

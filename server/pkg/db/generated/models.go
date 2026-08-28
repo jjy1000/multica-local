@@ -330,6 +330,12 @@ type CausalEdge struct {
 	Status      string             `json:"status"`
 }
 
+type CausalGraphMaintenanceState struct {
+	ID          bool               `json:"id"`
+	LastSweepAt pgtype.Timestamptz `json:"last_sweep_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type CausalNode struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -1004,13 +1010,14 @@ type ProjectResource struct {
 }
 
 type PythiaForecastRun struct {
-	ID          pgtype.UUID        `json:"id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	IssueID     pgtype.UUID        `json:"issue_id"`
-	Rounds      int32              `json:"rounds"`
-	Source      string             `json:"source"`
-	Envelopes   []byte             `json:"envelopes"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID              pgtype.UUID        `json:"id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	IssueID         pgtype.UUID        `json:"issue_id"`
+	Rounds          int32              `json:"rounds"`
+	Source          string             `json:"source"`
+	Envelopes       []byte             `json:"envelopes"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ReportCommentID pgtype.UUID        `json:"report_comment_id"`
 }
 
 type RuntimeProfile struct {
@@ -1241,13 +1248,14 @@ type TaskUsageHourlyRollupState struct {
 }
 
 type TimesfmForecastRun struct {
-	ID          pgtype.UUID        `json:"id"`
-	WorkspaceID pgtype.UUID        `json:"workspace_id"`
-	IssueID     pgtype.UUID        `json:"issue_id"`
-	Horizons    int32              `json:"horizons"`
-	Provenance  string             `json:"provenance"`
-	Result      []byte             `json:"result"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ID              pgtype.UUID        `json:"id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	IssueID         pgtype.UUID        `json:"issue_id"`
+	Horizons        int32              `json:"horizons"`
+	Provenance      string             `json:"provenance"`
+	Result          []byte             `json:"result"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ReportCommentID pgtype.UUID        `json:"report_comment_id"`
 }
 
 type User struct {

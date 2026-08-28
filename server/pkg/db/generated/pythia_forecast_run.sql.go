@@ -18,7 +18,7 @@ INSERT INTO pythia_forecast_run (
 ) VALUES (
     $1, $2, $3, $4, $5
 )
-RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at
+RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id
 `
 
 type CreatePythiaForecastRunParams struct {
@@ -50,12 +50,13 @@ func (q *Queries) CreatePythiaForecastRun(ctx context.Context, arg CreatePythiaF
 		&i.Source,
 		&i.Envelopes,
 		&i.CreatedAt,
+		&i.ReportCommentID,
 	)
 	return i, err
 }
 
 const getPythiaForecastRun = `-- name: GetPythiaForecastRun :one
-SELECT id, workspace_id, issue_id, rounds, source, envelopes, created_at
+SELECT id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id
 FROM pythia_forecast_run
 WHERE id = $1
 `
@@ -71,12 +72,13 @@ func (q *Queries) GetPythiaForecastRun(ctx context.Context, id pgtype.UUID) (Pyt
 		&i.Source,
 		&i.Envelopes,
 		&i.CreatedAt,
+		&i.ReportCommentID,
 	)
 	return i, err
 }
 
 const listPythiaForecastRunsByIssue = `-- name: ListPythiaForecastRunsByIssue :many
-SELECT id, workspace_id, issue_id, rounds, source, envelopes, created_at
+SELECT id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id
 FROM pythia_forecast_run
 WHERE issue_id = $1
 ORDER BY created_at DESC
@@ -105,6 +107,7 @@ func (q *Queries) ListPythiaForecastRunsByIssue(ctx context.Context, arg ListPyt
 			&i.Source,
 			&i.Envelopes,
 			&i.CreatedAt,
+			&i.ReportCommentID,
 		); err != nil {
 			return nil, err
 		}
@@ -114,4 +117,37 @@ func (q *Queries) ListPythiaForecastRunsByIssue(ctx context.Context, arg ListPyt
 		return nil, err
 	}
 	return items, nil
+}
+
+const setPythiaForecastRunReportComment = `-- name: SetPythiaForecastRunReportComment :one
+UPDATE pythia_forecast_run
+SET report_comment_id = COALESCE(report_comment_id, $2)
+WHERE id = $1
+RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id
+`
+
+type SetPythiaForecastRunReportCommentParams struct {
+	ID              pgtype.UUID `json:"id"`
+	ReportCommentID pgtype.UUID `json:"report_comment_id"`
+}
+
+// 0.5.86: idempotency marker for the issue report writeback — the
+// handler posts the report comment, then records its id here.
+// COALESCE makes this exactly-once: a run whose marker is already set
+// KEEPS it (the $2 value is ignored), and the query still returns the
+// row instead of "no rows", so caller re-entry is a harmless no-op.
+func (q *Queries) SetPythiaForecastRunReportComment(ctx context.Context, arg SetPythiaForecastRunReportCommentParams) (PythiaForecastRun, error) {
+	row := q.db.QueryRow(ctx, setPythiaForecastRunReportComment, arg.ID, arg.ReportCommentID)
+	var i PythiaForecastRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.IssueID,
+		&i.Rounds,
+		&i.Source,
+		&i.Envelopes,
+		&i.CreatedAt,
+		&i.ReportCommentID,
+	)
+	return i, err
 }
