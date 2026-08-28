@@ -45,3 +45,77 @@ func TestCausalMaintenance_StopBeforeStartIsSafe(t *testing.T) {
 	m := NewCausalMaintenance(nil, CausalMaintenanceConfig{})
 	m.Stop()
 }
+
+// TestShouldSweepOnBoot pins the DB-anchor decision (0.5.84 P0 #4
+// "maintenance ticker DB-anchored against restart"). Pure function;
+// table-driven; no DB needed. The 31-day-ago case is the exact
+// scenario the audit called out: a 24h-cadence ticker restarted after
+// >24h of downtime must NOT wait another full Interval before its
+// first sweep.
+func TestShouldSweepOnBoot(t *testing.T) {
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name      string
+		lastSweep time.Time
+		interval  time.Duration
+		want      bool
+	}{
+		{
+			name:      "31d ago, 24h interval → sweep now (audit scenario)",
+			lastSweep: now.Add(-31 * 24 * time.Hour),
+			interval:  24 * time.Hour,
+			want:      true,
+		},
+		{
+			name:      "1h ago, 24h interval → wait for ticker",
+			lastSweep: now.Add(-1 * time.Hour),
+			interval:  24 * time.Hour,
+			want:      false,
+		},
+		{
+			name:      "exactly interval ago → sweep (boundary)",
+			lastSweep: now.Add(-24 * time.Hour),
+			interval:  24 * time.Hour,
+			want:      true,
+		},
+		{
+			name:      "just under interval → wait",
+			lastSweep: now.Add(-24*time.Hour + time.Millisecond),
+			interval:  24 * time.Hour,
+			want:      false,
+		},
+		{
+			name:      "zero interval (misconfig) → never sweep",
+			lastSweep: now.Add(-365 * 24 * time.Hour),
+			interval:  0,
+			want:      false,
+		},
+		{
+			name:      "49d ago, 30d interval → sweep (stale scenario)",
+			lastSweep: now.Add(-49 * 24 * time.Hour),
+			interval:  30 * 24 * time.Hour,
+			want:      true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldSweepOnBoot(tc.lastSweep, tc.interval, now)
+			if got != tc.want {
+				t.Errorf("shouldSweepOnBoot(%v, %v, %v) = %v, want %v",
+					tc.lastSweep.Format(time.RFC3339), tc.interval, now.Format(time.RFC3339),
+					got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCausalMaintenance_BootSweepSkipsOnNilPool pins that a nil-pool
+// ticker (the db-less test path) short-circuits bootSweep without
+// panicking — bootSweep must never touch the DB on a nil pool.
+func TestCausalMaintenance_BootSweepSkipsOnNilPool(t *testing.T) {
+	m := NewCausalMaintenance(nil, CausalMaintenanceConfig{Interval: 24 * time.Hour})
+	m.bootSweep() // must not panic; sweepCount unchanged
+	if m.SweepCount() != 0 {
+		t.Errorf("bootSweep with nil pool should not increment SweepCount, got %d", m.SweepCount())
+	}
+}
