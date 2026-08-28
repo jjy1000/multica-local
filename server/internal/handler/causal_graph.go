@@ -20,7 +20,7 @@
 //	GET    /api/causal-graph/subgraph?issue_id=&depth=   → {nodes, edges, depth}
 //	GET    /api/causal-graph/path?from=&to=              → {nodes, edges} | 404
 //	POST   /api/causal-graph/edges/{edgeID}/confirm      suggested → active (Tier D gate)
-//	POST   /api/causal-graph/edges/{edgeID}/reject       suggested → deleted
+//	POST   /api/causal-graph/edges/{edgeID}/reject       suggested → rejected tombstone (mig 280)
 //
 // Law notes:
 //

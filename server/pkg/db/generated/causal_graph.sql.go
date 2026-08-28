@@ -21,8 +21,11 @@ RETURNING id, workspace_id, from_node_id, to_node_id, type, weight, confidence, 
 // Curation gate (Tier D): confirm promotes a suggested edge to
 // active; the partial unique index may reject if an active edge with
 // the same (from, to, type) triple materialised meanwhile — the
-// handler maps that SQLSTATE to 409. Reject deletes the proposal;
-// only suggested rows qualify (0 rows = 409 in the handler).
+// handler maps that SQLSTATE to 409. Reject TOMBSTONES the proposal
+// (mig 280): the row stays as an audit trail and a never-nag dedup
+// anchor (proposers probe FindCausalEdgeBetween, any status, before
+// re-proposing). Only suggested rows qualify (0 rows = 409 in the
+// handler).
 func (q *Queries) ConfirmCausalEdge(ctx context.Context, edgeID pgtype.UUID) (CausalEdge, error) {
 	row := q.db.QueryRow(ctx, confirmCausalEdge, edgeID)
 	var i CausalEdge
@@ -249,6 +252,45 @@ DELETE FROM issue_dependency WHERE id = $1::uuid
 func (q *Queries) DeleteIssueDependency(ctx context.Context, dependencyID pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteIssueDependency, dependencyID)
 	return err
+}
+
+const findCausalEdgeBetween = `-- name: FindCausalEdgeBetween :one
+SELECT id, workspace_id, from_node_id, to_node_id, type, weight, confidence, metadata, provenance, created_at, created_by, proposed_by, status
+FROM causal_edge
+WHERE from_node_id = $1::uuid
+  AND to_node_id = $2::uuid
+  AND type = $3::text
+LIMIT 1
+`
+
+type FindCausalEdgeBetweenParams struct {
+	FromNodeID pgtype.UUID `json:"from_node_id"`
+	ToNodeID   pgtype.UUID `json:"to_node_id"`
+	EdgeType   string      `json:"edge_type"`
+}
+
+// Any-status probe between a node pair: the evolver / curator scan
+// check this before proposing so a decided (confirmed OR rejected)
+// pair is never re-proposed — ICP-5 never-nag.
+func (q *Queries) FindCausalEdgeBetween(ctx context.Context, arg FindCausalEdgeBetweenParams) (CausalEdge, error) {
+	row := q.db.QueryRow(ctx, findCausalEdgeBetween, arg.FromNodeID, arg.ToNodeID, arg.EdgeType)
+	var i CausalEdge
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.FromNodeID,
+		&i.ToNodeID,
+		&i.Type,
+		&i.Weight,
+		&i.Confidence,
+		&i.Metadata,
+		&i.Provenance,
+		&i.CreatedAt,
+		&i.CreatedBy,
+		&i.ProposedBy,
+		&i.Status,
+	)
+	return i, err
 }
 
 const findCausalNodeByDedupKey = `-- name: FindCausalNodeByDedupKey :one
@@ -812,7 +854,8 @@ func (q *Queries) ListIssueDependents(ctx context.Context, issueID pgtype.UUID) 
 }
 
 const rejectCausalEdge = `-- name: RejectCausalEdge :one
-DELETE FROM causal_edge
+UPDATE causal_edge
+SET status = 'rejected'
 WHERE id = $1::uuid AND status = 'suggested'
 RETURNING id, workspace_id, from_node_id, to_node_id, type, weight, confidence, metadata, provenance, created_at, created_by, proposed_by, status
 `

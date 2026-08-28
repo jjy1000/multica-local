@@ -344,8 +344,46 @@ func TestCausalEdgeSuggestGate(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("reject: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if _, err := testHandler.Queries.GetCausalEdge(t.Context(), target.ID); err == nil {
-		t.Errorf("rejected edge still exists")
+
+	// Mig 280 tombstone: the row SURVIVES as status='rejected' — an
+	// audit trail and the never-nag dedup anchor (a re-proposal probe
+	// with FindCausalEdgeBetween must find it).
+	tombstoned, err := testHandler.Queries.GetCausalEdge(t.Context(), target.ID)
+	if err != nil {
+		t.Fatalf("rejected edge vanished (want rejected tombstone): %v", err)
+	}
+	if tombstoned.Status != "rejected" {
+		t.Errorf("rejected status = %q, want rejected", tombstoned.Status)
+	}
+	if _, err := testHandler.Queries.FindCausalEdgeBetween(t.Context(), db.FindCausalEdgeBetweenParams{
+		FromNodeID: tombstoned.FromNodeID,
+		ToNodeID:   tombstoned.ToNodeID,
+		EdgeType:   tombstoned.Type,
+	}); err != nil {
+		t.Errorf("never-nag probe missed the tombstone: %v", err)
+	}
+
+	// The suggested queue no longer lists it.
+	suggAfter, err := testHandler.Queries.ListCausalEdges(t.Context(), db.ListCausalEdgesParams{
+		WorkspaceID: mustParseUUID(t, testWorkspaceID),
+		EdgeStatus:  pgtype.Text{Valid: true, String: "suggested"},
+	})
+	if err != nil {
+		t.Fatalf("list suggested after reject: %v", err)
+	}
+	for _, row := range suggAfter {
+		if row.ID == tombstoned.ID {
+			t.Errorf("rejected tombstone still in the suggested queue")
+		}
+	}
+
+	// Re-rejecting the decided edge → 409.
+	w = httptest.NewRecorder()
+	req = newRequest("POST", "/api/causal-graph/edges/"+suggestedIDToString(tombstoned.ID)+"/reject?workspace_id="+testWorkspaceID, nil)
+	req = withURLParam(req, "edgeID", suggestedIDToString(tombstoned.ID))
+	testHandler.rejectCausalEdge(w, req)
+	if w.Code != http.StatusConflict {
+		t.Errorf("re-reject: expected 409, got %d", w.Code)
 	}
 }
 

@@ -149,8 +149,11 @@ WHERE status = 'active'
 -- Curation gate (Tier D): confirm promotes a suggested edge to
 -- active; the partial unique index may reject if an active edge with
 -- the same (from, to, type) triple materialised meanwhile — the
--- handler maps that SQLSTATE to 409. Reject deletes the proposal;
--- only suggested rows qualify (0 rows = 409 in the handler).
+-- handler maps that SQLSTATE to 409. Reject TOMBSTONES the proposal
+-- (mig 280): the row stays as an audit trail and a never-nag dedup
+-- anchor (proposers probe FindCausalEdgeBetween, any status, before
+-- re-proposing). Only suggested rows qualify (0 rows = 409 in the
+-- handler).
 -- name: ConfirmCausalEdge :one
 UPDATE causal_edge
 SET status = 'active', created_by = 'user'
@@ -158,9 +161,21 @@ WHERE id = sqlc.arg('edge_id')::uuid AND status = 'suggested'
 RETURNING *;
 
 -- name: RejectCausalEdge :one
-DELETE FROM causal_edge
+UPDATE causal_edge
+SET status = 'rejected'
 WHERE id = sqlc.arg('edge_id')::uuid AND status = 'suggested'
 RETURNING *;
+
+-- Any-status probe between a node pair: the evolver / curator scan
+-- check this before proposing so a decided (confirmed OR rejected)
+-- pair is never re-proposed — ICP-5 never-nag.
+-- name: FindCausalEdgeBetween :one
+SELECT *
+FROM causal_edge
+WHERE from_node_id = sqlc.arg('from_node_id')::uuid
+  AND to_node_id = sqlc.arg('to_node_id')::uuid
+  AND type = sqlc.arg('edge_type')::text
+LIMIT 1;
 
 -- ── issue_dependency revive (mig 276) ────────────────────────────────
 
