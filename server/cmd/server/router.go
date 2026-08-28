@@ -707,6 +707,17 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					"err", err)
 			}
 		}
+		// 0.5.87 async-engine unification (swarm orchestrator port):
+		// start the stalled-run reaper on the same service. Resume only
+		// covers status='supervising' rows; 'running' rows orphaned by a
+		// mid-pipeline restart have no goroutine and no resume path —
+		// this loop fails them (boot sweep first, then every 6h), the
+		// same closed loop the swarm side has had since 0.5.86. Takes no
+		// context on purpose (the 0.5.39 SwarmGC lesson); Stop is folded
+		// into MythosService.Stop() in cmd/server/main.go.
+		if pool != nil {
+			svc.StartStalledRunReaper(mythossvc.StalledReaperInterval)
+		}
 	}
 
 	// 0.3.45.1: wire the agent_self_optimization service. Mirrors the

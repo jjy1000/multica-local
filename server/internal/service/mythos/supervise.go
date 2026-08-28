@@ -118,6 +118,13 @@ func runSuperviseLoop(ctx context.Context, svc *Service, runID pgtype.UUID, cfg 
 	state := SupervisionState{
 		Phase:     PhasePreparing,
 		StartedAt: time.Now(),
+		// 0.5.87 async-engine unification (swarm orchestrator port):
+		// stamp the heartbeat at t=0 so the stalled-run reaper's clock
+		// (ListStalledMythosRunsForGC reads last_check_at) is defined
+		// from the first persist, not just from the first tick ≤30s
+		// later. Without this a freshly resumed run marshals a
+		// zero-time LastCheckAt that reads as "stale" to the reaper.
+		LastCheckAt: time.Now(),
 	}
 	if err := svc.persistSupervisionState(ctx, runID, state); err != nil {
 		slog.Warn("mythos supervise: initial persist failed", "run", runID, "err", err)
@@ -147,7 +154,17 @@ func runSuperviseLoop(ctx context.Context, svc *Service, runID pgtype.UUID, cfg 
 			return
 		case tickAt := <-ticker.C:
 			tickStart := time.Now()
-			newState, err := svc.tickSupervision(ctx, runID, rootIssueID, state)
+			// 0.5.87 async-engine unification (swarm orchestrator port
+			// of service/swarm/orchestrator.go:318): bound each tick so
+			// a hung DB call cannot wedge the supervise goroutine past
+			// the next tick — previously the only safety nets were ctx
+			// cancel (server shutdown) and the 24h max-lifetime cap.
+			// 2× the 30s tick interval mirrors the orchestrator's
+			// proven ratio. A DeadlineExceeded lands in the degrade
+			// branch below and the next tick retries.
+			tickCtx, tickCancel := context.WithTimeout(ctx, 2*SupervisionTickerInterval)
+			newState, err := svc.tickSupervision(tickCtx, runID, rootIssueID, state)
+			tickCancel()
 			if err != nil {
 				// Don't abort — log and degrade. The next tick
 				// may recover.

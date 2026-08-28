@@ -194,6 +194,9 @@ type Service struct {
 	// fake that returns a Category for custom-status subtests
 	// without booting a real DB.
 	effectiveQ issuestatus.Querier
+	// reaper (0.5.87) owns the stalled-run reap loop's sync state —
+	// swarm-orchestrator port, see reaper.go.
+	reaper reapFields
 }
 
 // NewService builds a mythos Service. TaskService is required — the
@@ -203,8 +206,9 @@ type Service struct {
 func NewService(queries *db.Queries, taskService *service.TaskService) *Service {
 	return &Service{
 		queries:      queries,
-		TaskService: taskService,
+		TaskService:  taskService,
 		superviseSet: make(map[pgtype.UUID]context.CancelFunc),
+		reaper:       reapFields{reapStop: make(chan struct{})},
 	}
 }
 
@@ -227,9 +231,11 @@ func (s *Service) startSupervise(parentCtx context.Context, runID pgtype.UUID, c
 	go s.superviseLoop(ctx, runID, cfg, rootIssueID)
 }
 
-// Stop cancels every in-flight supervise goroutine. Called from the
-// daemon shutdown hook alongside other service stops.
+// Stop cancels every in-flight supervise goroutine and the stalled-run
+// reaper. Called from the daemon shutdown hook alongside other service
+// stops.
 func (s *Service) Stop() {
+	s.stopReaper()
 	s.superviseMu.Lock()
 	defer s.superviseMu.Unlock()
 	for runID, cancel := range s.superviseSet {

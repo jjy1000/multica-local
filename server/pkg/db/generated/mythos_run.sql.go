@@ -396,6 +396,80 @@ func (q *Queries) ListMythosRunsByWorkspace(ctx context.Context, arg ListMythosR
 	return items, nil
 }
 
+const listStalledMythosRunsForGC = `-- name: ListStalledMythosRunsForGC :many
+SELECT id, workspace_id, creator_user_id, problem, status, current_loop, convergence_history, max_loop_iters, convergence_threshold, root_issue_id, final_issue_id, started_at, completed_at, extension_agent_ids, self_optimization_enabled, coda_conclusions, mode, target_assignee, supervision_state
+FROM mythos_run
+WHERE status IN ('running', 'supervising')
+  AND (
+    (status = 'running'
+     AND started_at < now() - interval '24 hours')
+    OR
+    (status = 'supervising'
+     AND COALESCE((supervision_state ->> 'last_check_at')::timestamptz, started_at) < now() - interval '1 hour')
+  )
+ORDER BY started_at ASC
+LIMIT $1
+`
+
+// 0.5.87 async-engine unification (swarm orchestrator port): mirrors
+// ListStalledSwarmRunsForGC (swarm_run.sql). ResumeSupervision only
+// re-adopts status='supervising' rows; a 'running' row orphaned by a
+// mid-pipeline restart has no recovery path and can never terminate —
+// the exact zombie class migration 283 reaped one-shot on the swarm
+// side and the dev-record's "stuck running since 08-24" rows here.
+// Two stall clocks, one per status:
+//   - 'running' (sole pipeline / pre-coda enhancer): no supervision
+//     heartbeat exists, so started_at is the only honest clock. The
+//     in-process RDT pipeline is bounded well under 24h (MaxLoopIters
+//     hard cap 5 × DefaultWaitTimeout + the 5min coda deadline), and
+//     24h also matches the supervise goroutine's own max-lifetime.
+//   - 'supervising': the live goroutine refreshes
+//     supervision_state.last_check_at every 30s tick, so a heartbeat
+//     staler than 1h means the goroutine died without a resume. The
+//     1h window is ~120 ticks — a healthy goroutine (fresh after boot
+//     resume within 30s) can never be reaped by a 6h-interval sweep.
+//     COALESCE covers rows whose state predates the t=0 heartbeat
+//     stamp; started_at keeps those on the conservative clock.
+func (q *Queries) ListStalledMythosRunsForGC(ctx context.Context, limit int32) ([]MythosRun, error) {
+	rows, err := q.db.Query(ctx, listStalledMythosRunsForGC, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MythosRun{}
+	for rows.Next() {
+		var i MythosRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.CreatorUserID,
+			&i.Problem,
+			&i.Status,
+			&i.CurrentLoop,
+			&i.ConvergenceHistory,
+			&i.MaxLoopIters,
+			&i.ConvergenceThreshold,
+			&i.RootIssueID,
+			&i.FinalIssueID,
+			&i.StartedAt,
+			&i.CompletedAt,
+			&i.ExtensionAgentIds,
+			&i.SelfOptimizationEnabled,
+			&i.CodaConclusions,
+			&i.Mode,
+			&i.TargetAssignee,
+			&i.SupervisionState,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setMythosMemberReflection = `-- name: SetMythosMemberReflection :exec
 UPDATE mythos_members
 SET reflection = $1,

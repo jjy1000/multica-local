@@ -141,6 +141,39 @@ WHERE workspace_id = $1
   AND status = 'supervising'
 ORDER BY started_at ASC;
 
+-- name: ListStalledMythosRunsForGC :many
+-- 0.5.87 async-engine unification (swarm orchestrator port): mirrors
+-- ListStalledSwarmRunsForGC (swarm_run.sql). ResumeSupervision only
+-- re-adopts status='supervising' rows; a 'running' row orphaned by a
+-- mid-pipeline restart has no recovery path and can never terminate —
+-- the exact zombie class migration 283 reaped one-shot on the swarm
+-- side and the dev-record's "stuck running since 08-24" rows here.
+-- Two stall clocks, one per status:
+--   - 'running' (sole pipeline / pre-coda enhancer): no supervision
+--     heartbeat exists, so started_at is the only honest clock. The
+--     in-process RDT pipeline is bounded well under 24h (MaxLoopIters
+--     hard cap 5 × DefaultWaitTimeout + the 5min coda deadline), and
+--     24h also matches the supervise goroutine's own max-lifetime.
+--   - 'supervising': the live goroutine refreshes
+--     supervision_state.last_check_at every 30s tick, so a heartbeat
+--     staler than 1h means the goroutine died without a resume. The
+--     1h window is ~120 ticks — a healthy goroutine (fresh after boot
+--     resume within 30s) can never be reaped by a 6h-interval sweep.
+--     COALESCE covers rows whose state predates the t=0 heartbeat
+--     stamp; started_at keeps those on the conservative clock.
+SELECT *
+FROM mythos_run
+WHERE status IN ('running', 'supervising')
+  AND (
+    (status = 'running'
+     AND started_at < now() - interval '24 hours')
+    OR
+    (status = 'supervising'
+     AND COALESCE((supervision_state ->> 'last_check_at')::timestamptz, started_at) < now() - interval '1 hour')
+  )
+ORDER BY started_at ASC
+LIMIT $1;
+
 -- name: ListMythosRunsByIssueAndWorkspace :many
 -- 0.3.31: GET /api/issues/{id}/mythos-runs lookup for the IssueLabsSection
 -- supervise panel. Filters by root_issue_id + workspace_id and returns
