@@ -53,6 +53,9 @@
     "claude_science_lab_enabled_badge": "리서치 랩 활성화됨",
     "llm_wiki_bridge_enabled_badge": "LLM Wiki 활성화됨",
     "code_canvas_enabled_badge": "코드 캔버스 활성화됨",
+    "pythia_oracle_enabled_badge": "Pythia 활성화됨",
+    "semantica_enabled_badge": "Semantica 활성화됨",
+    "causal_graph_enabled_badge": "인과 그래프 활성화됨",
     "agent_self_optimization_enabled_badge": "자기 최적화 활성화됨",
     "chat_pin_ui_enabled_badge": "채팅 핀 활성화됨",
     "experimental_llm_wiki": "LLM Wiki",
@@ -61,6 +64,7 @@
     "experimental_code_canvas": "코드 캔버스",
     "experimental_swarm_topology": "스웜 토폴로지",
     "experimental_semantica": "Semantica 탐색기",
+    "experimental_timesfm": "TimesFM 예측 랩",
     "error_fallback": "사이드바를 렌더링하지 못했습니다.",
     "error_retry": "다시 시도",
     "experimental_causal_graph": "이슈 인과 그래프"

@@ -179,12 +179,15 @@ export function LabPicker({
   // guarantees the menu only offers what the server would accept.
   //
   // 0.3.45.8: also drop flags whose catalog.HideFromIssueLabPicker is
-  // true. Those are infrastructure / self-driven labs (llm_wiki_bridge,
-  // code_canvas) that take effect globally once enabled; picking
-  // them per-issue is a UX trap because the issue-level lab_source
-  // value would never be consulted by the runtime. The user still
-  // flips these flags on in the Labs settings tab — only the
-  // per-issue picker omits them.
+  // true. Those are infrastructure / self-driven labs that take effect
+  // globally once enabled; picking them per-issue is a UX trap because
+  // the issue-level lab_source value would never be consulted by the
+  // runtime. The user still flips these flags on in the Labs settings
+  // tab — only the per-issue picker omits them. 0.5.86 adds
+  // swarm_topology to this set (frozen — mythos_swarm is the single
+  // 蜂群 lab). code_canvas is NOT hidden: it keeps its legacy
+  // unclassified coexist behavior (TestCatalogInteractionModelContract)
+  // and stays pickable when enabled.
   //
   // 0.5.6: the catalog no longer returns the
   // `agent_creation_studio` / `agent_self_optimization` keys at

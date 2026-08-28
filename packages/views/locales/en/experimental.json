@@ -114,6 +114,8 @@
     "desc_mythos": "Agent swarm with two modes: `sole` (the swarm owns the issue end-to-end) and `enhancer` (the swarm preludes + supervises your chosen assignee).",
     "desc_llm_wiki_bridge": "Local stdio bridge for LLM Wiki. Streams wiki files / search / status to your editor or agent runtime over MCP-style verbs.",
     "desc_code_canvas": "Interactive canvas for prototyping, sketching code, and exploring agent-generated snippets in a side-by-side editor.",
+    "desc_semantica": "Local subprocess bridging Semantica (knowledge graph + decision records) into Multica, with delegation and terminal-issue decision sync.",
+    "desc_timesfm": "Local TimesFM 2.5 forecasting engine (offline torch runtime); quantile-band forecasts persist per issue.",
     "desc_swarm_topology": "Self-organising multi-agent topology. A leader authors role-agents + skills + a coordinating squad, then walks a 5-phase machine (research → design → implement → review → done).",
     "desc_plugin": "User-installed lab plugin. Manifest-driven tabs (chat / artifacts / table / iframe / code / settings) on top of a per-plugin inline runtime."
   },

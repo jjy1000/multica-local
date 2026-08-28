@@ -20,6 +20,11 @@ const LABS = [
   { slug: "llm-wiki", labelKey: "experimental_llm_wiki_bridge", descKey: "desc_llm_wiki_bridge" },
   { slug: "code-canvas", labelKey: "experimental_code_canvas", descKey: "desc_code_canvas" },
   { slug: "swarm-topology", labelKey: "experimental_swarm_topology", descKey: "desc_swarm_topology" },
+  // 0.5.87: semantica + timesfm cards close the same gap as their new
+  // stub pages — issue-row deep links for these labs existed on web
+  // while the index listed neither.
+  { slug: "semantica-explorer", labelKey: "experimental_semantica", descKey: "desc_semantica" },
+  { slug: "timesfm-lab", labelKey: "experimental_timesfm", descKey: "desc_timesfm" },
 ] as const;
 
 export default function ExperimentalIndexPage() {

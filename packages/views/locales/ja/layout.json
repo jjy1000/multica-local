@@ -53,6 +53,9 @@
     "claude_science_lab_enabled_badge": "リサーチラボ有効",
     "llm_wiki_bridge_enabled_badge": "LLM Wiki 有効",
     "code_canvas_enabled_badge": "コードキャンバス有効",
+    "pythia_oracle_enabled_badge": "Pythia 有効",
+    "semantica_enabled_badge": "Semantica 有効",
+    "causal_graph_enabled_badge": "因果グラフ有効",
     "agent_self_optimization_enabled_badge": "自己最適化有効",
     "chat_pin_ui_enabled_badge": "チャットピン有効",
     "experimental_llm_wiki": "LLM Wiki",
@@ -61,6 +64,7 @@
     "experimental_code_canvas": "コードキャンバス",
     "experimental_swarm_topology": "スウォームトポロジー",
     "experimental_semantica": "Semantica エクスプローラー",
+    "experimental_timesfm": "TimesFM 予測ラボ",
     "error_fallback": "サイドバーのレンダリングに失敗しました。",
     "error_retry": "再試行",
     "experimental_causal_graph": "イシュー因果グラフ"

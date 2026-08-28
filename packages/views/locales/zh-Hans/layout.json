@@ -53,6 +53,9 @@
     "claude_science_lab_enabled_badge": "科研实验室已启用",
     "llm_wiki_bridge_enabled_badge": "LLM Wiki 已启用",
     "code_canvas_enabled_badge": "代码画布已启用",
+    "pythia_oracle_enabled_badge": "Pythia 已启用",
+    "semantica_enabled_badge": "Semantica 已启用",
+    "causal_graph_enabled_badge": "因果图谱已启用",
     "agent_self_optimization_enabled_badge": "自优化已启用",
     "chat_pin_ui_enabled_badge": "聊天置顶已启用",
     "experimental_llm_wiki": "LLM Wiki",
@@ -61,6 +64,7 @@
     "experimental_code_canvas": "代码画布",
     "experimental_swarm_topology": "蜂群拓扑",
     "experimental_semantica": "Semantica 探索器",
+    "experimental_timesfm": "TimesFM 预测实验室",
     "error_fallback": "侧边栏渲染失败。",
     "error_retry": "重试",
     "experimental_causal_graph": "问题因果图谱"

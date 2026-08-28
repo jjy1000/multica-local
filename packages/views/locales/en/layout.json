@@ -53,6 +53,9 @@
     "claude_science_lab_enabled_badge": "Research Lab enabled",
     "llm_wiki_bridge_enabled_badge": "LLM Wiki enabled",
     "code_canvas_enabled_badge": "Code Canvas enabled",
+    "pythia_oracle_enabled_badge": "Pythia enabled",
+    "semantica_enabled_badge": "Semantica enabled",
+    "causal_graph_enabled_badge": "Causal Graph enabled",
     "agent_self_optimization_enabled_badge": "Self-Opt enabled",
     "chat_pin_ui_enabled_badge": "Chat Pin enabled",
     "experimental_llm_wiki": "LLM Wiki",
@@ -61,6 +64,7 @@
     "experimental_code_canvas": "Code Canvas",
     "experimental_swarm_topology": "Swarm Topology",
     "experimental_semantica": "Semantica Explorer",
+    "experimental_timesfm": "TimesFM Forecast Lab",
     "error_fallback": "Sidebar failed to render.",
     "error_retry": "Retry",
     "experimental_causal_graph": "Issue Causal Graph"
