@@ -102,6 +102,16 @@ export interface ExperimentalFlag {
    *  squad roster; llm_wiki_bridge / chat_pin_ui have no per-issue agent)
    *  — the renderer then shows a generic "lab owns the roster" hint. */
   leader_agent?: string;
+  /** 0.5.86: how the lab participates on a bound issue.
+   *  - "assignee" (独立工作型): the lab's leader agent owns the issue's
+   *    assignee slot — the AssigneePicker locks to it and the server
+   *    400s any non-leader assignee on create/update.
+   *  - "auxiliary" (辅助协作型): the lab works alongside the normal
+   *    agents for tracing/visualization and is never an assignee.
+   *  Absent means legacy/unclassified — no lock applies
+   *  (chat_pin_ui, code_canvas, user plugins). Mirrors the Go
+   *  Flag.InteractionModel (server/internal/experimental/catalog.go). */
+  interaction_model?: "assignee" | "auxiliary";
 }
 
 export interface ExperimentalFlagsList {

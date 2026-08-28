@@ -275,31 +275,30 @@ func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 		statusCategory = i.Status
 	}
 	return IssueResponse{
-		ID:            uuidToString(i.ID),
-		WorkspaceID:   uuidToString(i.WorkspaceID),
-		Number:        i.Number,
-		Identifier:    identifier,
-		Title:         i.Title,
-		Description:   textToPtr(i.Description),
-		Status:        i.Status,
+		ID:             uuidToString(i.ID),
+		WorkspaceID:    uuidToString(i.WorkspaceID),
+		Number:         i.Number,
+		Identifier:     identifier,
+		Title:          i.Title,
+		Description:    textToPtr(i.Description),
+		Status:         i.Status,
 		StatusCategory: statusCategory,
-		Priority:      i.Priority,
-		AssigneeType:  textToPtr(i.AssigneeType),
-		AssigneeID:    uuidToPtr(i.AssigneeID),
-		CreatorType:   i.CreatorType,
-		CreatorID:     uuidToString(i.CreatorID),
-		ParentIssueID: uuidToPtr(i.ParentIssueID),
-		ProjectID:     uuidToPtr(i.ProjectID),
-		Position:      i.Position,
-		Stage:         int4ToPtr(i.Stage),
-		StartDate:     dateToPtr(i.StartDate),
-		DueDate:       dateToPtr(i.DueDate),
-		LabSource:     textToPtr(i.LabSource),
-		LabMode:       textToPtr(i.LabMode),
-		CreatedAt:     timestampToString(i.CreatedAt),
-		UpdatedAt:     timestampToString(i.UpdatedAt),
-		Metadata:      parseIssueMetadata(i.Metadata),
-
+		Priority:       i.Priority,
+		AssigneeType:   textToPtr(i.AssigneeType),
+		AssigneeID:     uuidToPtr(i.AssigneeID),
+		CreatorType:    i.CreatorType,
+		CreatorID:      uuidToString(i.CreatorID),
+		ParentIssueID:  uuidToPtr(i.ParentIssueID),
+		ProjectID:      uuidToPtr(i.ProjectID),
+		Position:       i.Position,
+		Stage:          int4ToPtr(i.Stage),
+		StartDate:      dateToPtr(i.StartDate),
+		DueDate:        dateToPtr(i.DueDate),
+		LabSource:      textToPtr(i.LabSource),
+		LabMode:        textToPtr(i.LabMode),
+		CreatedAt:      timestampToString(i.CreatedAt),
+		UpdatedAt:      timestampToString(i.UpdatedAt),
+		Metadata:       parseIssueMetadata(i.Metadata),
 	}
 }
 
@@ -312,31 +311,30 @@ func issueListRowToResponse(i db.ListIssuesRow, issuePrefix string) IssueRespons
 	}
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:            uuidToString(i.ID),
-		WorkspaceID:   uuidToString(i.WorkspaceID),
-		Number:        i.Number,
-		Identifier:    identifier,
-		Title:         i.Title,
-		Description:   textToPtr(i.Description),
-		Status:        i.Status,
+		ID:             uuidToString(i.ID),
+		WorkspaceID:    uuidToString(i.WorkspaceID),
+		Number:         i.Number,
+		Identifier:     identifier,
+		Title:          i.Title,
+		Description:    textToPtr(i.Description),
+		Status:         i.Status,
 		StatusCategory: statusCategory,
-		Priority:      i.Priority,
-		AssigneeType:  textToPtr(i.AssigneeType),
-		AssigneeID:    uuidToPtr(i.AssigneeID),
-		CreatorType:   i.CreatorType,
-		CreatorID:     uuidToString(i.CreatorID),
-		ParentIssueID: uuidToPtr(i.ParentIssueID),
-		ProjectID:     uuidToPtr(i.ProjectID),
-		Position:      i.Position,
-		Stage:         int4ToPtr(i.Stage),
-		StartDate:     dateToPtr(i.StartDate),
-		DueDate:       dateToPtr(i.DueDate),
-		LabSource:     textToPtr(i.LabSource),
-		LabMode:       textToPtr(i.LabMode),
-		CreatedAt:     timestampToString(i.CreatedAt),
-		UpdatedAt:     timestampToString(i.UpdatedAt),
-		Metadata:      parseIssueMetadata(i.Metadata),
-
+		Priority:       i.Priority,
+		AssigneeType:   textToPtr(i.AssigneeType),
+		AssigneeID:     uuidToPtr(i.AssigneeID),
+		CreatorType:    i.CreatorType,
+		CreatorID:      uuidToString(i.CreatorID),
+		ParentIssueID:  uuidToPtr(i.ParentIssueID),
+		ProjectID:      uuidToPtr(i.ProjectID),
+		Position:       i.Position,
+		Stage:          int4ToPtr(i.Stage),
+		StartDate:      dateToPtr(i.StartDate),
+		DueDate:        dateToPtr(i.DueDate),
+		LabSource:      textToPtr(i.LabSource),
+		LabMode:        textToPtr(i.LabMode),
+		CreatedAt:      timestampToString(i.CreatedAt),
+		UpdatedAt:      timestampToString(i.UpdatedAt),
+		Metadata:       parseIssueMetadata(i.Metadata),
 	}
 }
 
@@ -379,31 +377,30 @@ func openIssueRowToResponse(i db.ListOpenIssuesRow, issuePrefix string) IssueRes
 	}
 	identifier := issuePrefix + "-" + strconv.Itoa(int(i.Number))
 	return IssueResponse{
-		ID:            uuidToString(i.ID),
-		WorkspaceID:   uuidToString(i.WorkspaceID),
-		Number:        i.Number,
-		Identifier:    identifier,
-		Title:         i.Title,
-		Description:   textToPtr(i.Description),
-		Status:        i.Status,
+		ID:             uuidToString(i.ID),
+		WorkspaceID:    uuidToString(i.WorkspaceID),
+		Number:         i.Number,
+		Identifier:     identifier,
+		Title:          i.Title,
+		Description:    textToPtr(i.Description),
+		Status:         i.Status,
 		StatusCategory: statusCategory,
-		Priority:      i.Priority,
-		AssigneeType:  textToPtr(i.AssigneeType),
-		AssigneeID:    uuidToPtr(i.AssigneeID),
-		CreatorType:   i.CreatorType,
-		CreatorID:     uuidToString(i.CreatorID),
-		ParentIssueID: uuidToPtr(i.ParentIssueID),
-		ProjectID:     uuidToPtr(i.ProjectID),
-		Position:      i.Position,
-		Stage:         int4ToPtr(i.Stage),
-		StartDate:     dateToPtr(i.StartDate),
-		DueDate:       dateToPtr(i.DueDate),
-		LabSource:     textToPtr(i.LabSource),
-		LabMode:       textToPtr(i.LabMode),
-		CreatedAt:     timestampToString(i.CreatedAt),
-		UpdatedAt:     timestampToString(i.UpdatedAt),
-		Metadata:      parseIssueMetadata(i.Metadata),
-
+		Priority:       i.Priority,
+		AssigneeType:   textToPtr(i.AssigneeType),
+		AssigneeID:     uuidToPtr(i.AssigneeID),
+		CreatorType:    i.CreatorType,
+		CreatorID:      uuidToString(i.CreatorID),
+		ParentIssueID:  uuidToPtr(i.ParentIssueID),
+		ProjectID:      uuidToPtr(i.ProjectID),
+		Position:       i.Position,
+		Stage:          int4ToPtr(i.Stage),
+		StartDate:      dateToPtr(i.StartDate),
+		DueDate:        dateToPtr(i.DueDate),
+		LabSource:      textToPtr(i.LabSource),
+		LabMode:        textToPtr(i.LabMode),
+		CreatedAt:      timestampToString(i.CreatedAt),
+		UpdatedAt:      timestampToString(i.UpdatedAt),
+		Metadata:       parseIssueMetadata(i.Metadata),
 	}
 }
 
@@ -2502,10 +2499,25 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		hasAssignee := assigneeType.Valid || assigneeID.Valid
 		labSource := *req.LabSource
 		switch {
-		case !enhancerMode && hasAssignee && (labSource == "mythos_swarm" || labSource == "swarm_topology"):
-			writeError(w, http.StatusBadRequest,
-				"lab_source="+labSource+" requires the lab to own the assignee; clear the manual assignee")
-			return
+		case !enhancerMode && hasAssignee:
+			// 0.5.86 assignee-lock: InteractionModelAssignee labs own
+			// the assignee slot. Replaces the 0.3.33 hardcoded
+			// mythos/swarm pair — same strictness for those two
+			// (mythos resolves no leader → any assignee still 400s;
+			// swarm_topology now also accepts its own coordinator),
+			// plus the leader check for the rest of the family.
+			assigneeTypeStr := ""
+			if assigneeType.Valid {
+				assigneeTypeStr = assigneeType.String
+			}
+			assigneeIDStr := ""
+			if assigneeID.Valid {
+				assigneeIDStr = uuidToString(assigneeID)
+			}
+			if msg := h.assigneeLabLockError(r.Context(), wsUUID, labSource, assigneeTypeStr, assigneeIDStr); msg != "" {
+				writeError(w, http.StatusBadRequest, msg)
+				return
+			}
 		case enhancerMode && !hasAssignee && labSource == "mythos_swarm":
 			writeError(w, http.StatusBadRequest,
 				"lab_mode=enhancer requires an assignee (the target agent or squad)")
@@ -3082,11 +3094,36 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			// are auto-dispatched by their own runtime now, so the
 			// user is free to tag a lab and keep a manual assignee
 			// if the workspace has one.
+			//
+			// 0.5.86 assignee-lock: the hardcoded pair is replaced by
+			// the InteractionModelAssignee gate (CreateIssue parity),
+			// scoped by WHAT the PATCH touches:
+			//   - assignee fields touched → full lock check on the
+			//     post-state (reassigning an assignee-model lab issue
+			//     to anyone but the leader 400s; legacy human rows
+			//     stay editable in every other field).
+			//   - lab_source only (stale assignee) → allowed when the
+			//     lab has a resolvable leader: the 0.3.46 P0#4
+			//     leader-rewrite immediately fixes the assignee
+			//     (pinned by TestUpdateIssueLabSourceRewritesStaleAssignee).
+			//     A leader-less roster lab (mythos_swarm) still blocks
+			//     — the 0.3.33 mutex preserved via the strict message.
+			_, touchedAssigneeType := rawFields["assignee_type"]
+			_, touchedAssigneeID := rawFields["assignee_id"]
+			touchedAssignee := touchedAssigneeType || touchedAssigneeID
+			touchedLab := func() bool { _, ok := rawFields["lab_source"]; return ok }()
 			switch {
-			case !enhancerMode && hasAssignee && (postLabSource == "mythos_swarm" || postLabSource == "swarm_topology"):
-				writeError(w, http.StatusBadRequest,
-					"lab_source="+postLabSource+" requires the lab to own the assignee; clear the manual assignee")
-				return
+			case !enhancerMode && hasAssignee && touchedAssignee:
+				if msg := h.assigneeLabLockError(r.Context(), prevIssue.WorkspaceID, postLabSource, postAssigneeType, postAssigneeID); msg != "" {
+					writeError(w, http.StatusBadRequest, msg)
+					return
+				}
+			case !enhancerMode && hasAssignee && touchedLab:
+				if _, leaderOK := h.resolveLabLeader(r.Context(), postLabSource); !leaderOK {
+					writeError(w, http.StatusBadRequest,
+						"lab_source="+postLabSource+" requires the lab to own the assignee; clear the manual assignee")
+					return
+				}
 			case enhancerMode && !hasAssignee:
 				writeError(w, http.StatusBadRequest,
 					"lab_mode=enhancer requires an assignee (the target agent or squad)")
@@ -3416,6 +3453,16 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 		// intentionally suppressed (the sole-mutex gate above keeps
 		// AssigneeType empty).
 		return "", false
+	case "timesfm":
+		// 0.5.86: timesfm_oracle was provisioned by InstallTimesfm at
+		// flag-enable since 0.5.82 but was missing from both leader
+		// tables — lab_source=timesfm binds left the issue unassigned
+		// and the 0.3.46 leader-rewrite contract silently no-op'd.
+		// The row lands together with the 0.5.86 assignee-lock
+		// (InteractionModelAssignee) and the forecast-report writeback.
+		// String MUST match defaultLeaderAgentForLab in
+		// service/issue.go and the timesfm install handler.
+		return "timesfm_oracle", true
 	case "swarm_topology":
 		// 0.5.21: swarm topology is a top-level task mode. The
 		// coordinator agent is created dynamically during the
@@ -3449,6 +3496,53 @@ func (h *Handler) resolveLabLeader(ctx context.Context, labSource string) (strin
 		return experimental.UserPluginLeader(plugin.ManifestJson)
 	}
 	return "", false
+}
+
+// assigneeLabLockError — 0.5.86 assignee-lock hard gate (独立工作型).
+// For labs classified InteractionModelAssignee, the bound issue's
+// assignee slot belongs to the lab's leader agent. Returns a non-empty
+// 400 message when the (labSource, assigneeType, assigneeID)
+// combination violates the lock; "" when allowed. An EMPTY assignee is
+// always allowed — the 0.3.46 leader-rewrite fills it (or mythos'
+// sole-mode roster owns the work). Callers skip the check entirely in
+// mythos enhancer mode (the target assignee is the point of enhancer).
+//
+// Semantics per lab family:
+//   - leader resolvable (claude_science_lab/research,
+//     pythia_oracle/pythia_runtime, timesfm/timesfm_oracle,
+//     semantica/semantica_decision_advisor, swarm_topology/
+//     swarm_coordinator): only that exact agent row (assignee_type=
+//     "agent") passes; anything else → 400 naming the leader.
+//   - no leader (mythos_swarm roster): ANY manual assignee → 400,
+//     preserving the 0.3.33 sole-mutex behavior through the same path.
+//   - leader row missing (install never ran): 400 with an
+//     install-first hint rather than silently allowing a human.
+func (h *Handler) assigneeLabLockError(ctx context.Context, workspaceID pgtype.UUID, labSource, assigneeType, assigneeID string) string {
+	if labSource == "" || !experimental.IsAssigneeModelLab(labSource) {
+		return ""
+	}
+	if assigneeType == "" && assigneeID == "" {
+		return "" // empty is fine — leader-rewrite / roster fills it
+	}
+	leaderName, ok := h.resolveLabLeader(ctx, labSource)
+	if !ok || leaderName == "" {
+		return "lab_source=" + labSource + " requires the lab to own the assignee (its agent roster runs the issue); clear the manual assignee or remove the lab"
+	}
+	leaderHint := "lab_source=" + labSource + " locks the assignee to the lab agent (" + leaderName + "); pick the lab agent or clear the manual assignee"
+	if assigneeType != "agent" || assigneeID == "" {
+		return leaderHint
+	}
+	leader, err := h.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
+		WorkspaceID: workspaceID,
+		Name:        leaderName,
+	})
+	if err != nil {
+		return "lab_source=" + labSource + " locks the assignee to its lab agent (" + leaderName + "), but that agent is not installed yet; enable/install the lab first"
+	}
+	if uuidToString(leader.ID) != assigneeID {
+		return leaderHint
+	}
+	return ""
 }
 
 // shouldRewriteAssigneeForLabLeader — 0.3.46 (P0#4) companion helper.

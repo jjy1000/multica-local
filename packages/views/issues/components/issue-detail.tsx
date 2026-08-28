@@ -63,6 +63,7 @@ import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { toast } from "sonner";
 import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, StagePicker, StartDatePicker, DueDatePicker, AssigneePicker, LabelPicker, LabPicker } from ".";
 import { maxSiblingStage } from "./pickers/stage-picker";
+import { isAssigneeLabLocked } from "./pickers/assignee-lab-lock";
 import { IssueActionsDropdown, useIssueActions } from "../actions";
 import { ProjectPicker } from "../../projects/components/project-picker";
 import { LocalDirectoryHint } from "../../projects/components/local-directory-hint";
@@ -1863,19 +1864,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
               onUpdate={handleUpdateField}
               align="start"
               lockedReason={
-                // 0.3.33: only mythos_swarm still requires the
-                // assignee to be cleared before re-picking. Other
-                // labs ship their own runtime agents and the
-                // user is free to keep a manual assignee on top.
-                // 0.3.55: enhancer mode is the exception — the user
-                // picks the target assignee that mythos supervises,
-                // so the picker must stay unlocked (mirrors the
-                // LabPicker enhancer tab, which does not fire
-                // onClearAssignee). Locking it here would trap the
-                // user out of the very field enhancer mode exists
-                // to populate.
-                issue.lab_source === "mythos_swarm" &&
-                issue.lab_mode !== "enhancer"
+                // 0.3.33 → 0.5.86: the lock is now flag-driven — every
+                // InteractionModelAssignee lab (pythia_oracle, timesfm,
+                // claude_science_lab, semantica, mythos_swarm,
+                // swarm_topology) owns the assignee slot, mirroring the
+                // server's assigneeLabLockError 400 gate. Enhancer mode
+                // stays unlocked: the user picks the target assignee
+                // that mythos supervises (locking would trap the user
+                // out of the very field enhancer exists to populate).
+                isAssigneeLabLocked(flagCatalog, issue.lab_source, issue.lab_mode)
                   ? t(($) => $.lab_section.clear_lab_first_tooltip)
                   : undefined
               }

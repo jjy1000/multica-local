@@ -83,6 +83,12 @@ type ExperimentalFlagResponse struct {
 	// workbench's IssueContextBar. The renderer uses this to know whether
 	// to render the Run button.
 	AutoDispatch bool `json:"auto_dispatch"`
+	// 0.5.86: mirror of Flag.InteractionModel — "assignee" (独立工作型:
+	// the lab's leader agent owns the bound issue's assignee slot; the
+	// renderer locks the AssigneePicker for these labs) or "auxiliary"
+	// (辅助协作型: trace/visualize-only, never an assignee). Empty means
+	// legacy/unclassified — no lock, no auxiliary semantics.
+	InteractionModel string `json:"interaction_model,omitempty"`
 }
 
 // ExperimentalFlagsListResponse wraps the list so future metadata
@@ -166,6 +172,7 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			AlwaysShowInLabPicker:           f.AlwaysShowInLabPicker,
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 			AutoDispatch:                    f.AutoDispatch == nil || *f.AutoDispatch,
+			InteractionModel:                f.InteractionModel,
 		}
 		// 0.3.65: expose the lab's default owner agent so the property panel
 		// can show "实验室测试智能体: <name>" under the locked assignee. Same
@@ -217,6 +224,7 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 			IsUserPlugin:                    true,
 			AutoDispatch:                    f.AutoDispatch == nil || *f.AutoDispatch,
+			InteractionModel:                f.InteractionModel,
 		}
 		// 0.3.65: user plugins auto-dispatch via their manifest's
 		// capabilities.leader (UserPluginLeader) — surface it the same way

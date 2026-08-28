@@ -116,6 +116,29 @@ type Flag struct {
 	// issue-detail.tsx for the timeline comment filter) now read
 	// `(flags ?? []).find(...).hides_deliverable_in_issue_timeline`.
 	HidesDeliverableInIssueTimeline bool `json:"hides_deliverable_in_issue_timeline,omitempty"`
+	// InteractionModel classifies HOW a lab participates on a bound
+	// issue (0.5.86). Two families, mutually exclusive:
+	//
+	//   - "assignee" (独立工作型): the lab owns a leader agent that
+	//     takes the issue as its assignee and works it to a
+	//     deliverable (Claude Lab research, Pythia forecast, TimesFM
+	//     forecast, Semantica delegate, Mythos/Swarm run). Binding
+	//     the lab locks the issue assignee to that leader — the
+	//     assignee picker refuses other people/agents and the
+	//     server-side create/update gates 400 any non-leader
+	//     assignee. The full list of leader names per lab lives in
+	//     handler.defaultLabLeaderForKey / service.defaultLeaderAgentForLab.
+	//   - "auxiliary" (辅助协作型): the lab works ALONGSIDE the
+	//     workspace's normal agents for tracing/visualization and is
+	//     never an assignee (causal_graph hidden team, llm_wiki
+	//     bridge). These never appear in assignee pickers and never
+	//     lock anything.
+	//
+	// Empty string = legacy/unclassified (chat_pin_ui, code_canvas,
+	// user plugins): behavior is unchanged — the picker allows manual
+	// assignment and no lock applies. Client mirror:
+	// ExperimentalFlag.interaction_model in packages/core/types/experimental.ts.
+	InteractionModel string `json:"interaction_model,omitempty"`
 	// AutoDispatch — when nil (the zero value), the lab follows the
 	// standard 0.3.46 contract: lab_source flip → assignee auto-rewrite
 	// to the leader → maybeEnqueueOnAssign runs the task queue. When
@@ -212,6 +235,8 @@ var Catalog = []Flag{
 		// the old per-flag check.
 		RuntimeKind:                     "inline",
 		HidesDeliverableInIssueTimeline: true,
+		// 0.5.86: 独立工作型 — the research leader owns the issue.
+		InteractionModel: InteractionModelAssignee,
 		// 0.5.81 (plan §P4): flip from opt-out (0.5.22) back to default
 		// auto-dispatch. The standard 0.3.46 contract applies: lab_source
 		// flip on a new issue → assignee auto-rewrites to the research
@@ -241,7 +266,19 @@ var Catalog = []Flag{
 		RuntimeKind:                     "subprocess",
 		ProxyPrefix:                     "/experimental/pythia",
 		LoopbackService:                 "pythia_oracle",
-		HidesDeliverableInIssueTimeline: true,
+		// 0.5.86: flipped from true → false. The forecast run now
+		// writes its text report back to the issue as the
+		// pythia_runtime leader's comment (handler/forecast_issue.go,
+		// report_comment_id dedupe) — that comment IS the issue-first
+		// deliverable and must stay visible in the plain timeline
+		// (previously the report lived only in /experimental/pythia,
+		// which is exactly the gap the 0.5.86 issue-delivery batch
+		// closes). The full 推演 view stays reachable via the labs
+		// section click-through.
+		HidesDeliverableInIssueTimeline: false,
+		// 0.5.86: 独立工作型 — pythia_runtime owns the issue assignee
+		// slot; binding the lab locks the assignee to the leader.
+		InteractionModel: InteractionModelAssignee,
 		// 0.5.81 (plan §P3): opt out of the auto-dispatch contract.
 		// Pythia's per-issue forecast runs are 10 SSE rounds × ~5s = 50s
 		// of blocking work on every lab_source=pythia_oracle create; the
@@ -278,8 +315,18 @@ var Catalog = []Flag{
 		// headless: Mythos runs entirely inside the agent runtime. The
 		// RDT three-stage runner (prelude / loop / coda) is invoked
 		// by the Skill adapter, not by a subprocess. No proxy.
-		RuntimeKind:                     "headless",
+		RuntimeKind: "headless",
+		// 0.5.86: the mythos coda report is already written back to the
+		// issue (mythos runner coda → CreateComment), so the timeline
+		// hide stays true — the reflection panel owns the deep view.
 		HidesDeliverableInIssueTimeline: true,
+		// 0.5.86: 独立工作型 — the RDT roster owns the issue (sole-mode
+		// mutex keeps the manual assignee empty; enhancer keeps its
+		// target). Classification is declared for the client so the
+		// Labs UI groups it with the independent-worker family; the
+		// leader-based assignee lock does NOT apply (mythos has no
+		// single leader — defaultLabLeaderForKey returns ("", false)).
+		InteractionModel: InteractionModelAssignee,
 	},
 	{
 		// 0.5.21 swarm_topology: multi-agent role-graph topology. The
@@ -292,10 +339,9 @@ var Catalog = []Flag{
 		//
 		// 0.5.22: description refreshed to match the orchestrator's
 		// 3-phase lifecycle contract (multica-creating-swarms
-		// bootstrap → execute → cleanup); HideFromIssueLabPicker
-		// stays false so users can pick swarm_topology per issue via
-		// the LabPicker (the contract puts the lab in charge of the
-		// assignee via the mutex gate, not in a globals-only mode).
+		// bootstrap → execute → cleanup). 0.5.86: that per-issue
+		// picker contract is retired — see the consolidation note at
+		// HideFromIssueLabPicker below.
 		Key:        "swarm_topology",
 		DefaultVal: false,
 		Title: LocalizedString{
@@ -308,6 +354,21 @@ var Catalog = []Flag{
 		},
 		ManifestPath: "experiments/swarm_topology/manifest.json",
 		RuntimeKind:  "headless",
+		// 0.5.86 swarm consolidation: FROZEN for new bindings. The
+		// orchestrator's topology_spec has no server-side writer (all
+		// runs stall in preparing/research — migration 283 fails the
+		// zombies), so the lab no longer appears in the issue
+		// LabPicker; the sidebar entry point was removed from the
+		// manifest in the same release. The flag literal, routes, and
+		// view stay (forward-only law; legacy bound issues keep
+		// resolving, /experimental/swarm-topology shows a deprecation
+		// banner pointing at /experimental/mythos). mythos_swarm is
+		// the single 蜂群 lab from 0.5.86 on.
+		HideFromIssueLabPicker: true,
+		// 0.5.86: 独立工作型 (legacy binding kept working: the
+		// swarm_coordinator leader owns the assignee via the existing
+		// mutex gate).
+		InteractionModel: InteractionModelAssignee,
 	},
 	{
 		// llm_wiki_bridge: connects Multica agents to the locally-installed
@@ -339,6 +400,9 @@ var Catalog = []Flag{
 		// LabPicker does not offer it as a "实验插件" choice.
 		HideFromIssueLabPicker:          true,
 		HidesDeliverableInIssueTimeline: true,
+		// 0.5.86: 辅助协作型 — the bridge works alongside the normal
+		// agents (knowledge retrieval); never an assignee.
+		InteractionModel: InteractionModelAuxiliary,
 	},
 	{
 		// code_canvas: 0.3.19 P9 internal lab, graduated to a real
@@ -397,6 +461,9 @@ var Catalog = []Flag{
 		// tab together make semantica a first-class issue-bound lab.
 		HideFromIssueLabPicker:          false,
 		HidesDeliverableInIssueTimeline: true,
+		// 0.5.86: 独立工作型 — the semantica_decision_advisor leader
+		// owns the bound issue (delegate flow + decision sync).
+		InteractionModel: InteractionModelAssignee,
 		// Sidebar entry is owned by the manifest's
 		// spec.entry_points.sidebar (apps/desktop/resources/experiments/semantica/manifest.json).
 		// Route must be /experimental/semantica-explorer — the bare
@@ -441,6 +508,14 @@ var Catalog = []Flag{
 		// runs stay manual/retry-driven — pinned by
 		// TestCatalogAutoDispatchContract in catalog_test.go.
 		AutoDispatch: ptrBool(false),
+		// 0.5.86: 独立工作型 — timesfm_oracle owns the issue assignee
+		// slot (leader rows added to handler/service tables in the
+		// same release; previously the lab bound without ever
+		// auto-assigning its engine agent). The forecast report is
+		// written back to the issue as the leader's comment
+		// (handler/timesfm_forecast.go, report_comment_id dedupe);
+		// engine-down 503s stay silent (honesty law).
+		InteractionModel: InteractionModelAssignee,
 		// HideFromIssueLabPicker deliberately NOT set: the lab is
 		// per-issue bindable (lab_source=timesfm) like pythia_oracle /
 		// semantica. HidesDeliverableInIssueTimeline deliberately NOT
@@ -479,6 +554,12 @@ var Catalog = []Flag{
 		// issue-bound (the subgraph seeds from issue nodes and the
 		// causal icon lives on the issue header), so per-issue binding
 		// is meaningful.
+		// 0.5.86: 辅助协作型 — the causal team (curator/historian/
+		// verifier, all lab_managed-hidden) works ALONGSIDE the
+		// workspace's normal agents for decision tracing and
+		// visualization; it is never an assignee and never locks the
+		// picker.
+		InteractionModel: InteractionModelAuxiliary,
 	},
 	// 0.5.6: `agent_self_optimization` and `agent_creation_studio`
 	// are no longer catalog entries. The two flags were promoted to
@@ -499,6 +580,50 @@ var Catalog = []Flag{
 	// alongside the flag. The skill, autopilots, and agent row live on
 	// past that point only via historical lock rows; existing tables were
 	// not dropped because migration data must remain forward-compatible.
+}
+
+// Interaction model values for Flag.InteractionModel (0.5.86). See the
+// field comment for the full contract.
+const (
+	// InteractionModelAssignee — 独立工作型: the lab's leader agent
+	// owns the bound issue's assignee slot and works it to a
+	// deliverable. Binding locks the assignee (picker + server gates).
+	InteractionModelAssignee = "assignee"
+	// InteractionModelAuxiliary — 辅助协作型: the lab works alongside
+	// the workspace's normal agents for tracing/visualization and is
+	// never an assignee.
+	InteractionModelAuxiliary = "auxiliary"
+)
+
+// InteractionModelOf resolves the interaction model for a flag key,
+// collapsing the built-in catalog and the dynamic user-plugin layer
+// (mirrors AutoDispatch). Empty string = legacy/unclassified — callers
+// must treat it as "no lock, no auxiliary semantics" (0.5.86 law).
+func InteractionModelOf(key string) string {
+	userPluginMu.RLock()
+	f, ok := userPlugins[key]
+	userPluginMu.RUnlock()
+	if ok {
+		return f.InteractionModel
+	}
+	for i := range Catalog {
+		if Catalog[i].Key == key {
+			return Catalog[i].InteractionModel
+		}
+	}
+	return ""
+}
+
+// IsAssigneeModelLab reports whether binding `key` on an issue locks
+// the assignee to the lab's leader agent.
+func IsAssigneeModelLab(key string) bool {
+	return InteractionModelOf(key) == InteractionModelAssignee
+}
+
+// IsAuxiliaryModelLab reports whether `key` is an auxiliary
+// (trace/visualize-only) lab that must never appear as an assignee.
+func IsAuxiliaryModelLab(key string) bool {
+	return InteractionModelOf(key) == InteractionModelAuxiliary
 }
 
 // userPluginMu guards the dynamic user plugin layer. Built-in flags

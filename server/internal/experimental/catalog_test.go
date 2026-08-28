@@ -213,3 +213,91 @@ func TestSemanticaSidebarFromManifest(t *testing.T) {
 		t.Errorf("SidebarEntries(%q).Route = %q, want %q", flagKey, e.Route, "/experimental/semantica-explorer")
 	}
 }
+
+// TestCatalogInteractionModelContract (0.5.86) pins the 独立工作型 vs
+// 辅助协作型 classification literals. The same strings are consumed by
+// handler/issue.go's create/update assignee-lock gates (via
+// IsAssigneeModelLab) and mirrored to the client through
+// ExperimentalFlagResponse.interaction_model →
+// packages/core/types/experimental.ts — an accidental reclassification
+// here would silently re-allow (or hard-block) manual assignees on
+// every bound issue.
+//
+// Pins:
+//   - assignee (独立工作型): the lab's leader owns the assignee slot.
+//   - auxiliary (辅助协作型): trace/visualize-only, never an assignee.
+//   - swarm_topology keeps InteractionModelAssignee for legacy bound
+//     issues even though HideFromIssueLabPicker freezes NEW bindings
+//     (0.5.86 swarm consolidation — mythos_swarm is the single 蜂群 lab).
+//   - chat_pin_ui / code_canvas / user plugins stay unclassified
+//     (legacy coexist behavior — no lock, no auxiliary semantics).
+//
+// NOT t.Parallel(): reads the package-global Catalog directly, matching
+// the other catalog tests in this file.
+func TestCatalogInteractionModelContract(t *testing.T) {
+	byKey := make(map[string]string, len(Catalog))
+	for _, f := range Catalog {
+		if prev, dup := byKey[f.Key]; dup {
+			t.Fatalf("duplicate catalog key %q (prev interaction_model=%q)", f.Key, prev)
+		}
+		byKey[f.Key] = f.InteractionModel
+		switch f.InteractionModel {
+		case "", InteractionModelAssignee, InteractionModelAuxiliary:
+		default:
+			t.Errorf("Catalog[%q].InteractionModel = %q, want \"\", %q or %q",
+				f.Key, f.InteractionModel, InteractionModelAssignee, InteractionModelAuxiliary)
+		}
+	}
+
+	assigneeWant := []string{
+		"claude_science_lab", "pythia_oracle", "mythos_swarm",
+		"swarm_topology", "semantica", "timesfm",
+	}
+	for _, key := range assigneeWant {
+		if got := byKey[key]; got != InteractionModelAssignee {
+			t.Errorf("Catalog[%q].InteractionModel = %q, want %q (独立工作型)",
+				key, got, InteractionModelAssignee)
+		}
+		if !IsAssigneeModelLab(key) {
+			t.Errorf("IsAssigneeModelLab(%q) = false, want true", key)
+		}
+	}
+
+	auxiliaryWant := []string{"causal_graph", "llm_wiki_bridge"}
+	for _, key := range auxiliaryWant {
+		if got := byKey[key]; got != InteractionModelAuxiliary {
+			t.Errorf("Catalog[%q].InteractionModel = %q, want %q (辅助协作型)",
+				key, got, InteractionModelAuxiliary)
+		}
+		if !IsAuxiliaryModelLab(key) {
+			t.Errorf("IsAuxiliaryModelLab(%q) = false, want true", key)
+		}
+		if IsAssigneeModelLab(key) {
+			t.Errorf("IsAssigneeModelLab(%q) = true, want false — auxiliary labs must never lock an assignee", key)
+		}
+	}
+
+	legacyWant := []string{"chat_pin_ui", "code_canvas"}
+	for _, key := range legacyWant {
+		if got := byKey[key]; got != "" {
+			t.Errorf("Catalog[%q].InteractionModel = %q, want \"\" (legacy coexist — unclassified labs keep manual assignees)", key, got)
+		}
+	}
+
+	// 0.5.86 swarm consolidation: frozen for NEW bindings while the
+	// legacy mutex keeps protecting existing ones.
+	if !byKeyExists(byKey, "swarm_topology") {
+		t.Fatal("swarm_topology literal removed from catalog — forward-only law violation")
+	}
+
+	// Unknown keys and the dynamic user-plugin layer fall through to
+	// the empty (legacy) model.
+	if got := InteractionModelOf("no_such_flag"); got != "" {
+		t.Errorf("InteractionModelOf(unknown) = %q, want \"\"", got)
+	}
+}
+
+func byKeyExists(byKey map[string]string, key string) bool {
+	_, ok := byKey[key]
+	return ok
+}

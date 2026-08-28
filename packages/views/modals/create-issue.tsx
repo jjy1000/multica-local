@@ -49,6 +49,7 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useIssueDraftStore } from "@multica/core/issues/stores/draft-store";
 import { useCreateModeStore } from "@multica/core/issues/stores/create-mode-store";
 import { useExperimentalFlags } from "@multica/core/experimental";
+import { isAssigneeLabLocked } from "../issues/components/pickers/assignee-lab-lock";
 import { useQuickCreateStore } from "@multica/core/issues/stores/quick-create-store";
 import { issueDetailOptions, childIssuesOptions } from "@multica/core/issues/queries";
 import { useCreateIssue, useUpdateIssue } from "@multica/core/issues/mutations";
@@ -266,16 +267,15 @@ function LabPickerRow({
           if (u.lab_source && isLabCreation) {
             onToggleLabCreation();
           }
-          // 0.3.33: only mythos_swarm reserves the agent roster
-          // (and even then only in sole mode). Other labs
-          // (claude_science_lab, pythia_oracle, llm_wiki_bridge,
-          // code_canvas, agent_self_optimization,
-          // chat_pin_ui) ship their own
-          // runtime agents / skills — the user is free to keep a
-          // manual assignee on top. Clearing the old assignee
-          // unconditionally would erase work the user did
-          // intentionally.
-          if (u.lab_source && u.lab_source === "mythos_swarm" && u.lab_mode !== "enhancer") {
+          // 0.3.33 → 0.5.86: every InteractionModelAssignee lab
+          // (独立工作型 — pythia_oracle, timesfm, claude_science_lab,
+          // semantica, mythos_swarm, swarm_topology) reserves the
+          // assignee slot for its leader; picking one clears any
+          // manual assignee so the server's leader-rewrite fills it.
+          // Unclassified/legacy labs keep manual assignees — wiping
+          // those would erase an intentional user choice. Enhancer
+          // mode requires the assignee, so it never clears.
+          if (u.lab_source && isAssigneeLabLocked(flags, u.lab_source, u.lab_mode)) {
             clearAssignee();
           }
         }}
@@ -387,6 +387,9 @@ export function ManualCreatePanel({
   const setLastMode = useCreateModeStore((s) => s.setLastMode);
   const keepOpen = useQuickCreateStore((s) => s.keepOpen);
   const setKeepOpen = useQuickCreateStore((s) => s.setKeepOpen);
+  // 0.5.86: catalog payload for the flag-driven assignee-lock
+  // (isAssigneeLabLocked) — same source the LabPickerRow reads.
+  const { data: flags } = useExperimentalFlags();
 
   const [title, setTitle] = useState(draft.title);
   const [formResetKey, setFormResetKey] = useState(0);
@@ -967,7 +970,9 @@ export function ManualCreatePanel({
                   u.assignee_id ?? undefined,
                 )}
                 lockedReason={
-                  labSource === "mythos_swarm" && labMode !== "enhancer"
+                  // 0.5.86: flag-driven assignee-lock (mirrors
+                  // issue-detail.tsx + the server 400 gate).
+                  isAssigneeLabLocked(flags, labSource, labMode)
                     ? tIssues(($) => $.lab_section.clear_lab_first_tooltip)
                     : undefined
                 }

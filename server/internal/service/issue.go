@@ -423,6 +423,11 @@ var defaultLeaderAgentForLab = map[string]string{
 	// resolve on the first create-issue (the legacy "wait for
 	// bootstrap to author it" path loses the leading edge case).
 	"swarm_topology": "swarm_coordinator",
+	// 0.5.86: timesfm leader (0.5.82 gap — the engine agent existed
+	// but lab_source=timesfm never auto-assigned it). MUST match
+	// defaultLabLeaderForKey in handler/issue.go and the timesfm
+	// install handler.
+	"timesfm": "timesfm_oracle",
 }
 
 // resolveLabLeader resolves the leader agent name for a lab_source.

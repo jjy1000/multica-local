@@ -52,19 +52,19 @@
 
 import { useMemo, useState } from "react";
 import { useExperimentalFlags } from "@multica/core/experimental";
+import { isAssigneeLabLocked } from "./assignee-lab-lock";
 import { useT } from "../../../i18n";
 import { PropertyPicker, PickerItem } from "./property-picker";
 
 export type LabMode = "sole" | "enhancer";
 
 // Labs that reserve the issue roster via the lab ↔ assignee mutex.
-// Narrowed in 0.3.33 and realigned 2026-07-28: mythos_swarm sole-mode
-// (enhancer reverses it) and swarm_topology are the only two members.
-// Every other lab coexists with a manual assignee — the server only
-// auto-rewrites the assignee to the lab leader when NO explicit
-// assignee is carried (0.3.47), so wiping it here would discard a
-// user choice the contract promises to keep.
-const ASSIGNEE_MUTEX_LABS = new Set<string>(["mythos_swarm", "swarm_topology"]);
+// 0.5.86: derived from the catalog's interaction_model (独立工作型 =
+// "assignee") via isAssigneeLabLocked instead of a hardcoded set —
+// pythia_oracle / timesfm / claude_science_lab / semantica now lock
+// exactly like the 0.3.33 pair. isAssigneeLabLocked keeps the
+// mythos_swarm / swarm_topology fallback for servers whose
+// /api/experimental-flags payload predates interaction_model.
 
 interface LabPickerProps {
   /** Current lab_source value on the issue. null/undefined = no lab. */
@@ -260,7 +260,7 @@ export function LabPicker({
     // current assignee: lab + assignee coexist by
     // contract, and the server's leader rewrite only
     // fills an EMPTY assignee field.
-    if (ASSIGNEE_MUTEX_LABS.has(nextLab) && onClearAssignee) {
+    if (isAssigneeLabLocked(flags, nextLab, mode) && onClearAssignee) {
       onClearAssignee();
     }
     onUpdate({ lab_source: nextLab, lab_mode: mode });
@@ -296,7 +296,7 @@ export function LabPicker({
     mode: LabMode,
   ): boolean => {
     if (!confirmRewrite) return false;
-    if (ASSIGNEE_MUTEX_LABS.has(nextLab)) return false;
+    if (isAssigneeLabLocked(flags, nextLab, mode)) return false;
     const leader = leaderByKey.get(nextLab);
     if (!leader) return false;
     setPending({
