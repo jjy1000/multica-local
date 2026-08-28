@@ -521,6 +521,7 @@ type createEdgeRequest struct {
 	Weight     *float64        `json:"weight,omitempty"`
 	Confidence *float64        `json:"confidence,omitempty"`
 	Metadata   json.RawMessage `json:"metadata,omitempty"`
+	Rationale  string          `json:"rationale,omitempty"`
 }
 
 // numericFromFloat encodes a float into pgtype.Numeric (both the list
@@ -678,6 +679,93 @@ func (h *Handler) rejectCausalEdge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, causalEdgeToJSON(rejected))
+}
+
+// createCausalSuggestion implements the Tier D write path (0.5.83 WL3
+// S2): hidden-team agents (curator / evolver) propose edges that land
+// status='suggested' and NEVER surface in subgraph/path until a human
+// confirms them through POST .../edges/{id}/confirm. This is the trust
+// ladder's hard gate — LLM output is the weakest tier by design.
+//
+//	POST /api/causal-graph/suggestions?workspace_id=
+//	{from_node_id, to_node_id, type, confidence?, rationale?}
+//
+// proposed_by is fixed to 'curator' for agent callers (the evolver
+// uses its own internal service path, not this endpoint).
+func (h *Handler) createCausalSuggestion(w http.ResponseWriter, r *http.Request) {
+	wsID, ok := scopeWorkspace(w, r)
+	if !ok {
+		return
+	}
+	var req createEdgeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if !causalEdgeTypes[req.Type] {
+		writeError(w, http.StatusBadRequest,
+			"type must be one of causes|supports|contradicts|depends_on|enables|blocks")
+		return
+	}
+	if req.Rationale == "" {
+		writeError(w, http.StatusBadRequest, "rationale is required — a suggestion without a stated reason is unverifiable")
+		return
+	}
+	fromID, ok := parseUUIDOrBadRequest(w, req.FromNodeID, "from_node_id")
+	if !ok {
+		return
+	}
+	toID, ok := parseUUIDOrBadRequest(w, req.ToNodeID, "to_node_id")
+	if !ok {
+		return
+	}
+	if fromID == toID {
+		writeError(w, http.StatusBadRequest, "a node cannot suggest itself")
+		return
+	}
+	fromNode, err := h.Queries.GetCausalNode(r.Context(), fromID)
+	if err != nil || fromNode.WorkspaceID != wsID {
+		writeError(w, http.StatusNotFound, "from_node not found")
+		return
+	}
+	toNode, err := h.Queries.GetCausalNode(r.Context(), toID)
+	if err != nil || toNode.WorkspaceID != wsID {
+		writeError(w, http.StatusNotFound, "to_node not found")
+		return
+	}
+	params := dbpkg.CreateCausalEdgeParams{
+		WorkspaceID: wsID,
+		FromNodeID:  fromID,
+		ToNodeID:    toID,
+		EdgeType:    req.Type,
+		EdgeStatus:  pgtype.Text{Valid: true, String: "suggested"},
+		ProposedBy:  pgtype.Text{Valid: true, String: "curator"},
+		CreatedBy:   pgtype.Text{Valid: true, String: "system"},
+	}
+	if req.Confidence != nil {
+		if *req.Confidence < 0 || *req.Confidence > 1 {
+			writeError(w, http.StatusBadRequest, "confidence must be in [0,1]")
+			return
+		}
+		// Tier D trust ceiling: suggested edges cap at 0.5 until a human
+		// confirms (roadmap §3.0 Tier D — same ladder as
+		// agent_self_optimization::edits).
+		params.Confidence, _ = numericFromFloat(*req.Confidence * 0.5)
+	}
+	if len(req.Metadata) > 0 {
+		params.Metadata = req.Metadata
+	}
+	provenance, _ := json.Marshal(map[string]any{
+		"source":    "curator",
+		"rationale": req.Rationale,
+	})
+	params.Provenance = provenance
+	edge, err := h.Queries.CreateCausalEdge(r.Context(), params)
+	if err != nil {
+		writeCausalDBError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, causalEdgeToJSON(edge))
 }
 
 // ── subgraph + path (BFS) ─────────────────────────────────────────────
@@ -890,6 +978,7 @@ func RegisterCausalGraphRoutes(r chi.Router, h *Handler) {
 	r.Get("/api/causal-graph/edges", h.listCausalEdges)
 	r.Post("/api/causal-graph/edges", h.createCausalEdge)
 	r.Delete("/api/causal-graph/edges/{edgeID}", h.deleteCausalEdge)
+	r.Post("/api/causal-graph/suggestions", h.createCausalSuggestion)
 	r.Post("/api/causal-graph/edges/{edgeID}/confirm", h.confirmCausalEdge)
 	r.Post("/api/causal-graph/edges/{edgeID}/reject", h.rejectCausalEdge)
 
