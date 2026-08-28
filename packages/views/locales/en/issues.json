@@ -543,6 +543,18 @@
     }
   },
   "lab_section": {
+    "progress_idle": "Not run",
+    "progress_idle_hint": "This lab has not run on this issue yet",
+    "progress_running": "Running",
+    "progress_running_hint": "Working on this issue — click for progress and the live animation",
+    "progress_done": "Completed",
+    "progress_failed": "Run failed",
+    "progress_engine_down": "Engine not running",
+    "progress_engine_down_hint": "The last trigger returned no result — the local engine may be down",
+    "progress_auxiliary": "Auxiliary plugin · collaborates on this issue automatically, no standalone run",
+    "progress_view": "View in lab",
+    "progress_pythia_rounds": "{{rounds}} rounds",
+    "progress_mythos_loop": "iteration {{loop}}",
     "section_title": "Labs running on this issue",
     "swarm_never_started": "not started",
     "open_panel": "Open labs panel",

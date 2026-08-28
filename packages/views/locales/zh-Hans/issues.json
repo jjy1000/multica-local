@@ -524,6 +524,18 @@
     }
   },
   "lab_section": {
+    "progress_idle": "未运行",
+    "progress_idle_hint": "此实验室尚未在该 issue 上运行",
+    "progress_running": "运行中",
+    "progress_running_hint": "正在处理这个 issue,点击查看进度与推演动画",
+    "progress_done": "已完成",
+    "progress_failed": "运行失败",
+    "progress_engine_down": "引擎未运行",
+    "progress_engine_down_hint": "最近一次触发未返回结果,可能本地引擎未启动",
+    "progress_auxiliary": "辅助插件 · 随问题自动协同,无独立运行",
+    "progress_view": "查看实验室",
+    "progress_pythia_rounds": "{{rounds}} 轮推演",
+    "progress_mythos_loop": "第 {{loop}} 轮协作",
     "section_title": "正在本 issue 上运行的实验室",
     "swarm_never_started": "未启动",
     "open_panel": "打开实验室面板",

@@ -33,6 +33,12 @@ import { ArtifactRenderer, type Artifact } from "./artifact-renderer";
 import { AppLink } from "../../navigation";
 import { labSourceRouteSuffix } from "../../issues/components/issue-labs-section";
 import { LabRunLink, labRunHref } from "./lab-run-link";
+import {
+  PYTHIA_IN_PROGRESS_WINDOW_MS,
+  derivePythiaTriggerState,
+  markPythiaTriggered,
+  readPythiaTriggeredAt,
+} from "./lab-run-heuristics";
 import { useT } from "../../i18n";
 
 // 0.5.18 M1-M4: unified output panel for the four A-class issue-bound labs.
@@ -779,13 +785,11 @@ function PythiaPanel({
   // Persisted in sessionStorage so a navigate-away-and-back cycle
   // doesn't reset the timer. The sessionStorage write is fire-and-
   // forget — when the mutation resolves we re-read the timestamp.
-  const trigKey = `pythia-triggered-${wsId}-${issueId}`;
-  const [triggeredAt, setTriggeredAt] = useState<number | null>(() => {
-    if (typeof window === "undefined") return null;
-    const raw = window.sessionStorage.getItem(trigKey);
-    const n = raw ? Number.parseInt(raw, 10) : NaN;
-    return Number.isFinite(n) ? n : null;
-  });
+  // 0.5.86: the read/write/state helpers moved to lab-run-heuristics.ts
+  // so the issue-side LabProgressCard derives the SAME signal.
+  const [triggeredAt, setTriggeredAt] = useState<number | null>(() =>
+    readPythiaTriggeredAt(wsId, issueId),
+  );
 
   const triggerForecast = useMutation({
     mutationFn: async (rounds: number) => {
@@ -804,7 +808,7 @@ function PythiaPanel({
     },
     onMutate: (rounds) => {
       const now = Date.now();
-      window.sessionStorage.setItem(trigKey, String(now));
+      markPythiaTriggered(wsId, issueId, now);
       setTriggeredAt(now);
       return { rounds };
     },
@@ -840,12 +844,10 @@ function PythiaPanel({
   // grace before flipping to "无响应". Once rows arrive, the
   // timestamp is ignored (we have data).
   const now = Date.now();
-  const inProgressWindowMs = 90_000;
   const hasRuns = (runsQuery.data?.length ?? 0) > 0;
-  const isInProgress =
-    triggeredAt != null && now - triggeredAt < inProgressWindowMs && !hasRuns;
-  const isStuck =
-    triggeredAt != null && now - triggeredAt >= inProgressWindowMs && !hasRuns;
+  const triggerState = derivePythiaTriggerState(triggeredAt, hasRuns, now);
+  const isInProgress = triggerState === "in_progress";
+  const isStuck = triggerState === "stuck";
 
   if (runsQuery.isLoading) {
     return (
@@ -878,7 +880,7 @@ function PythiaPanel({
   // stack a second 10-round run on top of the first).
   if (isInProgress) {
     const elapsed = Math.floor((now - (triggeredAt ?? now)) / 1000);
-    const budgetSec = Math.floor(inProgressWindowMs / 1000);
+    const budgetSec = Math.floor(PYTHIA_IN_PROGRESS_WINDOW_MS / 1000);
     return (
       <div
         className="space-y-1.5 rounded-md border border-purple-500/40 bg-purple-500/5 px-2 py-1.5"

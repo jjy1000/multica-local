@@ -9,6 +9,7 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { api } from "@multica/core/api";
 import { AppLink } from "../../navigation";
 import { LabOutputPanel } from "../../experimental/components/lab-output-panel";
+import { LabProgressCard } from "./lab-progress-card";
 import { LabLastResultChip } from "./lab-last-result-chip";
 import { LabBadge } from "./lab-badge";
 import { useT } from "../../i18n";
@@ -371,6 +372,24 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
               </AppLink>
             ) : null}
           </div>
+
+          {/* 0.5.86: per-lab progress card. Generalizes the swarm-only
+              status pill above into every run-capable lab bound to the
+              issue (pythia / timesfm / mythos / claude_science_lab):
+              idle / running / done / failed / engine-down + a deep link
+              into the lab view (推演动画 / 进度 / 最终显示). Auxiliary
+              labs (causal_graph, llm_wiki_bridge, semantica) render a
+              muted no-run row instead. swarm_topology keeps the pill (it
+              already carries status + click-through) and code_canvas
+              keeps the panel — the card renders null for both so their
+              surfaces are never duplicated. */}
+          <LabProgressCard
+            issueId={issueId}
+            workspaceId={wsId}
+            labSource={labSource}
+            flagEnabled={labEnabled}
+            live={live}
+          />
 
           {/* 0.5.81: glanceable "latest result" affordance that lives one
               row above the LabOutputPanel reader. Shares the panel's

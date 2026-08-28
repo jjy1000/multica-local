@@ -537,6 +537,18 @@
     }
   },
   "lab_section": {
+    "progress_idle": "미실행",
+    "progress_idle_hint": "이 랩은 아직 이 이슈에서 실행되지 않았습니다",
+    "progress_running": "실행 중",
+    "progress_running_hint": "이 이슈를 처리 중입니다. 클릭하면 진행 상황과 애니메이션을 볼 수 있습니다",
+    "progress_done": "완료",
+    "progress_failed": "실행 실패",
+    "progress_engine_down": "엔진 미가동",
+    "progress_engine_down_hint": "최근 트리거가 결과를 반환하지 않았습니다. 로컬 엔진이 꺼져 있을 수 있습니다",
+    "progress_auxiliary": "보조 플러그인 · 이슈와 자동으로 연동되며 독립 실행이 없습니다",
+    "progress_view": "랩에서 보기",
+    "progress_pythia_rounds": "{{rounds}} 라운드",
+    "progress_mythos_loop": "{{loop}}번째 협업",
     "section_title": "이 이슈에서 실행 중인 랩",
     "swarm_never_started": "미시작",
     "open_panel": "랩 패널 열기",

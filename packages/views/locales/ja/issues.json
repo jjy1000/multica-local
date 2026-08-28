@@ -519,6 +519,18 @@
     }
   },
   "lab_section": {
+    "progress_idle": "未実行",
+    "progress_idle_hint": "このラボはまだこのイシューで実行されていません",
+    "progress_running": "実行中",
+    "progress_running_hint": "このイシューを処理中です。クリックで進捗とアニメーションを表示",
+    "progress_done": "完了",
+    "progress_failed": "実行失敗",
+    "progress_engine_down": "エンジン未起動",
+    "progress_engine_down_hint": "直近のトリガーが結果を返しませんでした。ローカルエンジンが起動していない可能性があります",
+    "progress_auxiliary": "補助プラグイン · イシューに自動連携し、独立した実行はありません",
+    "progress_view": "ラボで表示",
+    "progress_pythia_rounds": "{{rounds}} ラウンド",
+    "progress_mythos_loop": "第 {{loop}} 周目",
     "section_title": "このイシューで稼働中のラボ",
     "swarm_never_started": "未開始",
     "open_panel": "ラボパネルを開く",
