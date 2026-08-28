@@ -595,6 +595,18 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallTimesfm(context.Background(), userID, workspaceID)
 			})
+		// 0.5.83 WL3: install handler for the causal_graph lab. Provisions
+		// the hidden three-agent team (curator / historian / verifier —
+		// NO dispatch leader; AutoDispatch=false and no
+		// defaultLabLeaderForKey case, timesfm precedent) + purge-before-
+		// seed visibility rows. The graph itself is native Go storage
+		// (causal_node/causal_edge, migs 277-278) — there is no subprocess;
+		// the install handler only writes the DB rows the tier A/B recorders
+		// and the REST surface rely on.
+		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceCausalGraph),
+			func(userID, workspaceID string) error {
+				return hh.InstallCausalGraph(context.Background(), userID, workspaceID)
+			})
 		// 0.5.3: agent_creation_studio upgraded from an action-only lab to
 		// an issue-bound lab: selecting it in LabPicker writes
 		// issue.lab_source='agent_creation_studio' and the leader agent
