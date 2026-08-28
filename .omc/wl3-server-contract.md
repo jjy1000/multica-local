@@ -110,3 +110,51 @@ core zod schemas + hooks (`useCausalSubgraph` 5s-poll fallback,
 `useCausalGraphPath`), issue-header icon + radix Popover minimap,
 `/experimental/causal-graph` view + routes.tsx entry + web stub, i18n
 ×4 (arrow-selector syntax), tests.
+
+---
+
+## S2 addendum (2026-08-28) — what landed, what deferred
+
+Landed in S2 (commits 42ff7582a → 0650ac4c4):
+
+- Tier D REST gate: POST /api/causal-graph/suggestions (rationale
+  required, confidence halved to ≤0.5, lands suggested/curator;
+  409 never-nag probe on any-status duplicates) + curator builtin
+  skill (multica-causal-graph-curator).
+- Hidden three-agent team via install_causal_graph.go:
+  causal_graph_curator / causal_graph_historian /
+  causal_graph_verifier. NO dispatch leader (AutoDispatch=false, no
+  defaultLabLeaderForKey case — timesfm precedent). Purge-before-
+  seed visibility. The roadmap's "1 autopilot" row is SUPERSEDED by
+  the nightly evolver JobSpec (documented deviation).
+- mig 280: rejection is now a TOMBSTONE (status='rejected'), not a
+  delete — the audit trail is what keeps the evolver/curator scan
+  from re-proposing (ICP-5). RejectCausalEdge UPDATEs; DELETE
+  /edges/{id} remains the hard-removal path.
+- Deterministic curator scan (service/causal_graph/curator.go):
+  "blocked by / depends on / 依赖…" + <PREFIX>-<N> ⇒ suggested
+  depends_on between issue roots. LLM-free tier D.
+- Nightly evolver (evolver.go + scheduler job causal_graph_evolver,
+  24h catch-up-latest-only): curator scan over the SUCCESS-audit
+  window + transitive A→B→C ⇒ suggested A→C shortcut at
+  min(conf)*0.8 capped 0.5.
+- Maintenance ticker (maintenance.go, SemanticaGC mirror): stale-mark
+  volatile nodes >30d unobserved (constraint/assumption exempt), GC
+  unconfirmed suggestions >30d; rejected tombstones kept forever.
+- S1 bug fix found by the install test: SourceCausalGraph was missing
+  from experimental.AllSources — Claim rejected every install
+  ("unknown source"). Latent because the S1 REST surface never calls
+  Claim. Pinned by TestAllSourcesContainsCausalGraph.
+
+Deferred to 0.5.84 (roadmap §3.5 items 22-23 + Tier C; the roadmap
+explicitly allows the 0.5.83/0.5.84 split):
+
+- Tier C Pythia hypothesis→evidence closure (supports/contradicts
+  edges from forecast/resolution ledger pairs).
+- Daemon claim-response context injection (handler/daemon.go
+  :1349-1465 seam — compact subgraph block into resp.Agent.
+  Instructions).
+- Mention-flow doc updates (multica-mentioning family) noting the
+  read-only causal-context availability.
+- Historian/verifier automation (their 0.5.83 mandates are
+  mention-driven and read-only by design).
