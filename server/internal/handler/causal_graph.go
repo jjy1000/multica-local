@@ -573,6 +573,18 @@ func (h *Handler) createCausalEdge(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "to_node not found")
 		return
 	}
+	// Never-nag probe (ICP-5): an edge decided in ANY status — active
+	// or a rejected tombstone (mig 280) — silences re-proposals of the
+	// same (from, to, type) triple. This is the 409 the curator skill
+	// promises.
+	if _, err := h.Queries.FindCausalEdgeBetween(r.Context(), dbpkg.FindCausalEdgeBetweenParams{
+		FromNodeID: fromID,
+		ToNodeID:   toID,
+		EdgeType:   req.Type,
+	}); err == nil {
+		writeError(w, http.StatusConflict, "an edge for this (from, to, type) triple already exists")
+		return
+	}
 	if toNode.WorkspaceID != fromNode.WorkspaceID {
 		writeError(w, http.StatusBadRequest, "edge endpoints must share a workspace")
 		return
