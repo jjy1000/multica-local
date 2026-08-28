@@ -22,6 +22,14 @@
 // cmd/server/main.go: started beside the scheduler, stopped in the
 // after-HTTP-drain shutdown chain (same order contract as the
 // SemanticaGC / SwarmGC Stop() calls).
+//
+// DB anchor (0.5.84 P0 #4): the loop body is preceded by a
+// boot-anchor pass that reads causal_graph_maintenance_state
+// (migration 281, a singleton row carrying last_sweep_at). If the
+// last sweep was >= Interval ago, sweepOnce runs immediately so
+// restart-heavy sessions cannot strand stale nodes beyond the
+// intended cadence. Every sweep() call updates the anchor
+// timestamp, so a daily restart mid-cycle does not double-sweep.
 package causalgraph
 
 import (
@@ -116,8 +124,12 @@ func (m *CausalMaintenance) Stop() {
 }
 
 // Run is the loop body, exported so tests can drive it directly
-// (mirrors SemanticaGC.Run).
+// (mirrors SemanticaGC.Run). The boot-anchor pass runs first when a
+// DB pool is configured: if the last sweep was >= Interval ago we
+// sweep synchronously now so a daily restart does not reset the
+// cadence to "now" and strand stale nodes past the 30-day TTL.
 func (m *CausalMaintenance) Run() {
+	m.bootSweep()
 	t := time.NewTicker(m.cfg.Interval)
 	defer t.Stop()
 
@@ -131,7 +143,70 @@ func (m *CausalMaintenance) Run() {
 	}
 }
 
+// bootSweep runs one synchronous sweep at startup if the DB anchor
+// indicates the last sweep was >= Interval ago. A nil pool or any
+// DB error falls through to "resume the ticker" — the boot anchor is
+// a recovery aid, not a gate. Safe to call repeatedly; idempotent
+// because sweep() updates the anchor and shouldSweepOnBoot is
+// monotonic in (now, last_sweep).
+func (m *CausalMaintenance) bootSweep() {
+	if m.pool == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), m.cfg.SweepTimeout)
+	defer cancel()
+
+	lastSweep, err := m.readLastSweep(ctx)
+	if err != nil {
+		m.cfg.Logger.Warn("causal maintenance: anchor lookup failed; resuming ticker", "error", err)
+		return
+	}
+	if !shouldSweepOnBoot(lastSweep, m.cfg.Interval, time.Now().UTC()) {
+		return
+	}
+	m.sweep()
+}
+
+// shouldSweepOnBoot decides whether a boot-time sweep is required
+// given the timestamp of the last sweep and the configured
+// interval. Pure function so the regression pin is DB-free.
+func shouldSweepOnBoot(lastSweep time.Time, interval time.Duration, now time.Time) bool {
+	if interval <= 0 {
+		return false
+	}
+	return now.Sub(lastSweep) >= interval
+}
+
+// readLastSweep fetches the anchor timestamp. Returns the zero time
+// on an empty table — defensive against a fresh DB where the seeded
+// singleton row was wiped by a partial migration. Should never
+// happen in production because the migration INSERT is ON CONFLICT
+// DO NOTHING, but the boot anchor must never block on a missing row.
+func (m *CausalMaintenance) readLastSweep(ctx context.Context) (time.Time, error) {
+	var ts time.Time
+	err := m.pool.QueryRow(ctx, `
+		SELECT last_sweep_at FROM causal_graph_maintenance_state WHERE id = TRUE
+	`).Scan(&ts)
+	return ts, err
+}
+
+// writeLastSweep stamps the anchor after a successful sweep.
+// Called from sweep(); not fatal on error — the next sweep will
+// re-stamp, and a stale "last_sweep" only causes a redundant boot
+// sweep, never a missed one.
+func (m *CausalMaintenance) writeLastSweep(ctx context.Context) error {
+	_, err := m.pool.Exec(ctx, `
+		UPDATE causal_graph_maintenance_state
+		SET last_sweep_at = NOW(), updated_at = NOW()
+		WHERE id = TRUE
+	`)
+	return err
+}
+
 // sweep runs one maintenance pass. Safe to call from tests.
+// Stamps the DB anchor after the sweep completes so a daily restart
+// mid-cycle does not double-sweep; nil-pool callers (db-less tests)
+// skip the stamp entirely.
 func (m *CausalMaintenance) sweep() {
 	m.sweepCount.Add(1)
 	if m.pool == nil {
@@ -140,6 +215,9 @@ func (m *CausalMaintenance) sweep() {
 	ctx, cancel := context.WithTimeout(context.Background(), m.cfg.SweepTimeout)
 	defer cancel()
 	m.sweepOnce(ctx)
+	if err := m.writeLastSweep(ctx); err != nil {
+		m.cfg.Logger.Warn("causal maintenance: anchor update failed", "error", err)
+	}
 }
 
 func (m *CausalMaintenance) sweepOnce(ctx context.Context) {
