@@ -1,0 +1,21 @@
+# TimesFM 2.5 torch-stack runtime deps for the Multica loopback service.
+#
+# EVERY pinned version below MUST exist in ./wheelhouse/ (built by
+# `bash scripts/build-timesfm-wheelhouse.sh` with
+# `pip download --platform macosx_11_0_arm64 --only-binary=:all:
+# --implementation cp --python-version 3.12`). run.sh installs STRICTLY
+# offline: `pip install --no-index --find-links ./wheelhouse -r
+# requirements-timesfm.txt` — so the pins and the wheelhouse must stay
+# in lockstep. Bump a pin here → re-run the wheelhouse script.
+#
+# Versions are the ones verified present on this machine's
+# darwin/arm64 + CPython 3.12 stack (semantica venv shares the same
+# torch/numpy/pandas builds, so wheels are known-published for
+# macosx_11_0_arm64).
+torch==2.13.0
+numpy==2.5.2
+safetensors==0.8.0
+huggingface_hub==1.27.0
+pandas==3.0.5
+fastapi==0.141.1
+uvicorn==0.52.3
