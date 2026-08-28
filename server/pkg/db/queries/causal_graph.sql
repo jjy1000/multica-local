@@ -64,6 +64,36 @@ LIMIT 1;
 UPDATE causal_node SET last_observed_at = now()
 WHERE id = sqlc.arg('node_id')::uuid;
 
+-- 0.5.84 P0 #3 fix: bulk-touch last_observed_at on every active
+-- node whose primary issue matches AND on every active 1-hop
+-- graph neighbor (nodes linked via an edge to any primary node).
+-- Wired from UpdateIssue / CreateComment / enqueueTask /
+-- CompleteTask hot paths so volatile node types (action /
+-- outcome / decision / evidence) do not flip to status='stale'
+-- after 30 days. Constraint/assumption nodes are exempt from the
+-- stale ladder (the maintenance ticker keeps them exempt), but
+-- touching them here is harmless and keeps recent issue activity
+-- surfaced on long-lived anchor nodes.
+-- name: RefreshCausalNodesForIssue :execrows
+WITH touch AS (
+    SELECT id FROM causal_node
+    WHERE status = 'active' AND issue_id = sqlc.arg('issue_id')::uuid
+    UNION
+    SELECT DISTINCT e.from_node_id AS id FROM causal_edge e
+    JOIN causal_node n ON e.to_node_id = n.id
+    WHERE n.issue_id = sqlc.arg('issue_id')::uuid
+      AND n.status = 'active'
+      AND e.from_node_id <> n.id
+    UNION
+    SELECT DISTINCT e.to_node_id AS id FROM causal_edge e
+    JOIN causal_node n ON e.from_node_id = n.id
+    WHERE n.issue_id = sqlc.arg('issue_id')::uuid
+      AND n.status = 'active'
+      AND e.to_node_id <> n.id
+)
+UPDATE causal_node SET last_observed_at = now()
+WHERE status = 'active' AND id IN (SELECT id FROM touch);
+
 -- Recorder gate: the Tier A/B hooks ride the hot enqueue/complete
 -- paths, so the enabled check is one indexed EXISTS rather than the
 -- ListEnabledFlagKeys enumeration. Same "any user" semantics — in

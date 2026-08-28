@@ -3224,6 +3224,18 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	resp := issueToResponse(issue, prefix)
 	slog.Info("issue updated", append(logger.RequestAttrs(r), "issue_id", id, "workspace_id", workspaceID)...)
 
+	// 0.5.84 P0 #3: bulk-touch the causal graph for this issue
+	// (every active node whose primary issue_id matches + every
+	// 1-hop graph neighbour). Without this the 30-day stale TTL
+	// flips volatile action/outcome/decision nodes to
+	// status='stale' and they vanish from the active-only UI
+	// filter, silently breaking chains the user can still see in
+	// the issue's recent history. nil-safe / flag-gated inside the
+	// recorder.
+	if h.CausalRecorder != nil {
+		h.CausalRecorder.RefreshForIssue(r.Context(), issue.ID)
+	}
+
 	h.fillStatusCategory(r.Context(), issue.WorkspaceID, &resp)
 	assigneeChanged := (req.AssigneeType != nil || req.AssigneeID != nil) &&
 		(prevIssue.AssigneeType.String != issue.AssigneeType.String || uuidToString(prevIssue.AssigneeID) != uuidToString(issue.AssigneeID))

@@ -633,6 +633,13 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, trig
 	// means zero writes.
 	if s.CausalRecorder != nil {
 		s.CausalRecorder.RecordTaskAction(ctx, issue, task, "issue")
+		// 0.5.84 P0 #3: keep the rest of the issue's graph
+		// (older actions / outcomes / decisions / assumptions)
+		// alive past the 30-day stale ladder. The fresh action
+		// node above is already at now() — this bulk-touch
+		// refreshes the issue's primary nodes + 1-hop graph
+		// neighbours in one UPDATE.
+		s.CausalRecorder.RefreshForIssue(ctx, issue.ID)
 	}
 	return task, nil
 }
@@ -736,6 +743,10 @@ func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.Issue, ag
 			trigger = "squad_leader"
 		}
 		s.CausalRecorder.RecordTaskAction(ctx, issue, task, trigger)
+		// 0.5.84 P0 #3: same touch as the issue funnel —
+		// keep older graph nodes alive past the 30-day stale
+		// ladder. See enqueueIssueTask for the full rationale.
+		s.CausalRecorder.RefreshForIssue(ctx, issue.ID)
 	}
 	return task, nil
 }
@@ -1555,6 +1566,12 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 			output = payload.Output
 		}
 		s.CausalRecorder.RecordTaskOutcome(ctx, task, output)
+		// 0.5.84 P0 #3: bulk-touch the issue's graph so older
+		// action/outcome/decision nodes don't flip to
+		// status='stale' after 30 days of idle. The freshly
+		// minted outcome node above is already at now(); this
+		// is the rest of the chain.
+		s.CausalRecorder.RefreshForIssue(ctx, task.IssueID)
 	}
 
 	// Invariant: every completed issue task must have at least one agent

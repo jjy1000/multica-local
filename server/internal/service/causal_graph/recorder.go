@@ -275,3 +275,36 @@ func mustJSON(v map[string]string) []byte {
 	}
 	return b
 }
+
+// RefreshForIssue touches last_observed_at on every active causal
+// node for an issue PLUS its 1-hop graph neighbours (0.5.84 P0 #3
+// fix). Wired from the UpdateIssue / CreateComment / enqueueTask /
+// CompleteTask hot paths so volatile node types (action /
+// outcome / decision / evidence) do not flip to status='stale'
+// after 30 days. Without callers the maintenance ticker
+// stale-marks every volatile node whose last_observed_at is older
+// than 30 days (constraint / assumption are exempt by design) —
+// the issue detail minimap then silently drops them from the
+// active-only UI filter and the 30-day-long causal chain goes
+// dark. Touching here keeps the chains alive.
+//
+// Idempotent (no-op when the flag is off), best-effort
+// (errors log at WRN — a broken refresh must never break an issue
+// update / comment / task path), and nil-safe (tests / minimal
+// builds skip the call entirely).
+func (r *Recorder) RefreshForIssue(ctx context.Context, issueID pgtype.UUID) {
+	const op = "causal refresh issue"
+	if r == nil || r.Queries == nil {
+		return
+	}
+	if !issueID.Valid {
+		return
+	}
+	if !r.Enabled(ctx) {
+		return
+	}
+	ctx = context.WithoutCancel(ctx) // survive HTTP-client disconnects
+	if _, err := r.Queries.RefreshCausalNodesForIssue(ctx, issueID); err != nil {
+		slog.Warn(op+" failed", "issue_id", util.UUIDToString(issueID), "error", err)
+	}
+}
