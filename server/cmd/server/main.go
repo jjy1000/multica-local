@@ -25,6 +25,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/realtime"
 	"github.com/multica-ai/multica/server/internal/scheduler"
 	"github.com/multica-ai/multica/server/internal/service"
+	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/featureflag"
 	"github.com/redis/go-redis/v9"
@@ -506,6 +507,17 @@ func main() {
 	if err := schedulerMgr.Register(scheduler.AutopilotScheduleDispatchJob(pool, queries, autopilotSvc)); err != nil {
 		slog.Warn("scheduler: failed to register autopilot_schedule_dispatch job", "error", err)
 	}
+	// 0.5.83 WL3: nightly causal-graph evolution (tier-D curator scan +
+	// transitive gap fill, both suggested-gated). The handler derives
+	// its comment window from this job's own SUCCESS audit rows.
+	if err := schedulerMgr.Register(scheduler.CausalGraphEvolverJob(pool, causalgraph.NewEvolver(pool, queries, causalgraph.EvolverTuning{}))); err != nil {
+		slog.Warn("scheduler: failed to register causal_graph_evolver job", "error", err)
+	}
+	// 0.5.83 WL3: causal-graph maintenance ticker (stale-marking +
+	// unconfirmed-suggestion GC). Started here so the lifetime is
+	// process-scoped; stopped in the after-HTTP-drain chain below.
+	causalMaintenance := causalgraph.NewCausalMaintenance(pool, causalgraph.CausalMaintenanceConfig{})
+	causalMaintenance.Start()
 	go func() {
 		_ = schedulerMgr.Run(sweepCtx)
 	}()
@@ -591,6 +603,11 @@ func main() {
 	if h.SemanticaACLReconciler != nil {
 		h.SemanticaACLReconciler.Stop()
 	}
+	// 0.5.83 WL3: stop the causal-graph maintenance ticker before
+	// process exit — same contract as the GC family above (clean loop
+	// exit instead of a SIGKILL mid-sweep; sweeps are idempotent
+	// anyway).
+	causalMaintenance.Stop()
 	// 0.5.31: stop the auth_token_gc goroutine before process exit.
 	// Same rationale as swarm_gc / runtime_gc / semantica_gc — the
 	// ticker loop should exit cleanly on Stop rather than be

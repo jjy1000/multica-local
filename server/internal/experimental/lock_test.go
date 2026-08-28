@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/internal/experimental"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // fakeQuerier is a hand-rolled stub of the small slice of db.Querier the
@@ -32,7 +32,7 @@ type fakeQuerier struct {
 
 func newFakeQuerier() *fakeQuerier {
 	return &fakeQuerier{
-		rows:        make(map[string]db.ExperimentalResourceLock),
+		rows: make(map[string]db.ExperimentalResourceLock),
 		countByType: make(map[experimental.Source]map[experimental.ResourceType]struct {
 			total, visible int
 		}),
@@ -288,5 +288,22 @@ func TestAllSourcesContainsClaudeScience(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("AllSources does not contain SourceClaudeScience")
+	}
+}
+
+// TestAllSourcesContainsCausalGraph guards the 0.5.83 WL3 source: the
+// constant existing is not enough — Claim validates against the
+// AllSources slice, and a missing entry turns every install into
+// "unknown source" (caught by TestInstallCausalGraphSeedsHiddenTeam).
+func TestAllSourcesContainsCausalGraph(t *testing.T) {
+	found := false
+	for _, s := range experimental.AllSources {
+		if s == experimental.SourceCausalGraph {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("AllSources does not contain SourceCausalGraph")
 	}
 }

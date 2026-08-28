@@ -13,6 +13,12 @@
 //     active-triple index surfaces as 409 (never a raw 500).
 //   - TestCausalGraphRecorderFlagGate — the Tier A recorder is silent
 //     while the flag is off and idempotent while it is on.
+//   - TestInstallCausalGraphSeedsHiddenTeam — the three-agent hidden
+//     team, their locks, and purge-before-seed visibility (S2).
+//   - TestCausalGraphCuratorScan — the deterministic comment-window
+//     depends_on proposals + the never-nag probe (S2).
+//   - TestCausalGraphEvolverGapFill — transitive tier-D proposals at
+//     the 0.5 ceiling, flag-gated (S2).
 //
 // DB-backed cases are skipped by TestMain when DATABASE_URL is
 // unreachable (same harness as timesfm_forecast_test.go).
@@ -22,15 +28,18 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -484,4 +493,330 @@ func suggestedIDToString(u pgtype.UUID) string {
 	}
 	b := u.Bytes
 	return uuid.UUID(b).String()
+}
+
+// ── S2: hidden team + curator scan + evolver ─────────────────────────
+
+// causalTestComment inserts a comment row directly and returns its id.
+func causalTestComment(t *testing.T, issueID, userID, workspaceID, content string) string {
+	t.Helper()
+	var commentID string
+	if err := testPool.QueryRow(t.Context(), `
+		INSERT INTO comment (issue_id, author_type, author_id, content, type, workspace_id)
+		VALUES ($1, 'member', $2, $3, 'comment', $4)
+		RETURNING id
+	`, mustParseUUID(t, issueID), mustParseUUID(t, userID), content, mustParseUUID(t, workspaceID)).Scan(&commentID); err != nil {
+		t.Fatalf("insert comment: %v", err)
+	}
+	return commentID
+}
+
+// TestInstallCausalGraphSeedsHiddenTeam pins the S2 install contract:
+// three hidden agents exist, all locked under the causal_graph source,
+// and the visibility rows are purge-before-seed (re-install never
+// accumulates stale rows or duplicate agents).
+func TestInstallCausalGraphSeedsHiddenTeam(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("handler fixture unavailable (no DATABASE_URL)")
+	}
+	ctx := context.Background()
+
+	// A FRESH workspace with an online LOCAL runtime — the fixture
+	// workspace's runtime is cloud-mode, and the agent table requires
+	// a runtime_id (installCodeCanvasFresh is the semantica/timesfm
+	// install-test harness for exactly this reason).
+	userID, workspaceID := installCodeCanvasFresh(t, ctx, "causal-graph-install")
+	cleanupVisibilityRows(t, workspaceID)
+
+	if err := testHandler.InstallCausalGraph(ctx, userID, workspaceID); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	t.Cleanup(func() { causalCleanupHiddenTeam(t, workspaceID) })
+
+	wantNames := []string{"causal_graph_curator", "causal_graph_historian", "causal_graph_verifier"}
+	wsUUID := uuidToPgtype(workspaceID)
+	var ids []pgtype.UUID
+	for _, name := range wantNames {
+		agent, err := testHandler.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
+			WorkspaceID: wsUUID,
+			Name:        name,
+		})
+		if err != nil {
+			t.Fatalf("agent %s missing after install: %v", name, err)
+		}
+		ids = append(ids, agent.ID)
+	}
+
+	var lockCount int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM experimental_resource_lock WHERE experimental_source = 'causal_graph' AND resource_type = 'agent'`).Scan(&lockCount); err != nil {
+		t.Fatalf("count locks: %v", err)
+	}
+	if lockCount != 3 {
+		t.Fatalf("causal_graph agent locks = %d, want 3", lockCount)
+	}
+
+	// The agents must bind the workspace's online local runtime (the
+	// daemon dispatch target).
+	for _, name := range wantNames {
+		agent, err := testHandler.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
+			WorkspaceID: wsUUID,
+			Name:        name,
+		})
+		if err != nil {
+			t.Fatalf("agent %s missing: %v", name, err)
+		}
+		if !agent.RuntimeID.Valid {
+			t.Errorf("agent %s has no runtime_id — online local runtime not bound", name)
+		}
+	}
+
+	// Re-install must be idempotent for agents AND visibility.
+	if err := testHandler.InstallCausalGraph(ctx, userID, workspaceID); err != nil {
+		t.Fatalf("re-install: %v", err)
+	}
+	var visCount int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM experimental_resource_visibility WHERE flag_key = 'causal_graph' AND resource_type = 'agent'`).Scan(&visCount); err != nil {
+		t.Fatalf("count visibility rows: %v", err)
+	}
+	if visCount != 3 {
+		t.Fatalf("visibility rows after re-install = %d, want 3 (purge-before-seed)", visCount)
+	}
+	for i, name := range wantNames {
+		agent, err := testHandler.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
+			WorkspaceID: wsUUID,
+			Name:        name,
+		})
+		if err != nil {
+			t.Fatalf("agent %s missing after re-install: %v", name, err)
+		}
+		if agent.ID != ids[i] {
+			t.Errorf("agent %s got a NEW row on re-install (want reuse)", name)
+		}
+	}
+}
+
+// causalCleanupHiddenTeam removes the seeded team rows (locks and
+// visibility first, then the agents). Uses context.Background — the
+// test context is dead by cleanup time.
+func causalCleanupHiddenTeam(t *testing.T, workspaceID string) {
+	t.Helper()
+	ctx := context.Background()
+	_, _ = testPool.Exec(ctx, `DELETE FROM experimental_resource_visibility WHERE flag_key = 'causal_graph'`)
+	_, _ = testPool.Exec(ctx, `DELETE FROM experimental_resource_lock WHERE experimental_source = 'causal_graph'`)
+	_, _ = testPool.Exec(ctx, `DELETE FROM agent WHERE workspace_id = $1 AND name IN ('causal_graph_curator', 'causal_graph_historian', 'causal_graph_verifier')`, uuidToPgtype(workspaceID))
+}
+
+// TestCausalGraphCuratorScan pins the deterministic scan (S2): a
+// "blocked by <PREFIX>-<N>" comment proposes ONE suggested depends_on
+// edge between the issues' root nodes; replays are silent; a rejected
+// tombstone keeps it silent; a mention without a dependency predicate
+// proposes nothing.
+func TestCausalGraphCuratorScan(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("handler fixture unavailable (no DATABASE_URL)")
+	}
+	ctx := t.Context()
+	curator := causalgraph.NewCurator(testPool, testHandler.Queries)
+
+	issueA := causalTestIssue(t, "Curator scan source")
+	issueB := causalTestIssue(t, "Curator scan target")
+
+	var prefix string
+	if err := testPool.QueryRow(ctx, `SELECT issue_prefix FROM workspace WHERE id = $1`, mustParseUUID(t, testWorkspaceID)).Scan(&prefix); err != nil {
+		t.Fatalf("load workspace prefix: %v", err)
+	}
+	var bNumber int32
+	if err := testPool.QueryRow(ctx, `SELECT number FROM issue WHERE id = $1`, mustParseUUID(t, issueB)).Scan(&bNumber); err != nil {
+		t.Fatalf("load target number: %v", err)
+	}
+
+	causalTestComment(t, issueA, testUserID, testWorkspaceID,
+		fmt.Sprintf("Blocked by %s-%d until the schema lands.", prefix, bNumber))
+	causalTestComment(t, issueA, testUserID, testWorkspaceID,
+		fmt.Sprintf("Mentioned %s-%d in passing, no dependency.", prefix, bNumber))
+
+	since := time.Now().UTC().Add(-time.Hour)
+	until := time.Now().UTC().Add(time.Minute)
+	proposed, err := curator.ScanWindow(ctx, since, until)
+	if err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if proposed != 1 {
+		t.Fatalf("scan proposed %d edges, want 1 (predicate comment only)", proposed)
+	}
+
+	// The proposal rides the root nodes, is suggested tier-D, and
+	// carries the scan confidence.
+	rootA, err := testHandler.Queries.FindCausalNodeByDedupKey(ctx, db.FindCausalNodeByDedupKeyParams{
+		WorkspaceID: mustParseUUID(t, testWorkspaceID),
+		DedupKey:    "issue_root:" + issueA,
+	})
+	if err != nil {
+		t.Fatalf("root node for source issue missing: %v", err)
+	}
+	rootB, err := testHandler.Queries.FindCausalNodeByDedupKey(ctx, db.FindCausalNodeByDedupKeyParams{
+		WorkspaceID: mustParseUUID(t, testWorkspaceID),
+		DedupKey:    "issue_root:" + issueB,
+	})
+	if err != nil {
+		t.Fatalf("root node for target issue missing: %v", err)
+	}
+	edge, err := testHandler.Queries.FindCausalEdgeBetween(ctx, db.FindCausalEdgeBetweenParams{
+		FromNodeID: rootA.ID,
+		ToNodeID:   rootB.ID,
+		EdgeType:   "depends_on",
+	})
+	if err != nil {
+		t.Fatalf("proposed edge missing: %v", err)
+	}
+	if edge.Status != "suggested" || edge.ProposedBy.String != "curator" {
+		t.Errorf("edge status/proposed_by = %s/%s, want suggested/curator", edge.Status, edge.ProposedBy.String)
+	}
+
+	// Replay: the never-nag probe keeps the scan silent.
+	proposed, err = curator.ScanWindow(ctx, since, until)
+	if err != nil {
+		t.Fatalf("re-scan: %v", err)
+	}
+	if proposed != 0 {
+		t.Fatalf("re-scan proposed %d edges, want 0 (probe)", proposed)
+	}
+
+	// Rejected tombstone: still silent (mig 280 never-nag).
+	if _, err := testPool.Exec(ctx, `UPDATE causal_edge SET status = 'rejected' WHERE id = $1`, edge.ID); err != nil {
+		t.Fatalf("tombstone edge: %v", err)
+	}
+	proposed, err = curator.ScanWindow(ctx, since, until)
+	if err != nil {
+		t.Fatalf("post-reject scan: %v", err)
+	}
+	if proposed != 0 {
+		t.Fatalf("post-reject scan proposed %d edges, want 0 (tombstone)", proposed)
+	}
+}
+
+// TestCausalGraphEvolverGapFill pins the nightly pass (S2): flag-off
+// is a full no-op; flag-on proposes the transitive A→C shortcut for an
+// active A→B→C depends_on chain at the tier-D ceiling; a second pass
+// proposes nothing.
+func TestCausalGraphEvolverGapFill(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("handler fixture unavailable (no DATABASE_URL)")
+	}
+	ctx := t.Context()
+	userUUID := mustParseUUID(t, testUserID)
+
+	// Same shared-dev-DB hygiene as the recorder gate test.
+	if _, err := testPool.Exec(ctx, `DELETE FROM experimental_pref WHERE flag_key = 'causal_graph'`); err != nil {
+		t.Fatalf("reset pref rows: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM experimental_pref WHERE flag_key = 'causal_graph'`)
+	})
+
+	evolver := causalgraph.NewEvolver(testPool, testHandler.Queries, causalgraph.EvolverTuning{})
+
+	// Flag OFF: the pass is a documented no-op.
+	result, err := evolver.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("flag-off run: %v", err)
+	}
+	if result["skipped"] != "flag_off" {
+		t.Fatalf("flag-off result = %v, want skipped=flag_off", result)
+	}
+
+	// Build an active A→B→C chain over three issues' root nodes.
+	issueA := causalTestIssue(t, "Gap fill A")
+	issueB := causalTestIssue(t, "Gap fill B")
+	issueC := causalTestIssue(t, "Gap fill C")
+	// Root closure: look up the issue's root node, creating it with the
+	// recorder's exact provenance shape when absent (nothing else has
+	// run for these issues yet — roots are created lazily everywhere).
+	root := func(issueID string) pgtype.UUID {
+		n, err := testHandler.Queries.FindCausalNodeByDedupKey(ctx, db.FindCausalNodeByDedupKeyParams{
+			WorkspaceID: mustParseUUID(t, testWorkspaceID),
+			DedupKey:    "issue_root:" + issueID,
+		})
+		if err == nil {
+			return n.ID
+		}
+		created, err := testHandler.Queries.CreateCausalNode(ctx, db.CreateCausalNodeParams{
+			WorkspaceID: mustParseUUID(t, testWorkspaceID),
+			IssueID:     pgtype.UUID{Valid: true, Bytes: mustParseUUID(t, issueID).Bytes},
+			NodeType:    "constraint",
+			Label:       "Gap fill " + issueID,
+			Provenance:  []byte(`{"source":"issue_root","dedup_key":"issue_root:` + issueID + `","issue_id":"` + issueID + `"}`),
+			CreatedBy:   pgtype.Text{Valid: true, String: "system"},
+		})
+		if err != nil {
+			t.Fatalf("create root node for %s: %v", issueID, err)
+		}
+		return created.ID
+	}
+	nodeA, nodeB, nodeC := root(issueA), root(issueB), root(issueC)
+	mkEdge := func(from, to pgtype.UUID, conf string) {
+		t.Helper()
+		var n pgtype.Numeric
+		if err := n.Scan(conf); err != nil {
+			t.Fatalf("scan confidence %q: %v", conf, err)
+		}
+		if _, err := testHandler.Queries.CreateCausalEdge(ctx, db.CreateCausalEdgeParams{
+			WorkspaceID: mustParseUUID(t, testWorkspaceID),
+			FromNodeID:  from,
+			ToNodeID:    to,
+			EdgeType:    "depends_on",
+			Confidence:  n,
+			EdgeStatus:  pgtype.Text{Valid: true, String: "active"},
+			CreatedBy:   pgtype.Text{Valid: true, String: "user"},
+		}); err != nil {
+			t.Fatalf("seed chain edge: %v", err)
+		}
+	}
+	mkEdge(nodeA, nodeB, "0.900")
+	mkEdge(nodeB, nodeC, "0.800")
+
+	// Flag ON: the evolver proposes the shortcut.
+	if _, err := testHandler.Queries.UpsertExperimentalPref(ctx, db.UpsertExperimentalPrefParams{
+		UserID:  userUUID,
+		FlagKey: "causal_graph",
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("enable flag: %v", err)
+	}
+	result, err = evolver.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("flag-on run: %v", err)
+	}
+	if result["gap_proposed"] != 1 {
+		t.Fatalf("gap_proposed = %v, want 1", result["gap_proposed"])
+	}
+	shortcut, err := testHandler.Queries.FindCausalEdgeBetween(ctx, db.FindCausalEdgeBetweenParams{
+		FromNodeID: nodeA,
+		ToNodeID:   nodeC,
+		EdgeType:   "depends_on",
+	})
+	if err != nil {
+		t.Fatalf("shortcut edge missing: %v", err)
+	}
+	if shortcut.Status != "suggested" || shortcut.ProposedBy.String != "evolver" {
+		t.Errorf("shortcut status/proposed_by = %s/%s, want suggested/evolver", shortcut.Status, shortcut.ProposedBy.String)
+	}
+	var conf float64
+	if v, err := shortcut.Confidence.Float64Value(); err != nil || !v.Valid {
+		t.Fatalf("shortcut confidence unreadable: %v", err)
+	} else {
+		conf = v.Float64
+	}
+	if conf != 0.5 {
+		t.Errorf("shortcut confidence = %v, want 0.5 (min(0.9,0.8)*0.8 capped)", conf)
+	}
+
+	// Second pass: nothing new.
+	result, err = evolver.RunOnce(ctx)
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if result["gap_proposed"] != 0 {
+		t.Fatalf("second-pass gap_proposed = %v, want 0", result["gap_proposed"])
+	}
 }

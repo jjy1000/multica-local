@@ -159,6 +159,7 @@ var AllSources = []Source{
 	SourceSwarmTopology,
 	SourceSemantica,
 	SourceTimesfm,
+	SourceCausalGraph,
 }
 
 // Valid reports whether s is in AllSources.
