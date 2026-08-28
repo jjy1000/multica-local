@@ -2,8 +2,10 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@multica/ui/components/ui/card";
 import { buttonVariants } from "@multica/ui/components/ui/button";
-import { Waypoints } from "lucide-react";
+import { useNavigation } from "@multica/views/navigation";
 import { useT } from "@multica/views/i18n";
+import { useWorkspacePaths } from "@multica/core/paths";
+import { Waypoints } from "lucide-react";
 
 // 0.5.83 (WL3): web stub for the issue causal graph desktop surface.
 // The desktop view renders the workspace-wide / issue-focused graph
@@ -13,6 +15,9 @@ import { useT } from "@multica/views/i18n";
 export default function CausalGraphStubPage() {
   const { t: tLayout } = useT("layout");
   const { t } = useT("causal-graph");
+  const { push } = useNavigation();
+  const p = useWorkspacePaths();
+  const backHref = `${p.root().replace(/\/issues$/, "")}/experimental`;
 
   return (
     <div className="mx-auto w-full max-w-3xl px-8 py-10">
@@ -28,9 +33,13 @@ export default function CausalGraphStubPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>{t(($) => $.unbound_hint)}</p>
-          <a href="/experimental" className={buttonVariants({ variant: "outline" })}>
-            ←
-          </a>
+          <button
+            type="button"
+            className={buttonVariants({ variant: "outline" })}
+            onClick={() => push(backHref)}
+          >
+            {t(($) => $.open_full_graph)}
+          </button>
         </CardContent>
       </Card>
     </div>
