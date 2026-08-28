@@ -3102,12 +3102,17 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			//     post-state (reassigning an assignee-model lab issue
 			//     to anyone but the leader 400s; legacy human rows
 			//     stay editable in every other field).
-			//   - lab_source only (stale assignee) → allowed when the
-			//     lab has a resolvable leader: the 0.3.46 P0#4
-			//     leader-rewrite immediately fixes the assignee
-			//     (pinned by TestUpdateIssueLabSourceRewritesStaleAssignee).
-			//     A leader-less roster lab (mythos_swarm) still blocks
-			//     — the 0.3.33 mutex preserved via the strict message.
+			//   - lab_source only (stale assignee) → allowed for
+			//     assignee-model labs ONLY when the leader AGENT ROW
+			//     exists in this workspace, so the 0.3.46 P0#4
+			//     leader-rewrite can actually land (pinned by
+			//     TestUpdateIssueLabSourceRewritesStaleAssignee).
+			//     A name-level hit with no row — swarm_topology's
+			//     swarm_coordinator is provisioned dynamically at
+			//     swarm bootstrap — would leave the human assignee
+			//     in place, the exact state the 0.5.22/0.5.60 swarm
+			//     mutex pins forbid, so those 400. Legacy/auxiliary
+			//     labs keep the tag-and-keep-assignee freedom.
 			_, touchedAssigneeType := rawFields["assignee_type"]
 			_, touchedAssigneeID := rawFields["assignee_id"]
 			touchedAssignee := touchedAssigneeType || touchedAssigneeID
@@ -3119,10 +3124,33 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			case !enhancerMode && hasAssignee && touchedLab:
-				if _, leaderOK := h.resolveLabLeader(r.Context(), postLabSource); !leaderOK {
-					writeError(w, http.StatusBadRequest,
-						"lab_source="+postLabSource+" requires the lab to own the assignee; clear the manual assignee")
-					return
+				// Only assignee-model labs go through the
+				// leader-rewrite bypass, and only when the bypass
+				// can actually complete: the leader AGENT ROW must
+				// exist in this workspace (swarm_topology's
+				// swarm_coordinator is created dynamically at swarm
+				// bootstrap, so name-level resolution alone would
+				// 200 and strand the human assignee — the exact
+				// state the 0.5.22/0.5.60 swarm mutex pins forbid).
+				if experimental.IsAssigneeModelLab(postLabSource) {
+					leaderName, leaderOK := h.resolveLabLeader(r.Context(), postLabSource)
+					leaderPresent := false
+					if leaderOK && leaderName != "" {
+						if _, err := h.Queries.GetAgentByWorkspaceAndName(r.Context(), db.GetAgentByWorkspaceAndNameParams{
+							WorkspaceID: prevIssue.WorkspaceID,
+							Name:        leaderName,
+						}); err == nil {
+							leaderPresent = true
+						}
+					}
+					if !leaderPresent {
+						msg := "lab_source=" + postLabSource + " requires the lab to own the assignee; clear the manual assignee"
+						if leaderOK && leaderName != "" {
+							msg = "lab_source=" + postLabSource + " locks the assignee to its lab agent (" + leaderName + "), but that agent is not installed yet; enable the lab first or clear the manual assignee"
+						}
+						writeError(w, http.StatusBadRequest, msg)
+						return
+					}
 				}
 			case enhancerMode && !hasAssignee:
 				writeError(w, http.StatusBadRequest,
