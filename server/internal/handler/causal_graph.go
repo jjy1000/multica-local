@@ -745,6 +745,20 @@ func (h *Handler) createCausalSuggestion(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusNotFound, "to_node not found")
 		return
 	}
+	// Never-nag probe (ICP-5, mirror of createCausalEdge:580): an edge
+	// decided in ANY status — active or a rejected tombstone (mig 280) —
+	// silences re-proposals of the same (from, to, type) triple. Without
+	// this probe, the partial unique index covers active rows only, so
+	// duplicate suggested rows insert cleanly and the nightly evolver
+	// keeps re-proposing the same link (0.5.84 P0 #2).
+	if _, err := h.Queries.FindCausalEdgeBetween(r.Context(), dbpkg.FindCausalEdgeBetweenParams{
+		FromNodeID: fromID,
+		ToNodeID:   toID,
+		EdgeType:   req.Type,
+	}); err == nil {
+		writeError(w, http.StatusConflict, "an edge for this (from, to, type) triple already exists")
+		return
+	}
 	params := dbpkg.CreateCausalEdgeParams{
 		WorkspaceID: wsID,
 		FromNodeID:  fromID,

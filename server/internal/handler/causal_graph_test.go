@@ -396,6 +396,125 @@ func TestCausalEdgeSuggestGate(t *testing.T) {
 	}
 }
 
+// TestCreateCausalSuggestionProbesBeforeInsert pins the never-nag
+// contract on POST /api/causal-graph/suggestions (0.5.84 P0 #2):
+// the endpoint must mirror the manual path's FindCausalEdgeBetween
+// probe (createCausalEdge:580) — without it the partial unique
+// index (active rows only) silently accepts duplicate suggested
+// triples and the nightly evolver keeps re-proposing the same link.
+// Covers three never-nag cases: (1) duplicate active triple,
+// (2) duplicate active + suggested triple, (3) reject tombstone
+// (mig 280) — re-suggesting the same triple hits 409 because the
+// tombstone is what FindCausalEdgeBetween returns.
+func TestCreateCausalSuggestionProbesBeforeInsert(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("handler fixture unavailable (no DATABASE_URL)")
+	}
+	a := causalCreateNode(t, map[string]any{"label": "probe A", "type": "action"})
+	b := causalCreateNode(t, map[string]any{"label": "probe B", "type": "outcome"})
+
+	suggestionPath := "/api/causal-graph/suggestions?workspace_id=" + testWorkspaceID
+	suggest := func(body map[string]any) *httptest.ResponseRecorder {
+		t.Helper()
+		w := httptest.NewRecorder()
+		req := newRequest("POST", suggestionPath, body)
+		testHandler.createCausalSuggestion(w, req)
+		return w
+	}
+
+	// Case 1: first POST with a unique (from, to, type) triple lands as
+	// 201. Tier D trust ceiling: suggested edges cap at 0.5 confidence
+	// (server halves whatever the caller claims).
+	w := suggest(map[string]any{
+		"from_node_id": a.ID,
+		"to_node_id":   b.ID,
+		"type":         "causes",
+		"confidence":   0.9,
+		"rationale":    "probe-test first suggest",
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("first suggest: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var first causalEdgeJSON
+	if err := json.NewDecoder(w.Body).Decode(&first); err != nil {
+		t.Fatalf("decode first edge: %v", err)
+	}
+	if first.Status != "suggested" {
+		t.Errorf("first edge status = %q, want suggested", first.Status)
+	}
+
+	// Case 2: a second POST with the SAME (from, to, type) triple hits
+	// the never-nag probe and returns 409 (NOT a duplicate 201). The
+	// probe catches any-status, so the previously-created suggested row
+	// is enough to short-circuit.
+	w = suggest(map[string]any{
+		"from_node_id": a.ID,
+		"to_node_id":   b.ID,
+		"type":         "causes",
+		"confidence":   0.7,
+		"rationale":    "probe-test duplicate suggest",
+	})
+	if w.Code != http.StatusConflict {
+		t.Errorf("duplicate suggest: expected 409 (never-nag), got %d: %s",
+			w.Code, w.Body.String())
+	}
+
+	// Case 3: rejected tombstones (mig 280) silence re-proposals. Take
+	// the first edge's UUID and reject it via the manual path (the
+	// suggestion endpoint has no reject verb); the row flips to
+	// status='rejected' but stays in the table as the audit anchor.
+	{
+		w := httptest.NewRecorder()
+		req := newRequest("POST", "/api/causal-graph/edges/"+first.ID+"/reject?workspace_id="+testWorkspaceID, nil)
+		req = withURLParam(req, "edgeID", first.ID)
+		testHandler.rejectCausalEdge(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("reject tombstone: expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+
+	// Now re-suggest the SAME (from, to, type) triple — FindCausalEdgeBetween
+	// must find the tombstone (any-status probe) and the endpoint returns
+		// 409, never a duplicate suggested row.
+	w = suggest(map[string]any{
+		"from_node_id": a.ID,
+		"to_node_id":   b.ID,
+		"type":         "causes",
+		"confidence":   0.5,
+		"rationale":    "probe-test suggest after reject",
+	})
+	if w.Code != http.StatusConflict {
+		t.Errorf("suggest-after-reject: expected 409 (tombstone blocks re-proposal), got %d: %s",
+			w.Code, w.Body.String())
+	}
+
+	// Case 4: a fresh triple (different type) on the same nodes is
+	// allowed — the probe is keyed on (from, to, type), not just the
+	// node pair.
+	w = suggest(map[string]any{
+		"from_node_id": a.ID,
+		"to_node_id":   b.ID,
+		"type":         "enables",
+		"confidence":   0.4,
+		"rationale":    "probe-test fresh triple",
+	})
+	if w.Code != http.StatusCreated {
+		t.Errorf("fresh triple: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Confirm only ONE row exists per (from, to, type) — the duplicate
+	// suggests above must not have landed.
+	var dupCount int
+	if err := testPool.QueryRow(t.Context(),
+		`SELECT COUNT(*) FROM causal_edge WHERE from_node_id = $1 AND to_node_id = $2 AND type = 'causes'`,
+		mustParseUUID(t, a.ID), mustParseUUID(t, b.ID)).Scan(&dupCount); err != nil {
+		t.Fatalf("count edges: %v", err)
+	}
+	if dupCount != 1 {
+		t.Errorf("(a, b, causes) edge count = %d, want 1 (probe blocked the duplicates)", dupCount)
+	}
+}
+
 // TestCausalGraphRecorderFlagGate pins the Tier A contract end to end
 // through the real recorder: flag-off writes NOTHING, flag-on writes
 // the root/action/edge group, and a re-fire is a no-op (the action
