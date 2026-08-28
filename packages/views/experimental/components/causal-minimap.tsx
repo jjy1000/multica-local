@@ -42,7 +42,9 @@ interface LaidOutNode extends CausalNode {
 // Deterministic BFS ring layout: seeds (or the highest-degree nodes
 // when every node is a seed candidate) sit at the centre; each BFS
 // layer lands on the next ring, evenly spaced.
-function layout(nodes: CausalNode[], edges: CausalEdge[], width: number, height: number): LaidOutNode[] {
+// Exported for unit tests (causal-minimap.test.tsx) so the ring-spread
+// regression can be pinned without rendering the SVG.
+export function layout(nodes: CausalNode[], edges: CausalEdge[], width: number, height: number): LaidOutNode[] {
   if (nodes.length === 0) return [];
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const adjacency = new Map<string, string[]>();
@@ -80,18 +82,32 @@ function layout(nodes: CausalNode[], edges: CausalEdge[], width: number, height:
     if (!ringOf.has(n.id)) ringOf.set(n.id, maxRing + 1);
   }
 
+  // Pre-compute ring lengths BEFORE any insertion so the angular
+  // divisor is stable. The previous formula read byRing.get(ring).length
+  // mid-loop, so the divisor grew as each node was inserted and the
+  // spread inverted (N=3 gave angles 0, π, 4π/3 instead of 0, 2π/3, 4π/3).
+  // 0.5.84 P0 #6 fix — even-spread regression pin.
+  const ringLengths = new Map<number, number>();
+  for (const n of nodes) {
+    const ring = ringOf.get(n.id) ?? 0;
+    ringLengths.set(ring, (ringLengths.get(ring) ?? 0) + 1);
+  }
+
   const byRing = new Map<number, LaidOutNode[]>();
   for (const n of nodes) {
     const ring = ringOf.get(n.id) ?? 0;
     const cx = width / 2;
     const cy = height / 2;
     const maxR = Math.min(width, height) / 2 - 24;
-    const ringCount = byRing.get(ring)?.length ?? 0;
+    const indexWithinRing = byRing.get(ring)?.length ?? 0;
+    const ringLength = ringLengths.get(ring) ?? 1;
     const radius = ring === 0 ? (seeds.length > 1 ? maxR * 0.28 : 0) : (maxR * ring) / (maxRing + 1);
-    // Index within ring (count before insertion) for even angular spread.
+    // Index within ring divided by the pre-computed ring length for
+    // even angular spread. Pre-insertion count is intentional — the
+    // divisor must NOT grow as nodes are added.
     const angle = ring === 0 && seeds.length === 1
       ? 0
-      : (ringCount * 2 * Math.PI) / Math.max((byRing.get(ring)?.length ?? 0) + 1, 1);
+      : (indexWithinRing * 2 * Math.PI) / Math.max(ringLength, 1);
     const laid: LaidOutNode = {
       ...n,
       x: cx + radius * Math.cos(angle),
