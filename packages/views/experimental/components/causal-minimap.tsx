@@ -24,14 +24,74 @@ export const CAUSAL_NODE_TYPE_COLORS: Record<string, string> = {
   constraint: "#64748b", // slate
 };
 
-const EDGE_TONES: Record<string, { stroke: string; dashed: boolean }> = {
-  causes: { stroke: "#334155", dashed: false },
-  supports: { stroke: "#059669", dashed: true },
-  contradicts: { stroke: "#dc2626", dashed: true },
-  depends_on: { stroke: "#64748b", dashed: false },
-  enables: { stroke: "#2563eb", dashed: false },
-  blocks: { stroke: "#dc2626", dashed: false },
+// EDGE_TONES (0.5.84 P0 #5 fix — split by status). The pre-fix shape
+// keyed by edge type only, so an active edge and a rejected tombstone
+// rendered identically; rejected tombstones (mig 280) are the audit
+// trail AND a dedup anchor, and the minimap must visibly distinguish
+// them so the user can see what is confirmed vs awaiting a decision vs
+// rejected forever. Suggested edges stay muted (they have not been
+// accepted yet); rejected edges go ghost-opacity and drop the dash
+// pattern so they read as "background annotation" rather than live.
+interface EdgeTone {
+  stroke: string;
+  dashed: boolean;
+  opacity: number;
+}
+type EdgeToneByStatus = Record<"active" | "suggested" | "rejected", EdgeTone>;
+type EdgeToneByType = Record<string, EdgeToneByStatus>;
+const FALLBACK_TONES: EdgeToneByStatus = {
+  active: { stroke: "#94a3b8", dashed: false, opacity: 0.65 },
+  suggested: { stroke: "#94a3b8", dashed: true, opacity: 0.4 },
+  rejected: { stroke: "#94a3b8", dashed: false, opacity: 0.3 },
 };
+const EDGE_TONES: EdgeToneByType = {
+  causes: {
+    active: { stroke: "#334155", dashed: false, opacity: 0.7 },
+    suggested: { stroke: "#64748b", dashed: true, opacity: 0.5 },
+    rejected: { stroke: "#94a3b8", dashed: false, opacity: 0.3 },
+  },
+  supports: {
+    active: { stroke: "#059669", dashed: true, opacity: 0.7 },
+    suggested: { stroke: "#10b981", dashed: true, opacity: 0.5 },
+    rejected: { stroke: "#94a3b8", dashed: true, opacity: 0.3 },
+  },
+  contradicts: {
+    active: { stroke: "#dc2626", dashed: true, opacity: 0.7 },
+    suggested: { stroke: "#f87171", dashed: true, opacity: 0.5 },
+    rejected: { stroke: "#94a3b8", dashed: true, opacity: 0.3 },
+  },
+  depends_on: {
+    active: { stroke: "#64748b", dashed: false, opacity: 0.7 },
+    suggested: { stroke: "#94a3b8", dashed: false, opacity: 0.5 },
+    rejected: { stroke: "#cbd5e1", dashed: false, opacity: 0.3 },
+  },
+  enables: {
+    active: { stroke: "#2563eb", dashed: false, opacity: 0.7 },
+    suggested: { stroke: "#60a5fa", dashed: false, opacity: 0.5 },
+    rejected: { stroke: "#94a3b8", dashed: false, opacity: 0.3 },
+  },
+  blocks: {
+    active: { stroke: "#dc2626", dashed: false, opacity: 0.7 },
+    suggested: { stroke: "#f87171", dashed: false, opacity: 0.5 },
+    rejected: { stroke: "#94a3b8", dashed: false, opacity: 0.3 },
+  },
+};
+
+// resolveEdgeTone picks the tone for an edge by (type, status). Falls
+// back to a neutral grey so unknown statuses never collapse the
+// rendering — the audit flagged that an unknown status silently
+// producing the same tone as 'active' was the original regression
+// surface; the explicit fallback makes "I do not know this status"
+// visible.
+export function resolveEdgeTone(type: string, status: string | undefined | null): EdgeTone {
+  const safeStatus: keyof EdgeToneByStatus =
+    status === "suggested" || status === "rejected" || status === "active"
+      ? status
+      : "active";
+  const byStatus = EDGE_TONES[type];
+  if (byStatus) return byStatus[safeStatus];
+  return FALLBACK_TONES[safeStatus];
+}
 
 interface LaidOutNode extends CausalNode {
   x: number;
@@ -159,7 +219,11 @@ export function CausalMinimap({
         const from = posById.get(e.from_node_id);
         const to = posById.get(e.to_node_id);
         if (!from || !to) return null;
-        const tone = EDGE_TONES[e.type] ?? { stroke: "#94a3b8", dashed: false };
+        // P0 #5 fix: resolve tone by (type, status) so rejected
+        // tombstones and pending suggestions render distinctly from
+        // active edges — pre-fix this keyed by edge type only and
+        // every status rendered identically.
+        const tone = resolveEdgeTone(e.type, e.status);
         const mx = (from.x + to.x) / 2;
         const my = (from.y + to.y) / 2;
         const bend = Math.hypot(to.x - from.x, to.y - from.y) * 0.12;
@@ -171,7 +235,7 @@ export function CausalMinimap({
             stroke={tone.stroke}
             strokeWidth={1.5}
             strokeDasharray={tone.dashed ? "4 3" : undefined}
-            opacity={0.65}
+            opacity={tone.opacity}
           />
         );
       })}
