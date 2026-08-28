@@ -23,11 +23,13 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/service/agent_trust"
+	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -1948,6 +1950,35 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			"workspace_id", resp.WorkspaceID,
 			"error", err,
 		)
+	}
+
+	// 0.5.85 P1: causal subgraph briefing injection (issue-bound tasks only).
+	// The build loads the active causal subgraph for the issue (BFS depth≤2),
+	// filters out noise types + low-confidence edges, and formats a compact
+	// markdown section that surfaces actions / outcomes / decisions / constraints
+	// already recorded by prior runs. Agents then see "## Prior Causal
+	// Context (read-only)" instead of rediscovering what prior runs already
+	// learned. Silent fallback on any error — BuildClaimSubgraph returns
+	// ("", nil) on timeout / DB error / empty graph so a broken causal read
+	// never blocks the claim hot path. Flag-gated upstream
+	// (experimental.DefaultFor("causal_graph")) so off-flag installs pay zero
+	// overhead.
+	if task.IssueID.Valid && experimental.DefaultFor("causal_graph") {
+		if subgraph, err := causalgraph.BuildClaimSubgraph(r.Context(), h.Queries,
+			parseUUID(resp.WorkspaceID),
+			task.IssueID); err == nil && strings.TrimSpace(subgraph) != "" {
+			if strings.TrimSpace(resp.Agent.Instructions) == "" {
+				resp.Agent.Instructions = subgraph
+			} else {
+				resp.Agent.Instructions = resp.Agent.Instructions + "\n\n" + subgraph
+			}
+			slog.Debug("injected causal subgraph briefing",
+				"task_id", uuidToString(task.ID),
+				"issue_id", uuidToString(task.IssueID),
+				"workspace_id", resp.WorkspaceID,
+				"brief_bytes", len(subgraph),
+			)
+		}
 	}
 
 	// Mint a task-scoped `mat_` token bound to (agent, task, workspace,
