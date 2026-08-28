@@ -6,6 +6,12 @@
 // (radix Popover) with a depth toggle and a jump into the full
 // /experimental/causal-graph workspace view.
 //
+// 0.5.86 declutter: the popup defaults to depth 1, and selecting 深度 2
+// renders the depth-1 map plus a "+N 节点 · M 边 在深度 2" summary row
+// instead of drawing the dense second ring (the 440px surface cannot
+// fit it legibly). The full detail stays one click away in the full
+// graph view.
+//
 // ICP-5 (passive, flag-gated): the icon is HIDDEN entirely when the
 // causal_graph flag is off (useExperimentalFlag) or when the issue has
 // no causal nodes yet — it never nags, never blocks, and never asks
@@ -27,19 +33,30 @@ export function IssueCausalGraphIcon({ issueId }: { issueId: string }) {
   const { t } = useT("causal-graph");
   const enabled = useExperimentalFlag("causal_graph", false);
   const [open, setOpen] = useState(false);
-  const [depth, setDepth] = useState(2);
+  const [depth, setDepth] = useState(1);
   const [selected, setSelected] = useState<CausalNode | null>(null);
 
-  const subgraph = useCausalSubgraph(enabled ? issueId : null, depth);
+  // The depth-1 slice is always the drawn surface; the depth-2 fetch
+  // only runs while 深度 2 is selected, and only to count the extras.
+  const base = useCausalSubgraph(enabled ? issueId : null, 1);
+  const extended = useCausalSubgraph(enabled && depth === 2 ? issueId : null, 2);
 
   // ICP-5: hidden entirely when flag off or nothing to show yet.
   if (!enabled) return null;
-  if (subgraph.isError) return null;
-  if (!subgraph.data && !subgraph.isPending) return null;
-  const nodes = subgraph.data?.nodes ?? [];
-  if (!subgraph.isPending && nodes.length === 0) return null;
+  if (base.isError) return null;
+  if (!base.data && !base.isPending) return null;
+  const nodes = base.data?.nodes ?? [];
+  if (!base.isPending && nodes.length === 0) return null;
 
-  const edges = subgraph.data?.edges ?? [];
+  const edges = base.data?.edges ?? [];
+  // "+N 节点 · M 边 在深度 2": the extras the depth-2 hop would add,
+  // counted by id so already-visible nodes/edges are not double-counted.
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  const edgeIds = new Set(edges.map((e) => e.id));
+  const extendedNodes = extended.data?.nodes ?? [];
+  const extendedEdges = extended.data?.edges ?? [];
+  const extraNodes = extendedNodes.filter((n) => !nodeIds.has(n.id)).length;
+  const extraEdges = extendedEdges.filter((e) => !edgeIds.has(e.id)).length;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -52,7 +69,7 @@ export function IssueCausalGraphIcon({ issueId }: { issueId: string }) {
             className="text-muted-foreground"
             aria-label={t(($) => $.icon_tooltip)}
           >
-            {subgraph.isPending ? (
+            {base.isPending ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : (
               <Waypoints className="size-4" aria-hidden />
@@ -87,11 +104,19 @@ export function IssueCausalGraphIcon({ issueId }: { issueId: string }) {
         <CausalMinimap
           nodes={nodes}
           edges={edges}
-          width={420}
+          width={440}
           height={280}
           selectedNodeId={selected?.id ?? null}
           onSelectNode={setSelected}
         />
+        {depth === 2 ? (
+          <p className="rounded-md border border-dashed border-border/60 px-2 py-1 text-[10px] text-muted-foreground">
+            {t(($) => $.depth2_summary, {
+              nodes: String(extraNodes),
+              edges: String(extraEdges),
+            })}
+          </p>
+        ) : null}
         {selected ? (
           <div className="space-y-0.5 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5">
             <p className="text-[11px] font-medium text-foreground">

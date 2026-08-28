@@ -49,7 +49,11 @@ const CAUSAL_POLL_INTERVAL_MS = 5_000;
  * only. Disabled without an issue id; a 404 (flag off) degrades to a
  * query error-free `undefined` so callers can hide the affordance.
  */
-export function useCausalSubgraph(issueId: string | null | undefined, depth = 2) {
+export function useCausalSubgraph(
+  issueId: string | null | undefined,
+  depth = 2,
+  options?: { pollPaused?: boolean },
+) {
   return useQuery({
     queryKey: causalGraphKeys.subgraph(issueId ?? "", depth),
     queryFn: async (): Promise<CausalSubgraph> => {
@@ -72,11 +76,15 @@ export function useCausalSubgraph(issueId: string | null | undefined, depth = 2)
     enabled: Boolean(issueId),
     retry: (count, error) => error instanceof CausalFlagOffError ? false : count < 2,
     // A flag-off answer stays stable — stop the poll instead of
-    // hammering a 404 every 5 seconds (ICP-5: never nag).
-    refetchInterval: (query) =>
-      query.state.error instanceof CausalFlagOffError
-        ? false
-        : CAUSAL_POLL_INTERVAL_MS,
+    // hammering a 404 every 5 seconds (ICP-5: never nag). While a
+    // node-drag gesture is live the poll pauses so a refetch cannot
+    // re-render positions mid-drag (0.5.86); the flag-off backoff is
+    // checked first and is never overridden by the pause.
+    refetchInterval: (query) => {
+      if (query.state.error instanceof CausalFlagOffError) return false;
+      if (options?.pollPaused) return false;
+      return CAUSAL_POLL_INTERVAL_MS;
+    },
   });
 }
 
@@ -115,7 +123,10 @@ export function useCausalGraphPath(from: string | null, to: string | null) {
 // Workspace-wide graph read (the unbound view mode): the nodes and
 // edges list endpoints, first page each (limit 100 — the S1 ceiling;
 // curator/evolver growth lands with pagination in the S2 phase).
-export function useCausalWorkspaceGraph(wsId: string | null | undefined) {
+export function useCausalWorkspaceGraph(
+  wsId: string | null | undefined,
+  options?: { pollPaused?: boolean },
+) {
   return useQuery({
     queryKey: [...causalGraphKeys.all, "workspace", wsId ?? ""],
     queryFn: async (): Promise<CausalSubgraph> => {
@@ -136,7 +147,7 @@ export function useCausalWorkspaceGraph(wsId: string | null | undefined) {
     },
     enabled: Boolean(wsId),
     retry: (count, error) => error instanceof CausalFlagOffError ? false : count < 2,
-    refetchInterval: CAUSAL_POLL_INTERVAL_MS,
+    refetchInterval: () => (options?.pollPaused ? false : CAUSAL_POLL_INTERVAL_MS),
   });
 }
 

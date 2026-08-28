@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
@@ -15,9 +15,10 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useT } from "@multica/views/i18n";
 import { IssueBreadcrumb } from "@multica/views/experimental/components";
 import {
-  CausalMinimap,
+  CausalGraphCanvas,
   CAUSAL_NODE_TYPE_COLORS,
 } from "@multica/views/experimental/components";
+import type { CausalPositionOverride } from "@multica/views/experimental/components";
 
 // CausalGraphView (0.5.83 WL3) — the workspace-wide causal graph
 // surface at /experimental/causal-graph (manifest sidebar entry point).
@@ -73,7 +74,41 @@ function FocusedGraph({ issueId }: { issueId: string }) {
   const { t } = useT("causal-graph");
   const [depth, setDepth] = useState(2);
   const [selected, setSelected] = useState<CausalNode | null>(null);
-  const subgraph = useCausalSubgraph(issueId, depth);
+  // 0.5.86: session-only node-drag overrides. The page owns the Map so
+  // stale ids can be pruned when the depth toggle shrinks the graph;
+  // they never enter the react-query cache. While a drag is live the
+  // 5s poll pauses (pollPaused) so a refetch cannot yank positions.
+  const [dragging, setDragging] = useState(false);
+  const [positionOverrides, setPositionOverrides] = useState<Map<string, CausalPositionOverride>>(
+    () => new Map(),
+  );
+  const subgraph = useCausalSubgraph(issueId, depth, { pollPaused: dragging });
+
+  const nodes = useMemo(() => subgraph.data?.nodes ?? [], [subgraph.data]);
+  const edges = useMemo(() => subgraph.data?.edges ?? [], [subgraph.data]);
+
+  // Drop overrides whose node vanished (depth change / refetch shrink).
+  const nodeIds = useMemo(() => new Set(nodes.map((n) => n.id)), [nodes]);
+  useEffect(() => {
+    setPositionOverrides((prev) => {
+      let changed = false;
+      const next = new Map<string, CausalPositionOverride>();
+      for (const [id, pos] of prev) {
+        if (nodeIds.has(id)) next.set(id, pos);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [nodeIds]);
+
+  const handleOverride = useCallback((id: string, pos: CausalPositionOverride | null) => {
+    setPositionOverrides((prev) => {
+      const next = new Map(prev);
+      if (pos) next.set(id, pos);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
 
   if (subgraph.isPending) {
     return (
@@ -98,9 +133,6 @@ function FocusedGraph({ issueId }: { issueId: string }) {
     );
   }
 
-  const nodes = subgraph.data?.nodes ?? [];
-  const edges = subgraph.data?.edges ?? [];
-
   return (
     <div className="flex flex-col gap-3 px-6 py-4">
       <div className="flex items-baseline justify-between gap-3">
@@ -120,6 +152,19 @@ function FocusedGraph({ issueId }: { issueId: string }) {
               {d}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setPositionOverrides(new Map())}
+            disabled={positionOverrides.size === 0}
+            className={
+              "rounded px-1.5 py-0.5 transition-colors " +
+              (positionOverrides.size === 0
+                ? "opacity-50"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground")
+            }
+          >
+            {t(($) => $.reset_layout)}
+          </button>
           <span className="ml-2">
             {t(($) => $.counts_label, {
               nodes: String(nodes.length),
@@ -129,13 +174,21 @@ function FocusedGraph({ issueId }: { issueId: string }) {
         </div>
       </div>
       <div className="grid grid-cols-[1fr_260px] gap-3">
-        <CausalMinimap
+        <CausalGraphCanvas
           nodes={nodes}
           edges={edges}
           width={760}
           height={480}
           selectedNodeId={selected?.id ?? null}
           onSelectNode={setSelected}
+          positionOverrides={positionOverrides}
+          onPositionOverride={handleOverride}
+          onDragStateChange={setDragging}
+          labels={{
+            zoomIn: t(($) => $.zoom_in),
+            zoomOut: t(($) => $.zoom_out),
+            resetView: t(($) => $.reset_view),
+          }}
         />
         <NodeDetail node={selected} />
       </div>
@@ -148,7 +201,36 @@ function FocusedGraph({ issueId }: { issueId: string }) {
 function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
   const { t } = useT("causal-graph");
   const [selected, setSelected] = useState<CausalNode | null>(null);
-  const graph = useCausalWorkspaceGraph(wsId);
+  const [dragging, setDragging] = useState(false);
+  const [positionOverrides, setPositionOverrides] = useState<Map<string, CausalPositionOverride>>(
+    () => new Map(),
+  );
+  const graph = useCausalWorkspaceGraph(wsId, { pollPaused: dragging });
+
+  const nodes = useMemo(() => graph.data?.nodes ?? [], [graph.data]);
+  const edges = useMemo(() => graph.data?.edges ?? [], [graph.data]);
+
+  const nodeIds = useMemo(() => new Set(nodes.map((n) => n.id)), [nodes]);
+  useEffect(() => {
+    setPositionOverrides((prev) => {
+      let changed = false;
+      const next = new Map<string, CausalPositionOverride>();
+      for (const [id, pos] of prev) {
+        if (nodeIds.has(id)) next.set(id, pos);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [nodeIds]);
+
+  const handleOverride = useCallback((id: string, pos: CausalPositionOverride | null) => {
+    setPositionOverrides((prev) => {
+      const next = new Map(prev);
+      if (pos) next.set(id, pos);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
 
   if (graph.isPending) {
     return (
@@ -173,19 +255,31 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
     );
   }
 
-  const nodes = graph.data?.nodes ?? [];
-  const edges = graph.data?.edges ?? [];
-
   return (
     <div className="flex flex-col gap-3 px-6 py-4">
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-foreground">{t(($) => $.title)}</h2>
-        <span className="text-[11px] text-muted-foreground">
-          {t(($) => $.counts_label, {
-            nodes: String(nodes.length),
-            edges: String(edges.length),
-          })}
-        </span>
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <button
+            type="button"
+            onClick={() => setPositionOverrides(new Map())}
+            disabled={positionOverrides.size === 0}
+            className={
+              "rounded px-1.5 py-0.5 transition-colors " +
+              (positionOverrides.size === 0
+                ? "opacity-50"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground")
+            }
+          >
+            {t(($) => $.reset_layout)}
+          </button>
+          <span>
+            {t(($) => $.counts_label, {
+              nodes: String(nodes.length),
+              edges: String(edges.length),
+            })}
+          </span>
+        </div>
       </div>
       {nodes.length === 0 ? (
         <div className="rounded-md border border-dashed border-border/60 px-3 py-3 text-xs text-muted-foreground">
@@ -193,13 +287,21 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
         </div>
       ) : (
         <div className="grid grid-cols-[1fr_260px] gap-3">
-          <CausalMinimap
+          <CausalGraphCanvas
             nodes={nodes}
             edges={edges}
             width={760}
             height={480}
             selectedNodeId={selected?.id ?? null}
             onSelectNode={setSelected}
+            positionOverrides={positionOverrides}
+            onPositionOverride={handleOverride}
+            onDragStateChange={setDragging}
+            labels={{
+              zoomIn: t(($) => $.zoom_in),
+              zoomOut: t(($) => $.zoom_out),
+              resetView: t(($) => $.reset_view),
+            }}
           />
           <NodeDetail node={selected} />
         </div>
