@@ -50,6 +50,10 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   // — that path is the bare REST proxy the agent subprocess calls; same
   // split as semantica above).
   timesfm: "timesfm-lab",
+  // 0.5.83: issue causal graph + hidden agent team. Same routing law as
+  // semantica/timesfm above — `/experimental/causal-graph` is the focused
+  // view (not the bare `/api/causal-graph/*` REST surface).
+  causal_graph: "causal-graph",
   // (0.3.57: constitution_agent entry removed alongside the lab
   // retirement in migration 165.)
 };
