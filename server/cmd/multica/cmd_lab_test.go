@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/cli"
+	"github.com/spf13/cobra"
 )
 
 // TestResolveLabFlagKey pins the <lab> → flag_key normalization: a bare slug
@@ -29,6 +30,29 @@ func TestResolveLabFlagKey(t *testing.T) {
 				t.Fatalf("resolveLabFlagKey(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+// TestRunLabDelegateRejectsFrozenLab pins the 0.5.88 never-disagree law on the
+// CLI side: BuildDelegateBrief skips Frozen labs from the delegation briefing,
+// so the delegate CLI must reject them too — a frozen lab's leader agent row
+// only exists during a Phase-1 bootstrap that a fresh delegation never
+// triggers, the same "pointed at a lab that can never dispatch" dead end the
+// AutoDispatch gate removes. swarm_topology is the 0.5.86 frozen lab
+// (SuccessorKey mythos_swarm). The gate fires before any flag access, so a
+// bare command is enough.
+func TestRunLabDelegateRejectsFrozenLab(t *testing.T) {
+	cmd := &cobra.Command{Use: "lab"}
+
+	err := runLabDelegate(cmd, []string{"swarm_topology", "run the analysis"})
+	if err == nil {
+		t.Fatal("expected frozen-lab delegation to be rejected, got nil error")
+	}
+	if !strings.Contains(err.Error(), "frozen") {
+		t.Fatalf("error should name the frozen state, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "mythos_swarm") {
+		t.Fatalf("error should point at the successor mythos_swarm, got: %v", err)
 	}
 }
 

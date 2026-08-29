@@ -139,6 +139,19 @@ func runLabDelegate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("lab %s opts out of auto-dispatch (AutoDispatch=false): its runs are triggered from the lab panel, not by issue assignment, so it cannot be delegated to", flagKey)
 	}
 
+	// Frozen labs (swarm_topology, consolidated into mythos_swarm in 0.5.86)
+	// fail fast too — their leader agent row only exists during a Phase-1
+	// bootstrap that a fresh delegation never triggers, so the create would
+	// land on a lab that can never dispatch. Never-disagree parity with
+	// BuildDelegateBrief (which skips f.Frozen): the CLI must reject the same
+	// lab set the briefing advertises.
+	if f, ok := experimental.FlagByKey(flagKey); ok && f.Frozen {
+		if f.SuccessorKey != "" {
+			return fmt.Errorf("lab %s is frozen and superseded by %s: use %s instead (a frozen lab cannot accept a delegation)", flagKey, f.SuccessorKey, f.SuccessorKey)
+		}
+		return fmt.Errorf("lab %s is frozen: it cannot accept a delegation", flagKey)
+	}
+
 	statusFlag, _ := cmd.Flags().GetString("status")
 	if statusFlag == "" {
 		statusFlag = "todo"
