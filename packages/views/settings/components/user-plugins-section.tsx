@@ -204,6 +204,14 @@ export function UserPluginsSection() {
                             ? t(($) => $.user_plugins.runtime_kind.subprocess)
                             : plugin.runtime_kind}
                     </span>
+                    {/* 0.5.88 P4: badge the 独立工作型 contract only — that is
+                      the model with user-visible behavior (the assignee lock).
+                      auxiliary is the silent default and needs no badge. */}
+                    {plugin.manifest?.interaction_model === "assignee" && (
+                      <span className="inline-flex items-center rounded-md border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                        {t(($) => $.user_plugins.form_model_assignee)}
+                      </span>
+                    )}
                     <span
                       className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] ${
                         plugin.status === "active"

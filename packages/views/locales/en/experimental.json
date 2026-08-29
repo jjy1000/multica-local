@@ -7,13 +7,6 @@
     "unbound_hint": "This surface is workspace-level and does not bind to a single task.",
     "unbound_hint_aria": "Workspace-level surface"
   },
-  "lab_picker": {
-    "confirm_rewrite_title": "Replace current assignee?",
-    "confirm_rewrite_body": "Selecting {{lab}} will replace your current assignee {{current}} with {{leader}}. Continue?",
-    "confirm_rewrite_confirm": "Replace and continue",
-    "confirm_rewrite_cancel": "Cancel",
-    "confirm_rewrite_current_unknown": "(current assignee)"
-  },
   "user_plugins": {
     "title": "User Plugins",
     "create": "Create Plugin",
@@ -58,6 +51,12 @@
     "form_runtime_none": "No runtime (none)",
     "form_runtime_inline": "Inline (inline)",
     "form_runtime_subprocess": "Subprocess (subprocess)",
+    "form_interaction_model": "Interaction model",
+    "form_model_assignee": "Independent worker (assignee)",
+    "form_model_auxiliary": "Auxiliary collaborator (auxiliary)",
+    "form_leader_agent_label": "Leader agent name",
+    "form_leader_agent_hint": "Issues bound to an independent-worker plugin are locked to this agent; it must already exist in the workspace.",
+    "form_leader_agent_required": "A leader agent name is required for the independent worker (assignee) model",
     "artifacts_title": "Artifacts",
     "artifacts_upload": "Upload artifact",
     "artifacts_load_error": "Failed to load artifacts. Please try again later.",

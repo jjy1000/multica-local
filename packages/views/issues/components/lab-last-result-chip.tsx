@@ -20,6 +20,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, FlaskConical } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { api, parseWithFallback } from "@multica/core/api";
 import { EMPTY_LAB_CONTEXT, LabContextSchema } from "@multica/core/api/schemas";
 import type { LabContext, LabTaskBrief } from "@multica/core/types/api";
@@ -57,6 +59,7 @@ export function LabLastResultChip({
 }) {
   const { t } = useT("experimental");
   const [expanded, setExpanded] = useState(false);
+  const reduceMotion = useReducedMotion() ?? false;
 
   // Only claude_science_lab has a real LabContext implementation today;
   // other A-class labs render their own placeholders below the chip.
@@ -119,14 +122,42 @@ export function LabLastResultChip({
           )}
         </span>
       </button>
-      <p
-        className={
-          "text-xs leading-relaxed text-muted-foreground " +
-          (expanded ? "" : "line-clamp-2")
-        }
-      >
-        {expanded && isLong ? summary : truncated}
-      </p>
+      {/* line-clamp height is CSS-driven, so the expand can't be a height
+          animation — fade-through keyed on `expanded` instead (same
+          AnimatePresence treatment as IssueLabsSection's body). Reduced
+          motion swaps the text instantly. */}
+      {reduceMotion ? (
+        <p
+          key={expanded ? "expanded" : "collapsed"}
+          className={
+            "text-xs leading-relaxed text-muted-foreground " +
+            (expanded ? "" : "line-clamp-2")
+          }
+        >
+          {expanded && isLong ? summary : truncated}
+        </p>
+      ) : (
+        <AnimatePresence initial={false} mode="wait">
+          <motion.p
+            key={expanded ? "expanded" : "collapsed"}
+            className={
+              "text-xs leading-relaxed text-muted-foreground " +
+              (expanded ? "" : "line-clamp-2")
+            }
+            initial={{ opacity: 0 }}
+            animate={{
+              opacity: 1,
+              transition: { duration: UI_MOTION_DURATION.fast, ease: UI_EASE_OUT },
+            }}
+            exit={{
+              opacity: 0,
+              transition: { duration: UI_MOTION_DURATION.micro, ease: UI_EASE_OUT },
+            }}
+          >
+            {expanded && isLong ? summary : truncated}
+          </motion.p>
+        </AnimatePresence>
+      )}
       <div className="flex items-center justify-end gap-3">
         <LabRunLink
           flagKey={labSource}

@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, FlaskConical, RefreshCw, Package } from "lucide-react";
+import { AlertTriangle, FlaskConical, RefreshCw, Snowflake, Package } from "lucide-react";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
 import { Label } from "@multica/ui/components/ui/label";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { Button } from "@multica/ui/components/ui/button";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { api } from "@multica/core/api";
+import type { ExperimentalFlag } from "@multica/core/types/experimental";
 import {
   Empty,
   EmptyDescription,
@@ -341,8 +342,49 @@ export function LabsTab() {
                         {localized === "zh" ? "自动后台运行" : "auto-background"}
                       </span>
                     ) : null}
+                    {/* 0.5.86: interaction model (interaction_model).
+                        "assignee" labs own the bound issue's assignee slot
+                        (独立工作型); "auxiliary" labs collaborate without
+                        ever being an assignee (辅助协作型). Unclassified /
+                        legacy payloads omit the field → no badge. */}
+                    {flag.interaction_model === "assignee" ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-md border border-purple-400/40 bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-purple-700 dark:text-purple-300"
+                        title={t(($) => $.labs.interaction_model_assignee)}
+                      >
+                        {t(($) => $.labs.interaction_model_assignee)}
+                      </span>
+                    ) : flag.interaction_model === "auxiliary" ? (
+                      <span
+                        className="inline-flex items-center gap-1 rounded-md border border-sky-400/40 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-700 dark:text-sky-300"
+                        title={t(($) => $.labs.interaction_model_auxiliary)}
+                      >
+                        {t(($) => $.labs.interaction_model_auxiliary)}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">{description}</p>
+                  {/* 0.5.86: frozen-lab banner. The server marks a lab
+                      frozen when it has been superseded (swarm_topology →
+                      mythos_swarm) — the successor's display label is
+                      resolved from the same flags list via successor_key
+                      (raw key as fallback). The flag stays toggleable:
+                      the banner is informational only. Fields are
+                      optional — servers predating them simply never
+                      render this. */}
+                  {flag.frozen ? (
+                    <div
+                      className="flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-xs text-muted-foreground"
+                      data-testid="labs-flag-frozen-banner"
+                    >
+                      <Snowflake className="h-3 w-3 shrink-0 text-amber-600" aria-hidden />
+                      <span>
+                        {t(($) => $.labs.frozen_banner, {
+                          successor: resolveSuccessorLabel(flags, flag, localized),
+                        })}
+                      </span>
+                    </div>
+                  ) : null}
                   {/* B1a (0.5.17): per-flag install button. Shows when
                       the flag is enabled but its lock rows are missing
                       (installation.installed = counts > 0), so a lab
@@ -429,6 +471,21 @@ export function LabsTab() {
       <UserPluginsSection />
     </div>
   );
+}
+
+// 0.5.86: resolve a frozen flag's successor display label from the same
+// flags list (successor_key → title in the active locale → English → raw
+// key). Gracefully degrades to the raw key when the successor row is
+// missing from the payload.
+function resolveSuccessorLabel(
+  flags: ExperimentalFlag[] | undefined,
+  flag: ExperimentalFlag,
+  localized: "en" | "zh",
+): string {
+  if (!flag.successor_key) return flag.key;
+  const successor = flags?.find((f) => f.key === flag.successor_key);
+  if (!successor) return flag.successor_key;
+  return successor.title[localized] || successor.title.en || flag.successor_key;
 }
 
 // brokenReasonLabel renders a short human-readable tag for the

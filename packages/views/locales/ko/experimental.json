@@ -7,13 +7,6 @@
     "unbound_hint": "이 화면은 작업 공간 수준이며 단일 작업에 연결되지 않습니다.",
     "unbound_hint_aria": "작업 공간 수준 화면"
   },
-  "lab_picker": {
-    "confirm_rewrite_title": "현재 담당자를 바꾸시겠습니까?",
-    "confirm_rewrite_body": "{{lab}}을(를) 선택하면 현재 담당자 {{current}}이(가) {{leader}}(으)로 교체됩니다. 계속하시겠습니까?",
-    "confirm_rewrite_confirm": "교체하고 계속",
-    "confirm_rewrite_cancel": "취소",
-    "confirm_rewrite_current_unknown": "(현재 담당자)"
-  },
   "user_plugins": {
     "title": "사용자 플러그인",
     "create": "플러그인 생성",
@@ -58,6 +51,12 @@
     "form_runtime_none": "런타임 없음 (none)",
     "form_runtime_inline": "인라인 (inline)",
     "form_runtime_subprocess": "서브프로세스 (subprocess)",
+    "form_interaction_model": "협업 모델",
+    "form_model_assignee": "독립 작업형 (assignee)",
+    "form_model_auxiliary": "보조 협업형 (auxiliary)",
+    "form_leader_agent_label": "리더 에이전트 이름",
+    "form_leader_agent_hint": "독립 작업형 플러그인에 연결된 작업은 이 에이전트에 잠깁니다. 에이전트는 워크스페이스에 이미 존재해야 합니다.",
+    "form_leader_agent_required": "독립 작업형 모델에는 리더 에이전트 이름이 필요합니다",
     "artifacts_title": "산출물",
     "artifacts_upload": "산출물 업로드",
     "artifacts_load_error": "산출물을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",

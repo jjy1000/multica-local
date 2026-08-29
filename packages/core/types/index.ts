@@ -105,6 +105,7 @@ export type {
   ExperimentalFlag,
   ExperimentalFlagsList,
   LocalizedString,
+  UserPluginManifest,
   UserPluginResponse,
   ArtifactMeta,
 } from "./experimental";

@@ -22,9 +22,15 @@
 // Reset is identity, not computeFitTransform: the ring layout is
 // already computed to fill the viewBox and the svg CSS-scales to its
 // container, so identity IS the fitted view.
+//
+// 0.5.86 polish: wheel zoom / zoom buttons / reset ease the rendered view
+// toward the target transform with a short rAF lerp (reduced motion →
+// instant). Pointer-drag panning stays 1:1 — immediate, no lerp — and the
+// minimap's pollPaused-while-dragging behavior is untouched.
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Maximize, Minus, Plus } from "lucide-react";
+import { useReducedMotion } from "motion/react";
 import type { CausalEdge, CausalNode } from "@multica/core/types/api";
 import {
   panBy,
@@ -43,6 +49,23 @@ import {
 const CANVAS_ZOOM_STEP = 1.2;
 // Same click-vs-drag threshold as use-board-drag-pan.ts.
 const PAN_ACTIVATION_DISTANCE = 5;
+// rAF lerp duration for eased zoom/reset (~UI_MOTION_DURATION "standard"
+// territory, slightly longer because the animated property is a whole-view
+// transform, not a widget state flip).
+const VIEW_LERP_MS = 180;
+
+// Cubic ease-out — the UI_EASE_OUT feel for a scalar t in [0, 1].
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function lerpTransform(from: ZoomTransform, to: ZoomTransform, k: number): ZoomTransform {
+  return {
+    scale: from.scale + (to.scale - from.scale) * k,
+    x: from.x + (to.x - from.x) * k,
+    y: from.y + (to.y - from.y) * k,
+  };
+}
 
 export function CausalGraphCanvas({
   nodes,
@@ -70,7 +93,17 @@ export function CausalGraphCanvas({
   labels?: { zoomIn?: string; zoomOut?: string; resetView?: string };
 }) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const [transform, setTransform] = useState<ZoomTransform>({ scale: 1, x: 0, y: 0 });
+  // Target vs rendered transform (0.5.86 polish): discrete gestures (wheel,
+  // zoom buttons, reset) update the TARGET and the rendered view eases
+  // toward it via a short rAF lerp, so the graph glides instead of
+  // snapping. Pointer-drag panning bypasses the lerp (immediate) — a 1:1
+  // drag must not lag behind the cursor, and the pollPaused-while-dragging
+  // behavior is untouched. Reduced motion applies every transform instantly.
+  const [view, setView] = useState<ZoomTransform>({ scale: 1, x: 0, y: 0 });
+  const reducedMotion = useReducedMotion() ?? false;
+  const viewRef = useRef<ZoomTransform>({ scale: 1, x: 0, y: 0 });
+  const targetRef = useRef<ZoomTransform>({ scale: 1, x: 0, y: 0 });
+  const rafRef = useRef<number | null>(null);
   const panRef = useRef<{
     pointerId: number;
     startX: number;
@@ -80,6 +113,45 @@ export function CausalGraphCanvas({
     active: boolean;
   } | null>(null);
 
+  // Ease the rendered view toward `next`. Called for every discrete
+  // transform change; consecutive calls while a lerp is in flight restart
+  // the lerp from the CURRENT rendered view so wheel bursts chain smoothly.
+  const applyTransform = useCallback(
+    (next: ZoomTransform, immediate = false) => {
+      targetRef.current = next;
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+      if (immediate || reducedMotion) {
+        viewRef.current = next;
+        setView(next);
+        return;
+      }
+      const from = viewRef.current;
+      const start = performance.now();
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / VIEW_LERP_MS);
+        viewRef.current = lerpTransform(from, targetRef.current, easeOutCubic(t));
+        setView(viewRef.current);
+        if (t < 1) {
+          rafRef.current = requestAnimationFrame(step);
+        } else {
+          rafRef.current = null;
+        }
+      };
+      rafRef.current = requestAnimationFrame(step);
+    },
+    [reducedMotion],
+  );
+
+  // Stop any in-flight lerp when the canvas unmounts.
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
@@ -87,9 +159,9 @@ export function CausalGraphCanvas({
       event.preventDefault();
       const rect = el.getBoundingClientRect();
       const anchor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-      setTransform((t) =>
+      applyTransform(
         zoomByAt(
-          t,
+          targetRef.current,
           wheelZoomFactor(event.deltaY, event.deltaMode),
           anchor,
           { width, height },
@@ -99,7 +171,7 @@ export function CausalGraphCanvas({
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [width, height]);
+  }, [width, height, applyTransform]);
 
   const endPan = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const pan = panRef.current;
@@ -141,11 +213,15 @@ export function CausalGraphCanvas({
       pan.lastX = event.clientX;
       pan.lastY = event.clientY;
       const rect = el.getBoundingClientRect();
-      setTransform((t) =>
-        panBy(t, dx, dy, { width, height }, { width: rect.width, height: rect.height }),
+      // Drag-pan is immediate (no lerp): the grabbed canvas must track the
+      // pointer 1:1. Also cancels any zoom lerp still in flight so the two
+      // gestures never fight over the rendered view.
+      applyTransform(
+        panBy(targetRef.current, dx, dy, { width, height }, { width: rect.width, height: rect.height }),
+        true,
       );
     },
-    [width, height],
+    [width, height, applyTransform],
   );
 
   const handleBackgroundPointerDown = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
@@ -172,10 +248,10 @@ export function CausalGraphCanvas({
   const zoomStep = (factor: number) => {
     const el = wrapperRef.current;
     const viewport = { width: el?.clientWidth ?? width, height: el?.clientHeight ?? height };
-    setTransform((t) => zoomByAtCenter(t, factor, { width, height }, viewport));
+    applyTransform(zoomByAtCenter(targetRef.current, factor, { width, height }, viewport));
   };
 
-  const viewport: CausalViewportTransform = { x: transform.x, y: transform.y, scale: transform.scale };
+  const viewport: CausalViewportTransform = { x: view.x, y: view.y, scale: view.scale };
 
   return (
     <div
@@ -219,7 +295,7 @@ export function CausalGraphCanvas({
         <button
           type="button"
           aria-label={labels?.resetView ?? "Reset view"}
-          onClick={() => setTransform({ scale: 1, x: 0, y: 0 })}
+          onClick={() => applyTransform({ scale: 1, x: 0, y: 0 })}
           className="flex size-6 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground shadow-sm backdrop-blur hover:bg-accent hover:text-foreground"
         >
           <Maximize className="size-3.5" aria-hidden />

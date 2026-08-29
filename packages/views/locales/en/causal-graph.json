@@ -29,5 +29,8 @@
   "filter_all_types": "all types",
   "min_confidence_label": "min confidence",
   "refresh": "Refresh",
-  "focus_issue_label": "focused issue"
+  "focus_issue_label": "focused issue",
+  "suggested_confirmed": "Relation confirmed",
+  "suggested_rejected": "Relation rejected",
+  "suggested_action_failed": "Action failed — the proposal was restored, try again"
 }

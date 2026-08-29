@@ -633,7 +633,10 @@
     "side_panel_count_label": "{{visible}} / {{total}} 可见",
     "side_panel_status_installed": "已装载",
     "side_panel_status_hidden": "已软隐藏",
-    "side_panel_status_off": "未启用"
+    "side_panel_status_off": "未启用",
+    "interaction_model_assignee": "独立工作型",
+    "interaction_model_auxiliary": "辅助协作型",
+    "frozen_banner": "已冻结 — 由 {{successor}} 接替"
   },
   "github": {
     "page_description": "连接 GitHub App、控制 Pull Request 如何出现在 Multica 中，并决定智能体在 commit 记录里留下哪些痕迹。",

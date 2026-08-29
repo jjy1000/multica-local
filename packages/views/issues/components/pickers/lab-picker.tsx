@@ -105,25 +105,6 @@ interface LabPickerProps {
    *  issue-detail PropRow uses this when the picker sits inline in
    *  the property list). */
   triggerRender?: React.ReactElement;
-  /**
-   * 0.5.81: when true, the picker shows a confirmation dialog BEFORE
-   * firing onUpdate for any non-mutex lab that has a leader_agent
-   * (Active Contract #2: the server will auto-rewrite the existing
-   * manual assignee to the lab leader). Mutex labs (mythos_swarm,
-   * swarm_topology) clear the assignee instead and never prompt — that
-   * is a separate UX call documented at the mutex gate. Defaults to
-   * false to preserve the legacy zero-prompt UX for callers that
-   * embed the picker elsewhere (e.g. tests, scripted ops).
-   */
-  confirmRewrite?: boolean;
-  /**
-   * 0.5.81: display name of the issue's current assignee, rendered in
-   * the leader-rewrite confirmation dialog. The picker's caller is
-   * responsible for resolving the actor display name (the picker is
-   * intentionally unaware of the assignee picker / member list).
-   * Optional — when omitted, the dialog says a generic placeholder.
-   */
-  currentAssigneeName?: string;
 }
 
 /**
@@ -144,27 +125,13 @@ export function LabPicker({
   open: controlledOpen,
   onOpenChange,
   triggerRender,
-  confirmRewrite = false,
-  currentAssigneeName,
 }: LabPickerProps) {
   const { t } = useT("issues");
-  const { t: tExp } = useT("experimental");
   const { data: flags } = useExperimentalFlags();
 
   const [internalOpen, setInternalOpen] = useState(false);
   const open = controlledOpen ?? internalOpen;
   const setOpen = onOpenChange ?? setInternalOpen;
-
-  // 0.5.81: pending confirmation payload (lab + mode + leader name)
-  // when confirmRewrite is enabled. Set by a PickerItem click, consumed
-  // by the dialog's Confirm / Cancel buttons. null = dialog closed.
-  type PendingConfirm = {
-    labSource: string;
-    labMode: LabMode;
-    leaderName: string;
-    labTitle: string;
-  };
-  const [pending, setPending] = useState<PendingConfirm | null>(null);
 
   // Build the picker entries once per flag list change. We surface every
   // ENABLED flag the catalog exposes so users can flip back and forth
@@ -236,11 +203,10 @@ export function LabPicker({
   // Stable default for the mode tabs when the caller never set one.
   const effectiveMode: LabMode = labMode ?? "sole";
 
-  // 0.5.81: extracted commit logic so the confirmRewrite dialog can
-  // bypass the picker item click handler and call this directly after
-  // the user confirms. Preserves the original behaviour for callers
-  // that pass confirmRewrite=false (default) or pick a mutex / leader-
-  // less lab.
+  // Commit the picked lab (or clear it). Assignee clearing is decided
+  // here: assignee-model labs (and mythos sole mode) take over the
+  // assignee slot; everything else keeps the current assignee — the
+  // server's leader rewrite only fills an EMPTY assignee field.
   const commitSelection = (nextLab: string | null, mode: LabMode) => {
     if (nextLab === null) {
       // Clearing the lab also clears the mode so the next
@@ -268,58 +234,6 @@ export function LabPicker({
     }
     onUpdate({ lab_source: nextLab, lab_mode: mode });
   };
-
-  // Map flagKey → localized title for the dialog (default to key if
-  // not found; the catalog DTO carries the bilingual title).
-  const titleByKey = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const flag of flags ?? []) {
-      m.set(flag.key, flag.title.zh || flag.title.en || flag.key);
-    }
-    return m;
-  }, [flags]);
-
-  // Map flagKey → leader_agent name for the dialog. Falsy value =
-  // skip the confirmation (no leader rewrite will happen).
-  const leaderByKey = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const flag of flags ?? []) {
-      if (flag.leader_agent) m.set(flag.key, flag.leader_agent);
-    }
-    return m;
-  }, [flags]);
-
-  // 0.5.81: leader-rewrite confirmation. Non-mutex + leader-bearing
-  // labs (Active Contract #2) prompt before firing onUpdate. The
-  // dialog reuses the existing Radix Dialog primitive (Radix Dropdown
-  // Menu is the popover; we use the same UI library to stay
-  // consistent with the rest of the picker family).
-  const maybePromptForLeaderRewrite = (
-    nextLab: string,
-    mode: LabMode,
-  ): boolean => {
-    if (!confirmRewrite) return false;
-    if (isAssigneeLabLocked(flags, nextLab, mode)) return false;
-    const leader = leaderByKey.get(nextLab);
-    if (!leader) return false;
-    setPending({
-      labSource: nextLab,
-      labMode: mode,
-      leaderName: leader,
-      labTitle: titleByKey.get(nextLab) ?? nextLab,
-    });
-    return true;
-  };
-
-  const onConfirm = () => {
-    if (!pending) return;
-    const { labSource: nextLab, labMode: mode } = pending;
-    setPending(null);
-    commitSelection(nextLab, mode);
-    setOpen(false);
-  };
-
-  const onCancel = () => setPending(null);
 
   return (
     <PropertyPicker
@@ -350,10 +264,6 @@ export function LabPicker({
                   }
                   const mode: LabMode =
                     nextLab === "mythos_swarm" ? effectiveMode : "sole";
-                  if (maybePromptForLeaderRewrite(nextLab, mode)) {
-                    // Dialog now owns the close-on-confirm flow.
-                    return;
-                  }
                   commitSelection(nextLab, mode);
                   setOpen(false);
                 }}
@@ -423,83 +333,6 @@ export function LabPicker({
               </div>
             )}
       </div>
-      {/* 0.5.81: leader-rewrite confirmation dialog (Active Contract #2
-          documentation in UI). Renders only when confirmRewrite=true and
-          the user just picked a non-mutex lab with a leader_agent. The
-          click-through flow is opt-in — callers that don't pass the
-          prop keep the legacy zero-prompt behaviour. */}
-      {pending ? (
-        <LeaderRewriteConfirmDialog
-          labTitle={pending.labTitle}
-          leaderName={pending.leaderName}
-          currentAssigneeName={currentAssigneeName}
-          tExp={tExp}
-          onConfirm={onConfirm}
-          onCancel={onCancel}
-        />
-      ) : null}
     </PropertyPicker>
-  );
-}
-
-// LeaderRewriteConfirmDialog — small inline Radix Dialog wrapper that
-// renders ONLY when a leader-rewrite is pending. Kept inline (rather
-// than extracted) because it is picker-internal and the surrounding
-// picker has its own i18n hooks already.
-function LeaderRewriteConfirmDialog({
-  labTitle,
-  leaderName,
-  currentAssigneeName,
-  tExp,
-  onConfirm,
-  onCancel,
-}: {
-  labTitle: string;
-  leaderName: string;
-  currentAssigneeName?: string;
-  tExp: ReturnType<typeof useT<"experimental">>["t"];
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="lab-picker-confirm-title"
-      data-testid="lab-picker-confirm-dialog"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-    >
-      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-5 text-foreground shadow-lg">
-        <h3
-          id="lab-picker-confirm-title"
-          className="text-base font-semibold"
-        >
-          {tExp(($) => $.lab_picker.confirm_rewrite_title)}
-        </h3>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {tExp(($) => $.lab_picker.confirm_rewrite_body, {
-            lab: labTitle,
-            leader: leaderName,
-            current: currentAssigneeName ?? tExp(($) => $.lab_picker.confirm_rewrite_current_unknown),
-          })}
-        </p>
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted"
-          >
-            {tExp(($) => $.lab_picker.confirm_rewrite_cancel)}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            {tExp(($) => $.lab_picker.confirm_rewrite_confirm)}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }

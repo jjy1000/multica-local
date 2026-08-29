@@ -21,7 +21,7 @@ import {
 } from "@multica/ui/components/ui/select";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
-import type { UserPluginResponse } from "@multica/core/types";
+import type { UserPluginManifest, UserPluginResponse } from "@multica/core/types";
 import { useT } from "../../i18n";
 
 // 0.3.63 Labs sandbox — shared create/edit dialog for user plugins.
@@ -46,6 +46,10 @@ const SLUG_MAX_LEN = 64;
 
 type TriggerMode = "auto" | "issue_select";
 type RuntimeKind = "none" | "inline" | "subprocess";
+// 0.5.88 P4: mirrors the server-side interaction-model contract
+// (ParseUserPluginContract). "auxiliary" is the default — unclassified
+// user plugins never locked and auxiliary never locks either.
+type InteractionModel = "assignee" | "auxiliary";
 
 interface FormState {
   slug: string;
@@ -55,6 +59,8 @@ interface FormState {
   descZh: string;
   triggerMode: TriggerMode;
   runtimeKind: RuntimeKind;
+  interactionModel: InteractionModel;
+  leaderAgent: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -65,6 +71,8 @@ const EMPTY_FORM: FormState = {
   descZh: "",
   triggerMode: "issue_select",
   runtimeKind: "none",
+  interactionModel: "auxiliary",
+  leaderAgent: "",
 };
 
 function formFromPlugin(plugin: UserPluginResponse): FormState {
@@ -76,7 +84,26 @@ function formFromPlugin(plugin: UserPluginResponse): FormState {
     descZh: plugin.description.zh ?? "",
     triggerMode: plugin.trigger_mode,
     runtimeKind: plugin.runtime_kind,
+    interactionModel:
+      plugin.manifest?.interaction_model === "assignee" ? "assignee" : "auxiliary",
+    leaderAgent:
+      typeof plugin.manifest?.leader_agent === "string" ? plugin.manifest.leader_agent : "",
   };
+}
+
+// buildManifest merges the interaction-model contract into the plugin's
+// existing manifest, preserving every other key (capabilities, ui, …).
+// auxiliary drops leader_agent (meaningless without the lock); the
+// legacy capabilities.leader block is never touched.
+function buildManifest(form: FormState, base?: UserPluginManifest): UserPluginManifest {
+  const manifest: UserPluginManifest = { ...(base ?? {}) };
+  manifest.interaction_model = form.interactionModel;
+  if (form.interactionModel === "assignee") {
+    manifest.leader_agent = form.leaderAgent.trim();
+  } else {
+    delete manifest.leader_agent;
+  }
+  return manifest;
 }
 
 export interface UserPluginFormDialogProps {
@@ -132,6 +159,15 @@ export function UserPluginFormDialog({
       return;
     }
 
+    // 0.5.88 P4: 独立工作型 requires a leader agent — the server
+    // rejects the contract without it, so fail fast client-side.
+    if (form.interactionModel === "assignee" && !form.leaderAgent.trim()) {
+      toast.error(t(($) => $.user_plugins.form_leader_agent_required));
+      return;
+    }
+
+    const manifest = buildManifest(form, isEdit ? plugin?.manifest : undefined);
+
     setSubmitting(true);
     try {
       if (isEdit && plugin) {
@@ -140,6 +176,7 @@ export function UserPluginFormDialog({
           description: { en: form.descEn || form.descZh, zh: form.descZh || form.descEn },
           trigger_mode: form.triggerMode,
           runtime_kind: form.runtimeKind,
+          manifest,
         });
         toast.success("插件已更新");
       } else {
@@ -150,6 +187,7 @@ export function UserPluginFormDialog({
           description: { en: form.descEn || form.descZh, zh: form.descZh || form.descEn },
           trigger_mode: form.triggerMode,
           runtime_kind: form.runtimeKind,
+          manifest,
         });
         toast.success("插件已创建");
       }
@@ -277,6 +315,43 @@ export function UserPluginFormDialog({
               </Select>
             </div>
           </div>
+          <div className="space-y-1">
+            <Label className="text-xs">{t(($) => $.user_plugins.form_interaction_model)}</Label>
+            <Select
+              value={form.interactionModel}
+              onValueChange={(v) =>
+                setForm((f) => ({ ...f, interactionModel: v as InteractionModel }))
+              }
+            >
+              <SelectTrigger size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auxiliary">
+                  {t(($) => $.user_plugins.form_model_auxiliary)}
+                </SelectItem>
+                <SelectItem value="assignee">
+                  {t(($) => $.user_plugins.form_model_assignee)}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {form.interactionModel === "assignee" && (
+            <div className="space-y-1">
+              <Label htmlFor="up-leader-agent" className="text-xs">
+                {t(($) => $.user_plugins.form_leader_agent_label)}
+              </Label>
+              <Input
+                id="up-leader-agent"
+                placeholder="my-lab-leader"
+                value={form.leaderAgent}
+                onChange={(e) => setForm((f) => ({ ...f, leaderAgent: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t(($) => $.user_plugins.form_leader_agent_hint)}
+              </p>
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

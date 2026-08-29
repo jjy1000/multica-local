@@ -29,5 +29,8 @@
   "filter_all_types": "すべてのタイプ",
   "min_confidence_label": "最小信頼度",
   "refresh": "更新",
-  "focus_issue_label": "フォーカス issue"
+  "focus_issue_label": "フォーカス issue",
+  "suggested_confirmed": "関係を承認しました",
+  "suggested_rejected": "関係を却下しました",
+  "suggested_action_failed": "操作に失敗しました。提案を元に戻したので再試行してください"
 }

@@ -634,7 +634,10 @@
     "side_panel_count_label": "{{visible}} / {{total}} visible",
     "side_panel_status_installed": "Loaded",
     "side_panel_status_hidden": "Soft-hidden",
-    "side_panel_status_off": "Off"
+    "side_panel_status_off": "Off",
+    "interaction_model_assignee": "Independent",
+    "interaction_model_auxiliary": "Assistive",
+    "frozen_banner": "Frozen — succeeded by {{successor}}"
   },
   "github": {
     "page_description": "Connect a GitHub App, control how Pull Requests show up inside Multica, and decide what your agents leave behind in commit history.",

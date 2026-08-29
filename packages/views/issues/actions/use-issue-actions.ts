@@ -10,10 +10,15 @@ import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useModalStore } from "@multica/core/modals";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
+import { useExperimentalFlags } from "@multica/core/experimental";
 import { pinListOptions, useCreatePin, useDeletePin } from "@multica/core/pins";
 import { copyText } from "@multica/ui/lib/clipboard";
 import { useNavigation } from "../../navigation";
 import { useT } from "../../i18n";
+import {
+  labLockLabel,
+  matchAssigneeLabLockError,
+} from "../components/pickers/assignee-lab-lock";
 
 export interface UseIssueActionsResult {
   isPinned: boolean;
@@ -39,6 +44,7 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
   const navigation = useNavigation();
   const user = useAuthStore((s) => s.user);
   const userId = user?.id;
+  const { data: flags } = useExperimentalFlags();
 
   const { data: pinnedItems = [] } = useQuery({
     ...pinListOptions(wsId, userId ?? ""),
@@ -131,16 +137,29 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
                 });
             }
           },
-          onError: (err) =>
+          onError: (err) => {
+            // 0.5.86 assignee-lab-lock rejection: the server's 400 names
+            // the lab and its leader in a fixed English sentence — a
+            // dedicated guided toast replaces the raw message here.
+            const lock = matchAssigneeLabLockError(err);
+            if (lock) {
+              toast.error(t(($) => $.detail.assignee_lab_lock_title), {
+                description: t(($) => $.detail.assignee_lab_lock_description, {
+                  lab: labLockLabel(flags, lock.labSource),
+                }),
+              });
+              return;
+            }
             toast.error(
               err instanceof Error && err.message
                 ? err.message
                 : t(($) => $.detail.update_failed),
-            ),
+            );
+          },
         },
       );
     },
-    [issueId, issueStatus, updateIssue, openModal, t],
+    [issueId, issueStatus, updateIssue, openModal, t, flags],
   );
 
   // Explicit "open it somewhere else" CTA, so the new tab takes focus

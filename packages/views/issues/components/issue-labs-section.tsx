@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronRight, ExternalLink, Loader2, ThumbsDown } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { useExperimentalFlags } from "@multica/core/experimental";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { useWorkspaceId } from "@multica/core/hooks";
@@ -92,6 +94,7 @@ export function AgentTrustCorrectButton({
   agentId: string;
   issueId: string;
 }) {
+  const { t } = useT("issues");
   const [note, setNote] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -126,7 +129,7 @@ export function AgentTrustCorrectButton({
         className="inline-flex items-center gap-1 text-caption text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 transition-colors"
       >
         <ThumbsDown className="size-3" aria-hidden />
-        纠正智能体
+        {t(($) => $.lab_section.trust_correct_button)}
       </button>
       {open && (
         <div className="flex flex-col gap-1.5 rounded-md border border-border/60 bg-background/60 p-2">
@@ -242,6 +245,7 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
   });
 
   const [open, setOpen] = useState(true);
+  const reduceMotion = useReducedMotion() ?? false;
 
   const flagTitle = useMemo(() => {
     const f = (flags ?? []).find((flag) => flag.key === labSource);
@@ -331,8 +335,34 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
         <span>{t(($) => $.lab_section.section_title)}</span>
         <ChevronRight className={`!size-3 shrink-0 stroke-[2.5] text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
       </button>
-      {open && (
-        <div className="space-y-1.5 pl-2">
+      {/* Animated collapse (0.5.86 polish): the body fades + slides via a
+          height:auto animation instead of popping in/out (which shifted the
+          sidebar layout). Reduced motion collapses instantly — the mounted
+          motion.div keeps the DOM shape but runs the transition at duration
+          0, mirroring the causal-canvas reduced-motion treatment. */}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="issue-labs-section-body"
+            className="space-y-1.5 overflow-hidden pl-2"
+            initial={reduceMotion ? false : { height: 0, opacity: 0 }}
+            animate={{
+              height: "auto",
+              opacity: 1,
+              transition: {
+                duration: reduceMotion ? 0 : UI_MOTION_DURATION.standard,
+                ease: UI_EASE_OUT,
+              },
+            }}
+            exit={{
+              height: 0,
+              opacity: 0,
+              transition: {
+                duration: reduceMotion ? 0 : UI_MOTION_DURATION.fast,
+                ease: UI_EASE_OUT,
+              },
+            }}
+          >
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-caption text-foreground/90">
               {flagTitle ?? labSource}
@@ -459,8 +489,9 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
               <p className="mt-0.5 leading-snug">{t(($) => $.lab_section.no_flag_hint)}</p>
             </div>
           )}
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

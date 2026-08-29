@@ -633,7 +633,10 @@
     "side_panel_count_label": "{{visible}} / {{total}} 件表示",
     "side_panel_status_installed": "読み込み済み",
     "side_panel_status_hidden": "ソフト非表示",
-    "side_panel_status_off": "オフ"
+    "side_panel_status_off": "オフ",
+    "interaction_model_assignee": "独立作業型",
+    "interaction_model_auxiliary": "補助連携型",
+    "frozen_banner": "凍結中 — 後継は {{successor}} です"
   },
   "github": {
     "page_description": "GitHub App を接続し、Pull request が Multica 内でどう表示されるかを制御し、エージェントがコミット履歴に残す情報を設定します。",

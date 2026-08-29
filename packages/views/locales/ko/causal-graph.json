@@ -29,5 +29,8 @@
   "filter_all_types": "모든 유형",
   "min_confidence_label": "최소 신뢰도",
   "refresh": "새로 고침",
-  "focus_issue_label": "포커스 이슈"
+  "focus_issue_label": "포커스 이슈",
+  "suggested_confirmed": "관계를 승인했습니다",
+  "suggested_rejected": "관계를 거부했습니다",
+  "suggested_action_failed": "작업 실패 — 제안을 복원했습니다. 다시 시도하세요"
 }

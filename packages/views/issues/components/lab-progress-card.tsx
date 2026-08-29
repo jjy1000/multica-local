@@ -39,6 +39,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, CircleDashed, ExternalLink, Loader2, TriangleAlert } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Skeleton } from "@multica/ui/components/ui/skeleton";
+import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { api, parseWithFallback } from "@multica/core/api";
 import { useTimesfmForecastRuns } from "@multica/core/experimental";
 import {
@@ -128,6 +131,26 @@ function AuxiliaryRow() {
 }
 
 /**
+ * 3-line loading placeholder (same idiom as LabOutputPanel's loading
+ * branch) sized down to the card's compact sidebar-row footprint.
+ * Keeps the card's box mounted while the first poll resolves so the
+ * section layout no longer shifts when real state replaces it.
+ */
+export function LabProgressCardSkeleton() {
+  return (
+    <div
+      data-testid="lab-progress-card-loading"
+      className="space-y-1.5 rounded-md border border-border/60 bg-card/50 px-2 py-1.5"
+      aria-hidden
+    >
+      <Skeleton className="h-2.5 w-1/3" />
+      <Skeleton className="h-2 w-full" />
+      <Skeleton className="h-2 w-2/3" />
+    </div>
+  );
+}
+
+/**
  * Shared shell: status dot + label (+ summary line) wrapped in the
  * issue/run-scoped lab-view link. Mirrors the compact pill styling of
  * SwarmRunStatusPill / the section's indicator chips.
@@ -148,6 +171,7 @@ function ProgressCardBody({
   flagEnabled: boolean;
 }) {
   const { t } = useT("issues");
+  const reduceMotion = useReducedMotion() ?? false;
 
   const label =
     state.kind === "running"
@@ -174,7 +198,11 @@ function ProgressCardBody({
           ? "text-muted-foreground"
           : "text-emerald-700 dark:text-emerald-300";
 
-  const statusRow = (
+  // Dot + label + summary, keyed on the run status so an idle→running→
+  // terminal transition crossfades (fade-through) instead of popping.
+  // Summary churn within the SAME status (poll refreshes) keeps the key —
+  // no re-animation. Reduced motion swaps instantly.
+  const statusContent = (
     <>
       <span className={`inline-flex shrink-0 items-center gap-1 font-medium ${toneClass}`}>
         {state.kind === "running" ? (
@@ -191,6 +219,34 @@ function ProgressCardBody({
       {state.summary ? (
         <span className="truncate text-muted-foreground">{state.summary}</span>
       ) : null}
+    </>
+  );
+
+  const statusRow = (
+    <>
+      {reduceMotion ? (
+        <div key={state.kind} className="flex min-w-0 flex-1 items-center gap-1.5">
+          {statusContent}
+        </div>
+      ) : (
+        <AnimatePresence initial={false} mode="wait">
+          <motion.div
+            key={state.kind}
+            className="flex min-w-0 flex-1 items-center gap-1.5"
+            initial={{ opacity: 0 }}
+            animate={{
+              opacity: 1,
+              transition: { duration: UI_MOTION_DURATION.fast, ease: UI_EASE_OUT },
+            }}
+            exit={{
+              opacity: 0,
+              transition: { duration: UI_MOTION_DURATION.micro, ease: UI_EASE_OUT },
+            }}
+          >
+            {statusContent}
+          </motion.div>
+        </AnimatePresence>
+      )}
       {href ? (
         <ExternalLink
           className="ml-auto size-3 shrink-0 text-muted-foreground"
@@ -281,7 +337,7 @@ function PythiaProgressCard({
     },
   });
 
-  if (runsQuery.isLoading) return null;
+  if (runsQuery.isLoading) return <LabProgressCardSkeleton />;
   if (runsQuery.isError) {
     return (
       <ProgressCardBody
@@ -362,7 +418,7 @@ function TimesfmProgressCard({
   // Same hook + limit as TimesfmPanel → same cache entry, no extra poll.
   const runsQuery = useTimesfmForecastRuns(issueId);
 
-  if (runsQuery.isLoading) return null;
+  if (runsQuery.isLoading) return <LabProgressCardSkeleton />;
   if (runsQuery.isError) {
     return (
       <ProgressCardBody
@@ -455,7 +511,7 @@ function MythosProgressCard({
     },
   });
 
-  if (runsQuery.isLoading) return null;
+  if (runsQuery.isLoading) return <LabProgressCardSkeleton />;
   if (runsQuery.isError) {
     return (
       <ProgressCardBody

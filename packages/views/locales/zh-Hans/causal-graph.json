@@ -29,5 +29,8 @@
   "filter_all_types": "全部类型",
   "min_confidence_label": "最低置信度",
   "refresh": "刷新",
-  "focus_issue_label": "聚焦 issue"
+  "focus_issue_label": "聚焦 issue",
+  "suggested_confirmed": "已确认该关系",
+  "suggested_rejected": "已拒绝该关系",
+  "suggested_action_failed": "操作失败 — 提议已还原,请重试"
 }

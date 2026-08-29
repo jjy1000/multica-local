@@ -63,7 +63,7 @@ import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { toast } from "sonner";
 import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, StagePicker, StartDatePicker, DueDatePicker, AssigneePicker, LabelPicker, LabPicker } from ".";
 import { maxSiblingStage } from "./pickers/stage-picker";
-import { isAssigneeLabLocked } from "./pickers/assignee-lab-lock";
+import { isAssigneeLabLocked, labLockLabel, matchAssigneeLabLockError } from "./pickers/assignee-lab-lock";
 import { IssueActionsDropdown, useIssueActions } from "../actions";
 import { ProjectPicker } from "../../projects/components/project-picker";
 import { LocalDirectoryHint } from "../../projects/components/local-directory-hint";
@@ -676,6 +676,7 @@ function SubIssueRow({ child }: { child: Issue }) {
   const { t } = useT("issues");
   const paths = useWorkspacePaths();
   const updateIssue = useUpdateIssue();
+  const { data: flags } = useExperimentalFlags();
   const selected = useIssueSelectionStore((s) => s.selectedIds.has(child.id));
   const toggleSelected = useIssueSelectionStore((s) => s.toggle);
   // Category, not key: a custom status in the done/cancelled categories is
@@ -687,16 +688,28 @@ function SubIssueRow({ child }: { child: Issue }) {
       updateIssue.mutate(
         { id: child.id, ...updates },
         {
-          onError: (err) =>
+          onError: (err) => {
+            // 0.5.86 assignee-lab-lock rejection: same dedicated guided
+            // toast as the main detail update path (use-issue-actions).
+            const lock = matchAssigneeLabLockError(err);
+            if (lock) {
+              toast.error(t(($) => $.detail.assignee_lab_lock_title), {
+                description: t(($) => $.detail.assignee_lab_lock_description, {
+                  lab: labLockLabel(flags, lock.labSource),
+                }),
+              });
+              return;
+            }
             toast.error(
               err instanceof Error && err.message
                 ? err.message
                 : t(($) => $.detail.update_failed),
-            ),
+            );
+          },
         },
       );
     },
-    [child.id, updateIssue, t],
+    [child.id, updateIssue, t, flags],
   );
 
   // AppLink wraps only the title/identifier area. Pickers and checkbox are

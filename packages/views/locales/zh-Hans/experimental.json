@@ -7,13 +7,6 @@
     "unbound_hint": "此表面在工作区层级,不绑定单个任务。",
     "unbound_hint_aria": "工作区层级表面"
   },
-  "lab_picker": {
-    "confirm_rewrite_title": "替换当前 assignee?",
-    "confirm_rewrite_body": "选择 {{lab}} 会替换你当前选择的 assignee {{current}} 为 {{leader}}。确认继续?",
-    "confirm_rewrite_confirm": "替换并继续",
-    "confirm_rewrite_cancel": "取消",
-    "confirm_rewrite_current_unknown": "(当前 assignee)"
-  },
   "user_plugins": {
     "title": "用户插件",
     "create": "创建插件",
@@ -58,6 +51,12 @@
     "form_runtime_none": "无运行时（none）",
     "form_runtime_inline": "内联（inline）",
     "form_runtime_subprocess": "子进程（subprocess）",
+    "form_interaction_model": "协作模式",
+    "form_model_assignee": "独立工作型（assignee）",
+    "form_model_auxiliary": "辅助协作型（auxiliary）",
+    "form_leader_agent_label": "主控智能体名称",
+    "form_leader_agent_hint": "独立工作型插件绑定的任务将锁定由该智能体负责；它必须已存在于工作区。",
+    "form_leader_agent_required": "独立工作型插件必须填写主控智能体名称",
     "artifacts_title": "产物",
     "artifacts_upload": "上传产物",
     "artifacts_load_error": "加载产物失败，请稍后重试。",

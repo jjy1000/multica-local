@@ -633,7 +633,10 @@
     "side_panel_count_label": "{{visible}} / {{total}} 표시",
     "side_panel_status_installed": "로드됨",
     "side_panel_status_hidden": "소프트 숨김",
-    "side_panel_status_off": "꺼짐"
+    "side_panel_status_off": "꺼짐",
+    "interaction_model_assignee": "독립 실행형",
+    "interaction_model_auxiliary": "보조 협업형",
+    "frozen_banner": "동결됨 — {{successor}}(이)가 계승합니다"
   },
   "github": {
     "page_description": "GitHub App을 연결하고, Pull request가 Multica 안에서 표시되는 방식을 제어하며, 에이전트가 커밋 기록에 남기는 정보를 설정합니다.",

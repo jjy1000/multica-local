@@ -112,10 +112,39 @@ export interface ExperimentalFlag {
    *  (chat_pin_ui, code_canvas, user plugins). Mirrors the Go
    *  Flag.InteractionModel (server/internal/experimental/catalog.go). */
   interaction_model?: "assignee" | "auxiliary";
+  /** 0.5.86: when true the lab is frozen — kept toggleable for existing
+   *  installs but superseded by another lab (e.g. swarm_topology →
+   *  mythos_swarm). The Labs settings tab renders a muted banner naming
+   *  the successor. Absent/false = not frozen. Sent by newer servers;
+   *  absent on older payloads — the client defaults gracefully. */
+  frozen?: boolean;
+  /** 0.5.86: flag key of the lab that supersedes this one when
+   *  `frozen` is true. Resolved against the same flags list for a
+   *  display label (raw key as fallback). */
+  successor_key?: string;
 }
 
 export interface ExperimentalFlagsList {
   flags: ExperimentalFlag[];
+}
+
+// 0.5.88 P4: the interaction-model contract block of a user-plugin
+// manifest. Mirrors the server-side parser
+// (server/internal/experimental/plugin_scanner.go
+// ParseUserPluginContract) and the 0.5.86 built-in taxonomy
+// (ExperimentalFlag.interaction_model):
+//   - "assignee" (独立工作型): the plugin's leader agent owns the bound
+//     issue's assignee slot — binding locks the assignee.
+//   - "auxiliary" (辅助协作型): assists other agents; never locks.
+// Absent interaction_model defaults to "auxiliary" (behavior-
+// preserving: unclassified plugins never locked). leader_agent is
+// REQUIRED and non-empty when interaction_model is "assignee"
+// (server rejects the create/update otherwise). The index signature
+// keeps every other manifest key (capabilities, ui, …) addressable.
+export interface UserPluginManifest {
+  interaction_model?: "assignee" | "auxiliary";
+  leader_agent?: string;
+  [key: string]: unknown;
 }
 
 // 0.3.60 Labs sandbox: user-created plugin wire shape. Mirrors the
@@ -131,7 +160,7 @@ export interface UserPluginResponse {
   trigger_mode: "auto" | "issue_select";
   runtime_kind: "none" | "inline" | "subprocess";
   status: "active" | "disabled" | "deleted";
-  manifest?: Record<string, unknown>;
+  manifest?: UserPluginManifest;
   created_at: string;
   updated_at: string;
 }
