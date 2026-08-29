@@ -248,10 +248,13 @@ func TestCreateDelegatedLabChildRecordsCausalDependsOnEdge(t *testing.T) {
 }
 
 // TestDelegationBriefListsEnabledAssigneeLabs — the daemon briefing
-// builder against the real DB + the real leader tables. pythia_oracle
-// (assignee-model, leader pythia_runtime) must be listed when enabled;
-// swarm_topology must NEVER be listed even when enabled (0.5.88
-// Frozen), and nothing renders when nothing delegatable is enabled.
+// builder against the real DB + the real leader tables. claude_science_lab
+// (assignee-model, auto-dispatch standard contract) must be listed when
+// enabled; pythia_oracle must NEVER be listed even when enabled (0.5.88
+// AutoDispatch=false skip — the live verification caught the first cut
+// advertising a lab `lab delegate` can never dispatch), swarm_topology
+// must NEVER be listed even when enabled (0.5.88 Frozen), and nothing
+// renders when nothing delegatable is enabled.
 func TestDelegationBriefListsEnabledAssigneeLabs(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("handler fixture unavailable (no DATABASE_URL)")
@@ -269,7 +272,7 @@ func TestDelegationBriefListsEnabledAssigneeLabs(t *testing.T) {
 		t.Fatalf("reset pref rows: %v", err)
 	}
 	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(), `DELETE FROM experimental_pref WHERE flag_key IN ('pythia_oracle', 'swarm_topology')`)
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM experimental_pref WHERE flag_key IN ('claude_science_lab','pythia_oracle', 'swarm_topology')`)
 	})
 
 	leaderFor := func(key string) (string, bool) { return defaultLabLeaderForKey(key) }
@@ -284,9 +287,10 @@ func TestDelegationBriefListsEnabledAssigneeLabs(t *testing.T) {
 		t.Fatalf("expected no section with no labs enabled, got %q", brief)
 	}
 
-	// Enable pythia_oracle AND the frozen swarm_topology: only pythia
+	// Enable claude_science_lab (delegatable) AND pythia_oracle
+	// (AutoDispatch=false) AND the frozen swarm_topology: only claude
 	// may appear.
-	for _, key := range []string{"pythia_oracle", "swarm_topology"} {
+	for _, key := range []string{"claude_science_lab", "pythia_oracle", "swarm_topology"} {
 		if _, err := testHandler.Queries.UpsertExperimentalPref(ctx, db.UpsertExperimentalPrefParams{
 			UserID:  userUUID,
 			FlagKey: key,
@@ -302,8 +306,11 @@ func TestDelegationBriefListsEnabledAssigneeLabs(t *testing.T) {
 	if !strings.Contains(brief, "## Available Labs (delegation)") {
 		t.Fatalf("missing heading, got %q", brief)
 	}
-	if !strings.Contains(brief, "- pythia_oracle (leader: pythia_runtime)") {
-		t.Errorf("expected pythia_oracle line, got %q", brief)
+	if !strings.Contains(brief, "- claude_science_lab (leader: research)") {
+		t.Errorf("expected claude_science_lab line, got %q", brief)
+	}
+	if strings.Contains(brief, "pythia_oracle") {
+		t.Errorf("AutoDispatch=false pythia_oracle must never be advertised (guaranteed delegate timeout), got %q", brief)
 	}
 	if strings.Contains(brief, "swarm_topology") {
 		t.Errorf("frozen swarm_topology must never be advertised, got %q", brief)

@@ -36,6 +36,14 @@
 //     (cmd_lab.go's documented prerequisite), so a roster lab like
 //     mythos_swarm would only produce a "no run was dispatched"
 //     timeout.
+//   - AutoDispatch=false labs (pythia_oracle, timesfm — the 0.5.81
+//     records-only opt-out) are skipped: they never enqueue a run on
+//     issue assignment, so `lab delegate` against them deterministically
+//     dies in the 30s "no run was dispatched" grace. The 0.5.88 live
+//     verification caught the first cut of this briefing advertising
+//     pythia_oracle — the briefing and the delegate loop must never
+//     contradict each other. These labs stay triggerable from their
+//     lab panels; they are just not delegatable.
 //
 // Lifecycle mirrors claim_brief.go: 200ms ctx budget, silent fallback
 // ("", nil) on EVERY error path — a broken lab lookup must NEVER block
@@ -128,6 +136,13 @@ func BuildDelegateBrief(ctx context.Context, q *db.Queries, leaderFor func(flagK
 			continue
 		}
 		if f.InteractionModel != experimental.InteractionModelAssignee {
+			continue
+		}
+		// AutoDispatch=false labs can never accept a delegation (no
+		// enqueue on assign → guaranteed "no run was dispatched"
+		// timeout) — advertising one would make the briefing lie.
+		// See the package doc bullet for the live-verification origin.
+		if f.AutoDispatch != nil && !*f.AutoDispatch {
 			continue
 		}
 		leader, ok := leaderFor(key)

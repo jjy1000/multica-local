@@ -129,6 +129,16 @@ func runLabDelegate(cmd *cobra.Command, args []string) error {
 
 	flagKey := resolveLabFlagKey(labArg)
 
+	// AutoDispatch=false labs (pythia_oracle, timesfm — the 0.5.81
+	// records-only opt-out) never enqueue a run on issue assignment, so
+	// the wait loop below could only ever die in the 30s "no run was
+	// dispatched" grace. Fail fast with the reason instead. The 0.5.88
+	// live verification caught an agent following the delegation
+	// briefing into exactly this dead end before its filter existed.
+	if f, ok := experimental.FlagByKey(flagKey); ok && f.AutoDispatch != nil && !*f.AutoDispatch {
+		return fmt.Errorf("lab %s opts out of auto-dispatch (AutoDispatch=false): its runs are triggered from the lab panel, not by issue assignment, so it cannot be delegated to", flagKey)
+	}
+
 	statusFlag, _ := cmd.Flags().GetString("status")
 	if statusFlag == "" {
 		statusFlag = "todo"
