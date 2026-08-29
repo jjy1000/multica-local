@@ -346,7 +346,9 @@ Rules:
 
 1. `lsof -nP -iTCP:5432 -sTCP:LISTEN` and `lsof -nP -iTCP:8090 -sTCP:LISTEN` both have a listener within 6 s.
 2. `curl -s http://localhost:8090/health` returns `{"status":"ok"}`.
-3. Row parity via `PGPASSWORD=multica psql -U multica -d multica -h 127.0.0.1 -p 5432 -tAc "SELECT COUNT(*) FROM workspace|issue|comment|agent"` matches `workspace=1 / issue≈84 / comment≈477 / agent=38` (the gold baseline for jyf's local data; small drift is expected from issue creation between releases, but the workspace and agent counts must not move unless the change explicitly modifies them).
+3. Row parity via `PGPASSWORD=multica psql -U multica -d multica -h 127.0.0.1 -p 5432 -tAc "SELECT COUNT(*) FROM workspace|issue|comment|agent"` — compare against the **pre-ship snapshot taken in the same ship run** (ship-mac step 1), NOT a fixed constant: the absolute counts drift with active use (live 2026-08-29: workspace=7 / issue≈408 / comment≈2588 / agent=132, up from the 0.5.86-era 1/84/477/38), so the meaningful invariant is "no count moved because of THIS release". A release that adds/removes workspace or agent rows (migrations, seeding) is the only legitimate reason for those two to jump.
+
+Note: `verify-desktop-cold-start.sh` reports `row parity: psql-unavailable` when psql is not on the invoking shell's PATH (e.g. a backgrounded ship run) — that is NOT a failure; re-check parity manually with brew/bundled psql as above.
 
 ## Verification
 
