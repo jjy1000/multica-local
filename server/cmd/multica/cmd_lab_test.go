@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/multica-ai/multica/server/internal/cli"
+	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/spf13/cobra"
 )
 
@@ -227,5 +229,58 @@ func TestTruncateDelegateOutput(t *testing.T) {
 	got = truncateDelegateOutput(cjk)
 	if n := len([]rune(strings.TrimSuffix(got, "…(truncated)"))); n != delegateOutputMaxChars {
 		t.Fatalf("capped CJK output carries %d runes, want %d", n, delegateOutputMaxChars)
+	}
+}
+
+// TestPluginManagementBriefVerbsMatchCLI is the 0.5.89 extension of the
+// briefing/CLI never-disagree law to the conversational plugin-management
+// verbs: every `multica lab <verb>` the briefing advertises must exist in
+// the cobra tree. The 0.5.88 live verification caught the delegate brief
+// advertising labs the loop could never dispatch — this pin catches the
+// sibling drift (a briefing edit advertising a verb the CLI does not ship)
+// at test time instead of inside a running agent.
+func TestPluginManagementBriefVerbsMatchCLI(t *testing.T) {
+	re := regexp.MustCompile(`multica lab ([a-z|-]+)`)
+	shipped := map[string]bool{}
+	for _, sub := range labCmd.Commands() {
+		name := strings.Fields(sub.Name())
+		if len(name) > 0 {
+			shipped[name[0]] = true
+		}
+	}
+	advertised := map[string]bool{}
+	for _, m := range re.FindAllStringSubmatch(experimental.PluginManagementBrief, -1) {
+		// "enable|disable" is one shorthand line advertising two verbs.
+		for _, part := range strings.Split(m[1], "|") {
+			advertised[part] = true
+		}
+	}
+	if len(advertised) == 0 {
+		t.Fatalf("briefing advertises no `multica lab <verb>` commands")
+	}
+	for verb := range advertised {
+		if !shipped[verb] {
+			t.Errorf("briefing advertises `multica lab %s` but the CLI does not ship it (shipped: %v)", verb, shipped)
+		}
+	}
+}
+
+// TestLabToggleRefusesBuiltInKeysInAgentContext pins the 0.5.89 WS3 guard:
+// inside an agent execution context (MULTICA_AGENT_ID/MULTICA_TASK_ID set)
+// `multica lab enable|disable` must refuse BUILT-IN flag keys — their toggle
+// drives install/rollback, which belongs to the user (Settings → Labs).
+// User plugin keys stay toggleable from conversations.
+func TestLabToggleRefusesBuiltInKeysInAgentContext(t *testing.T) {
+	t.Setenv("MULTICA_AGENT_ID", "guard-agent")
+	t.Setenv("MULTICA_TASK_ID", "guard-task")
+
+	cmd := &cobra.Command{}
+	cmd.Flags().String("output", "json", "")
+	err := labToggleRunE(true)(cmd, []string{"claude_science_lab"})
+	if err == nil {
+		t.Fatalf("expected refusal for built-in key inside agent context")
+	}
+	if !strings.Contains(err.Error(), "refusing to toggle built-in lab") {
+		t.Errorf("refusal should name the contract; got: %v", err)
 	}
 }

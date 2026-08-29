@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -72,6 +73,12 @@ no run is dispatched and the command times out.`,
 
 func init() {
 	labCmd.AddCommand(labDelegateCmd)
+	labCmd.AddCommand(labListCmd)
+	labCmd.AddCommand(labInspectCmd)
+	labCmd.AddCommand(labCreateCmd)
+	labCmd.AddCommand(labEnableCmd)
+	labCmd.AddCommand(labDisableCmd)
+	labCmd.AddCommand(labDeleteCmd)
 
 	labDelegateCmd.Flags().String("title", "", "Issue title for the delegated run (default: derived from the task text)")
 	labDelegateCmd.Flags().String("status", "todo", "Initial issue status; must be a non-backlog status so the run dispatches")
@@ -81,7 +88,432 @@ func init() {
 	labDelegateCmd.Flags().String("parent", "", "Parent issue the delegation is recorded under (issue key, full UUID, or UUID prefix). A result summary comment is posted back on the parent after a successful run")
 	labDelegateCmd.Flags().Int("stage", 0, "Stage ordinal (>=1) grouping this delegated sub-issue into an ordered barrier group under its parent; omit for unstaged")
 
+	labCreateCmd.Flags().String("slug", "", "Plugin slug (2-64 chars, lowercase alphanumeric + hyphens); drives the user_<slug> flag key")
+	labCreateCmd.Flags().String("title-zh", "", "Chinese title")
+	labCreateCmd.Flags().String("title-en", "", "English title")
+	labCreateCmd.Flags().String("desc-zh", "", "Chinese description")
+	labCreateCmd.Flags().String("desc-en", "", "English description")
+	labCreateCmd.Flags().String("trigger-mode", "issue_select", "auto (self-driven) or issue_select (task-bound)")
+	labCreateCmd.Flags().String("runtime-kind", "none", "none, inline (python3 -I), or subprocess")
+	labCreateCmd.Flags().String("interaction-model", "", "assignee (independent worker with a leader) or auxiliary (assistant); default auxiliary")
+	labCreateCmd.Flags().String("leader", "", "Leader agent name (required when --interaction-model assignee); must already exist — provision hidden lab agents via manifest capabilities.agents_inline")
+	labCreateCmd.Flags().StringArray("skill", nil, "Workspace skill name to declare in capabilities.skills (repeatable)")
+	labCreateCmd.Flags().String("skills-visibility", "", "global (default) or lab_scoped — lab_scoped injects the skills only into this lab's own runs")
+	labCreateCmd.Flags().String("manifest-file", "", "Path to a JSON file merged under 'manifest' (authoritative for keys it sets)")
+	labCreateCmd.Flags().String("output", "json", "Output format: json (default) or plain")
+
+	labEnableCmd.Flags().String("output", "json", "Output format: json (default) or plain")
+	labDisableCmd.Flags().String("output", "json", "Output format: json (default) or plain")
+
+	labDeleteCmd.Flags().Bool("dry-run", false, "Print the reclaim plan and exit without deleting")
+	labDeleteCmd.Flags().Bool("confirm", false, "Actually delete; without this flag the command prints the plan and exits 1 (two-step conversational protocol)")
+	labDeleteCmd.Flags().String("output", "json", "Output format: json (default) or plain")
+
 	labCmd.GroupID = groupExperimental
+}
+
+// ---------------------------------------------------------------------------
+// lab list / inspect
+// ---------------------------------------------------------------------------
+
+var labListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List built-in labs and user plugins with their interaction model and state",
+	Long: `List every lab the server knows: built-in catalog flags plus user plugins.
+
+Each row shows the flag key, interaction model (assignee labs lock the
+assignee slot; auxiliary labs assist), enabled state, and markers (frozen,
+user plugin). This is the discovery surface the delegation/management
+briefings point at.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		client, err := newAPIClient(cmd)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := cli.APIContext(context.Background())
+		defer cancel()
+		// The endpoint wraps the list in {"flags": [...]} (ExperimentalFlagsList);
+		// accept a bare array too so a wire-shape drift cannot break discovery.
+		var envelope struct {
+			Flags []map[string]any `json:"flags"`
+		}
+		var bare []map[string]any
+		if err := client.GetJSON(ctx, "/api/experimental-flags", &envelope); err != nil {
+			return fmt.Errorf("list labs: %w", err)
+		}
+		flags := envelope.Flags
+		if flags == nil {
+			if err := client.GetJSON(ctx, "/api/experimental-flags", &bare); err == nil {
+				flags = bare
+			}
+		}
+		if output, _ := cmd.Flags().GetString("output"); output == "plain" {
+			for _, f := range flags {
+				key := strVal(f, "key")
+				model := strVal(f, "interaction_model")
+				if model == "" {
+					model = "-"
+				}
+				state := "off"
+				if b, ok := f["enabled"].(bool); ok && b {
+					state = "on"
+				}
+				markers := ""
+				if b, ok := f["frozen"].(bool); ok && b {
+					markers += " frozen"
+				}
+				if b, ok := f["is_user_plugin"].(bool); ok && b {
+					markers += " user"
+				}
+				fmt.Fprintf(os.Stdout, "%-28s %-9s %-4s%s\n", key, model, state, markers)
+			}
+			return nil
+		}
+		return cli.PrintJSON(os.Stdout, flags)
+	},
+}
+
+var labInspectCmd = &cobra.Command{
+	Use:   "inspect <lab>",
+	Short: "Show one lab's metadata plus its teardown-ledger resource plan",
+	Long: `Show one lab's catalog metadata (interaction model, leader, runtime kind)
+and, for user plugins, the reclaim plan: every resource the plugin
+provisions or declares, what delete would do to it, and how many issues
+are still bound. <lab> is a slug or full flag key.`,
+	Args: exactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		flagKey := resolveLabFlagKey(args[0])
+		client, err := newAPIClient(cmd)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := cli.APIContext(context.Background())
+		defer cancel()
+
+		var plugins []map[string]any
+		if err := client.GetJSON(ctx, "/api/user-plugins", &plugins); err != nil {
+			return fmt.Errorf("inspect: list user plugins: %w", err)
+		}
+		var plugin map[string]any
+		for _, p := range plugins {
+			if strVal(p, "flag_key") == flagKey || strVal(p, "slug") == flagKey {
+				plugin = p
+				break
+			}
+		}
+		out := map[string]any{"flag_key": flagKey}
+		if plugin != nil {
+			out["plugin"] = plugin
+			slug := strVal(plugin, "slug")
+			var plan map[string]any
+			if err := client.GetJSON(ctx, "/api/user-plugins/"+slug+"/reclaim-plan", &plan); err != nil {
+				fmt.Fprintf(os.Stderr, "lab inspect: reclaim plan unavailable: %v\n", err)
+			} else {
+				out["reclaim_plan"] = plan
+			}
+		} else if f, ok := experimental.FlagByKey(flagKey); ok {
+			out["builtin"] = map[string]any{
+				"key":               f.Key,
+				"interaction_model": f.InteractionModel,
+				"runtime_kind":      f.RuntimeKind,
+				"frozen":            f.Frozen,
+				"successor_key":     f.SuccessorKey,
+			}
+		} else {
+			return fmt.Errorf("lab %s not found (not a user plugin, not a built-in)", flagKey)
+		}
+		return cli.PrintJSON(os.Stdout, out)
+	},
+}
+
+// ---------------------------------------------------------------------------
+// lab create
+// ---------------------------------------------------------------------------
+
+var labCreateCmd = &cobra.Command{
+	Use:   "create --slug <slug> --title-zh <名> --title-en <name>",
+	Short: "Create a user lab plugin from the conversation (provenance-stamped)",
+	Long: `Create a user plugin without leaving the issue conversation.
+
+Convenience flags assemble a minimal manifest:
+  --interaction-model assignee|auxiliary   (default auxiliary)
+  --leader <agent>                          required for assignee
+  --skill <name>                            repeatable; capabilities.skills
+  --skills-visibility global|lab_scoped     lab_scoped = skills ride this
+                                            lab's runs only
+
+Pass --manifest-file for full control (capabilities.agents_inline /
+skills_inline provisioning, runtime commands); file keys win over the
+convenience flags. When run inside an agent task (MULTICA_TASK_ID set) the
+plugin is stamped with created_by_issue / created_by_task provenance and
+the Labs settings page shows where it came from.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		slug, _ := cmd.Flags().GetString("slug")
+		titleZh, _ := cmd.Flags().GetString("title-zh")
+		titleEn, _ := cmd.Flags().GetString("title-en")
+		if slug == "" {
+			return fmt.Errorf("--slug is required")
+		}
+		if titleZh == "" && titleEn == "" {
+			return fmt.Errorf("at least one of --title-zh / --title-en is required")
+		}
+
+		manifest := map[string]any{}
+		interactionModel, _ := cmd.Flags().GetString("interaction-model")
+		leader, _ := cmd.Flags().GetString("leader")
+		if interactionModel != "" {
+			manifest["interaction_model"] = interactionModel
+		}
+		if leader != "" {
+			manifest["leader_agent"] = leader
+		}
+		skills, _ := cmd.Flags().GetStringArray("skill")
+		skillsVis, _ := cmd.Flags().GetString("skills-visibility")
+		if len(skills) > 0 || skillsVis != "" {
+			caps, _ := manifest["capabilities"].(map[string]any)
+			if caps == nil {
+				caps = map[string]any{}
+			}
+			if len(skills) > 0 {
+				caps["skills"] = skills
+			}
+			if skillsVis != "" {
+				caps["skills_visibility"] = skillsVis
+			}
+			manifest["capabilities"] = caps
+		}
+		if mf, _ := cmd.Flags().GetString("manifest-file"); mf != "" {
+			raw, err := os.ReadFile(mf)
+			if err != nil {
+				return fmt.Errorf("read --manifest-file: %w", err)
+			}
+			var fileManifest map[string]any
+			if err := json.Unmarshal(raw, &fileManifest); err != nil {
+				return fmt.Errorf("parse --manifest-file: %w", err)
+			}
+			for k, v := range fileManifest {
+				manifest[k] = v // file is authoritative for keys it sets
+			}
+		}
+		manifestRaw, err := json.Marshal(manifest)
+		if err != nil {
+			return fmt.Errorf("encode manifest: %w", err)
+		}
+
+		body := map[string]any{
+			"slug":     slug,
+			"title":    map[string]any{"en": titleEn, "zh": titleZh},
+			"manifest": json.RawMessage(manifestRaw),
+		}
+		if v, _ := cmd.Flags().GetString("desc-en"); v != "" {
+			body["description"] = map[string]any{"en": v}
+		}
+		if v, _ := cmd.Flags().GetString("desc-zh"); v != "" {
+			desc, _ := body["description"].(map[string]any)
+			if desc == nil {
+				desc = map[string]any{}
+			}
+			desc["zh"] = v
+			body["description"] = desc
+		}
+		if v, _ := cmd.Flags().GetString("trigger-mode"); v != "" {
+			body["trigger_mode"] = v
+		}
+		if v, _ := cmd.Flags().GetString("runtime-kind"); v != "" {
+			body["runtime_kind"] = v
+		}
+		// Conversational provenance: the daemon injects these for every
+		// agent task; outside an agent context they stay unset (UI parity).
+		if inAgentExecutionContext() {
+			if v := os.Getenv("MULTICA_ISSUE_ID"); v != "" {
+				body["created_by_issue"] = v
+			}
+			if v := os.Getenv("MULTICA_TASK_ID"); v != "" {
+				body["created_by_task"] = v
+			}
+		}
+
+		client, err := newAPIClient(cmd)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := cli.APIContext(context.Background())
+		defer cancel()
+		var created map[string]any
+		if err := client.PostJSON(ctx, "/api/user-plugins", body, &created); err != nil {
+			return fmt.Errorf("create plugin: %w", err)
+		}
+		if output, _ := cmd.Flags().GetString("output"); output == "plain" {
+			fmt.Fprintf(os.Stdout, "created %s (%s)\n", strVal(created, "slug"), strVal(created, "flag_key"))
+			for _, p := range toOutcomeList(created["provisioning"]) {
+				fmt.Fprintf(os.Stdout, "  %-6s %-24s %s\n", p["type"], p["name"], p["action"])
+			}
+			fmt.Fprintln(os.Stdout, "enable it with: multica lab enable", strVal(created, "flag_key"))
+			return nil
+		}
+		return cli.PrintJSON(os.Stdout, created)
+	},
+}
+
+// toOutcomeList coerces the server's []any provisioning/reclaim outcome
+// rows into []map[string]any (empty when absent or shaped unexpectedly).
+func toOutcomeList(v any) []map[string]any {
+	rows, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, r := range rows {
+		if m, ok := r.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// ---------------------------------------------------------------------------
+// lab enable / disable
+// ---------------------------------------------------------------------------
+
+// labToggleRunE backs enable/disable. Inside an agent execution context the
+// BUILT-IN keys are refused: their toggle also drives install/rollback
+// (Restore/Hide + RunInstall) — heavy, user-owned machinery an agent must
+// not flip mid-task. User plugins toggle freely (plain per-user pref).
+func labToggleRunE(enable bool) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+			return fmt.Errorf("lab key is required")
+		}
+		flagKey := resolveLabFlagKey(args[0])
+		if inAgentExecutionContext() && !experimental.IsUserPluginKey(flagKey) {
+			return fmt.Errorf("refusing to toggle built-in lab %s from inside an agent task — built-in lab enable/disable drives install/rollback and belongs to the user (Settings → Labs); ask the user to flip it", flagKey)
+		}
+		client, err := newAPIClient(cmd)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := cli.APIContext(context.Background())
+		defer cancel()
+		var resp map[string]any
+		if err := client.PatchJSON(ctx, "/api/experimental-flags/"+flagKey, map[string]any{"enabled": enable}, &resp); err != nil {
+			verb := "disable"
+			if enable {
+				verb = "enable"
+			}
+			return fmt.Errorf("%s %s: %w", verb, flagKey, err)
+		}
+		if output, _ := cmd.Flags().GetString("output"); output == "plain" {
+			state := "disabled"
+			if enable {
+				state = "enabled"
+			}
+			fmt.Fprintf(os.Stdout, "%s %s\n", flagKey, state)
+			return nil
+		}
+		return cli.PrintJSON(os.Stdout, resp)
+	}
+}
+
+var labEnableCmd = &cobra.Command{
+	Use:   "enable <lab>",
+	Short: "Enable a user lab plugin (built-ins are refused inside agent tasks)",
+	Args:  exactArgs(1),
+	RunE:  labToggleRunE(true),
+}
+
+var labDisableCmd = &cobra.Command{
+	Use:   "disable <lab>",
+	Short: "Disable a user lab plugin (built-ins are refused inside agent tasks)",
+	Args:  exactArgs(1),
+	RunE:  labToggleRunE(false),
+}
+
+// ---------------------------------------------------------------------------
+// lab delete — two-step conversational protocol
+// ---------------------------------------------------------------------------
+
+var labDeleteCmd = &cobra.Command{
+	Use:   "delete <slug>",
+	Short: "Delete a user plugin and reclaim its resources (two-step: --dry-run, then --confirm)",
+	Long: `Delete a user lab plugin and reclaim everything it owns.
+
+The two-step protocol keeps conversational deletes auditable:
+  1. multica lab delete <slug>            → prints the reclaim plan, exits 1
+     (post the plan to the issue so the user sees what will be reclaimed)
+  2. multica lab delete <slug> --confirm  → deletes, prints the per-resource
+     reclaim report
+
+--dry-run prints the plan and exits 0 (pure inspection). Provisioned
+agents/squads archive, provisioned autopilots pause, provisioned skills are
+removed, the plugin's on-disk env moves to ~/.multica/plugins/.trash/;
+declared (pre-existing) resources are kept and reported as such. A plugin
+with non-terminal bound issues is refused (409).`,
+	Args: exactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		slug := strings.TrimSpace(args[0])
+		slug = strings.TrimPrefix(slug, experimental.UserPluginPrefix)
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		confirm, _ := cmd.Flags().GetBool("confirm")
+
+		client, err := newAPIClient(cmd)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := cli.APIContext(context.Background())
+		defer cancel()
+
+		var plan map[string]any
+		if err := client.GetJSON(ctx, "/api/user-plugins/"+slug+"/reclaim-plan", &plan); err != nil {
+			return fmt.Errorf("delete %s: %w", slug, err)
+		}
+		renderReclaimPlan(os.Stdout, plan)
+
+		if dryRun {
+			return nil
+		}
+		if !confirm {
+			return fmt.Errorf("review the plan above, then re-run with --confirm to delete (or post it to the issue first — the two-step protocol keeps conversational deletes auditable)")
+		}
+
+		var report map[string]any
+		if err := client.DeleteJSONResponse(ctx, "/api/user-plugins/"+slug, &report); err != nil {
+			return fmt.Errorf("delete %s: %w", slug, err)
+		}
+		if output, _ := cmd.Flags().GetString("output"); output == "plain" {
+			fmt.Fprintf(os.Stdout, "deleted %s\n", slug)
+			for _, r := range toOutcomeList(report["reclaim"]) {
+				fmt.Fprintf(os.Stdout, "  %-9s %-24s %-9s %s\n", r["type"], r["name"], r["origin"], r["action"])
+			}
+			return nil
+		}
+		return cli.PrintJSON(os.Stdout, report)
+	},
+}
+
+// renderReclaimPlan prints a human-readable reclaim plan (dry-run + the
+// two-step pre-confirm view share one renderer).
+func renderReclaimPlan(w *os.File, plan map[string]any) {
+	fmt.Fprintf(w, "reclaim plan for %s (%s)\n", strVal(plan, "slug"), strVal(plan, "flag_key"))
+	fmt.Fprintf(w, "  active bound issues: %v\n", plan["active_issues"])
+	fmt.Fprintf(w, "  env dir size: %v bytes\n", plan["dir_bytes"])
+	resources := toOutcomeList(plan["resources"])
+	if len(resources) == 0 {
+		fmt.Fprintln(w, "  no ledgered resources — delete only removes the plugin row, its visibility rows, and the flag preference")
+		return
+	}
+	for _, r := range resources {
+		name := strVal(r, "name")
+		if name == "" {
+			name = strVal(r, "id")
+		}
+		verb := "reclaim"
+		if strVal(r, "origin") == "declared" {
+			verb = "keep   "
+		}
+		fmt.Fprintf(w, "  %-9s %-28s %s (%s)\n", r["type"], name, verb, strVal(r, "origin"))
+	}
 }
 
 // labDelegateNoTaskGrace is how long waitForDelegatedResult waits for a run to
