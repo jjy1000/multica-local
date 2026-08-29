@@ -1993,12 +1993,20 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	// context; its own empty-when-none contract is the gate. The leader
 	// resolver is injected (not duplicated) from the handler's existing
 	// resolveLabLeader helper, riding a detached context so the leader
-	// lookups survive claim-request cancellation inside the builder's
-	// 200ms budget.
+	// lookups survive claim-request cancellation; each lookup carries its
+	// own DelegateBriefTimeout bound (see the closure below).
 	if task.IssueID.Valid && resp.WorkspaceID != "" {
 		briefCtx := context.WithoutCancel(r.Context())
 		if brief, err := causalgraph.BuildDelegateBrief(briefCtx, h.Queries,
-			func(key string) (string, bool) { return h.resolveLabLeader(briefCtx, key) },
+			func(key string) (string, bool) {
+				// briefCtx (WithoutCancel) carries no deadline and the
+				// builder's 200ms budget only wraps its enabled-flag query —
+				// bound EACH leader lookup separately or a wedged
+				// GetUserPluginByFlagKey would block the claim hot path.
+				lookupCtx, cancel := context.WithTimeout(briefCtx, causalgraph.DelegateBriefTimeout)
+				defer cancel()
+				return h.resolveLabLeader(lookupCtx, key)
+			},
 			uuidToString(task.IssueID)); err == nil && strings.TrimSpace(brief) != "" {
 			if strings.TrimSpace(resp.Agent.Instructions) == "" {
 				resp.Agent.Instructions = brief

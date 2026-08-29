@@ -72,10 +72,11 @@ const (
 	// only guards against pathological plugin fleets.
 	maxDelegateBriefChars = 2000
 
-	// delegateBriefTimeout bounds the worst-case DB latency of the
-	// enabled-flag lookup. Same budget discipline as
-	// claimBriefTimeout — the deadline rides the claim request scope.
-	delegateBriefTimeout = 200 * time.Millisecond
+	// DelegateBriefTimeout bounds the worst-case DB latency of the
+	// delegation-brief lookups: the enabled-flag query below AND each
+	// injected leader lookup (daemon.go wraps resolveLabLeader with this
+	// same bound). Same budget discipline as claimBriefTimeout.
+	DelegateBriefTimeout = 200 * time.Millisecond
 )
 
 // DelegateLabEntry is one delegatable lab as rendered in the briefing.
@@ -114,7 +115,7 @@ func BuildDelegateBrief(ctx context.Context, q *db.Queries, leaderFor func(flagK
 		return "", nil
 	}
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, delegateBriefTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, DelegateBriefTimeout)
 	defer cancel()
 
 	enabled, err := q.ListEnabledFlagKeys(timeoutCtx)
