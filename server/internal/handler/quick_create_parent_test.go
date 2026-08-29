@@ -68,6 +68,7 @@ func TestQuickCreateIssueParentTrustBoundary(t *testing.T) {
 		// Clear the runtimeOnlineOverride so a later test in the
 		// same package sees the normal gate behaviour.
 		testHandler.RuntimeOnlineOverride = nil
+		testHandler.QuickCreateVersionGateOverride = nil
 	})
 
 	// Force the isRuntimeOnline gate open for the duration of this
@@ -77,6 +78,14 @@ func TestQuickCreateIssueParentTrustBoundary(t *testing.T) {
 	// verify. nil = use the real gate (production default).
 	override := true
 	testHandler.RuntimeOnlineOverride = &override
+
+	// Same construction for the daemon-version gate (0.5.88): this
+	// test's subject is the parent_issue_id trust boundary, but a
+	// parallel test's metadata-restoring cleanup landing between our
+	// cli_version bump and the handler's read made the gate see
+	// current_version="" and 422 — observed once in a full
+	// `go test ./...` run. Short-circuit it deterministically.
+	testHandler.QuickCreateVersionGateOverride = &override
 
 	// Same-workspace parent — must be accepted and threaded through.
 	var localParentID string

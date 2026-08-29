@@ -2319,6 +2319,12 @@ func (h *Handler) isRuntimeOnline(ctx context.Context, runtimeID pgtype.UUID) bo
 //	  "runtime_id":      "<uuid>"
 //	}
 func (h *Handler) checkQuickCreateDaemonVersion(ctx context.Context, runtimeID pgtype.UUID) (int, map[string]any) {
+	// Test-only override (0.5.88): see Handler.QuickCreateVersionGateOverride.
+	// Short-circuits before the metadata read so a parallel test's
+	// metadata-restoring cleanup can never flake this gate.
+	if h.QuickCreateVersionGateOverride != nil {
+		return 0, nil
+	}
 	rt, err := h.Queries.GetAgentRuntime(ctx, runtimeID)
 	if err != nil {
 		// Runtime row vanished between the online check and here — treat

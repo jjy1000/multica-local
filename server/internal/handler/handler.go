@@ -109,16 +109,16 @@ type RuntimeProfileRefreshNotifier interface {
 }
 
 type Handler struct {
-	Queries               *db.Queries
-	DB                    dbExecutor
-	TxStarter             txStarter
-	Hub                   *realtime.Hub
-	DaemonHub             *daemonws.Hub
-	DaemonProfileRefresh  RuntimeProfileRefreshNotifier
-	Bus                   *events.Bus
-	TaskService           *service.TaskService
-	IssueService          *service.IssueService
-	AutopilotService      *service.AutopilotService
+	Queries              *db.Queries
+	DB                   dbExecutor
+	TxStarter            txStarter
+	Hub                  *realtime.Hub
+	DaemonHub            *daemonws.Hub
+	DaemonProfileRefresh RuntimeProfileRefreshNotifier
+	Bus                  *events.Bus
+	TaskService          *service.TaskService
+	IssueService         *service.IssueService
+	AutopilotService     *service.AutopilotService
 	// CausalRecorder is the 0.5.83/0.5.84 WL3 native-provenance hook
 	// for the issue causal graph. Same instance wired into
 	// taskSvc.CausalRecorder; duplicated on Handler so the
@@ -232,6 +232,16 @@ type Handler struct {
 	// testRuntimeID race documented in memory
 	// 0.5.25-runtimegc-fix-2026-08-17.md.
 	RuntimeOnlineOverride *bool
+	// QuickCreateVersionGateOverride (test-only, 0.5.88) — when non-nil,
+	// checkQuickCreateDaemonVersion short-circuits to "acceptable"
+	// without reading agent_runtime.metadata. Same race as
+	// RuntimeOnlineOverride: parallel tests restore the shared runtime
+	// row's metadata to '{}' in their own t.Cleanup, and a cleanup
+	// landing between this test's cli_version bump and the handler's
+	// read yields current_version="" → 422. Production: always nil.
+	// Set in TestQuickCreateIssueParentTrustBoundary, whose subject is
+	// the parent_issue_id trust boundary, not the version gate.
+	QuickCreateVersionGateOverride *bool
 	// SelfOptService (0.3.45.1) owns the agent_self_optimization
 	// scheduler tickers + runner dispatch. Boot wires it from
 	// cmd/server/router.go. Nil is acceptable — the HTTP handlers
@@ -355,15 +365,15 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	// disable recording entirely (tests / minimal builds).
 	taskSvc.CausalRecorder = causalgraph.New(queries)
 	return &Handler{
-		Queries:               queries,
-		DB:                    executor,
-		TxStarter:             txStarter,
-		Hub:                   hub,
-		DaemonHub:             daemonHub,
-		DaemonProfileRefresh:  daemonProfileRefresh,
-		Bus:                   bus,
-		TaskService:           taskSvc,
-		IssueService:          service.NewIssueService(queries, txStarter, bus, analyticsClient, taskSvc),
+		Queries:              queries,
+		DB:                   executor,
+		TxStarter:            txStarter,
+		Hub:                  hub,
+		DaemonHub:            daemonHub,
+		DaemonProfileRefresh: daemonProfileRefresh,
+		Bus:                  bus,
+		TaskService:          taskSvc,
+		IssueService:         service.NewIssueService(queries, txStarter, bus, analyticsClient, taskSvc),
 		// 0.5.84 P0 #3: share the same recorder instance so the
 		// handler-layer UpdateIssue / CreateComment hot paths can
 		// call RefreshForIssue without bouncing through TaskService.
