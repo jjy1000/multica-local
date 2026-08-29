@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/realtime"
@@ -2281,8 +2282,10 @@ func (s *TaskService) LoadAgentSkills(ctx context.Context, agentID pgtype.UUID) 
 
 // LoadAgentSkillBundles returns every skill visible to an agent, including
 // built-ins, with stable bundle hashes and lightweight refs for slim claims.
-func (s *TaskService) LoadAgentSkillBundles(ctx context.Context, agentID pgtype.UUID) ([]AgentSkillData, []AgentSkillRefData) {
-	skills := s.LoadAgentSkillsForClaim(ctx, agentID)
+// issueLabSource scopes lab_scoped plugin skills exactly like
+// LoadAgentSkillsForClaim (0.5.89) — both claim shapes must agree.
+func (s *TaskService) LoadAgentSkillBundles(ctx context.Context, agentID pgtype.UUID, issueLabSource string) ([]AgentSkillData, []AgentSkillRefData) {
+	skills := s.LoadAgentSkillsForClaim(ctx, agentID, issueLabSource)
 	skills = append(skills, s.BuiltinSkills()...)
 	return BuildAgentSkillBundles(skills)
 }
@@ -2293,9 +2296,16 @@ func (s *TaskService) LoadAgentSkillBundles(ctx context.Context, agentID pgtype.
 // lab "skills are not hidden — any agent can call them" contract real: a
 // plugin's declared skills become globally available to every agent while the
 // plugin's flag is enabled, without seeding a per-agent agent_skill row.
-func (s *TaskService) LoadAgentSkillsForClaim(ctx context.Context, agentID pgtype.UUID) []AgentSkillData {
+//
+// 0.5.89: issueLabSource scopes the contract. Plugins whose manifest sets
+// capabilities.skills_visibility="lab_scoped" inject ONLY when the claimed
+// issue is bound to that same plugin (issueLabSource == the plugin's flag
+// key) — the lab's skills ride the lab's own runs, not the whole workspace.
+// "global" plugins (the default; all pre-0.5.89 manifests) keep injecting
+// everywhere. Pass "" for issue-less claims.
+func (s *TaskService) LoadAgentSkillsForClaim(ctx context.Context, agentID pgtype.UUID, issueLabSource string) []AgentSkillData {
 	skills := s.LoadAgentSkills(ctx, agentID)
-	return s.appendEnabledPluginSkills(ctx, agentID, skills)
+	return s.appendEnabledPluginSkills(ctx, agentID, skills, issueLabSource)
 }
 
 // appendEnabledPluginSkills resolves the skill names declared by every enabled
@@ -2304,8 +2314,12 @@ func (s *TaskService) LoadAgentSkillsForClaim(ctx context.Context, agentID pgtyp
 // name); a name with no matching skill in the agent's workspace is skipped.
 // Best-effort: any lookup failure degrades to "no plugin skills" rather than
 // failing the claim.
-func (s *TaskService) appendEnabledPluginSkills(ctx context.Context, agentID pgtype.UUID, existing []AgentSkillData) []AgentSkillData {
-	names := s.enabledPluginSkillNames(ctx)
+//
+// issueLabSource (0.5.89) filters lab_scoped plugins out of the global
+// injection and injects only the matching plugin's skills when the claim is
+// bound to it.
+func (s *TaskService) appendEnabledPluginSkills(ctx context.Context, agentID pgtype.UUID, existing []AgentSkillData, issueLabSource string) []AgentSkillData {
+	names := s.enabledPluginSkillNames(ctx, issueLabSource)
 	if len(names) == 0 {
 		return existing
 	}
@@ -2349,9 +2363,14 @@ func (s *TaskService) appendEnabledPluginSkills(ctx context.Context, agentID pgt
 
 // enabledPluginSkillNames returns the distinct skill names declared in the
 // capabilities.skills block of every active plugin whose flag is enabled.
+//
+// 0.5.89 skills_visibility scoping: plugins whose manifest sets
+// capabilities.skills_visibility="lab_scoped" are skipped UNLESS the claimed
+// issue's lab_source matches that plugin's flag key — their skills ride the
+// lab's own runs only. Absent/"global" keeps the pre-0.5.89 behavior.
 // Returns nil (not an error) on any failure — plugin skill injection is
 // additive and must never break a claim.
-func (s *TaskService) enabledPluginSkillNames(ctx context.Context) []string {
+func (s *TaskService) enabledPluginSkillNames(ctx context.Context, issueLabSource string) []string {
 	enabledKeys, err := s.Queries.ListEnabledFlagKeys(ctx)
 	if err != nil || len(enabledKeys) == 0 {
 		return nil
@@ -2368,6 +2387,11 @@ func (s *TaskService) enabledPluginSkillNames(ctx context.Context) []string {
 	seen := make(map[string]struct{})
 	for _, p := range plugins {
 		if _, ok := enabled[p.FlagKey]; !ok {
+			continue
+		}
+		// lab_scoped plugins only speak on their own issues.
+		if experimental.UserPluginSkillsVisibility(p.ManifestJson) == experimental.PluginSkillsVisibilityLabScoped &&
+			issueLabSource != p.FlagKey {
 			continue
 		}
 		var caps struct {
@@ -2850,13 +2874,13 @@ func (s *TaskService) AutoUnresolveThreadOnReply(ctx context.Context, parent *db
 
 func issueToMap(issue db.Issue, issuePrefix string) map[string]any {
 	return map[string]any{
-		"id":              util.UUIDToString(issue.ID),
-		"workspace_id":    util.UUIDToString(issue.WorkspaceID),
-		"number":          issue.Number,
-		"identifier":      issuePrefix + "-" + strconv.Itoa(int(issue.Number)),
-		"title":           issue.Title,
-		"description":     util.TextToPtr(issue.Description),
-		"status":          issue.Status,
+		"id":           util.UUIDToString(issue.ID),
+		"workspace_id": util.UUIDToString(issue.WorkspaceID),
+		"number":       issue.Number,
+		"identifier":   issuePrefix + "-" + strconv.Itoa(int(issue.Number)),
+		"title":        issue.Title,
+		"description":  util.TextToPtr(issue.Description),
+		"status":       issue.Status,
 		// Mirrors handler.IssueResponse.StatusCategory: a built-in status IS
 		// its own category, so this resolves with no catalog lookup. Empty for
 		// a custom status, which consumers resolve via the catalog. (MUL-6243)

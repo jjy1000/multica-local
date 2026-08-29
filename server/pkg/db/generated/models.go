@@ -1277,20 +1277,34 @@ type User struct {
 }
 
 type UserPlugin struct {
+	ID             pgtype.UUID        `json:"id"`
+	Slug           string             `json:"slug"`
+	FlagKey        string             `json:"flag_key"`
+	TitleEn        string             `json:"title_en"`
+	TitleZh        string             `json:"title_zh"`
+	DescriptionEn  string             `json:"description_en"`
+	DescriptionZh  string             `json:"description_zh"`
+	ManifestJson   []byte             `json:"manifest_json"`
+	TriggerMode    string             `json:"trigger_mode"`
+	RuntimeKind    string             `json:"runtime_kind"`
+	Status         string             `json:"status"`
+	CreatedBy      pgtype.UUID        `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	CreatedByIssue pgtype.UUID        `json:"created_by_issue"`
+	CreatedByTask  pgtype.UUID        `json:"created_by_task"`
+}
+
+type UserPluginResource struct {
 	ID            pgtype.UUID        `json:"id"`
-	Slug          string             `json:"slug"`
-	FlagKey       string             `json:"flag_key"`
-	TitleEn       string             `json:"title_en"`
-	TitleZh       string             `json:"title_zh"`
-	DescriptionEn string             `json:"description_en"`
-	DescriptionZh string             `json:"description_zh"`
-	ManifestJson  []byte             `json:"manifest_json"`
-	TriggerMode   string             `json:"trigger_mode"`
-	RuntimeKind   string             `json:"runtime_kind"`
-	Status        string             `json:"status"`
-	CreatedBy     pgtype.UUID        `json:"created_by"`
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	PluginSlug    string             `json:"plugin_slug"`
+	ResourceType  string             `json:"resource_type"`
+	ResourceID    pgtype.UUID        `json:"resource_id"`
+	Origin        string             `json:"origin"`
+	ReclaimStatus string             `json:"reclaim_status"`
+	CreatedByTask pgtype.UUID        `json:"created_by_task"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 }
 
 type VerificationCode struct {

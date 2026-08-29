@@ -1348,11 +1348,11 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			RuntimeConfig: runtimeConfig,
 		}
 		if useSkillRefs {
-			_, skillRefs := h.TaskService.LoadAgentSkillBundles(r.Context(), task.AgentID)
+			_, skillRefs := h.TaskService.LoadAgentSkillBundles(r.Context(), task.AgentID, claimIssueLabSource(r.Context(), h, task.IssueID))
 			agentSkillCount = len(skillRefs)
 			resp.Agent.SkillRefs = skillRefs
 		} else {
-			skills := h.TaskService.LoadAgentSkillsForClaim(r.Context(), task.AgentID)
+			skills := h.TaskService.LoadAgentSkillsForClaim(r.Context(), task.AgentID, claimIssueLabSource(r.Context(), h, task.IssueID))
 			agentSkillCount = len(skills)
 			builtinSkills := h.TaskService.BuiltinSkills()
 			builtinSkillCount = len(builtinSkills)
@@ -2022,6 +2022,23 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 0.5.89 WS1: Lab Plugin Management briefing — tells every issue-bound
+	// agent that it can create/manage user lab plugins for the user from
+	// inside the conversation (the conversational plugin-creation loop).
+	// Static text from experimental.PluginManagementBrief: no DB lookups,
+	// no error path, ~650 bytes. Skipped for lab-bound issues — that agent
+	// IS the lab; advertising plugin management to a lab leader only
+	// invites recursion. The verbs are contract-pinned against the cobra
+	// tree by TestPluginManagementBriefVerbsMatchCLI (briefing/CLI
+	// never-disagree law, extended to five verbs).
+	if issueLabSource := claimIssueLabSource(r.Context(), h, task.IssueID); task.IssueID.Valid && issueLabSource == "" {
+		if strings.TrimSpace(resp.Agent.Instructions) == "" {
+			resp.Agent.Instructions = experimental.PluginManagementBrief
+		} else {
+			resp.Agent.Instructions = resp.Agent.Instructions + "\n\n" + experimental.PluginManagementBrief
+		}
+	}
+
 	// Mint a task-scoped `mat_` token bound to (agent, task, workspace,
 	// owner). The daemon will inject this as MULTICA_TOKEN into the agent
 	// process instead of its own credential, so any API call the agent
@@ -2102,6 +2119,24 @@ type resolveSkillBundleRef struct {
 // endpoint returns the current bundle and hash. Stage 1 does not snapshot skill
 // content at claim time; the daemon validates the returned bundle before
 // writing it to cache and materializing it.
+// claimIssueLabSource reads the claimed issue's lab_source so the skill
+// loader can scope capabilities.skills_visibility="lab_scoped" plugins to
+// their own lab's runs (0.5.89). One narrow query (PK lookup, one nullable
+// TEXT column); "" on any error / issue-less claim keeps the path
+// best-effort exactly like the rest of the claim injections.
+func claimIssueLabSource(ctx context.Context, h *Handler, issueID pgtype.UUID) string {
+	if !issueID.Valid {
+		return ""
+	}
+	ls, err := h.Queries.GetIssueLabSource(ctx, issueID)
+	if err != nil || !ls.Valid {
+		return ""
+	}
+	return ls.String
+}
+
+// ResolveTaskSkillBundles returns the full bundles for the refs a slim-claim
+// runtime requests, scoped to the task's agent.
 func (h *Handler) ResolveTaskSkillBundles(w http.ResponseWriter, r *http.Request) {
 	runtimeID := chi.URLParam(r, "runtimeId")
 	taskID := chi.URLParam(r, "taskId")
@@ -2133,7 +2168,7 @@ func (h *Handler) ResolveTaskSkillBundles(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	bundles, _ := h.TaskService.LoadAgentSkillBundles(r.Context(), task.AgentID)
+	bundles, _ := h.TaskService.LoadAgentSkillBundles(r.Context(), task.AgentID, claimIssueLabSource(r.Context(), h, task.IssueID))
 	allowed := make(map[string]service.AgentSkillData, len(bundles))
 	for _, bundle := range bundles {
 		allowed[bundle.Source+"\x00"+bundle.ID] = bundle

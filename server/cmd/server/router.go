@@ -1661,6 +1661,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Put("/api/user-plugins/{slug}", h.UpdateUserPlugin)
 			r.Delete("/api/user-plugins/{slug}", h.DeleteUserPlugin)
 
+			// 0.5.89 teardown ledger: reclaim plan (read-only, backs the CLI
+			// --dry-run + UI delete confirmation) and reclaim retry for an
+			// already-deleted plugin's failed rows.
+			r.Get("/api/user-plugins/{slug}/reclaim-plan", h.GetUserPluginReclaimPlan)
+			r.Post("/api/user-plugins/{slug}/reclaim", h.PostUserPluginReclaim)
+
 			// User plugin runtime (execution loop). Runs the plugin's
 			// inline code in its persistent env dir and ingests emitted
 			// files as artifacts. runtime_kind gates dispatch:

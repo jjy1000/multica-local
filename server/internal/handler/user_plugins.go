@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -39,18 +41,24 @@ const (
 // locale without a second i18n round-trip, matching the experimental flag
 // response convention. Manifest is the raw JSONB the user supplied; it is
 // omitted when empty so the default "{}" rows stay compact.
+// 0.5.89: CreatedByIssue/CreatedByTask carry conversational provenance
+// (NULL → omitted, UI/API creates) and Provisioning carries the inline
+// resource outcomes of the create/update call that produced this response.
 type UserPluginResponse struct {
-	ID          string                       `json:"id"`
-	Slug        string                       `json:"slug"`
-	FlagKey     string                       `json:"flag_key"`
-	Title       experimental.LocalizedString `json:"title"`
-	Description experimental.LocalizedString `json:"description"`
-	TriggerMode string                       `json:"trigger_mode"`
-	RuntimeKind string                       `json:"runtime_kind"`
-	Status      string                       `json:"status"`
-	Manifest    json.RawMessage              `json:"manifest,omitempty"`
-	CreatedAt   time.Time                    `json:"created_at"`
-	UpdatedAt   time.Time                    `json:"updated_at"`
+	ID             string                       `json:"id"`
+	Slug           string                       `json:"slug"`
+	FlagKey        string                       `json:"flag_key"`
+	Title          experimental.LocalizedString `json:"title"`
+	Description    experimental.LocalizedString `json:"description"`
+	TriggerMode    string                       `json:"trigger_mode"`
+	RuntimeKind    string                       `json:"runtime_kind"`
+	Status         string                       `json:"status"`
+	Manifest       json.RawMessage              `json:"manifest,omitempty"`
+	CreatedAt      time.Time                    `json:"created_at"`
+	UpdatedAt      time.Time                    `json:"updated_at"`
+	CreatedByIssue string                       `json:"created_by_issue,omitempty"`
+	CreatedByTask  string                       `json:"created_by_task,omitempty"`
+	Provisioning   []ProvisionOutcome           `json:"provisioning,omitempty"`
 }
 
 // userPluginToResponse maps a sqlc row onto the wire struct. ManifestJson is
@@ -69,12 +77,14 @@ func userPluginToResponse(p db.UserPlugin) UserPluginResponse {
 			En: p.DescriptionEn,
 			Zh: p.DescriptionZh,
 		},
-		TriggerMode: p.TriggerMode,
-		RuntimeKind: p.RuntimeKind,
-		Status:      p.Status,
-		Manifest:    json.RawMessage(p.ManifestJson),
-		CreatedAt:   p.CreatedAt.Time,
-		UpdatedAt:   p.UpdatedAt.Time,
+		TriggerMode:    p.TriggerMode,
+		RuntimeKind:    p.RuntimeKind,
+		Status:         p.Status,
+		Manifest:       json.RawMessage(p.ManifestJson),
+		CreatedAt:      p.CreatedAt.Time,
+		UpdatedAt:      p.UpdatedAt.Time,
+		CreatedByIssue: util.UUIDToString(p.CreatedByIssue),
+		CreatedByTask:  util.UUIDToString(p.CreatedByTask),
 	}
 }
 
@@ -160,6 +170,12 @@ type createUserPluginRequest struct {
 	TriggerMode string                       `json:"trigger_mode"`
 	RuntimeKind string                       `json:"runtime_kind"`
 	Manifest    json.RawMessage              `json:"manifest"`
+	// 0.5.89 conversational provenance: the agent-context CLI stamps these
+	// from MULTICA_ISSUE_ID / MULTICA_TASK_ID so the Labs settings page can
+	// show which task created the plugin. Optional; malformed values are a
+	// 400 (never silently dropped — provenance that lies is worse than none).
+	CreatedByIssue string `json:"created_by_issue"`
+	CreatedByTask  string `json:"created_by_task"`
 }
 
 // CreateUserPlugin registers a new user-defined plugin and merges it into the
@@ -215,6 +231,32 @@ func (h *Handler) CreateUserPlugin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 0.5.89: validate the provisioning + skills-visibility contract before
+	// storage so inline agent/skill definitions can never land malformed and
+	// an unknown skills_visibility literal never registers.
+	if _, err := experimental.UserPluginInlineAgents(manifest); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := experimental.UserPluginInlineSkills(manifest); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := experimental.ValidateUserPluginSkillsVisibility(experimental.UserPluginRawSkillsVisibility(manifest)); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	createdByIssue, err := optionalUUIDParam(body.CreatedByIssue)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "created_by_issue must be a UUID")
+		return
+	}
+	createdByTask, err := optionalUUIDParam(body.CreatedByTask)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "created_by_task must be a UUID")
+		return
+	}
 
 	flagKey := userPluginKeyPrefix + body.Slug
 
@@ -230,17 +272,19 @@ func (h *Handler) CreateUserPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	plugin, err := h.Queries.CreateUserPlugin(r.Context(), db.CreateUserPluginParams{
-		Slug:          body.Slug,
-		FlagKey:       flagKey,
-		TitleEn:       body.Title.En,
-		TitleZh:       body.Title.Zh,
-		DescriptionEn: body.Description.En,
-		DescriptionZh: body.Description.Zh,
-		ManifestJson:  manifest,
-		TriggerMode:   triggerMode,
-		RuntimeKind:   runtimeKind,
-		Status:        "active",
-		CreatedBy:     parseUUID(userID),
+		Slug:           body.Slug,
+		FlagKey:        flagKey,
+		TitleEn:        body.Title.En,
+		TitleZh:        body.Title.Zh,
+		DescriptionEn:  body.Description.En,
+		DescriptionZh:  body.Description.Zh,
+		ManifestJson:   manifest,
+		TriggerMode:    triggerMode,
+		RuntimeKind:    runtimeKind,
+		Status:         "active",
+		CreatedBy:      parseUUID(userID),
+		CreatedByIssue: createdByIssue,
+		CreatedByTask:  createdByTask,
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -265,14 +309,34 @@ func (h *Handler) CreateUserPlugin(w http.ResponseWriter, r *http.Request) {
 	// capabilities block so they are hidden from regular pickers by default.
 	// F-013: scoped to the installer's workspace — a plugin must never seed
 	// visibility rows for resources living in another workspace.
-	if wsID, err := resolveLabWorkspace(r.Context(), h, h.resolveWorkspaceID(r), userID); err == nil {
+	// 0.5.89: the same scope drives the teardown ledger for DECLARED
+	// resources (seedPluginVisibility) and inline PROVISIONING
+	// (capabilities.agents_inline / skills_inline) plus the env_dir ledger
+	// row; outcomes ride the response so the calling agent can report them
+	// in its "[lab plugin]" comment.
+	var provisioning []ProvisionOutcome
+	wsID, wsErr := resolveLabWorkspace(r.Context(), h, h.resolveWorkspaceID(r), userID)
+	if wsErr == nil {
 		h.seedPluginVisibility(r.Context(), flagKey, manifest, wsID)
+		provisioning = h.provisionPluginCapabilities(r.Context(), flagKey, body.Slug, manifest, wsID,
+			parseUUID(userID), taskUUIDPtr(createdByTask), plugin.ID)
 	} else {
 		slog.Debug("user plugin create: skipping visibility seeding (no installer workspace)",
-			"slug", body.Slug, "error", err)
+			"slug", body.Slug, "error", wsErr)
 	}
 
-	writeJSON(w, http.StatusCreated, userPluginToResponse(plugin))
+	resp := userPluginToResponse(plugin)
+	resp.Provisioning = provisioning
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+// taskUUIDPtr avoids taking the address of a parameter copy in multiple
+// call sites — provisioning wants *pgtype.UUID (nil = no provenance).
+func taskUUIDPtr(u pgtype.UUID) *pgtype.UUID {
+	if !u.Valid {
+		return nil
+	}
+	return &u
 }
 
 type updateUserPluginRequest struct {
@@ -410,22 +474,40 @@ func (h *Handler) UpdateUserPlugin(w http.ResponseWriter, r *http.Request) {
 	// here — so without this the lab roster would never be hidden. Seeding
 	// is additive and idempotent (INSERT ... ON CONFLICT DO NOTHING); it
 	// does not un-hide resources dropped from the manifest.
+	// 0.5.89: the manifest change also re-runs inline provisioning —
+	// create-or-reuse makes this the self-heal path for a partially-failed
+	// create (e.g. an inline leader whose insert failed lands on retry).
+	var provisioning []ProvisionOutcome
 	if len(body.Manifest) > 0 {
 		// F-013: same installer-workspace scoping as create.
 		if wsID, err := resolveLabWorkspace(r.Context(), h, h.resolveWorkspaceID(r), requestUserID(r)); err == nil {
 			h.seedPluginVisibility(r.Context(), flagKey, manifest, wsID)
+			provisioning = h.provisionPluginCapabilities(r.Context(), flagKey, slug, manifest, wsID,
+				parseUUID(requestUserID(r)), nil, updated.ID)
 		} else {
 			slog.Debug("user plugin update: skipping visibility seeding (no installer workspace)",
 				"slug", slug, "error", err)
 		}
 	}
 
-	writeJSON(w, http.StatusOK, userPluginToResponse(updated))
+	resp := userPluginToResponse(updated)
+	resp.Provisioning = provisioning
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // DeleteUserPlugin soft-deletes a plugin (status='deleted'), removes its flag
-// from the live catalog + registry, and clears the caller's stored preference
-// for the flag so a stale toggle never references a gone plugin. Returns 204.
+// from the live catalog + registry, clears the caller's stored preference
+// for the flag so a stale toggle never references a gone plugin, and —
+// 0.5.89 — RECLAIMS every plugin-owned resource recorded in the
+// user_plugin_resource teardown ledger (provisioned agents/squads archive,
+// provisioned autopilots pause, provisioned skills hard-delete, the
+// ~/.multica/plugins/<slug>/ dir moves to .trash/). Declared (pre-existing)
+// resources are kept and reported as such. Returns 200 with the per-resource
+// reclaim report (was 204 before the report existed).
+//
+// Guard: a plugin whose flag still has non-terminal bound issues is refused
+// with 409 — deleting the manifest out from under running work would strand
+// the delegation loop.
 func (h *Handler) DeleteUserPlugin(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -448,13 +530,29 @@ func (h *Handler) DeleteUserPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	flagKey := existing.FlagKey
+
+	// 0.5.89 active-reference guard: terminal statuses mirror
+	// isTerminalIssueStatus (done/closed/cancelled).
+	activeIssues, err := h.Queries.CountActiveIssuesByLabSource(r.Context(), pgtype.Text{String: flagKey, Valid: flagKey != ""})
+	if err != nil {
+		slog.Error("user plugin delete: active-issue count failed", "slug", slug, "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to check bound issues")
+		return
+	}
+	if activeIssues > 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":         fmt.Sprintf("plugin still has %d bound issue(s) in a non-terminal state; resolve or rebind them before deleting", activeIssues),
+			"active_issues": activeIssues,
+		})
+		return
+	}
+
 	if err := h.Queries.SoftDeleteUserPlugin(r.Context(), slug); err != nil {
 		slog.Error("user plugin delete: soft delete failed", "slug", slug, "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete plugin")
 		return
 	}
-
-	flagKey := existing.FlagKey
 
 	// Drop the flag from the in-memory catalog + registry so the Labs UI and
 	// DefaultFor lookups stop seeing it immediately.
@@ -474,6 +572,12 @@ func (h *Handler) DeleteUserPlugin(w http.ResponseWriter, r *http.Request) {
 			"slug", slug, "flag_key", flagKey, "error", err)
 	}
 
+	// 0.5.89 teardown: reclaim ledgered resources (best-effort — failures
+	// mark their ledger row 'failed' and are retryable via
+	// POST /api/user-plugins/{slug}/reclaim). Runs BEFORE the pref clear so
+	// a report-carrying 200 only leaves after the full best-effort pass.
+	reclaim := h.reclaimPluginResources(r.Context(), slug)
+
 	// Clear the caller's preference row for the retired flag. This is a
 	// single-user fork, so the current user's pref is the only one that
 	// exists; a failure here is a real error (the row would otherwise dangle
@@ -488,7 +592,13 @@ func (h *Handler) DeleteUserPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"slug":         slug,
+		"flag_key":     flagKey,
+		"deleted":      true,
+		"reclaim":      reclaim,
+		"reclaim_note": "failed rows are retryable via POST /api/user-plugins/" + slug + "/reclaim",
+	})
 }
 
 // pluginManifestCapabilities is the subset of a plugin manifest we inspect
@@ -541,6 +651,13 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 		return
 	}
 
+	// 0.5.89: declared resources join the teardown ledger as
+	// origin='declared' (never reclaimed on delete — the resource belongs
+	// to the user; delete only drops visibility). Idempotent via ON CONFLICT.
+	ledgerDeclared := func(resType string, id pgtype.UUID) {
+		h.ledgerPluginResource(ctx, workspaceID, strings.TrimPrefix(flagKey, userPluginKeyPrefix), resType, &id, "declared", nil)
+	}
+
 	var caps pluginManifestCapabilities
 	if err := json.Unmarshal(manifest, &caps); err != nil {
 		// Manifest without a capabilities block — nothing to seed.
@@ -572,7 +689,9 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 		}); err != nil {
 			slog.Warn("plugin visibility: failed to seed agent row",
 				"flag_key", flagKey, "agent", name, "error", err)
+			continue
 		}
+		ledgerDeclared("agent", id)
 	}
 
 	// Resolve squad names → UUIDs.
@@ -594,7 +713,9 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 		}); err != nil {
 			slog.Warn("plugin visibility: failed to seed squad row",
 				"flag_key", flagKey, "squad", name, "error", err)
+			continue
 		}
+		ledgerDeclared("squad", id)
 	}
 
 	// Resolve autopilot titles → UUIDs. Autopilots key off `title`
@@ -618,6 +739,70 @@ func (h *Handler) seedPluginVisibility(ctx context.Context, flagKey string, mani
 		}); err != nil {
 			slog.Warn("plugin visibility: failed to seed autopilot row",
 				"flag_key", flagKey, "autopilot", title, "error", err)
+			continue
 		}
+		ledgerDeclared("autopilot", id)
 	}
+}
+
+// GetUserPluginReclaimPlan renders what a delete would reclaim — the
+// shared artifact behind the CLI `lab delete --dry-run`, the UI delete
+// confirmation, and the agent's conversational confirm-before-delete
+// protocol. Read-only.
+func (h *Handler) GetUserPluginReclaimPlan(w http.ResponseWriter, r *http.Request) {
+	if _, ok := requireUserID(w, r); !ok {
+		return
+	}
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "slug is required")
+		return
+	}
+	existing, err := h.Queries.GetUserPluginBySlug(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "plugin not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load plugin")
+		return
+	}
+	writeJSON(w, http.StatusOK, h.buildReclaimPlan(r.Context(), slug, existing.FlagKey))
+}
+
+// PostUserPluginReclaim retries the reclaim for an already-deleted plugin:
+// ledger rows left 'failed' by the delete pass (a cross-device rename, a
+// transient DB error) are re-run. 409 when the plugin is still live —
+// deletion is the entry point, not this retry.
+func (h *Handler) PostUserPluginReclaim(w http.ResponseWriter, r *http.Request) {
+	if _, ok := requireUserID(w, r); !ok {
+		return
+	}
+	slug := chi.URLParam(r, "slug")
+	if slug == "" {
+		writeError(w, http.StatusBadRequest, "slug is required")
+		return
+	}
+	existing, err := h.Queries.GetUserPluginBySlugAnyStatus(r.Context(), slug)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "plugin not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load plugin")
+		return
+	}
+	if existing.Status != "deleted" {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error": "plugin is still live — reclaim runs after deletion",
+			"slug":  slug,
+		})
+		return
+	}
+	reclaim := h.reclaimPluginResources(r.Context(), slug)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"slug":     slug,
+		"flag_key": existing.FlagKey,
+		"reclaim":  reclaim,
+	})
 }

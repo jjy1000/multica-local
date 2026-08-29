@@ -176,6 +176,190 @@ func UserPluginLeaderAgent(manifestJSON []byte) (string, bool) {
 	return c.LeaderAgent, true
 }
 
+// ---------------------------------------------------------------------------
+// 0.5.89 provisioning + skill-visibility contract
+// ---------------------------------------------------------------------------
+//
+// Three additive manifest blocks extend the capabilities contract:
+//
+//	{
+//	  "capabilities": {
+//	    "agents_inline":  [ { "name": "...", "description": "...",
+//	                          "instructions": "...", "model": "..." } ],
+//	    "skills_inline":  [ { "name": "...", "description": "...",
+//	                          "content": "..." } ],
+//	    "skills_visibility": "global" | "lab_scoped"
+//	  }
+//	}
+//
+// agents_inline / skills_inline ask the SERVER to create the resource at
+// plugin create/update time (create-or-reuse, hidden via
+// experimental_resource_visibility, recorded in the user_plugin_resource
+// teardown ledger with origin='provisioned'). The legacy name-only lists
+// (capabilities.agents/skills) keep their meaning: "declare a resource
+// that already exists" — those ledger as origin='declared' and are never
+// reclaimed on plugin delete.
+//
+// skills_visibility scopes the 0.3.63 global skill injection: "global"
+// (default — behavior-preserving for existing plugins) keeps injecting the
+// declared skills into EVERY agent's claim while the plugin is enabled;
+// "lab_scoped" restricts them to claims whose issue.lab_source matches the
+// plugin (the lab's own runs). task.go::LoadAgentSkillsForClaim is the
+// consumer.
+
+const (
+	// PluginSkillsVisibilityGlobal keeps the pre-0.5.89 contract: skills
+	// declared by an enabled plugin load for every agent in the workspace.
+	PluginSkillsVisibilityGlobal = "global"
+	// PluginSkillsVisibilityLabScoped injects the skills only for claims on
+	// issues bound to this plugin (issue.lab_source == flag key).
+	PluginSkillsVisibilityLabScoped = "lab_scoped"
+)
+
+// UserPluginSkillsVisibility resolves the capabilities.skills_visibility
+// literal. Absent → "global" (append-only compat: plugins written before
+// 0.5.89 keep their F-008-acknowledged global injection). An invalid
+// literal also resolves to "global" on the read side — write-time
+// validation in the plugin CRUD handlers rejects it with a 400 first.
+func UserPluginSkillsVisibility(manifestJSON []byte) string {
+	var doc struct {
+		Capabilities struct {
+			SkillsVisibility string `json:"skills_visibility"`
+		} `json:"capabilities"`
+	}
+	if len(manifestJSON) > 0 {
+		if err := json.Unmarshal(manifestJSON, &doc); err != nil {
+			return PluginSkillsVisibilityGlobal
+		}
+	}
+	switch doc.Capabilities.SkillsVisibility {
+	case PluginSkillsVisibilityLabScoped:
+		return PluginSkillsVisibilityLabScoped
+	default:
+		return PluginSkillsVisibilityGlobal
+	}
+}
+
+// UserPluginRawSkillsVisibility returns the RAW capabilities.skills_visibility
+// literal ("" when absent) — the write-side input for
+// ValidateUserPluginSkillsVisibility, where absent must stay distinct from
+// "global" so legacy manifests are never rewritten by validation.
+func UserPluginRawSkillsVisibility(manifestJSON []byte) string {
+	var doc struct {
+		Capabilities struct {
+			SkillsVisibility string `json:"skills_visibility"`
+		} `json:"capabilities"`
+	}
+	if len(manifestJSON) > 0 {
+		if err := json.Unmarshal(manifestJSON, &doc); err != nil {
+			return ""
+		}
+	}
+	return strings.TrimSpace(doc.Capabilities.SkillsVisibility)
+}
+
+// ValidateUserPluginSkillsVisibility is the write-side check behind the
+// read-side default above: an explicit literal must be one of the two
+// known values.
+func ValidateUserPluginSkillsVisibility(literal string) error {
+	switch literal {
+	case "", PluginSkillsVisibilityGlobal, PluginSkillsVisibilityLabScoped:
+		return nil
+	default:
+		return fmt.Errorf("capabilities.skills_visibility must be %q or %q",
+			PluginSkillsVisibilityGlobal, PluginSkillsVisibilityLabScoped)
+	}
+}
+
+// UserPluginAgentSpec is one inline agent definition from
+// capabilities.agents_inline.
+type UserPluginAgentSpec struct {
+	Name         string
+	Description  string
+	Instructions string
+	Model        string
+}
+
+// UserPluginSkillSpec is one inline skill definition from
+// capabilities.skills_inline. Content is the SKILL.md body; files are not
+// supported inline (declare a full workspace skill and reference it by
+// name when file bundles are needed).
+type UserPluginSkillSpec struct {
+	Name        string
+	Description string
+	Content     string
+}
+
+// UserPluginInlineAgents extracts + validates capabilities.agents_inline.
+// Names must be non-empty (trimmed, ≤64 chars — the agent.name column is
+// TEXT but the pickers render raw names) and unique within the block.
+// Malformed manifests yield an error so the CRUD handlers can 400 before
+// anything is provisioned.
+func UserPluginInlineAgents(manifestJSON []byte) ([]UserPluginAgentSpec, error) {
+	if len(manifestJSON) == 0 {
+		return nil, nil
+	}
+	var doc struct {
+		Capabilities struct {
+			AgentsInline []UserPluginAgentSpec `json:"agents_inline"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(manifestJSON, &doc); err != nil {
+		return nil, fmt.Errorf("manifest is not valid JSON")
+	}
+	seen := make(map[string]struct{}, len(doc.Capabilities.AgentsInline))
+	out := make([]UserPluginAgentSpec, 0, len(doc.Capabilities.AgentsInline))
+	for _, a := range doc.Capabilities.AgentsInline {
+		a.Name = strings.TrimSpace(a.Name)
+		if a.Name == "" {
+			return nil, fmt.Errorf("capabilities.agents_inline: every entry needs a non-empty name")
+		}
+		if len(a.Name) > 64 {
+			return nil, fmt.Errorf("capabilities.agents_inline: name %q exceeds 64 chars", a.Name)
+		}
+		if _, dup := seen[a.Name]; dup {
+			return nil, fmt.Errorf("capabilities.agents_inline: duplicate agent name %q", a.Name)
+		}
+		seen[a.Name] = struct{}{}
+		out = append(out, a)
+	}
+	return out, nil
+}
+
+// UserPluginInlineSkills extracts + validates capabilities.skills_inline
+// with the same non-empty/unique name rules (skill names must match the
+// workspace skill UNIQUE(workspace_id, name) constraint).
+func UserPluginInlineSkills(manifestJSON []byte) ([]UserPluginSkillSpec, error) {
+	if len(manifestJSON) == 0 {
+		return nil, nil
+	}
+	var doc struct {
+		Capabilities struct {
+			SkillsInline []UserPluginSkillSpec `json:"skills_inline"`
+		} `json:"capabilities"`
+	}
+	if err := json.Unmarshal(manifestJSON, &doc); err != nil {
+		return nil, fmt.Errorf("manifest is not valid JSON")
+	}
+	seen := make(map[string]struct{}, len(doc.Capabilities.SkillsInline))
+	out := make([]UserPluginSkillSpec, 0, len(doc.Capabilities.SkillsInline))
+	for _, s := range doc.Capabilities.SkillsInline {
+		s.Name = strings.TrimSpace(s.Name)
+		if s.Name == "" {
+			return nil, fmt.Errorf("capabilities.skills_inline: every entry needs a non-empty name")
+		}
+		if len(s.Name) > 128 {
+			return nil, fmt.Errorf("capabilities.skills_inline: name %q exceeds 128 chars", s.Name)
+		}
+		if _, dup := seen[s.Name]; dup {
+			return nil, fmt.Errorf("capabilities.skills_inline: duplicate skill name %q", s.Name)
+		}
+		seen[s.Name] = struct{}{}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
 // UserPluginToFlag converts a DB row into a catalog Flag. The
 // resulting Flag can be merged into the Registry via MergeUserPlugins.
 // 0.5.88 P4: the flag carries the manifest's interaction-model contract

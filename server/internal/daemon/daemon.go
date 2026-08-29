@@ -3867,6 +3867,12 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if task.AutopilotID != "" {
 		agentEnv["MULTICA_AUTOPILOT_ID"] = task.AutopilotID
 	}
+	// 0.5.89: issue provenance for agent-side writes — `multica lab create`
+	// stamps user_plugin.created_by_issue/created_by_task from these so the
+	// Labs settings page can show which conversation created a plugin.
+	if task.IssueID != "" {
+		agentEnv["MULTICA_ISSUE_ID"] = task.IssueID
+	}
 	// Quick-create marker — when set, the multica CLI's `issue create`
 	// command stamps the new issue with origin_type=quick_create +
 	// origin_id=<task_id> so the completion handler can find it

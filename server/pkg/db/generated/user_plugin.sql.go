@@ -13,23 +13,25 @@ import (
 
 const createUserPlugin = `-- name: CreateUserPlugin :one
 
-INSERT INTO user_plugin (slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at
+INSERT INTO user_plugin (slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_by_issue, created_by_task)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at, created_by_issue, created_by_task
 `
 
 type CreateUserPluginParams struct {
-	Slug          string      `json:"slug"`
-	FlagKey       string      `json:"flag_key"`
-	TitleEn       string      `json:"title_en"`
-	TitleZh       string      `json:"title_zh"`
-	DescriptionEn string      `json:"description_en"`
-	DescriptionZh string      `json:"description_zh"`
-	ManifestJson  []byte      `json:"manifest_json"`
-	TriggerMode   string      `json:"trigger_mode"`
-	RuntimeKind   string      `json:"runtime_kind"`
-	Status        string      `json:"status"`
-	CreatedBy     pgtype.UUID `json:"created_by"`
+	Slug           string      `json:"slug"`
+	FlagKey        string      `json:"flag_key"`
+	TitleEn        string      `json:"title_en"`
+	TitleZh        string      `json:"title_zh"`
+	DescriptionEn  string      `json:"description_en"`
+	DescriptionZh  string      `json:"description_zh"`
+	ManifestJson   []byte      `json:"manifest_json"`
+	TriggerMode    string      `json:"trigger_mode"`
+	RuntimeKind    string      `json:"runtime_kind"`
+	Status         string      `json:"status"`
+	CreatedBy      pgtype.UUID `json:"created_by"`
+	CreatedByIssue pgtype.UUID `json:"created_by_issue"`
+	CreatedByTask  pgtype.UUID `json:"created_by_task"`
 }
 
 // user_plugin table: user-created plugins that extend the built-in
@@ -38,6 +40,9 @@ type CreateUserPluginParams struct {
 // "user_<slug>". Relational integrity for created_by is enforced in
 // the app layer (same convention as experimental_pref.sql — the user
 // table is a reserved word in SQL).
+// 0.5.89: created_by_issue/created_by_task carry conversational provenance
+// (nullable — UI/API creates leave them NULL; the agent-context CLI stamps
+// them from MULTICA_ISSUE_ID / MULTICA_TASK_ID).
 func (q *Queries) CreateUserPlugin(ctx context.Context, arg CreateUserPluginParams) (UserPlugin, error) {
 	row := q.db.QueryRow(ctx, createUserPlugin,
 		arg.Slug,
@@ -51,6 +56,8 @@ func (q *Queries) CreateUserPlugin(ctx context.Context, arg CreateUserPluginPara
 		arg.RuntimeKind,
 		arg.Status,
 		arg.CreatedBy,
+		arg.CreatedByIssue,
+		arg.CreatedByTask,
 	)
 	var i UserPlugin
 	err := row.Scan(
@@ -68,12 +75,14 @@ func (q *Queries) CreateUserPlugin(ctx context.Context, arg CreateUserPluginPara
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreatedByIssue,
+		&i.CreatedByTask,
 	)
 	return i, err
 }
 
 const getUserPluginByFlagKey = `-- name: GetUserPluginByFlagKey :one
-SELECT id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at FROM user_plugin WHERE flag_key = $1 AND status != 'deleted'
+SELECT id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at, created_by_issue, created_by_task FROM user_plugin WHERE flag_key = $1 AND status != 'deleted'
 `
 
 func (q *Queries) GetUserPluginByFlagKey(ctx context.Context, flagKey string) (UserPlugin, error) {
@@ -94,12 +103,14 @@ func (q *Queries) GetUserPluginByFlagKey(ctx context.Context, flagKey string) (U
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreatedByIssue,
+		&i.CreatedByTask,
 	)
 	return i, err
 }
 
 const getUserPluginBySlug = `-- name: GetUserPluginBySlug :one
-SELECT id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at FROM user_plugin WHERE slug = $1 AND status != 'deleted'
+SELECT id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at, created_by_issue, created_by_task FROM user_plugin WHERE slug = $1 AND status != 'deleted'
 `
 
 func (q *Queries) GetUserPluginBySlug(ctx context.Context, slug string) (UserPlugin, error) {
@@ -120,12 +131,14 @@ func (q *Queries) GetUserPluginBySlug(ctx context.Context, slug string) (UserPlu
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreatedByIssue,
+		&i.CreatedByTask,
 	)
 	return i, err
 }
 
 const listActiveUserPlugins = `-- name: ListActiveUserPlugins :many
-SELECT id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at FROM user_plugin WHERE status = 'active' ORDER BY created_at DESC
+SELECT id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at, created_by_issue, created_by_task FROM user_plugin WHERE status = 'active' ORDER BY created_at DESC
 `
 
 func (q *Queries) ListActiveUserPlugins(ctx context.Context) ([]UserPlugin, error) {
@@ -152,6 +165,8 @@ func (q *Queries) ListActiveUserPlugins(ctx context.Context) ([]UserPlugin, erro
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CreatedByIssue,
+			&i.CreatedByTask,
 		); err != nil {
 			return nil, err
 		}
@@ -164,7 +179,7 @@ func (q *Queries) ListActiveUserPlugins(ctx context.Context) ([]UserPlugin, erro
 }
 
 const listUserPlugins = `-- name: ListUserPlugins :many
-SELECT id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at FROM user_plugin WHERE status != 'deleted' ORDER BY created_at DESC
+SELECT id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at, created_by_issue, created_by_task FROM user_plugin WHERE status != 'deleted' ORDER BY created_at DESC
 `
 
 func (q *Queries) ListUserPlugins(ctx context.Context) ([]UserPlugin, error) {
@@ -191,6 +206,8 @@ func (q *Queries) ListUserPlugins(ctx context.Context) ([]UserPlugin, error) {
 			&i.CreatedBy,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CreatedByIssue,
+			&i.CreatedByTask,
 		); err != nil {
 			return nil, err
 		}
@@ -223,7 +240,7 @@ UPDATE user_plugin SET
     status = $9,
     updated_at = now()
 WHERE slug = $1 AND status != 'deleted'
-RETURNING id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at
+RETURNING id, slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_at, updated_at, created_by_issue, created_by_task
 `
 
 type UpdateUserPluginParams struct {
@@ -266,6 +283,8 @@ func (q *Queries) UpdateUserPlugin(ctx context.Context, arg UpdateUserPluginPara
 		&i.CreatedBy,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreatedByIssue,
+		&i.CreatedByTask,
 	)
 	return i, err
 }

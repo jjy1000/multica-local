@@ -164,7 +164,7 @@ func TestSkillInject_EnabledPluginInjectsSkill(t *testing.T) {
 
 	svc := NewTaskService(queries, pool, nil, events.New())
 	agentUUID := util.MustParseUUID(f.agentID)
-	skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID)
+	skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID, "")
 
 	found := false
 	for _, sk := range skills {
@@ -189,7 +189,7 @@ func TestSkillInject_DisabledPluginDoesNotInject(t *testing.T) {
 
 	svc := NewTaskService(queries, pool, nil, events.New())
 	agentUUID := util.MustParseUUID(f.agentID)
-	skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID)
+	skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID, "")
 
 	for _, sk := range skills {
 		if sk.Name == "disabled-skill" {
@@ -212,7 +212,7 @@ func TestSkillInject_MissingSkillSkippedSilently(t *testing.T) {
 	svc := NewTaskService(queries, pool, nil, events.New())
 	agentUUID := util.MustParseUUID(f.agentID)
 	// Must not panic or error — best-effort degradation.
-	skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID)
+	skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID, "")
 	for _, sk := range skills {
 		if sk.Name == "ghost-skill" {
 			t.Errorf("LoadAgentSkillsForClaim injected a skill that doesn't exist in the workspace")
@@ -239,7 +239,7 @@ func TestSkillInject_DeduplicatesAgainstExistingAgentSkills(t *testing.T) {
 
 	svc := NewTaskService(queries, pool, nil, events.New())
 	agentUUID := util.MustParseUUID(f.agentID)
-	skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID)
+	skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID, "")
 
 	count := 0
 	for _, sk := range skills {
@@ -249,5 +249,117 @@ func TestSkillInject_DeduplicatesAgainstExistingAgentSkills(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("LoadAgentSkillsForClaim returned %d copies of dedup-skill, want 1", count)
+	}
+}
+
+// TestSkillInject_LabScopedPluginScopesToOwnIssues pins the 0.5.89
+// skills_visibility contract: a plugin whose manifest sets
+// capabilities.skills_visibility="lab_scoped" injects its skills ONLY when
+// the claimed issue's lab_source matches the plugin's flag key. Issue-less
+// claims (labSource "") and unrelated labs get nothing — the lab's skills
+// ride the lab's own runs, not the whole workspace.
+func TestSkillInject_LabScopedPluginScopesToOwnIssues(t *testing.T) {
+	ctx := context.Background()
+	pool := newSkillInjectPool(t)
+	queries := db.New(pool)
+	suffix := time.Now().UnixNano()
+	slug := fmt.Sprintf("lab-scoped-inject-%d", suffix)
+	email := fmt.Sprintf("lab-scoped-inject-%d@multica.ai", suffix)
+	flagKey := fmt.Sprintf("user_%s", slug)
+	skillName := "lab-scoped-skill"
+
+	var userID string
+	if err := pool.QueryRow(ctx, `INSERT INTO "user" (name, email) VALUES ($1, $2) RETURNING id`,
+		"Lab Scoped Test", email).Scan(&userID); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM "user" WHERE id = $1`, userID) })
+
+	var workspaceID string
+	if err := pool.QueryRow(ctx, `INSERT INTO workspace (name, slug, description, issue_prefix) VALUES ($1, $2, 'lab scoped test', 'LSI') RETURNING id`,
+		"Lab Scoped Test", slug).Scan(&workspaceID); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM workspace WHERE id = $1`, workspaceID) })
+
+	if _, err := pool.Exec(ctx, `INSERT INTO member (workspace_id, user_id, role) VALUES ($1, $2, 'owner')`, workspaceID, userID); err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+
+	var runtimeID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO agent_runtime (workspace_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at, visibility, owner_id)
+		VALUES ($1, $2, 'local', 'test', 'online', 'test runtime', '{}'::jsonb, now(), 'private', $3)
+		RETURNING id`, workspaceID, "lab-scoped-runtime-"+slug, userID).Scan(&runtimeID); err != nil {
+		t.Fatalf("create runtime: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM agent_runtime WHERE id = $1`, runtimeID) })
+
+	var agentID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO agent (workspace_id, name, runtime_mode, runtime_id, status, owner_id)
+		VALUES ($1, $2, 'local', $3, 'idle', $4) RETURNING id`,
+		workspaceID, "lab-scoped-agent-"+slug, runtimeID, userID).Scan(&agentID); err != nil {
+		t.Fatalf("create agent: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM agent WHERE id = $1`, agentID) })
+
+	var skillID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO skill (workspace_id, name, description, content)
+		VALUES ($1, $2, 'lab scoped skill', 'content') RETURNING id`,
+		workspaceID, skillName).Scan(&skillID); err != nil {
+		t.Fatalf("create skill: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM skill WHERE id = $1`, skillID) })
+
+	manifest, _ := json.Marshal(map[string]any{
+		"capabilities": map[string]any{
+			"skills":            []string{skillName},
+			"skills_visibility": "lab_scoped",
+		},
+	})
+	var pluginID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO user_plugin (slug, flag_key, title_en, manifest_json, trigger_mode, runtime_kind, status, created_by)
+		VALUES ($1, $2, 'Lab Scoped Plugin', $3, 'auto', 'none', 'active', $4) RETURNING id`,
+		slug, flagKey, manifest, userID).Scan(&pluginID); err != nil {
+		t.Fatalf("create user_plugin: %v", err)
+	}
+	t.Cleanup(func() { pool.Exec(context.Background(), `DELETE FROM user_plugin WHERE id = $1`, pluginID) })
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO experimental_pref (user_id, flag_key, enabled) VALUES ($1, $2, true)
+		ON CONFLICT (user_id, flag_key) DO UPDATE SET enabled = true`,
+		userID, flagKey); err != nil {
+		t.Fatalf("set experimental_pref: %v", err)
+	}
+	t.Cleanup(func() {
+		pool.Exec(context.Background(), `DELETE FROM experimental_pref WHERE user_id = $1 AND flag_key = $2`, userID, flagKey)
+	})
+
+	svc := NewTaskService(queries, pool, nil, events.New())
+	agentUUID := util.MustParseUUID(agentID)
+
+	// Issue-less / unrelated-lab claims get NO injection.
+	for _, labSource := range []string{"", "user_some-other-lab", "claude_science_lab"} {
+		skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID, labSource)
+		for _, sk := range skills {
+			if sk.Name == skillName {
+				t.Errorf("lab_scoped skill injected for labSource=%q", labSource)
+			}
+		}
+	}
+
+	// The lab's own claim gets the skill.
+	skills := svc.LoadAgentSkillsForClaim(ctx, agentUUID, flagKey)
+	found := false
+	for _, sk := range skills {
+		if sk.Name == skillName {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("lab_scoped skill NOT injected on the lab's own claim (labSource=%q)", flagKey)
 	}
 }

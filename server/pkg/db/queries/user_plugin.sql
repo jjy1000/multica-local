@@ -6,8 +6,11 @@
 -- table is a reserved word in SQL).
 
 -- name: CreateUserPlugin :one
-INSERT INTO user_plugin (slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+-- 0.5.89: created_by_issue/created_by_task carry conversational provenance
+-- (nullable — UI/API creates leave them NULL; the agent-context CLI stamps
+-- them from MULTICA_ISSUE_ID / MULTICA_TASK_ID).
+INSERT INTO user_plugin (slug, flag_key, title_en, title_zh, description_en, description_zh, manifest_json, trigger_mode, runtime_kind, status, created_by, created_by_issue, created_by_task)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 RETURNING *;
 
 -- name: GetUserPluginBySlug :one
