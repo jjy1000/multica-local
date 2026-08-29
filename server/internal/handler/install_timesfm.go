@@ -28,12 +28,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/experimental"
-	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -93,11 +91,11 @@ func upsertTimesfmOracleAgent(ctx context.Context, h *Handler, workspaceID pgtyp
 	}); err == nil {
 		return existing.ID, nil
 	}
-	runtimeID := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID)
-	if !runtimeID.Valid {
-		slog.Info("upsertTimesfmOracleAgent: no online local runtime; "+
-			"agent created without runtime — daemon auto-assign will skip dispatch until daemon is online",
-			"workspace_id", util.UUIDToString(workspaceID))
+	runtimeID, err := resolveOrSynthesizeLabRuntime(ctx, h, workspaceID,
+		"timesfm", "TimesFM Lab Runtime", "timesfm",
+		"experimental.timesfm")
+	if err != nil {
+		return pgtype.UUID{}, err
 	}
 	created, err := h.Queries.CreateAgent(ctx, db.CreateAgentParams{
 		WorkspaceID:   workspaceID,

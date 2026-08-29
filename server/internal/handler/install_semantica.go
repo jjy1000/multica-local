@@ -24,12 +24,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/experimental"
-	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -92,11 +90,11 @@ func upsertSemanticaDecisionAdvisorAgent(ctx context.Context, h *Handler, worksp
 	}); err == nil {
 		return existing.ID, nil
 	}
-	runtimeID := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID)
-	if !runtimeID.Valid {
-		slog.Info("upsertSemanticaDecisionAdvisorAgent: no online local runtime; "+
-			"agent created without runtime — daemon auto-assign will skip dispatch until daemon is online",
-			"workspace_id", util.UUIDToString(workspaceID))
+	runtimeID, err := resolveOrSynthesizeLabRuntime(ctx, h, workspaceID,
+		"semantica", "Semantica Lab Runtime", "semantica",
+		"experimental.semantica")
+	if err != nil {
+		return pgtype.UUID{}, err
 	}
 	created, err := h.Queries.CreateAgent(ctx, db.CreateAgentParams{
 		WorkspaceID:   workspaceID,

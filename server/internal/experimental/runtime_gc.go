@@ -57,6 +57,12 @@ type RuntimeGCConfig struct {
 	ArchiveTTL time.Duration
 	// TrashTTL overrides the 120-day retention.
 	TrashTTL time.Duration
+	// PluginTrashDir overrides ~/.multica/plugins/.trash/ (the
+	// user-plugin env-dir graveyard the reclaim writer moves into).
+	// Tests use a temp dir.
+	PluginTrashDir string
+	// PluginTrashTTL overrides the 30-day plugin-trash retention.
+	PluginTrashTTL time.Duration
 	// Logger is the structured logger; defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -98,6 +104,9 @@ func NewRuntimeGC(cfg RuntimeGCConfig) *RuntimeGC {
 		} else {
 			cfg.BaseDir = filepath.Join(os.TempDir(), "multica-experimental")
 		}
+	}
+	if cfg.PluginTrashTTL <= 0 {
+		cfg.PluginTrashTTL = 30 * 24 * time.Hour
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
@@ -153,6 +162,10 @@ func (g *RuntimeGC) Run() {
 // sweep runs once and returns; safe to call from tests.
 func (g *RuntimeGC) sweep() {
 	g.sweepCount.Add(1)
+	// The plugin-trash prune is filesystem-only and must run even when
+	// the DB side has nothing to do (or no queries wired) — otherwise a
+	// quiet DB starves the 30-day plugin-env-dir GC forever.
+	g.pluginTrashSweep()
 	if g.cfg.Queries == nil {
 		g.cfg.Logger.Debug("runtime_gc disabled; no queries wired")
 		return
@@ -233,6 +246,57 @@ func (g *RuntimeGC) archiveOne(ctx context.Context, row db.ExperimentalClaudeRun
 		return fmt.Errorf("delete session: %w", err)
 	}
 	return nil
+}
+
+// PluginTrashDir is the canonical location of the user-plugin env-dir
+// graveyard: the reclaim writer (handler/user_plugin_provisioning.go)
+// moves removed plugin dirs into it, and RuntimeGC.pluginTrashSweep
+// unlinks entries past the 30-day grace period. One definition so the
+// writer and the pruner can never drift.
+func PluginTrashDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".multica", "plugins", ".trash"), nil
+}
+
+// pluginTrashSweep unlinks ~/.multica/plugins/.trash/ entries older than
+// PluginTrashTTL (mtime). The reclaim path moves whole plugin dirs here
+// as the reversible step; this is the deferred physical GC that comment
+// promised since 0.5.89. Absent dir → nothing to do.
+func (g *RuntimeGC) pluginTrashSweep() {
+	root := g.cfg.PluginTrashDir
+	if root == "" {
+		resolved, err := PluginTrashDir()
+		if err != nil {
+			return
+		}
+		root = resolved
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-g.cfg.PluginTrashTTL)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		path := filepath.Join(root, e.Name())
+		if err := os.RemoveAll(path); err != nil {
+			g.cfg.Logger.Warn("runtime_gc plugin-trash unlink failed", "path", path, "err", err.Error())
+			continue
+		}
+		g.cfg.Logger.Info("runtime_gc plugin-trash pruned", "path", path)
+	}
 }
 
 // trashSweep walks the archive tree, tarballs anything older than

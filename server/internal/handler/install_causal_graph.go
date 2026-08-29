@@ -42,12 +42,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/experimental"
-	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -152,12 +150,11 @@ func upsertCausalGraphAgent(ctx context.Context, h *Handler, workspaceID pgtype.
 	}); err == nil {
 		return existing.ID, nil
 	}
-	runtimeID := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID)
-	if !runtimeID.Valid {
-		slog.Info("upsertCausalGraphAgent: no online local runtime; "+
-			"agent created without runtime — mention dispatch will skip until a daemon is online",
-			"agent", spec.name,
-			"workspace_id", util.UUIDToString(workspaceID))
+	runtimeID, err := resolveOrSynthesizeLabRuntime(ctx, h, workspaceID,
+		"causal-graph", "Causal Graph Lab Runtime", "causal_graph",
+		"experimental.causal_graph")
+	if err != nil {
+		return pgtype.UUID{}, err
 	}
 	created, err := h.Queries.CreateAgent(ctx, db.CreateAgentParams{
 		WorkspaceID:        workspaceID,

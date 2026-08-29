@@ -61,17 +61,32 @@ describe("LabPicker", () => {
   it("renders 'None' as the first entry and one row per flag", () => {
     renderPicker();
     // PropertyPicker renders the trigger with no anchor by default;
-    // open it via the controlled path. The triggerRender is not
-    // supplied so the default chrome shows. PropertyPicker wraps a
+    // open it via the controlled path. PropertyPicker wraps a
     // PopoverTrigger — to open the popover, fire click on the
-    // trigger. The trigger text is empty (default chrome is a
-    // blank span because triggerRender is undefined), so we look
-    // for the data-picker-item buttons once the popover is open.
+    // trigger. 0.5.89: the default chrome shows the localized "None"
+    // hint (the old empty aria-hidden span rendered an ~8×0px
+    // invisible chip), so the trigger itself is assertable.
     const trigger = document.querySelector("button[aria-haspopup]")!;
+    expect(trigger).toHaveTextContent("None");
     fireEvent.click(trigger);
     const items = document.querySelectorAll("button[data-picker-item]");
     expect(items.length).toBe(3); // None + 2 flags
     expect(items[0]).toHaveTextContent("None");
+  });
+
+  it("0.5.89: the trigger shows the bound lab's title when a lab is set", () => {
+    // Title render order is `title.zh || title.en || key` — the Chinese
+    // title is what the DOM carries. Before this fix the bound state
+    // ALSO rendered a blank chip (the issue-detail row only looked
+    // alive because of the sibling open-panel icon).
+    renderPicker({ labSource: "claude_science_lab" });
+    const trigger = document.querySelector("button[aria-haspopup]")!;
+    expect(trigger).toHaveTextContent("Claude 实验室");
+    // A bound-but-no-longer-cataloged key degrades to the raw key
+    // instead of an empty chip.
+    renderPicker({ labSource: "retired_lab_key" });
+    const trigger2 = document.querySelectorAll("button[aria-haspopup]")[1]!;
+    expect(trigger2).toHaveTextContent("retired_lab_key");
   });
 
   it("selecting a non-mutex lab keeps the assignee and still updates source+mode", () => {

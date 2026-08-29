@@ -274,3 +274,118 @@ func TestUserPluginTeardown_DeclaredResourcesKept(t *testing.T) {
 		t.Fatalf("the user's own agent must survive plugin delete (live=%d, err=%v)", archived, err)
 	}
 }
+
+// TestUserPluginReclaimPlanAndRetryEndpoints pins the two reclaim HTTP
+// surfaces (0.5.89 gap: both shipped with zero direct coverage):
+//
+//   - GET  /api/user-plugins/{slug}/reclaim-plan — the read-only artifact
+//     behind `lab delete --dry-run`, the UI delete dialog, and the agent's
+//     confirm-before-delete protocol.
+//   - POST /api/user-plugins/{slug}/reclaim — the retry for ledger rows
+//     left 'failed' by the delete pass; 409 while the plugin is live.
+func TestUserPluginReclaimPlanAndRetryEndpoints(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+	slug := fmt.Sprintf("teardown-retry-%d", time.Now().UnixNano())
+	agentName := slug + "-agent"
+	skillName := slug + "-skill"
+	teardownPurge(t, ctx, slug)
+	t.Cleanup(func() { teardownPurge(t, ctx, slug) })
+
+	manifest := fmt.Sprintf(`{
+		"capabilities": {
+			"agents_inline": [{"name": %q, "instructions": "retry fixture"}],
+			"skills_inline": [{"name": %q, "content": "# retry"}]
+		}
+	}`, agentName, skillName)
+	w := httptest.NewRecorder()
+	testHandler.CreateUserPlugin(w, newRequest(http.MethodPost, "/api/user-plugins", map[string]any{
+		"slug":     slug,
+		"title":    map[string]any{"en": "Retry", "zh": "重试测试"},
+		"manifest": json.RawMessage(manifest),
+	}))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Plan (live plugin): 200, three ledgered resources, active_issues 0.
+	w = httptest.NewRecorder()
+	testHandler.GetUserPluginReclaimPlan(w, withURLParam(newRequest(http.MethodGet, "/api/user-plugins/"+slug+"/reclaim-plan", nil), "slug", slug))
+	if w.Code != http.StatusOK {
+		t.Fatalf("reclaim-plan: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var plan struct {
+		Slug         string `json:"slug"`
+		ActiveIssues int64  `json:"active_issues"`
+		Resources    []struct {
+			Type   string `json:"type"`
+			Origin string `json:"origin"`
+			Status string `json:"status"`
+		} `json:"resources"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &plan)
+	if plan.Slug != slug || plan.ActiveIssues != 0 || len(plan.Resources) < 3 {
+		t.Fatalf("reclaim-plan shape wrong: %+v", plan)
+	}
+	types := map[string]string{}
+	for _, r := range plan.Resources {
+		types[r.Type] = r.Origin
+	}
+	if types["agent"] != "provisioned" || types["skill"] != "provisioned" || types["env_dir"] != "provisioned" {
+		t.Fatalf("plan must list all three provisioned resources: %+v", types)
+	}
+
+	// POST while live → 409 (deletion is the entry point, not the retry).
+	w = httptest.NewRecorder()
+	testHandler.PostUserPluginReclaim(w, withURLParam(newRequest(http.MethodPost, "/api/user-plugins/"+slug+"/reclaim", nil), "slug", slug))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("reclaim on live plugin: expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Unknown slug → 404 on both endpoints.
+	w = httptest.NewRecorder()
+	testHandler.GetUserPluginReclaimPlan(w, withURLParam(newRequest(http.MethodGet, "/api/user-plugins/nope/reclaim-plan", nil), "slug", "nope"))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("plan on unknown slug: expected 404, got %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	testHandler.PostUserPluginReclaim(w, withURLParam(newRequest(http.MethodPost, "/api/user-plugins/nope/reclaim", nil), "slug", "nope"))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("reclaim on unknown slug: expected 404, got %d", w.Code)
+	}
+
+	// Delete → then the retry endpoint re-runs the reclaim idempotently:
+	// every action stays "reclaimed" and no row reopens.
+	w = httptest.NewRecorder()
+	testHandler.DeleteUserPlugin(w, withURLParam(newRequest(http.MethodDelete, "/api/user-plugins/"+slug, nil), "slug", slug))
+	if w.Code != http.StatusOK {
+		t.Fatalf("delete: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	testHandler.PostUserPluginReclaim(w, withURLParam(newRequest(http.MethodPost, "/api/user-plugins/"+slug+"/reclaim", nil), "slug", slug))
+	if w.Code != http.StatusOK {
+		t.Fatalf("retry reclaim: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var retry struct {
+		Reclaim []struct {
+			Type   string `json:"type"`
+			Action string `json:"action"`
+		} `json:"reclaim"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &retry)
+	retryActions := map[string]string{}
+	for _, r := range retry.Reclaim {
+		retryActions[r.Type] = r.Action
+	}
+	if retryActions["agent"] != "reclaimed" || retryActions["skill"] != "reclaimed" || retryActions["env_dir"] != "reclaimed" {
+		t.Fatalf("retry must keep every resource reclaimed (idempotent): %+v (body: %s)", retryActions, w.Body.String())
+	}
+	var openRows int
+	if err := testPool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM user_plugin_resource WHERE plugin_slug = $1 AND reclaim_status NOT IN ('reclaimed','skipped')`,
+		slug).Scan(&openRows); err != nil || openRows != 0 {
+		t.Fatalf("retry must leave no open ledger rows (open=%d, err=%v)", openRows, err)
+	}
+}

@@ -235,13 +235,30 @@ export function LabPicker({
     onUpdate({ lab_source: nextLab, lab_mode: mode });
   };
 
+  // 0.5.89 debt fix: the trigger used to be a hardcoded empty
+  // `<span aria-hidden />`, which collapses to an ~8×0px invisible hit
+  // target — on an unbound issue the whole Lab row read as dead space
+  // (0.5.88 audit's "invisible LabPicker chip"). The trigger now always
+  // shows the localized "None" hint, the bound lab's title, or (for a
+  // bound-but-no-longer-cataloged key) the raw key.
+  const boundEntry = entries.find((e) => e.id !== "" && e.id === labSource);
+  const noneLabel = t(($) => $.pickers.lab.picker_none) ?? "None";
+
   return (
     <PropertyPicker
       open={open}
       onOpenChange={setOpen}
       align={align}
       triggerRender={triggerRender}
-      trigger={<span aria-hidden />}
+      trigger={
+        <span
+          className={`max-w-[200px] truncate text-xs ${
+            labSource ? "" : "text-muted-foreground"
+          }`}
+        >
+          {labSource ? (boundEntry?.title ?? labSource) : noneLabel}
+        </span>
+      }
     >
       <div className="space-y-1.5 p-1.5">
         {entries.map((entry) => (

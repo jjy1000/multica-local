@@ -616,10 +616,30 @@ func rebindLabAgentsToOnlineRuntime(
 // runtime_id is auto-rebound to the workspace's online local
 // runtime by rebindLabAgentsToOnlineRuntime. Keep this in sync
 // with defaultLeaderAgentForLab in service/issue.go.
+//
+// 0.5.89: extended beyond the original claude_science trio — the
+// other lab installers create leaders too, and two comment sites
+// (boot_provision_product_labs.go, product_agent_creation_expert.go)
+// already claimed agent_creation_expert was rebound here. mythos_swarm's
+// roster is deliberately absent: its 5-agent RDT runner owns those
+// runtime bindings (service/issue.go skips it in the auto-assign path
+// for the same reason).
 var labLeaderAgentNames = []string{
 	"research",
 	"宪法智能体",
 	"智能体优化专家",
+	// pythia_oracle / timesfm (AutoDispatch=false forecast labs)
+	"pythia_runtime",
+	"timesfm_oracle",
+	// code_canvas / semantica issue-bound leaders
+	"code_canvas_worker",
+	"semantica_decision_advisor",
+	// causal_graph's hidden trio (AutoDispatch=false memory lab)
+	"causal_graph_curator",
+	"causal_graph_historian",
+	"causal_graph_verifier",
+	// agent-creation studio leader (boot-provisioned product lab)
+	"agent_creation_expert",
 }
 
 // resolveWorkspaceOnlineRuntime returns the workspace's primary
@@ -649,6 +669,50 @@ func resolveWorkspaceOnlineRuntime(
 	return pgtype.UUID{}
 }
 
+// resolveOrSynthesizeLabRuntime is the shared daemonless fallback behind
+// upsertClaudeScienceRuntime, resolveOrSynthesizeProductRuntime, and every
+// built-in lab installer (0.5.89 tech-debt repair): return the workspace's
+// online local runtime when a daemon is polling, otherwise upsert a stable
+// synthetic offline stub so agent.runtime_id (NOT NULL since migration 004)
+// is always satisfiable. Daemonless installs used to bind NULL and die on
+// the FK constraint — the 0.5.88 known-issue ledger flagged causal_graph +
+// pythia; timesfm, code_canvas, and semantica shared the identical pattern.
+//
+// The stub's (workspace_id, daemon_id, provider) uniqueness means re-install
+// / re-toggle reuses the row instead of duplicating it, and
+// rebindLabAgentsToOnlineRuntime re-points agents at the live runtime once a
+// daemon registers (for the leaders listed in labLeaderAgentNames).
+func resolveOrSynthesizeLabRuntime(
+	ctx context.Context, h *Handler, workspaceID pgtype.UUID,
+	daemonID, name, provider, source string,
+) (pgtype.UUID, error) {
+	if online := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID); online.Valid {
+		return online, nil
+	}
+	row, err := h.Queries.UpsertAgentRuntime(ctx, db.UpsertAgentRuntimeParams{
+		WorkspaceID: workspaceID,
+		DaemonID:    pgtype.Text{String: daemonID, Valid: true},
+		Name:        name,
+		RuntimeMode: "local",
+		Provider:    provider,
+		Status:      "offline",
+		DeviceInfo:  "synthetic lab runtime — no live daemon",
+		Metadata:    []byte(`{"synthetic":true,"source":"` + source + `"}`),
+		OwnerID:     pgtype.UUID{},
+	})
+	if err != nil {
+		return pgtype.UUID{}, fmt.Errorf("upsert synthetic runtime: %w", err)
+	}
+	if !row.ID.Valid {
+		return pgtype.UUID{}, errors.New("synthetic runtime upsert returned invalid id")
+	}
+	slog.Info("resolveOrSynthesizeLabRuntime: provisioned synthetic offline stub",
+		"daemon_id", daemonID,
+		"workspace_id", util.UUIDToString(workspaceID),
+		"runtime_id", util.UUIDToString(row.ID))
+	return row.ID, nil
+}
+
 // upsertClaudeScienceRuntime provisions one synthetic agent_runtime
 // row per claude_science lab install. The runtime exists to satisfy
 // the agent.runtime_id NOT NULL FK (migration 004) without an actual
@@ -676,24 +740,9 @@ func resolveWorkspaceOnlineRuntime(
 func upsertClaudeScienceRuntime(
 	ctx context.Context, h *Handler, workspaceID pgtype.UUID,
 ) (pgtype.UUID, error) {
-	if online := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID); online.Valid {
-		return online, nil
-	}
-	row, err := h.Queries.UpsertAgentRuntime(ctx, db.UpsertAgentRuntimeParams{
-		WorkspaceID: workspaceID,
-		DaemonID:    pgtype.Text{String: "claude-science", Valid: true},
-		Name:        "Claude Research Lab Runtime",
-		RuntimeMode: "local",
-		Provider:    "claude_science_lab",
-		Status:      "offline",
-		DeviceInfo:  "synthetic lab runtime — no live daemon",
-		Metadata:    []byte(`{"synthetic":true,"source":"experimental.claude_science"}`),
-		OwnerID:     pgtype.UUID{},
-	})
-	if err != nil {
-		return pgtype.UUID{}, fmt.Errorf("upsert runtime: %w", err)
-	}
-	return row.ID, nil
+	return resolveOrSynthesizeLabRuntime(ctx, h, workspaceID,
+		"claude-science", "Claude Research Lab Runtime", "claude_science_lab",
+		"experimental.claude_science")
 }
 
 // attachSquadMembers converts the manifest's string-list of agent

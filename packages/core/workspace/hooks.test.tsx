@@ -159,4 +159,44 @@ describe("useActorName", () => {
     expect(result.current.getActorName("agent", "agent-1")).toBe("Walt");
     expect(result.current.getActorName("squad", "squad-1")).toBe("Core");
   });
+
+  it("0.5.89: resolves a list-missing agent id via GET /agents/:id before falling back", async () => {
+    // The 0.5.88 audit's "Unknown Agent" assignee chip: after a lab
+    // leader-rewrite the issue carries a hidden leader's id the cached
+    // workspace list may not contain yet. The fallback used to be a
+    // terminal "Unknown Agent"; each miss now resolves once by id.
+    const agents = [{ id: "agent-1", name: "Walt", avatar_url: null }];
+    const getAgent = vi.fn((id: string) =>
+      id === "leader-9"
+        ? Promise.resolve({ id: "leader-9", name: "TimesFM Oracle", avatar_url: null })
+        : Promise.reject(new Error("not found")),
+    );
+    setApiInstance({
+      listMembers: () => Promise.resolve([]),
+      listAgents: () => Promise.resolve(agents),
+      listSquads: () => Promise.resolve([]),
+      getAgent,
+    } as unknown as ApiClient);
+    qc.setQueryData(workspaceKeys.agents("ws-1"), agents);
+
+    const { result } = renderHook(() => useActorName(), {
+      wrapper: createWrapper(qc),
+    });
+
+    expect(result.current.getActorName("agent", "agent-1")).toBe("Walt");
+    // Sync answer on a miss is the fallback, then the by-id fetch lands.
+    expect(result.current.getActorName("agent", "leader-9")).toBe("Unknown Agent");
+    await waitFor(() =>
+      expect(result.current.getActorName("agent", "leader-9")).toBe("TimesFM Oracle"),
+    );
+    expect(getAgent).toHaveBeenCalledWith("leader-9");
+
+    // A permanently-missing id caches the fallback — exactly one request,
+    // stable answer on every later render.
+    expect(result.current.getActorName("agent", "ghost")).toBe("Unknown Agent");
+    await waitFor(() => {
+      expect(result.current.getActorName("agent", "ghost")).toBe("Unknown Agent");
+      expect(getAgent).toHaveBeenCalledTimes(2);
+    });
+  });
 });

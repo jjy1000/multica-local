@@ -17,12 +17,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/experimental"
-	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -80,11 +78,11 @@ func upsertPythiaRuntimeAgent(ctx context.Context, h *Handler, workspaceID pgtyp
 	}); err == nil {
 		return existing.ID, nil
 	}
-	runtimeID := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID)
-	if !runtimeID.Valid {
-		slog.Info("upsertPythiaRuntimeAgent: no online local runtime; "+
-			"agent created without runtime — daemon auto-assign will skip dispatch until daemon is online",
-			"workspace_id", util.UUIDToString(workspaceID))
+	runtimeID, err := resolveOrSynthesizeLabRuntime(ctx, h, workspaceID,
+		"pythia-oracle", "Pythia Oracle Lab Runtime", "pythia_oracle",
+		"experimental.pythia_oracle")
+	if err != nil {
+		return pgtype.UUID{}, err
 	}
 	created, err := h.Queries.CreateAgent(ctx, db.CreateAgentParams{
 		WorkspaceID:        workspaceID,

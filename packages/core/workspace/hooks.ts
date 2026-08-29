@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Agent, MemberWithUser, Squad, Workspace } from "../types";
 import { useWorkspaceId } from "../hooks";
+import { api } from "../api";
 import {
   memberListOptions,
   agentListOptions,
@@ -63,10 +64,40 @@ export function useActorName() {
     return m?.name ?? "Unknown";
   }, [members]);
 
-  const getAgentName = useCallback((agentId: string) => {
-    const a = agents.find((a) => a.id === agentId);
-    return a?.name ?? "Unknown Agent";
-  }, [agents]);
+  // 0.5.89: an agent id missing from the workspace list — the cold-load
+  // window (data still EMPTY_AGENTS) or a hidden lab leader row the
+  // cached list predates — used to fall straight to "Unknown Agent" and
+  // stay there after a lab leader-rewrite. Each miss now resolves ONCE
+  // via GET /api/agents/:id (the by-id route serves lab-managed leaders;
+  // only selection surfaces filter them) and caches the name — including
+  // the failure, so an unresolvable id costs a single request.
+  const [extraAgentNames, setExtraAgentNames] = useState<Record<string, string>>({});
+  const inflightAgentNames = useRef<Set<string>>(new Set());
+
+  const getAgentName = useCallback(
+    (agentId: string) => {
+      const a = agents.find((a) => a.id === agentId);
+      if (a) return a.name;
+      const fetched = extraAgentNames[agentId];
+      if (fetched !== undefined) return fetched;
+      if (!inflightAgentNames.current.has(agentId)) {
+        inflightAgentNames.current.add(agentId);
+        void Promise.resolve()
+          .then(() => api.getAgent(agentId))
+          .then((agent) => {
+            setExtraAgentNames((prev) => ({ ...prev, [agentId]: agent.name }));
+          })
+          .catch(() => {
+            setExtraAgentNames((prev) => ({ ...prev, [agentId]: "Unknown Agent" }));
+          })
+          .finally(() => {
+            inflightAgentNames.current.delete(agentId);
+          });
+      }
+      return "Unknown Agent";
+    },
+    [agents, extraAgentNames],
+  );
 
   const getSquadName = useCallback((squadId: string) => {
     const s = squads.find((s) => s.id === squadId);

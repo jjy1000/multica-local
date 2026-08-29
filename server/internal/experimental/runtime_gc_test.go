@@ -162,3 +162,42 @@ func TestRuntimeGC_PathRefusesOutsideVault(t *testing.T) {
 		}
 	}
 }
+
+// TestRuntimeGC_PluginTrashSweep pins the 0.5.89 wiring that closes the
+// user-plugin teardown ledger's deferred physical GC: entries in
+// ~/.multica/plugins/.trash/ (moved there by reclaimPluginEnvDir) must be
+// unlinked after PluginTrashTTL, and the prune must run even when the DB
+// side of the sweep has nothing to do (nil queries — the early-return
+// that used to sit above every other sweep step).
+func TestRuntimeGC_PluginTrashSweep(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	oldEntry := filepath.Join(base, "1750000000-gc-old-slug")
+	freshEntry := filepath.Join(base, "1750000001-gc-fresh-slug")
+	for _, d := range []string{oldEntry, freshEntry} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", d, err)
+		}
+	}
+	stale := time.Now().Add(-45 * 24 * time.Hour)
+	if err := os.Chtimes(oldEntry, stale, stale); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+
+	gc := NewRuntimeGC(RuntimeGCConfig{
+		BaseDir:        t.TempDir(), // keep the session-side sweep away from real user data
+		PluginTrashDir: base,
+		PluginTrashTTL: 30 * 24 * time.Hour,
+		// Queries deliberately nil: the plugin-trash prune is
+		// filesystem-only and must not depend on DB availability.
+	})
+	gc.sweep()
+
+	if _, err := os.Stat(oldEntry); !os.IsNotExist(err) {
+		t.Fatalf("trash entry past the 30-day TTL must be pruned (stat err=%v)", err)
+	}
+	if _, err := os.Stat(freshEntry); err != nil {
+		t.Fatalf("fresh trash entry must survive the grace period (stat err=%v)", err)
+	}
+}

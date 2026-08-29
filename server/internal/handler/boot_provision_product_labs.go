@@ -47,7 +47,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -55,7 +54,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/util"
-	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // resolveOrSynthesizeProductRuntime is the product-lab equivalent of
@@ -74,33 +72,15 @@ import (
 // Returning (pgtype.UUID{}, nil) is treated as a hard fail by the
 // caller (no online runtime AND the synthetic upsert returned no row);
 // a non-nil error indicates the call itself errored.
+//
+// 0.5.89: the body delegates to the shared resolveOrSynthesizeLabRuntime
+// (the upsert/log/error semantics are byte-for-byte the old inline copy).
 func resolveOrSynthesizeProductRuntime(
 	ctx context.Context, h *Handler, workspaceID pgtype.UUID,
 ) (pgtype.UUID, error) {
-	if online := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID); online.Valid {
-		return online, nil
-	}
-	row, err := h.Queries.UpsertAgentRuntime(ctx, db.UpsertAgentRuntimeParams{
-		WorkspaceID: workspaceID,
-		DaemonID:    pgtype.Text{String: "agent-creation-studio", Valid: true},
-		Name:        "Agent Creation Studio Runtime",
-		RuntimeMode: "local",
-		Provider:    "agent_creation_studio",
-		Status:      "offline",
-		DeviceInfo:  "synthetic product runtime — no live daemon yet",
-		Metadata:    []byte(`{"synthetic":true,"source":"product.agent_creation_studio"}`),
-		OwnerID:     pgtype.UUID{},
-	})
-	if err != nil {
-		return pgtype.UUID{}, fmt.Errorf("upsert synthetic runtime: %w", err)
-	}
-	if !row.ID.Valid {
-		return pgtype.UUID{}, errors.New("synthetic runtime upsert returned invalid id")
-	}
-	slog.Info("resolveOrSynthesizeProductRuntime: provisioned synthetic offline stub",
-		"workspace_id", util.UUIDToString(workspaceID),
-		"runtime_id", util.UUIDToString(row.ID))
-	return row.ID, nil
+	return resolveOrSynthesizeLabRuntime(ctx, h, workspaceID,
+		"agent-creation-studio", "Agent Creation Studio Runtime",
+		"agent_creation_studio", "product.agent_creation_studio")
 }
 
 // BootProvisionProductLabs walks every workspace and upserts the

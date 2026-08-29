@@ -274,13 +274,11 @@ func (h *Handler) ledgerPluginResource(ctx context.Context, workspaceID pgtype.U
 
 // pluginTrashDir is where removed plugin env dirs wait out the 30-day
 // physical-GC grace period (mirrors the runtime_gc retention-ladder
-// philosophy: the move is the reversible step, the unlink comes later).
+// philosophy: the move is the reversible step, the unlink comes later —
+// wired into RuntimeGC.sweep since 0.5.89). The path itself is canonical
+// in experimental.PluginTrashDir so the writer and the GC pruner agree.
 func pluginTrashDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".multica", "plugins", ".trash"), nil
+	return experimental.PluginTrashDir()
 }
 
 // userPluginHomeDir is the plugin's on-disk root (env/ + artifacts/ +

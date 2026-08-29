@@ -33,7 +33,6 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/service"
-	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -103,11 +102,11 @@ func upsertCodeCanvasAgent(ctx context.Context, h *Handler, workspaceID pgtype.U
 	}); err == nil {
 		return existing.ID, nil
 	}
-	runtimeID := resolveWorkspaceOnlineRuntime(ctx, h, workspaceID)
-	if !runtimeID.Valid {
-		slog.Info("upsertCodeCanvasAgent: no online local runtime; "+
-			"agent created without runtime — daemon auto-assign will skip dispatch until daemon is online",
-			"workspace_id", util.UUIDToString(workspaceID))
+	runtimeID, err := resolveOrSynthesizeLabRuntime(ctx, h, workspaceID,
+		"code-canvas", "Code Canvas Lab Runtime", "code_canvas",
+		"experimental.code_canvas")
+	if err != nil {
+		return pgtype.UUID{}, err
 	}
 	created, err := h.Queries.CreateAgent(ctx, db.CreateAgentParams{
 		WorkspaceID:        workspaceID,
