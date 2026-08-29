@@ -181,6 +181,17 @@ func (m *userPluginMockDB) QueryRow(ctx context.Context, sql string, args ...int
 		m.liveRows[slug] = p
 		return &userPluginMockRow{plugin: p}
 
+	// 0.5.89 teardown-ledger support. The delete flow first counts
+	// non-terminal issues bound to the flag (the 409 guard); the mock has
+	// no issue rows, so the guard always passes (count 0). Then the
+	// reclaim pass lists ledger rows — none exist in this mock, so the
+	// iteration exits immediately and the report carries zero resources.
+	case strings.Contains(s, "from issue where lab_source"):
+		return &userPluginMockRow{count: 0}
+
+	case strings.Contains(s, "from user_plugin_resource"):
+		return &userPluginMockRow{err: pgx.ErrNoRows}
+
 	case strings.Contains(s, "from user_plugin where slug"):
 		m.getCalls++
 		var slug string
@@ -277,6 +288,12 @@ func (m *userPluginMockDB) Exec(ctx context.Context, sql string, args ...interfa
 	defer m.mu.Unlock()
 
 	switch {
+	case strings.Contains(s, "update user_plugin_resource set reclaim_status"):
+		// 0.5.89 reclaim bookkeeping — no ledger rows exist in this mock,
+		// so the branch is a pure no-op that keeps unknown-SQL fail-loud
+		// from firing on the (empty) reclaim pass.
+		return pgconn.NewCommandTag("UPDATE 0"), nil
+
 	case strings.Contains(s, "update user_plugin set status = 'deleted'"):
 		m.deleteCalls++
 		var slug string
@@ -330,11 +347,17 @@ type userPluginMockRow struct {
 	pgx.Row
 	plugin db.UserPlugin
 	err    error
+	// count backs scalar scans (0.5.89 CountActiveIssuesByLabSource).
+	count int64
 }
 
 func (r *userPluginMockRow) Scan(dest ...interface{}) error {
 	if r.err != nil {
 		return r.err
+	}
+	if d, ok := dest[0].(*int64); ok && len(dest) == 1 {
+		*d = r.count
+		return nil
 	}
 	p := r.plugin
 	// Scan slot order matches GetUserPluginBySlug / CreateUserPlugin /
@@ -653,8 +676,8 @@ func TestUserPluginSoftDeleteThenRecreate(t *testing.T) {
 	delReq = withChiURLParam(delReq, "slug", slug)
 	delRR := httptest.NewRecorder()
 	h.DeleteUserPlugin(delRR, delReq)
-	if delRR.Code != http.StatusNoContent {
-		t.Fatalf("delete: got %d want 204, body=%q", delRR.Code, delRR.Body.String())
+	if delRR.Code != http.StatusOK {
+		t.Fatalf("delete: got %d want 200 (0.5.89 reclaim report), body=%q", delRR.Code, delRR.Body.String())
 	}
 
 	mock.mu.Lock()
@@ -790,8 +813,8 @@ func TestUserPluginUpdateAndDelete(t *testing.T) {
 		rr := httptest.NewRecorder()
 		h.DeleteUserPlugin(rr, req)
 
-		if rr.Code != http.StatusNoContent {
-			t.Fatalf("delete: got %d want 204, body=%q", rr.Code, rr.Body.String())
+		if rr.Code != http.StatusOK {
+			t.Fatalf("delete: got %d want 200 (0.5.89 reclaim report), body=%q", rr.Code, rr.Body.String())
 		}
 
 		mock.mu.Lock()
@@ -937,8 +960,8 @@ func TestUserPluginDeletePurgesVisibilityRows(t *testing.T) {
 	delReq = withChiURLParam(delReq, "slug", slug)
 	delRR := httptest.NewRecorder()
 	h.DeleteUserPlugin(delRR, delReq)
-	if delRR.Code != http.StatusNoContent {
-		t.Fatalf("delete: got %d want 204, body=%q", delRR.Code, delRR.Body.String())
+	if delRR.Code != http.StatusOK {
+		t.Fatalf("delete: got %d want 200 (0.5.89 reclaim report), body=%q", delRR.Code, delRR.Body.String())
 	}
 
 	mock.mu.Lock()
