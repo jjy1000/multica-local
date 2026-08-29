@@ -87,11 +87,16 @@
       "deleted": "削除済み"
     },
     "toast": {
-      "delete_success": "プラグインを削除しました",
+      "delete_success": "プラグインを削除しました（{{count}} 件のリソースを回収）",
       "delete_failed": "削除失敗: {{msg}}",
       "toggle_failed": "切り替え失敗"
     },
-    "issue_bound_prefix": "タスク連携"
+    "issue_bound_prefix": "タスク連携",
+    "source_task": "タスクから作成",
+    "reclaim_title": "削除すると {{count}} 件のプラグインリソースを回収します：",
+    "reclaim_reclaim_row": "回収 {{type}}：{{name}}",
+    "reclaim_keep_row": "保持 {{type}}：{{name}}（プラグイン所有外）",
+    "reclaim_more_rows": "…ほか {{count}} 件"
   },
   "forecast_stream": {
     "title": "ライブ予測",

@@ -163,6 +163,38 @@ export interface UserPluginResponse {
   manifest?: UserPluginManifest;
   created_at: string;
   updated_at: string;
+  /** 0.5.89 conversational provenance — present only when an agent created the plugin from a task. */
+  created_by_issue?: string;
+  created_by_task?: string;
+}
+
+// 0.5.89 teardown ledger: what a plugin create provisioned / a delete
+// reclaimed (per resource). Mirrors handler.ProvisionOutcome /
+// handler.ReclaimOutcome. String-literal unions stay open so older
+// renderers survive server drift (API-compat contract).
+export interface PluginResourceOutcome {
+  type: "agent" | "squad" | "autopilot" | "skill" | "env_dir" | string;
+  name?: string;
+  id?: string;
+  origin?: "provisioned" | "declared" | string;
+  action: "created" | "reused" | "reclaimed" | "kept" | "failed" | string;
+  detail?: string;
+}
+
+// GET /api/user-plugins/{slug}/reclaim-plan — backs the UI delete
+// confirmation and the CLI `lab delete --dry-run`.
+export interface UserPluginReclaimPlan {
+  slug: string;
+  flag_key: string;
+  active_issues: number;
+  dir_bytes: number;
+  resources: Array<{
+    type: string;
+    name: string;
+    id?: string;
+    origin: "provisioned" | "declared" | string;
+    status: "linked" | "reclaimed" | "skipped" | "failed" | string;
+  }>;
 }
 
 // 0.3.60 Labs sandbox: a single artifact produced by a user plugin run.

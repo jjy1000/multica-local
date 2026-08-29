@@ -19,7 +19,7 @@ import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
 import { useUpdateExperimentalFlag } from "@multica/core/experimental";
-import type { UserPluginResponse } from "@multica/core/types";
+import type { UserPluginReclaimPlan, UserPluginResponse } from "@multica/core/types";
 import { UserPluginFormDialog } from "../../experimental/components/user-plugin-form-dialog";
 import { useT } from "../../i18n";
 
@@ -83,9 +83,21 @@ export function UserPluginsSection() {
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [editTarget, setEditTarget] = useState<UserPluginResponse | null>(null);
 
-  // Delete confirmation
+  // Delete confirmation. 0.5.89: opening the dialog fetches the server's
+  // reclaim plan (teardown ledger) so the user confirms against what will
+  // actually be reclaimed — the same artifact the CLI --dry-run renders.
   const [deleteTarget, setDeleteTarget] = useState<UserPluginResponse | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [reclaimPlan, setReclaimPlan] = useState<UserPluginReclaimPlan | null>(null);
+
+  function openDelete(plugin: UserPluginResponse) {
+    setDeleteTarget(plugin);
+    setReclaimPlan(null);
+    api
+      .getUserPluginReclaimPlan(plugin.slug)
+      .then(setReclaimPlan)
+      .catch(() => setReclaimPlan(null)); // dialog still works plan-less
+  }
 
   // F-008: plugin awaiting the global skill-injection ack (null = none).
   const [skillsAckTarget, setSkillsAckTarget] = useState<UserPluginResponse | null>(null);
@@ -111,8 +123,9 @@ export function UserPluginsSection() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await api.deleteUserPlugin(deleteTarget.slug);
-      toast.success(t(($) => $.user_plugins.toast.delete_success));
+      const report = await api.deleteUserPlugin(deleteTarget.slug);
+      const reclaimed = (report.reclaim ?? []).filter((r) => r.action === "reclaimed").length;
+      toast.success(t(($) => $.user_plugins.toast.delete_success, { count: reclaimed }));
       setDeleteTarget(null);
       invalidateAll();
     } catch (err) {
@@ -227,6 +240,16 @@ export function UserPluginsSection() {
                             ? t(($) => $.user_plugins.status.deleted)
                             : plugin.status}
                     </span>
+                    {/* 0.5.89: conversational provenance — the plugin was
+                      created by an agent from inside a task. */}
+                    {plugin.created_by_task && (
+                      <span
+                        className="inline-flex items-center rounded-md border border-violet-400/40 bg-violet-500/10 px-2 py-0.5 text-[10px] font-medium text-violet-700 dark:text-violet-300"
+                        title={plugin.created_by_task}
+                      >
+                        {t(($) => $.user_plugins.source_task)}
+                      </span>
+                    )}
                   </div>
                   <p className="text-sm text-muted-foreground">
                     {plugin.description.zh || plugin.description.en}
@@ -252,7 +275,7 @@ export function UserPluginsSection() {
                     size="sm"
                     variant="ghost"
                     className="text-destructive hover:text-destructive"
-                    onClick={() => setDeleteTarget(plugin)}
+                    onClick={() => openDelete(plugin)}
                   >
                     <Trash2 className="h-3.5 w-3.5" aria-hidden />
                   </Button>
@@ -283,6 +306,35 @@ export function UserPluginsSection() {
               })}
             </DialogDescription>
           </DialogHeader>
+          {reclaimPlan && reclaimPlan.resources.length > 0 && (
+            <div className="space-y-1 rounded-md border bg-muted/40 p-3 text-xs">
+              <p className="font-medium">
+                {t(($) => $.user_plugins.reclaim_title, {
+                  count: reclaimPlan.resources.length,
+                })}
+              </p>
+              {reclaimPlan.resources.slice(0, 6).map((r, i) => (
+                <p key={`${r.type}-${r.id ?? i}`} className="text-muted-foreground">
+                  {r.origin === "declared"
+                    ? t(($) => $.user_plugins.reclaim_keep_row, {
+                        type: r.type,
+                        name: r.name || r.id || "",
+                      })
+                    : t(($) => $.user_plugins.reclaim_reclaim_row, {
+                        type: r.type,
+                        name: r.name || r.id || "",
+                      })}
+                </p>
+              ))}
+              {reclaimPlan.resources.length > 6 && (
+                <p className="text-muted-foreground">
+                  {t(($) => $.user_plugins.reclaim_more_rows, {
+                    count: reclaimPlan.resources.length - 6,
+                  })}
+                </p>
+              )}
+            </div>
+          )}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)}>
               {t(($) => $.user_plugins.cancel)}

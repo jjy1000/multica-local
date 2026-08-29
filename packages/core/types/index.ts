@@ -107,6 +107,8 @@ export type {
   LocalizedString,
   UserPluginManifest,
   UserPluginResponse,
+  PluginResourceOutcome,
+  UserPluginReclaimPlan,
   ArtifactMeta,
 } from "./experimental";
 export type {

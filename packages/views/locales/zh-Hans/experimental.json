@@ -87,11 +87,16 @@
       "deleted": "已删除"
     },
     "toast": {
-      "delete_success": "插件已删除",
+      "delete_success": "插件已删除（回收 {{count}} 项资源）",
       "delete_failed": "删除失败: {{msg}}",
       "toggle_failed": "切换失败"
     },
-    "issue_bound_prefix": "来自任务"
+    "issue_bound_prefix": "来自任务",
+    "source_task": "由任务创建",
+    "reclaim_title": "删除后将回收 {{count}} 项插件资源：",
+    "reclaim_reclaim_row": "回收 {{type}}：{{name}}",
+    "reclaim_keep_row": "保留 {{type}}：{{name}}（非插件所有）",
+    "reclaim_more_rows": "…以及另外 {{count}} 项"
   },
   "forecast_stream": {
     "title": "实时预测",

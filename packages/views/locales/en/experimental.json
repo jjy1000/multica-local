@@ -87,11 +87,16 @@
       "deleted": "Deleted"
     },
     "toast": {
-      "delete_success": "Plugin deleted",
+      "delete_success": "Plugin deleted ({{count}} resources reclaimed)",
       "delete_failed": "Delete failed: {{msg}}",
       "toggle_failed": "Toggle failed"
     },
-    "issue_bound_prefix": "Bound to task"
+    "issue_bound_prefix": "Bound to task",
+    "source_task": "Created from a task",
+    "reclaim_title": "Deleting reclaims {{count}} plugin resources:",
+    "reclaim_reclaim_row": "Reclaim {{type}}: {{name}}",
+    "reclaim_keep_row": "Keep {{type}}: {{name}} (not plugin-owned)",
+    "reclaim_more_rows": "…and {{count}} more"
   },
   "forecast_stream": {
     "title": "Live forecast",

@@ -134,6 +134,8 @@ import type {
   CreateBillingCheckoutSessionResponse,
   BillingCheckoutSessionStatus,
   CreateBillingPortalSessionResponse,
+  PluginResourceOutcome,
+  UserPluginReclaimPlan,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -2081,10 +2083,18 @@ export class ApiClient {
     );
   }
 
-  async deleteUserPlugin(slug: string): Promise<void> {
-    await this.fetch(`/api/user-plugins/${encodeURIComponent(slug)}`, {
-      method: "DELETE",
-    });
+  async deleteUserPlugin(slug: string): Promise<{ reclaim: PluginResourceOutcome[] }> {
+    // 0.5.89: the delete returns a per-resource reclaim report (was 204).
+    return this.fetch<{ reclaim: PluginResourceOutcome[] }>(
+      `/api/user-plugins/${encodeURIComponent(slug)}`,
+      { method: "DELETE" },
+    );
+  }
+
+  async getUserPluginReclaimPlan(slug: string): Promise<UserPluginReclaimPlan> {
+    return this.fetch<UserPluginReclaimPlan>(
+      `/api/user-plugins/${encodeURIComponent(slug)}/reclaim-plan`,
+    );
   }
 
   async listPluginArtifacts(slug: string): Promise<ArtifactMeta[]> {

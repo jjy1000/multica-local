@@ -163,7 +163,9 @@ describe("UserPluginsSection — i18n label rendering", () => {
     const toastNs = (enExperimental as { user_plugins: { toast: Record<string, string> } })
       .user_plugins.toast;
     expect(toastNs.delete_failed).toBe("Delete failed: {{msg}}");
-    expect(toastNs.delete_success).toBe("Plugin deleted");
+    // 0.5.89: the success toast reports how many resources the teardown
+    // ledger reclaimed.
+    expect(toastNs.delete_success).toBe("Plugin deleted ({{count}} resources reclaimed)");
     expect(toastNs.toggle_failed).toBe("Toggle failed");
   });
 
