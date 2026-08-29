@@ -433,7 +433,9 @@ var defaultLeaderAgentForLab = map[string]string{
 // resolveLabLeader resolves the leader agent name for a lab_source.
 // Built-in labs use the static defaultLeaderAgentForLab table; user
 // plugins ("user_<slug>" flag keys) resolve their leader from the
-// stored manifest's capabilities.leader field so a runtime-created
+// stored manifest's interaction-model contract — the 0.5.88 top-level
+// leader_agent field first, the legacy capabilities.leader block as
+// fallback (experimental.UserPluginLeaderAgent) — so a runtime-created
 // lab can auto-dispatch just like the built-ins. Missing plugin or
 // manifest without a leader falls through to ("", false).
 func (s *IssueService) resolveLabLeader(ctx context.Context, labSource string) (string, bool) {
@@ -445,7 +447,7 @@ func (s *IssueService) resolveLabLeader(ctx context.Context, labSource string) (
 		if err != nil {
 			return "", false
 		}
-		return experimental.UserPluginLeader(plugin.ManifestJson)
+		return experimental.UserPluginLeaderAgent(plugin.ManifestJson)
 	}
 	return "", false
 }

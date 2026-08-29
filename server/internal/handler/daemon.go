@@ -1981,6 +1981,39 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 0.5.88: Available Labs (delegation) briefing injection (issue-bound
+	// tasks only). Lists the workspace's ENABLED assignee-model labs with a
+	// resolvable leader (frozen + roster labs skipped inside the builder)
+	// and the copy-pasteable `multica lab delegate --parent` command, so a
+	// working agent can discover delegation targets without leaving its
+	// task. Same error isolation as the causal subgraph block above:
+	// BuildDelegateBrief returns ("", nil) on every error path / empty lab
+	// set, so a broken lookup never blocks the claim. NOT gated on the
+	// causal_graph flag — the section advertises delegation, not causal
+	// context; its own empty-when-none contract is the gate. The leader
+	// resolver is injected (not duplicated) from the handler's existing
+	// resolveLabLeader helper, riding a detached context so the leader
+	// lookups survive claim-request cancellation inside the builder's
+	// 200ms budget.
+	if task.IssueID.Valid && resp.WorkspaceID != "" {
+		briefCtx := context.WithoutCancel(r.Context())
+		if brief, err := causalgraph.BuildDelegateBrief(briefCtx, h.Queries,
+			func(key string) (string, bool) { return h.resolveLabLeader(briefCtx, key) },
+			uuidToString(task.IssueID)); err == nil && strings.TrimSpace(brief) != "" {
+			if strings.TrimSpace(resp.Agent.Instructions) == "" {
+				resp.Agent.Instructions = brief
+			} else {
+				resp.Agent.Instructions = resp.Agent.Instructions + "\n\n" + brief
+			}
+			slog.Debug("injected delegation briefing",
+				"task_id", uuidToString(task.ID),
+				"issue_id", uuidToString(task.IssueID),
+				"workspace_id", resp.WorkspaceID,
+				"brief_bytes", len(brief),
+			)
+		}
+	}
+
 	// Mint a task-scoped `mat_` token bound to (agent, task, workspace,
 	// owner). The daemon will inject this as MULTICA_TOKEN into the agent
 	// process instead of its own credential, so any API call the agent

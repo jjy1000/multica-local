@@ -83,6 +83,10 @@ func userPluginToResponse(p db.UserPlugin) UserPluginResponse {
 // off so they never activate a code path the user has not opted into. The
 // manifest JSONB is intentionally NOT mapped onto Flag.ManifestPath — user
 // plugins carry inline manifest data, not a resources-dir path.
+// 0.5.88 P4: InteractionModel is stamped from the manifest's interaction-
+// model contract so the registered flag space (InteractionModelOf /
+// FlagByKey / the GET /api/experimental-flags payload) treats user plugins
+// exactly like built-ins ("assignee" locks, absent → "auxiliary" never locks).
 func userPluginToFlag(p db.UserPlugin) experimental.Flag {
 	return experimental.Flag{
 		Key:        p.FlagKey,
@@ -95,7 +99,8 @@ func userPluginToFlag(p db.UserPlugin) experimental.Flag {
 			En: p.DescriptionEn,
 			Zh: p.DescriptionZh,
 		},
-		RuntimeKind: p.RuntimeKind,
+		RuntimeKind:      p.RuntimeKind,
+		InteractionModel: experimental.UserPluginInteractionModel(p.ManifestJson),
 	}
 }
 
@@ -200,6 +205,14 @@ func (h *Handler) CreateUserPlugin(w http.ResponseWriter, r *http.Request) {
 	manifest, okManifest := normalizeManifest(body.Manifest)
 	if !okManifest {
 		writeError(w, http.StatusBadRequest, "manifest must be valid JSON")
+		return
+	}
+	// 0.5.88 P4: validate the interaction-model contract before storage.
+	// "assignee" REQUIRES a non-empty leader_agent; an invalid model
+	// literal is rejected so the registered flag space never carries a
+	// contract the issue-layer lock gate cannot interpret.
+	if _, err := experimental.ParseUserPluginContract(manifest); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -345,6 +358,14 @@ func (h *Handler) UpdateUserPlugin(w http.ResponseWriter, r *http.Request) {
 		normalized, okManifest := normalizeManifest(body.Manifest)
 		if !okManifest {
 			writeError(w, http.StatusBadRequest, "manifest must be valid JSON")
+			return
+		}
+		// 0.5.88 P4: same interaction-model contract validation as the
+		// create path, applied only when the caller supplies a new
+		// manifest (re-validating the stored blob on unrelated field
+		// updates would 400 legacy rows this release never wrote).
+		if _, err := experimental.ParseUserPluginContract(normalized); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		manifest = normalized

@@ -89,6 +89,15 @@ type ExperimentalFlagResponse struct {
 	// (辅助协作型: trace/visualize-only, never an assignee). Empty means
 	// legacy/unclassified — no lock, no auxiliary semantics.
 	InteractionModel string `json:"interaction_model,omitempty"`
+	// 0.5.88: mirror of Flag.Frozen — the lab is frozen for new
+	// delegation/bindings (entry + routes stay; nothing new may be
+	// started against it). Advisory metadata only: toggle behavior is
+	// unchanged. First consumer is the swarm_topology freeze.
+	Frozen bool `json:"frozen,omitempty"`
+	// 0.5.88: mirror of Flag.SuccessorKey — when Frozen is true, the
+	// catalog key to use instead (swarm_topology → mythos_swarm).
+	// Empty when the frozen lab has no successor.
+	SuccessorKey string `json:"successor_key,omitempty"`
 }
 
 // ExperimentalFlagsListResponse wraps the list so future metadata
@@ -173,6 +182,8 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			HidesDeliverableInIssueTimeline: f.HidesDeliverableInIssueTimeline,
 			AutoDispatch:                    f.AutoDispatch == nil || *f.AutoDispatch,
 			InteractionModel:                f.InteractionModel,
+			Frozen:                          f.Frozen,
+			SuccessorKey:                    f.SuccessorKey,
 		}
 		// 0.3.65: expose the lab's default owner agent so the property panel
 		// can show "实验室测试智能体: <name>" under the locked assignee. Same
@@ -225,6 +236,8 @@ func (h *Handler) ListExperimentalFlags(w http.ResponseWriter, r *http.Request) 
 			IsUserPlugin:                    true,
 			AutoDispatch:                    f.AutoDispatch == nil || *f.AutoDispatch,
 			InteractionModel:                f.InteractionModel,
+			Frozen:                          f.Frozen,
+			SuccessorKey:                    f.SuccessorKey,
 		}
 		// 0.3.65: user plugins auto-dispatch via their manifest's
 		// capabilities.leader (UserPluginLeader) — surface it the same way

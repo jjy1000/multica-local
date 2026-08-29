@@ -172,3 +172,36 @@ func TestWaitForDelegatedResult(t *testing.T) {
 		}
 	})
 }
+
+// TestTruncateDelegateOutput pins the parent-comment output cap (0.5.88
+// delegation loop). Short output passes through verbatim; long output is
+// rune-capped at delegateOutputMaxChars + the "…(truncated)" suffix —
+// rune-based so CJK results never split mid-character.
+func TestTruncateDelegateOutput(t *testing.T) {
+	short := "forecast: 42% ±3"
+	if got := truncateDelegateOutput(short); got != short {
+		t.Fatalf("short output must pass through verbatim, got %q", got)
+	}
+
+	long := strings.Repeat("a", delegateOutputMaxChars+500)
+	got := truncateDelegateOutput(long)
+	if !strings.HasSuffix(got, "…(truncated)") {
+		t.Fatalf("long output must end with the truncation suffix, got suffix %q", got[len(got)-20:])
+	}
+	if n := len([]rune(strings.TrimSuffix(got, "…(truncated)"))); n != delegateOutputMaxChars {
+		t.Fatalf("capped output carries %d runes, want %d", n, delegateOutputMaxChars)
+	}
+
+	// Exactly at the cap: no suffix.
+	exact := strings.Repeat("b", delegateOutputMaxChars)
+	if got := truncateDelegateOutput(exact); got != exact {
+		t.Fatalf("output at the cap must be unchanged")
+	}
+
+	// CJK: 2500 Han runes cap to 2000 runes + suffix, never invalid UTF-8.
+	cjk := strings.Repeat("汉", 2500)
+	got = truncateDelegateOutput(cjk)
+	if n := len([]rune(strings.TrimSuffix(got, "…(truncated)"))); n != delegateOutputMaxChars {
+		t.Fatalf("capped CJK output carries %d runes, want %d", n, delegateOutputMaxChars)
+	}
+}

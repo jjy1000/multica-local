@@ -139,6 +139,22 @@ type Flag struct {
 	// assignment and no lock applies. Client mirror:
 	// ExperimentalFlag.interaction_model in packages/core/types/experimental.ts.
 	InteractionModel string `json:"interaction_model,omitempty"`
+	// Frozen (0.5.88) — when true, the lab is FROZEN for new
+	// delegation/bindings. Append-only wire field: the entry, its routes,
+	// and its toggle stay (forward-only law; legacy bound issues keep
+	// resolving) but nothing new may be started against it. First (and
+	// only) consumer: swarm_topology, frozen by the 0.5.86 consolidation
+	// (mythos_swarm is the single 蜂群 lab from 0.5.86 on). The
+	// daemon's "Available Labs (delegation)" briefing skips frozen labs
+	// so agents are never pointed at a lab that cannot accept work.
+	// Toggle behavior is deliberately unchanged — Frozen is advisory
+	// metadata, not a second enable gate.
+	Frozen bool `json:"frozen,omitempty"`
+	// SuccessorKey (0.5.88) — the catalog key agents should use
+	// instead when Frozen is true. Empty when the lab has no
+	// successor. Mirrors the deprecation banner direction
+	// (swarm_topology → mythos_swarm).
+	SuccessorKey string `json:"successor_key,omitempty"`
 	// AutoDispatch — when nil (the zero value), the lab follows the
 	// standard 0.3.46 contract: lab_source flip → assignee auto-rewrite
 	// to the leader → maybeEnqueueOnAssign runs the task queue. When
@@ -369,6 +385,12 @@ var Catalog = []Flag{
 		// swarm_coordinator leader owns the assignee via the existing
 		// mutex gate).
 		InteractionModel: InteractionModelAssignee,
+		// 0.5.88: the 0.5.86 consolidation is now machine-readable.
+		// Frozen stops the delegation briefing (and any future
+		// enumeration) from advertising the lab; mythos_swarm is the
+		// successor. Toggle behavior unchanged.
+		Frozen:       true,
+		SuccessorKey: "mythos_swarm",
 	},
 	{
 		// llm_wiki_bridge: connects Multica agents to the locally-installed
@@ -692,6 +714,27 @@ func IsKnownKey(key string) bool {
 	defer userPluginMu.RUnlock()
 	_, ok := userPlugins[key]
 	return ok
+}
+
+// FlagByKey returns a copy of the Flag definition for key, resolving
+// the dynamic user-plugin layer first (mirrors InteractionModelOf).
+// ok=false when key is unknown to both layers. 0.5.88 added this so
+// read-side consumers (the daemon delegation briefing) can consult
+// advisory metadata (Frozen / SuccessorKey) without a third lookup
+// table — the catalog stays the single source of truth.
+func FlagByKey(key string) (Flag, bool) {
+	userPluginMu.RLock()
+	f, ok := userPlugins[key]
+	userPluginMu.RUnlock()
+	if ok {
+		return f, true
+	}
+	for i := range Catalog {
+		if Catalog[i].Key == key {
+			return Catalog[i], true
+		}
+	}
+	return Flag{}, false
 }
 
 // AllFlagKeys returns every flag key in the catalog as a fresh slice.

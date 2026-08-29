@@ -301,3 +301,58 @@ func byKeyExists(byKey map[string]string, key string) bool {
 	_, ok := byKey[key]
 	return ok
 }
+
+// TestCatalogFrozenContract (0.5.88) pins the machine-readable swarm
+// freeze. The 0.5.86 consolidation removed swarm_topology from the
+// LabPicker and the sidebar, but the freeze was prose + hardcoded UI
+// state; Frozen/SuccessorKey turn it into catalog data the delegation
+// briefing (service/causal_graph delegate_brief.go) and the wire
+// payload (GET /api/experimental-flags) can read.
+//
+//   - swarm_topology → Frozen=true AND SuccessorKey="mythos_swarm"
+//     (mythos_swarm is the single 蜂群 lab from 0.5.86 on).
+//   - NO other built-in flag carries Frozen — a second frozen entry
+//     needs a deliberate catalog edit, not an accident.
+//
+// The verbatim literals "swarm_topology" / "mythos_swarm" follow the
+// flag-key duplication law (same literals as catalog.go / leader
+// tables / the deprecation banner route).
+func TestCatalogFrozenContract(t *testing.T) {
+	f, ok := findCatalogEntry("swarm_topology")
+	if !ok {
+		t.Fatal("swarm_topology literal removed from catalog — forward-only law violation")
+	}
+	if !f.Frozen {
+		t.Fatal("swarm_topology must stay Frozen=true — 0.5.86 consolidation froze it for new bindings")
+	}
+	if f.SuccessorKey != "mythos_swarm" {
+		t.Fatalf("swarm_topology SuccessorKey = %q, want \"mythos_swarm\"", f.SuccessorKey)
+	}
+	// The successor must itself be a live catalog key, otherwise the
+	// pointer dangles and the delegation briefing would skip a frozen
+	// lab without ever advertising the replacement.
+	if _, ok := findCatalogEntry(f.SuccessorKey); !ok {
+		t.Fatalf("SuccessorKey %q is not a catalog entry", f.SuccessorKey)
+	}
+
+	for _, entry := range Catalog {
+		if entry.Key == "swarm_topology" {
+			continue
+		}
+		if entry.Frozen {
+			t.Errorf("Catalog[%q].Frozen = true; only swarm_topology may be frozen", entry.Key)
+		}
+		if entry.SuccessorKey != "" {
+			t.Errorf("Catalog[%q].SuccessorKey = %q; a successor without Frozen is meaningless", entry.Key, entry.SuccessorKey)
+		}
+	}
+
+	// FlagByKey resolves the built-in layer (the read-side helper the
+	// delegation briefing uses) and unknown keys fall through.
+	if got, ok := FlagByKey("swarm_topology"); !ok || !got.Frozen {
+		t.Fatalf("FlagByKey(swarm_topology) = (%+v, %v), want the frozen entry", got, ok)
+	}
+	if _, ok := FlagByKey("no_such_flag"); ok {
+		t.Fatal("FlagByKey(unknown) must return ok=false")
+	}
+}

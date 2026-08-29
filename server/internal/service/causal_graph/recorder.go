@@ -227,6 +227,19 @@ func (r *Recorder) resolveTriggerNode(ctx context.Context, issue db.Issue) (pgty
 	if outcome, err := r.Queries.FindLatestOutcomeNodeForIssue(ctx, issue.ID); err == nil {
 		return outcome.ID, nil
 	}
+	return r.ensureIssueRootNode(ctx, issue)
+}
+
+// ensureIssueRootNode returns the issue's root constraint node,
+// creating it on first touch. The dedup key "issue_root:<issueID>"
+// makes the create idempotent (the partial unique index from mig 279
+// backs the lookup-then-insert contract), so the function is safe to
+// call from every recorder path. 0.5.88 extracted this from
+// resolveTriggerNode so the delegation edge (delegate_edge.go) reuses
+// the exact same root-node contract instead of a second dialect.
+// LabSource is stamped from the issue row so lab-bound issues carry
+// their provenance on the root node too (mirrors ensureActionNode).
+func (r *Recorder) ensureIssueRootNode(ctx context.Context, issue db.Issue) (pgtype.UUID, error) {
 	rootKey := dedupIssueRoot + util.UUIDToString(issue.ID)
 	if root, err := r.Queries.FindCausalNodeByDedupKey(ctx, db.FindCausalNodeByDedupKeyParams{
 		WorkspaceID: issue.WorkspaceID,
@@ -239,6 +252,7 @@ func (r *Recorder) resolveTriggerNode(ctx context.Context, issue db.Issue) (pgty
 		IssueID:     pgtype.UUID{Valid: true, Bytes: issue.ID.Bytes},
 		NodeType:    "constraint",
 		Label:       truncateLabel(issueTitle(issue), 120),
+		LabSource:   issue.LabSource,
 		Provenance: mustJSON(map[string]string{
 			"source":    "issue_root",
 			"dedup_key": rootKey,

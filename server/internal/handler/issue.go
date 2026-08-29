@@ -2784,6 +2784,21 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 0.5.88 delegation loop: when the created issue is BOTH lab-bound AND
+	// a sub-issue (parent_issue_id + lab_source — exactly the shape
+	// `multica lab delegate --parent` produces), record a causal
+	// parent --depends_on--> child edge so the linkage is visible to the
+	// claim-time subgraph briefing on either side. Placed in the create
+	// success path after the lab_mode persist (CreateIssue has no earlier
+	// causal touch — issue root nodes are ensured inside the recorder, so
+	// both endpoints exist by the time the edge lands). Best-effort: WRN +
+	// continue on every error inside the recorder; nil-safe and
+	// flag-gated (fail-closed) exactly like the RefreshForIssue call
+	// sites. Issue creation must NEVER fail because of this.
+	if h.CausalRecorder != nil && parentIssueID.Valid && req.LabSource != nil && *req.LabSource != "" {
+		h.CausalRecorder.RecordDelegationEdge(r.Context(), issue)
+	}
+
 	resp := issueToResponse(issue, prefix)
 	fillCreated(&resp)
 	resp.Attachments = buildAttachmentResponses(res.Attachments)
@@ -3509,7 +3524,9 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 // resolveLabLeader is the handler-side leader resolver used by the
 // Update path. Built-in labs resolve through defaultLabLeaderForKey;
 // user plugins ("user_<slug>" flag keys) resolve their leader from the
-// stored manifest's capabilities.leader field, mirroring
+// stored manifest's interaction-model contract — the 0.5.88 top-level
+// leader_agent field first, the legacy capabilities.leader block as
+// fallback (experimental.UserPluginLeaderAgent) — mirroring
 // IssueService.resolveLabLeader on the create path. Missing plugin or
 // manifest without a leader falls through to ("", false).
 func (h *Handler) resolveLabLeader(ctx context.Context, labSource string) (string, bool) {
@@ -3521,7 +3538,7 @@ func (h *Handler) resolveLabLeader(ctx context.Context, labSource string) (strin
 		if err != nil {
 			return "", false
 		}
-		return experimental.UserPluginLeader(plugin.ManifestJson)
+		return experimental.UserPluginLeaderAgent(plugin.ManifestJson)
 	}
 	return "", false
 }
@@ -3545,8 +3562,28 @@ func (h *Handler) resolveLabLeader(ctx context.Context, labSource string) (strin
 //     preserving the 0.3.33 sole-mutex behavior through the same path.
 //   - leader row missing (install never ran): 400 with an
 //     install-first hint rather than silently allowing a human.
+//   - user plugins ("user_<slug>", 0.5.88 P4): the interaction model
+//     and leader resolve from the stored manifest contract
+//     (interaction_model + leader_agent, legacy capabilities.leader
+//     fallback) instead of the built-in tables — same semantics as the
+//     resolvable-leader built-ins once the manifest declares
+//     interaction_model="assignee".
 func (h *Handler) assigneeLabLockError(ctx context.Context, workspaceID pgtype.UUID, labSource, assigneeType, assigneeID string) string {
-	if labSource == "" || !experimental.IsAssigneeModelLab(labSource) {
+	if labSource == "" {
+		return ""
+	}
+	// 0.5.88 P4: user plugins carry the interaction-model contract in
+	// their stored manifest — resolve it from the user_plugin row (the
+	// single source of truth for external plugins, registered at boot /
+	// CRUD into the dynamic flag space) instead of the built-in catalog
+	// tables. A missing/soft-deleted row resolves to auxiliary (no
+	// lock): a gone plugin must never keep locking an issue.
+	if experimental.IsUserPluginKey(labSource) {
+		plugin, err := h.Queries.GetUserPluginByFlagKey(ctx, labSource)
+		if err != nil || experimental.UserPluginInteractionModel(plugin.ManifestJson) != experimental.InteractionModelAssignee {
+			return ""
+		}
+	} else if !experimental.IsAssigneeModelLab(labSource) {
 		return ""
 	}
 	if assigneeType == "" && assigneeID == "" {

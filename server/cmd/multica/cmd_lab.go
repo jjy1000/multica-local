@@ -56,6 +56,13 @@ prints the agent's final reply once the run completes. Use this from inside a
 team/agent task when you need a specialist lab (simulation, analysis, etc.) to
 produce a deliverable you can continue working from.
 
+Pass --parent (an issue key like MUL-12, a full UUID, or a UUID prefix) to
+record the delegation as a sub-issue of the calling issue. The child carries
+parent_issue_id + lab_source, so the platform's child-done channel wakes the
+parent's agent the moment the lab run reaches a terminal state, and a result
+summary comment is posted back on the parent (best-effort — a comment failure
+warns on stderr but never fails the delegation).
+
 Prerequisites: the target lab plugin must be enabled and declare a
 capabilities.leader agent that is bound to a running daemon runtime; otherwise
 no run is dispatched and the command times out.`,
@@ -71,6 +78,8 @@ func init() {
 	labDelegateCmd.Flags().Duration("timeout", 15*time.Minute, "Maximum time to wait for the delegated run to finish")
 	labDelegateCmd.Flags().Duration("poll-interval", 3*time.Second, "How often to poll the delegated run's status")
 	labDelegateCmd.Flags().String("output", "json", "Output format: json (default) or plain (the agent's reply text only)")
+	labDelegateCmd.Flags().String("parent", "", "Parent issue the delegation is recorded under (issue key, full UUID, or UUID prefix). A result summary comment is posted back on the parent after a successful run")
+	labDelegateCmd.Flags().Int("stage", 0, "Stage ordinal (>=1) grouping this delegated sub-issue into an ordered barrier group under its parent; omit for unstaged")
 
 	labCmd.GroupID = groupExperimental
 }
@@ -160,6 +169,26 @@ func runLabDelegate(cmd *cobra.Command, args []string) error {
 		"status":      statusFlag,
 		"lab_source":  flagKey,
 	}
+	// --parent / --stage mirror `issue create` exactly (cmd_issue.go): the
+	// parent accepts an issue key, full UUID, or UUID prefix through
+	// resolveIssueRef, and stage requires >= 1. One resolution scheme, no
+	// second dialect.
+	parentRef := resolvedID{}
+	if v, _ := cmd.Flags().GetString("parent"); v != "" {
+		parent, err := resolveIssueRef(createCtx, client, v)
+		if err != nil {
+			return fmt.Errorf("resolve parent issue: %w", err)
+		}
+		body["parent_issue_id"] = parent.ID
+		parentRef = parent
+	}
+	if cmd.Flags().Changed("stage") {
+		stage, _ := cmd.Flags().GetInt("stage")
+		if stage < 1 {
+			return fmt.Errorf("--stage must be >= 1")
+		}
+		body["stage"] = stage
+	}
 	var created map[string]any
 	if err := client.PostJSON(createCtx, "/api/issues", body, &created); err != nil {
 		return fmt.Errorf("delegate: create lab issue (lab_source=%s): %w", flagKey, err)
@@ -176,10 +205,30 @@ func runLabDelegate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// 0.5.88 delegation loop: with --parent, post the delivered result back
+	// on the parent issue so the calling agent (and any human reader) sees
+	// the outcome without polling the child. Strictly best-effort — a
+	// comment failure warns on stderr and the exit code still reflects the
+	// delegation result. Never runs on a failed/cancelled run (the error
+	// above already returned).
+	if parentRef.ID != "" {
+		if cerr := postDelegateParentComment(client, parentRef.ID, flagKey, identifier, title, result.Output); cerr != nil {
+			fmt.Fprintf(os.Stderr, "lab delegate: warning: failed to post result comment on parent issue %s: %v\n", parentRef.ID, cerr)
+		} else {
+			fmt.Fprintf(os.Stderr, "lab delegate: result comment posted on parent issue %s.\n", parentRef.Display)
+		}
+	}
+
 	if output == "plain" {
+		// Keep stdout as the agent's reply text only — the child issue key
+		// goes to stderr so callers can still reference it without
+		// polluting the reply.
+		fmt.Fprintf(os.Stderr, "lab delegate: child issue %s (%s).\n", identifier, issueID)
 		fmt.Fprintln(os.Stdout, result.Output)
 		return nil
 	}
+	// json (default): the child issue key rides "identifier" (and
+	// "issue_id" carries the UUID) so callers can reference the delegation.
 	return cli.PrintJSON(os.Stdout, map[string]any{
 		"ok":         result.Status == "completed",
 		"lab_source": flagKey,
@@ -190,6 +239,37 @@ func runLabDelegate(cmd *cobra.Command, args []string) error {
 		"output":     result.Output,
 		"error":      result.Error,
 	})
+}
+
+// delegateOutputMaxChars caps the result output embedded in the parent
+// comment. ~2000 chars keeps the parent timeline readable; the full
+// output stays on the child issue and in the task transcript.
+const delegateOutputMaxChars = 2000
+
+// postDelegateParentComment posts the delegation-result summary comment on
+// the parent issue, using the same client path as `issue comment add`
+// (POST /api/issues/{id}/comments). The body leads with a
+// "[lab delegate]" header naming the lab + child issue so the timeline
+// entry is greppable, then embeds the (capped) result output.
+func postDelegateParentComment(client *cli.APIClient, parentID, flagKey, childKey, childTitle, output string) error {
+	content := fmt.Sprintf("[lab delegate] %s · %s %s\n\n%s",
+		flagKey, childKey, childTitle, truncateDelegateOutput(output))
+	ctx, cancel := cli.APIContext(context.Background())
+	defer cancel()
+	var result map[string]any
+	return client.PostJSON(ctx, "/api/issues/"+parentID+"/comments", map[string]any{"content": content}, &result)
+}
+
+// truncateDelegateOutput caps output at delegateOutputMaxChars runes with a
+// "…(truncated)" suffix. Truncation is rune-based (mirrors deriveDelegateTitle)
+// so multi-byte UTF-8 results are never split mid-character into invalid
+// sequences.
+func truncateDelegateOutput(s string) string {
+	runes := []rune(s)
+	if len(runes) <= delegateOutputMaxChars {
+		return s
+	}
+	return strings.TrimSpace(string(runes[:delegateOutputMaxChars])) + "…(truncated)"
 }
 
 // delegatedResult is the flattened outcome of a delegated run.
