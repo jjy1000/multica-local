@@ -1,6 +1,6 @@
 # 0.5.90 Release Notes — OpenMythos enhancer-only 外循环
 
-> **状态：dev cycle 完成、已提交（`30d58b851`），NOT packaged。** `/Applications/Multica.app` 仍为 0.5.89；打包走 `bash scripts/ship-mac.sh --yes`（等用户指令）。
+> **状态：已发布（shipped 2026-08-30）。** `/Applications/Multica.app` = **0.5.90**，冷启动验证 PASS。Ship 链 7/7（快照 `.bak` + pg_dump 32M 保留；280 条迁移全 skip——本周期零新迁移；仓库备份 `.omc/backups/2026-08-30-1232/0.5.90-ship/`）。Ship log：[`.omc/0.5.90-ship-2026-08-30.md`](0.5.90-ship-2026-08-30.md)。
 
 ## OpenMythos（原"蜂群"）—— 搭配模式外循环
 
