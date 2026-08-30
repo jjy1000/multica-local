@@ -535,7 +535,8 @@
       "mode_sole": "독립 실행",
       "mode_enhancer": "강화",
       "mode_sole_hint": "Mythos 가 완결 처리 · 담당자 초기화",
-      "mode_enhancer_hint": "Mythos 가 계획 · 담당자 에이전트에 위임"
+      "mode_enhancer_hint": "Mythos 가 계획 · 담당자 에이전트에 위임",
+      "mode_sole_retired": "레거시 독립 바인딩 · 강화 모드로 전환"
     }
   },
   "lab_section": {
@@ -616,5 +617,14 @@
     "row_backlog_hint": "에이전트를 대기 상태로 유지",
     "row_todo_label": "할 일",
     "row_todo_hint": "에이전트 시작"
+  },
+  "openmythos": {
+    "icon_tooltip": "OpenMythos 외부 루프",
+    "panel_title": "OpenMythos 외부 루프",
+    "panel_hint": "스웜이 먼저 계획하고 수렴한 뒤, 전략을 이 이슈의 담당 에이전트에게 넘깁니다.",
+    "iterations": "반복 횟수: {count}",
+    "target_required": "먼저 이 이슈를 에이전트 또는 팀에 할당하세요",
+    "start": "외부 루프 시작",
+    "rerun": "외부 루프 재실행"
   }
 }

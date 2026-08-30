@@ -248,6 +248,7 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
     self_optimization_enabled: boolean;
     skills_to_encourage: string[];
     root_issue_id: string | null;
+    mode: "enhancer";
   }>({
     mutationFn: async (body) => {
       const resp = await api.rawRequest(`/api/experimental/mythos-swarm/run`, {
@@ -264,12 +265,16 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
     onSuccess: (data) => setResult(data),
   });
 
-  const canSubmit = problem.trim().length > 0 && !runMut.isPending && !!wsId;
+  // 0.5.90 OpenMythos: enhancer-only — the server rejects root-less
+  // runs, so the form requires an issue binding before it can submit.
+  const canSubmit =
+    problem.trim().length > 0 && !runMut.isPending && !!wsId && !!rootIssueId;
 
   const onSubmit = () => {
     if (!canSubmit) return;
     runMut.mutate({
       problem: problem.trim(),
+      mode: "enhancer",
       max_loop_iters: maxLoop,
       extension_agent_ids: extensionAgentIDs,
       self_optimization_enabled: selfOptimization,
@@ -307,9 +312,12 @@ function RunForm({ initialIssueId = null }: { initialIssueId?: string | null } =
           no issue at all. */}
       {!rootIssueId && (
         <p className="mt-2 rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
-          提示 · 这一页开启后,产物会落在「分配给 Mythos」的 issue 评论区。
-          在任务列表的某个 issue 选 Mythos Swarm 后再点「打开实验室面板」,
-          报告会按 issue 归档;不绑定也能跑(产物在工作区水平日志里)。
+          {/* 0.5.90: binding is required — enhancer-only runs anchor on
+          the root issue, and the strategy lands on the bound issue's
+          timeline + the assignee's claim briefing. */}
+          提示 · OpenMythos 以「搭配模式」运行:先在某个 issue 的 Lab 选择器里绑定
+          OpenMythos 并指定承办 agent/团队,再从该 issue 的「打开实验室面板」进入本页,
+          产物(策略评论 + claim 简报)会归档到该 issue。未绑定 issue 时无法启动。
         </p>
       )}
 

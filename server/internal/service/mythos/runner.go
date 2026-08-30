@@ -98,6 +98,15 @@ type Config struct {
 	// work is visually distinct from user-authored issues in the
 	// sidebar.
 	SubIssuePrefix string
+	// RootIssueID (0.5.90) links the run to the issue it enhances.
+	// Enhancer runs REQUIRE it — the run's supervise loop and the
+	// coda handoff both anchor on the root. When set, every forked
+	// sub-issue is parented under the root (parent_issue_id) so the
+	// run's scratch work nests in the issue tree instead of
+	// polluting the workspace's top-level list, and Run() stamps
+	// mythos_run.root_issue_id itself (the historical post-hoc
+	// handler write left Run's sole-mode status flip reading NULL).
+	RootIssueID pgtype.UUID
 	// Mode selects sole vs enhancer behaviour (0.3.31). Default
 	// ModeSole preserves 0.3.30 runner semantics.
 	Mode RunMode
@@ -415,6 +424,12 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 		// to special-case nil. Sole mode happily accepts nil.
 		return nil, fmt.Errorf("mythos enhancer mode: TargetAssignee is required")
 	}
+	if cfg.Mode == ModeEnhancer && !cfg.RootIssueID.Valid {
+		// 0.5.90: enhancer supervises the root issue's assignee and
+		// parents every forked sub-issue under it — both anchor on the
+		// root, so a root-less enhancer run would strand supervision.
+		return nil, fmt.Errorf("mythos enhancer mode: RootIssueID is required")
+	}
 
 	run, err := s.queries.CreateMythosRun(ctx, db.CreateMythosRunParams{
 		WorkspaceID:          cfg.WorkspaceID,
@@ -443,10 +458,20 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 			return nil, fmt.Errorf("mythos: marshal target: %w", mErr)
 		}
 		if err := s.queries.SetMythosRunTargetAssignee(ctx, db.SetMythosRunTargetAssigneeParams{
-			ID:            run.ID,
+			ID:             run.ID,
 			TargetAssignee: raw,
 		}); err != nil {
 			return nil, fmt.Errorf("mythos: set target: %w", err)
+		}
+	}
+	if cfg.RootIssueID.Valid {
+		// 0.5.90: stamp the root inside Run so the supervise handoff
+		// and the sub-issue parenting below read a committed root.
+		if err := s.queries.SetMythosRunRootIssue(ctx, db.SetMythosRunRootIssueParams{
+			ID:          run.ID,
+			RootIssueID: cfg.RootIssueID,
+		}); err != nil {
+			return nil, fmt.Errorf("mythos: set root issue: %w", err)
 		}
 	}
 	if cfg.SelfOptimizationEnabled {
@@ -612,8 +637,11 @@ func (s *Service) Run(ctx context.Context, cfg Config, waitFn func(context.Conte
 	// those win because UpdateIssueStatus is unconditional on the
 	// status field.
 	if cfg.Mode == ModeSole {
+		// 0.5.90: read the root from cfg (persisted at run start) —
+		// `run` is the CreateMythosRun RETURNING snapshot whose
+		// root_issue_id is always NULL here.
 		if _, ierr := s.queries.UpdateIssueStatus(ctx, db.UpdateIssueStatusParams{
-			ID:          run.RootIssueID,
+			ID:          cfg.RootIssueID,
 			Status:      "done",
 			WorkspaceID: run.WorkspaceID,
 		}); ierr != nil {
@@ -765,6 +793,11 @@ func (s *Service) runLoopIteration(
 		CreatorType: "agent",
 		CreatorID:   agentID,
 		LabSource:   pgtype.Text{String: Source, Valid: true},
+		// 0.5.90: nest the run's scratch sub-issues under the root
+		// issue (zero-value UUID → NULL when the caller passed no
+		// root, e.g. legacy sole runs) so the workspace's top-level
+		// issue list stays clean.
+		ParentIssueID: cfg.RootIssueID,
 	})
 	if err != nil {
 		return "", pgtype.UUID{}, fmt.Errorf("loop sub-issue create: %w", err)
@@ -845,6 +878,8 @@ func (s *Service) runCoda(ctx context.Context, cfg Config, runID pgtype.UUID, wa
 		CreatorType: "agent",
 		CreatorID:   cfg.CodaAgentID,
 		LabSource:   pgtype.Text{String: Source, Valid: true},
+		// 0.5.90: see runLoopIteration — nest under the root issue.
+		ParentIssueID: cfg.RootIssueID,
 	})
 	if err != nil {
 		return "", pgtype.UUID{}, false, fmt.Errorf("coda sub-issue create: %w", err)

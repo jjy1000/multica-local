@@ -26,6 +26,8 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
@@ -36,6 +38,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/service/mythos"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 // Mythos run-time knobs (handler-side enforcement).
@@ -202,6 +205,14 @@ type MythosRunRequest struct {
 	Problem      string `json:"problem"`
 	RootIssueID  string `json:"root_issue_id"`
 	MaxLoopIters int    `json:"max_loop_iters"`
+	// Mode (0.5.90): only "enhancer" is accepted ("" defaults to it) —
+	// sole runs are disabled for new bindings, parity with the issue.go
+	// lab gate. "sole" is rejected with 400.
+	Mode string `json:"mode"`
+	// Enhancer target: explicit agent/squad, defaulting to the root
+	// issue's own assignee when both fields are empty.
+	TargetType string `json:"target_type"` // "agent" | "squad"
+	TargetID   string `json:"target_id"`   // UUID
 }
 
 // MythosRunResponse is the JSON body on 2xx.
@@ -247,16 +258,6 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prelude, loopIDs, coda, err := h.lookupMythosAgents(r, workspaceID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to look up Mythos agents: "+err.Error())
-		return
-	}
-	if !prelude.Valid {
-		writeError(w, http.StatusBadRequest, "no Mythos prelude agent installed; enable mythos_swarm first")
-		return
-	}
-
 	var rootUUID pgtype.UUID
 	if req.RootIssueID != "" {
 		parsed, perr := uuid.Parse(req.RootIssueID)
@@ -265,6 +266,68 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rootUUID = pgtype.UUID{Bytes: parsed, Valid: true}
+	}
+
+	// 0.5.90 OpenMythos mode contract: the outer loop only runs
+	// enhancer, anchored on a root issue and paired with a target
+	// assignee. Sole is disabled for new runs (parity with the
+	// issue.go lab gate); legacy sole-bound issues keep resolving.
+	mode := mythos.RunMode(req.Mode)
+	if mode == "" {
+		mode = mythos.ModeEnhancer
+	}
+	if mode == mythos.ModeSole {
+		writeError(w, http.StatusBadRequest,
+			"mode='sole' is disabled for mythos_swarm (OpenMythos): run enhancer mode against a root issue instead")
+		return
+	}
+	if mode != mythos.ModeEnhancer {
+		writeError(w, http.StatusBadRequest, "mode must be 'enhancer'")
+		return
+	}
+	if !rootUUID.Valid {
+		writeError(w, http.StatusBadRequest, "enhancer mode requires root_issue_id")
+		return
+	}
+	rootIssue, err := h.Queries.GetIssue(r.Context(), rootUUID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "root issue not found")
+		return
+	}
+
+	// Enhancer target: explicit target_type/target_id, defaulting to
+	// the root issue's own assignee. The assignee must be an agent or
+	// squad (a member assignee has nothing to supervise).
+	targetType, targetID := req.TargetType, req.TargetID
+	if targetType == "" && targetID == "" {
+		if !rootIssue.AssigneeType.Valid || !rootIssue.AssigneeID.Valid ||
+			(rootIssue.AssigneeType.String != "agent" && rootIssue.AssigneeType.String != "squad") {
+			writeError(w, http.StatusBadRequest,
+				"enhancer mode requires an agent or squad assignee on the root issue (or explicit target_type/target_id)")
+			return
+		}
+		targetType = rootIssue.AssigneeType.String
+		targetID = uuidToString(rootIssue.AssigneeID)
+	}
+	var targetUUID pgtype.UUID
+	if err := targetUUID.Scan(targetID); err != nil ||
+		(targetType != "agent" && targetType != "squad") {
+		writeError(w, http.StatusBadRequest, "target_type must be 'agent' or 'squad' and target_id a valid UUID")
+		return
+	}
+
+	// Roster lookup runs AFTER the cheap contract validations above so
+	// an invalid mode/root/target 400s on its own error, not on a
+	// misleading "no Mythos prelude agent installed" from a workspace
+	// that never installed the lab.
+	prelude, loopIDs, coda, err := h.lookupMythosAgents(r, workspaceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to look up Mythos agents: "+err.Error())
+		return
+	}
+	if !prelude.Valid {
+		writeError(w, http.StatusBadRequest, "no Mythos prelude agent installed; enable mythos_swarm first")
+		return
 	}
 
 	maxLoop := req.MaxLoopIters
@@ -296,7 +359,7 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := mythos.Config{
-		WorkspaceID:          workspaceUUID,
+		WorkspaceID:          rootIssue.WorkspaceID,
 		CreatorUserID:        userUUID,
 		Problem:              req.Problem,
 		MaxLoopIters:         maxLoop,
@@ -305,13 +368,11 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 		LoopAgentIDs:         loopIDs,
 		CodaAgentID:          coda,
 		SubIssuePrefix:       "[mythos] ",
+		Mode:                 mode,
+		TargetAssignee:       &mythos.TargetAssignee{Type: targetType, ID: targetUUID},
+		RootIssueID:          rootUUID,
 	}
-	if rootUUID.Valid {
-		if rootIssue, err := h.Queries.GetIssue(r.Context(), rootUUID); err == nil {
-			cfg.WorkspaceID = rootIssue.WorkspaceID
-			workspaceUUID = rootIssue.WorkspaceID
-		}
-	}
+	workspaceUUID = rootIssue.WorkspaceID
 
 	// Wait until the daemon closes each forked sub-issue. Status poll;
 	// 60s per-iter timeout. A non-completion yields empty body so the
@@ -329,8 +390,13 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 	if svc == nil {
 		svc = mythos.NewService(h.Queries, h.TaskService)
 	}
+	// 0.5.90: run on a detached context — a client disconnect (page
+	// close, fetch timeout) must not cancel a mid-flight run at the
+	// next waitFn tick. The pipeline's own deadlines (60s/iter wait,
+	// 5min coda, supervise max-lifetime) bound it instead.
+	runCtx := context.WithoutCancel(r.Context())
 	res, runErr := svc.Run(
-		r.Context(), cfg, h.mythosWaitFn(workspaceUUID),
+		runCtx, cfg, h.mythosWaitFn(workspaceUUID),
 	)
 	if runErr != nil {
 		writeError(w, http.StatusInternalServerError, runErr.Error())
@@ -341,21 +407,32 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if rootUUID.Valid && res.CodaSummary != "" {
-		_, _ = h.Queries.CreateComment(r.Context(), db.CreateCommentParams{
-			IssueID:    rootUUID,
-			AuthorType: "user",
-			AuthorID:   userUUID,
-			Content:    res.CodaSummary,
-			Type:       "comment",
-			ParentID:   pgtype.UUID{},
-		})
-	}
 	if rootUUID.Valid {
-		_ = h.Queries.SetMythosRunRootIssue(r.Context(), db.SetMythosRunRootIssueParams{
+		_ = h.Queries.SetMythosRunRootIssue(runCtx, db.SetMythosRunRootIssueParams{
 			ID:          pgtype.UUID{Bytes: res.RunID, Valid: true},
 			RootIssueID: rootUUID,
 		})
+		// 0.5.90: persist the strategy so the claim-time briefing and
+		// the run panel can read it back. coda_conclusions is a JSONB
+		// string array — the sole-recovery watch writes the same shape.
+		// Historically ONLY that watch ever wrote this column, so
+		// enhancer runs had no readable strategy at claim time.
+		if encoded, marshalErr := json.Marshal([]string{res.CodaSummary}); marshalErr == nil {
+			_ = h.Queries.SetMythosRunCodaConclusions(runCtx, db.SetMythosRunCodaConclusionsParams{
+				ID:              pgtype.UUID{Bytes: res.RunID, Valid: true},
+				CodaConclusions: encoded,
+			})
+		}
+	}
+	// 0.5.90 enhancer delivery: announce the converged strategy on the
+	// root issue as a system comment that @mentions the target — the
+	// same surface the child-done wake uses — then fire the explicit
+	// assignee trigger so a target whose task went stale (or whose
+	// binding raced ahead of the coda) still picks the strategy up.
+	// HasPendingTaskForIssueAndAgent inside dispatchParentAssigneeTrigger
+	// dedupes a target that is already running.
+	if res.CodaSummary != "" {
+		h.deliverMythosEnhancerResult(runCtx, rootIssue, res.CodaSummary, res.IterationsRun)
 	}
 
 	resp := MythosRunResponse{
@@ -371,6 +448,49 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 		resp.FinalIssueID = uuidToString(res.FinalIssueID)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// deliverMythosEnhancerResult (0.5.90) posts the run's converged
+// strategy on the root issue as a system comment that @mentions the
+// root assignee, then fires the same explicit trigger path the
+// child-done wake uses (dispatchParentAssigneeTrigger: agent →
+// EnqueueTaskForMention, squad → leader; HasPendingTaskForIssueAndAgent
+// dedupes a target that already has a task in flight). Best-effort: the
+// run itself already completed and the summary lives in
+// mythos_run.coda_conclusions + the run panel, so a delivery failure
+// only costs the wake, not the strategy. The wake targets the ROOT
+// issue's assignee even when an explicit target_type/target_id was
+// passed — the v1 contract keeps them equal (the issue icon always
+// runs against the bound assignee).
+func (h *Handler) deliverMythosEnhancerResult(ctx context.Context, root db.Issue, codaSummary string, iterations int) {
+	mention := h.buildParentAssigneeMention(ctx, root)
+	content := fmt.Sprintf(
+		"%sOpenMythos outer loop converged after %d iteration(s). Strategy summary — carry it into your work on this issue:\n\n%s",
+		mention, iterations, codaSummary,
+	)
+	comment, err := h.Queries.CreateComment(ctx, db.CreateCommentParams{
+		IssueID:     root.ID,
+		WorkspaceID: root.WorkspaceID,
+		AuthorType:  "system",
+		AuthorID:    pgtype.UUID{Valid: true},
+		Content:     content,
+		Type:        "system",
+		ParentID:    pgtype.UUID{Valid: false},
+	})
+	if err != nil {
+		slog.Warn("mythos enhancer: strategy comment failed",
+			"error", err,
+			"root_id", uuidToString(root.ID))
+		return
+	}
+	h.publish(protocol.EventCommentCreated, uuidToString(root.WorkspaceID), "system", "", map[string]any{
+		"comment":             commentToResponse(comment, nil, nil),
+		"issue_title":         root.Title,
+		"issue_assignee_type": textToPtr(root.AssigneeType),
+		"issue_assignee_id":   uuidToPtr(root.AssigneeID),
+		"issue_status":        root.Status,
+	})
+	h.dispatchParentAssigneeTrigger(ctx, root, comment)
 }
 
 // lookupMythosAgents resolves prelude / loop / coda agent IDs in the

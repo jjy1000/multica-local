@@ -541,7 +541,8 @@
       "mode_sole": "Standalone",
       "mode_enhancer": "Enhancer",
       "mode_sole_hint": "Mythos owns the issue end-to-end · clears the assignee",
-      "mode_enhancer_hint": "Mythos plans first · hands off to your agent/squad"
+      "mode_enhancer_hint": "Mythos plans first · hands off to your agent/squad",
+      "mode_sole_retired": "Legacy standalone binding · switch to enhancer"
     }
   },
   "lab_section": {
@@ -622,5 +623,14 @@
     "row_backlog_hint": "keeps the agent paused",
     "row_todo_label": "Todo",
     "row_todo_hint": "starts the agent"
+  },
+  "openmythos": {
+    "icon_tooltip": "OpenMythos outer loop",
+    "panel_title": "OpenMythos outer loop",
+    "panel_hint": "The swarm plans and converges first, then hands the strategy to this issue's assignee.",
+    "iterations": "iterations: {count}",
+    "target_required": "Assign this issue to an agent or squad first",
+    "start": "Start outer loop",
+    "rerun": "Re-run outer loop"
   }
 }

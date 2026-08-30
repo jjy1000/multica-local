@@ -517,7 +517,8 @@
       "mode_sole": "単独実行",
       "mode_enhancer": "拡張",
       "mode_sole_hint": "Mythos が完結 · 担当者をクリア",
-      "mode_enhancer_hint": "Mythos が計画 · 担当者エージェントに委譲"
+      "mode_enhancer_hint": "Mythos が計画 · 担当者エージェントに委譲",
+      "mode_sole_retired": "旧スタンドアロン設定 · 強化モードへ切替"
     }
   },
   "lab_section": {
@@ -598,5 +599,14 @@
     "row_backlog_hint": "エージェントを一時停止のままにします",
     "row_todo_label": "未着手",
     "row_todo_hint": "エージェントを開始します"
+  },
+  "openmythos": {
+    "icon_tooltip": "OpenMythos 外部ループ",
+    "panel_title": "OpenMythos 外部ループ",
+    "panel_hint": "群れが先に計画と収束を行い、戦略をこの課題の担当エージェントへ引き渡します。",
+    "iterations": "反復回数：{count}",
+    "target_required": "先にこの課題をエージェントまたはチームに割り当ててください",
+    "start": "外部ループを開始",
+    "rerun": "外部ループを再実行"
   }
 }

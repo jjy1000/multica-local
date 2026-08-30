@@ -46,7 +46,7 @@
       "description": "팀과 다른 사용자들과 교류해 보세요.",
       "dismiss": "닫기"
     },
-    "experimental_mythos": "Mythos 스웜 v1",
+    "experimental_mythos": "OpenMythos 외부 루프",
     "experimental_enabled_badge": "활성화됨",
     "mythos_enabled_badge": "스웜 활성화됨",
     "pythia_enabled_badge": "Pythia 활성화됨",

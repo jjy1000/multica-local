@@ -77,6 +77,7 @@ import { ThreadNavPanel, mentionsUser, type ThreadNavThread } from "./thread-nav
 import { collectThreadReplies, deriveThreadResolution } from "./thread-utils";
 import { IssueAgentHeaderChip } from "./issue-agent-header-chip";
 import { IssueCausalGraphIcon } from "./issue-causal-icon";
+import { IssueOpenMythosIcon } from "./issue-openmythos-icon";
 import { IssueLabsSection, labSourceRouteSuffix, AgentTrustCorrectButton } from "./issue-labs-section";
 import { LabDeliverableSummary } from "../../experimental/components/lab-deliverable-summary";
 import { ExecutionLogSection } from "./execution-log-section";
@@ -2369,6 +2370,16 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 Opens the subgraph preview; jump target is the workspace
                 graph view. */}
             <IssueCausalGraphIcon issueId={id} />
+            {/* 0.5.90 OpenMythos: outer-loop indicator + run surface.
+                Renders only when the issue is bound to mythos_swarm
+                (ICP-5 passive law), beside the causal icon. */}
+            <IssueOpenMythosIcon
+              issueId={id}
+              labSource={issue?.lab_source ?? null}
+              issueTitle={issue?.title}
+              issueDescription={issue?.description ?? null}
+              assigneeType={issue?.assignee_type ?? null}
+            />
             {/* Thread navigator. Leftmost of the action buttons because it
                 navigates the document, while everything to its right acts on
                 the issue. Hidden on mobile with the rail: the panel would work

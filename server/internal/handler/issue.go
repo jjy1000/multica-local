@@ -2504,6 +2504,16 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		enhancerMode := req.LabMode != nil && *req.LabMode == "enhancer"
 		hasAssignee := assigneeType.Valid || assigneeID.Valid
 		labSource := *req.LabSource
+		// 0.5.90 OpenMythos: sole mode is disabled for NEW bindings —
+		// the swarm lab runs exclusively as the enhancer outer loop
+		// paired with a user-picked target assignee. Legacy sole-bound
+		// issues keep resolving (forward-only law); this gate only
+		// rejects writes that would CREATE a new sole binding.
+		if labSource == "mythos_swarm" && req.LabMode != nil && *req.LabMode == "sole" {
+			writeError(w, http.StatusBadRequest,
+				"lab_mode='sole' is disabled for mythos_swarm (OpenMythos): the outer loop runs only in enhancer mode with a target assignee")
+			return
+		}
 		switch {
 		case !enhancerMode && hasAssignee:
 			// 0.5.86 assignee-lock: InteractionModelAssignee labs own
@@ -3107,6 +3117,17 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 			postLabSource := prevIssue.LabSource.String
 			if _, ok := rawFields["lab_source"]; ok && req.LabSource != nil {
 				postLabSource = *req.LabSource
+			}
+			// 0.5.90 OpenMythos parity with CreateIssue: reject PATCHes
+			// that would (re)bind a sole mythos binding. Scoped to writes
+			// that touch lab_mode, so legacy sole-bound issues stay
+			// editable in every other field (forward-only law).
+			if postLabSource == "mythos_swarm" && postLabMode == "sole" {
+				if _, touchedMode := rawFields["lab_mode"]; touchedMode {
+					writeError(w, http.StatusBadRequest,
+						"lab_mode='sole' is disabled for mythos_swarm (OpenMythos): the outer loop runs only in enhancer mode with a target assignee")
+					return
+				}
 			}
 			// Mirror the same 0.3.33 narrowing as CreateIssue. Two
 			// sources keep the mutex: mythos_swarm (with enhancer

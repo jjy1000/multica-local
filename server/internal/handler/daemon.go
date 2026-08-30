@@ -30,6 +30,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/service/agent_trust"
 	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
+	"github.com/multica-ai/multica/server/internal/service/mythos"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -2031,11 +2032,44 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	// invites recursion. The verbs are contract-pinned against the cobra
 	// tree by TestPluginManagementBriefVerbsMatchCLI (briefing/CLI
 	// never-disagree law, extended to five verbs).
-	if issueLabSource := claimIssueLabSource(r.Context(), h, task.IssueID); task.IssueID.Valid && issueLabSource == "" {
+	//
+	// 0.5.90: the lab_source read is hoisted so the OpenMythos strategy
+	// injection below reuses it (one query per claim, not two).
+	issueLabSource := ""
+	if task.IssueID.Valid {
+		issueLabSource = claimIssueLabSource(r.Context(), h, task.IssueID)
+	}
+	if task.IssueID.Valid && issueLabSource == "" {
 		if strings.TrimSpace(resp.Agent.Instructions) == "" {
 			resp.Agent.Instructions = experimental.PluginManagementBrief
 		} else {
 			resp.Agent.Instructions = resp.Agent.Instructions + "\n\n" + experimental.PluginManagementBrief
+		}
+	}
+
+	// 0.5.90: OpenMythos enhancer strategy briefing — injected ONLY for
+	// claims on mythos_swarm-tagged issues. Delivers the outer loop's
+	// distilled strategy to the target assignee at claim time (the
+	// system comment is the human half of the same delivery). Same
+	// silent-fallback discipline as the causal subgraph block:
+	// BuildEnhancerBrief returns ("", nil) on every error/empty path, so
+	// a broken read never blocks the claim. Detached context: the lookup
+	// survives claim-request cancellation.
+	if issueLabSource == "mythos_swarm" && resp.WorkspaceID != "" {
+		strategyCtx := context.WithoutCancel(r.Context())
+		if brief, err := mythos.BuildEnhancerBrief(strategyCtx, h.Queries,
+			parseUUID(resp.WorkspaceID), task.IssueID); err == nil && strings.TrimSpace(brief) != "" {
+			if strings.TrimSpace(resp.Agent.Instructions) == "" {
+				resp.Agent.Instructions = brief
+			} else {
+				resp.Agent.Instructions = resp.Agent.Instructions + "\n\n" + brief
+			}
+			slog.Debug("injected openmythos strategy briefing",
+				"task_id", uuidToString(task.ID),
+				"issue_id", uuidToString(task.IssueID),
+				"workspace_id", resp.WorkspaceID,
+				"brief_bytes", len(brief),
+			)
 		}
 	}
 

@@ -134,21 +134,24 @@ describe("LabPicker", () => {
     });
   });
 
-  it("mythos_swarm sole mode clears the assignee", () => {
+  it("0.5.90: mythos binds enhancer-only and never clears the assignee", () => {
     mockFlags.value = [
       ...mockFlags.value,
       { key: "mythos_swarm", title: { zh: "Mythos 群集", en: "Mythos Swarm" }, enabled: true },
     ];
+    // 0.5.90 OpenMythos: sole mode is retired (server rejects it for
+    // new bindings) — picking mythos always binds enhancer, and the
+    // assignee is the outer loop's execution target so it is kept.
     const sole = renderPicker();
     const trigger = document.querySelector("button[aria-haspopup]")!;
     fireEvent.click(trigger);
     // Items: None + claude_science_lab + pythia_oracle + mythos_swarm.
     const items = document.querySelectorAll("button[data-picker-item]");
     fireEvent.click(items[3]!);
-    expect(sole.onClearAssignee).toHaveBeenCalledTimes(1);
+    expect(sole.onClearAssignee).not.toHaveBeenCalled();
     expect(sole.onUpdate).toHaveBeenCalledWith({
       lab_source: "mythos_swarm",
-      lab_mode: "sole",
+      lab_mode: "enhancer",
     });
   });
 

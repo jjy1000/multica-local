@@ -313,20 +313,28 @@ var Catalog = []Flag{
 		// synthesizes. Each loop turn may invoke Claude Science skills
 		// from the experimental_resource_lock catalogue.
 		//
+		// 0.5.90 rebrand: the user-visible name is OpenMythos (Outer
+		// Loop) — consistent with the upstream reference project and the
+		// 0.3.22 boost-badge label. The flag KEY stays `mythos_swarm`
+		// (VERBATIM duplication law). The lab is enhancer-only: sole
+		// runs are rejected for new bindings (issue.go gate + the run
+		// API), and the distilled strategy is delivered to the target
+		// assignee via a system comment + the claim-time briefing.
+		//
 		// Off by default. The Mythos install handler provisions a
 		// dedicated `mythos-swarm` workspace + 5 Mythos agents + 1
 		// squad; user squads are NOT mutated (preserves the user's
 		// existing roster).
 		Key:        "mythos_swarm",
-		DefaultVal: false,
-		Title: LocalizedString{
-			En: "Mythos Swarm Topology",
-			Zh: "Mythos 蜂群拓扑",
-		},
-		Description: LocalizedString{
-			En: "Multi-agent RDT topology: a prelude agent plans, parallel loop agents iterate until spectral convergence, and a coda agent synthesizes. Off by default — enable to decompose unknown problems through the multica-mythos Skill.",
-			Zh: "多智能体 RDT 拓扑:prelude 智能体规划,并行 loop 智能体迭代至谱收敛,coda 智能体汇总。默认关闭 — 通过 multica-mythos 技能将未知问题解耦为子任务。",
-		},
+	DefaultVal: false,
+	Title: LocalizedString{
+		En: "OpenMythos (Outer Loop)",
+		Zh: "OpenMythos 外循环",
+	},
+	Description: LocalizedString{
+		En: "OpenMythos outer loop: bind it to an issue together with a target agent or squad — the swarm plans, iterates to convergence, and distills a strategy, then hands it to the assignee to execute. Standalone runs are retired. Off by default.",
+		Zh: "OpenMythos 外循环:与某个承办 agent/团队搭配绑定到 issue——蜂群先规划、迭代收敛并蒸馏策略,再交给承办者执行。独立运行已停用。默认关闭。",
+	},
 		ManifestPath: "experiments/mythos_swarm/manifest.json",
 		// headless: Mythos runs entirely inside the agent runtime. The
 		// RDT three-stage runner (prelude / loop / coda) is invoked

@@ -75,8 +75,8 @@ const LAB_BADGES: Record<string, LabBadgeSpec> = {
     toneDarkClassName:
       "dark:border-emerald-700/60 dark:text-emerald-300",
     tooltip:
-      "蜂群拓扑已激活。本任务由 prelude / loop / coda 多智能体协作完成,推理深度与自主能力显著增强。",
-    ariaLabel: "Mythos 蜂群增强运行中",
+      "OpenMythos 外循环已激活。蜂群先规划并迭代收敛,再把蒸馏策略交给本任务的承办智能体执行。",
+    ariaLabel: "OpenMythos 外循环运行中",
   },
   pythia_oracle: {
     label: "Pythia",

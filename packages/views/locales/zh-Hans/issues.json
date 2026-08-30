@@ -522,7 +522,8 @@
       "mode_sole": "蜂群独立",
       "mode_enhancer": "蜂群增强",
       "mode_sole_hint": "Mythos 自己完成 · 清空现有 assignee",
-      "mode_enhancer_hint": "Mythos 先开会规划 · 交给你的 agent/squad 执行"
+      "mode_enhancer_hint": "Mythos 先开会规划 · 交给你的 agent/squad 执行",
+      "mode_sole_retired": "旧版独立绑定 · 切换为搭配模式"
     }
   },
   "lab_section": {
@@ -603,5 +604,14 @@
     "row_backlog_hint": "智能体保持暂停",
     "row_todo_label": "Todo",
     "row_todo_hint": "启动智能体"
+  },
+  "openmythos": {
+    "icon_tooltip": "OpenMythos 外循环",
+    "panel_title": "OpenMythos 外循环",
+    "panel_hint": "蜂群先规划并收敛出策略，再交给本任务的承办智能体执行。",
+    "iterations": "迭代次数：{count}",
+    "target_required": "请先把本任务指派给某个智能体或团队",
+    "start": "启动外循环",
+    "rerun": "重跑外循环"
   }
 }
