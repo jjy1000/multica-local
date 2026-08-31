@@ -22,7 +22,7 @@ import { ActorAvatar } from "../../common/actor-avatar";
 import { ProjectIcon } from "../../projects/components/project-icon";
 import { StatusIcon } from "./status-icon";
 import { PriorityIcon } from "./priority-icon";
-import { IssueActionsContextMenu } from "../actions";
+import { IssueActionsContextMenu, IssueContextMenuProvider } from "../actions";
 import { sortIssues } from "../utils/sort";
 import { useLocale, useT } from "../../i18n";
 
@@ -501,92 +501,94 @@ export function GanttView({ issues }: { issues: Issue[] }) {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {/* Toolbar */}
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3">
-        <div className="inline-flex items-center rounded-md border border-foreground/10 p-0.5">
-          {([
-            { value: "day", label: t(($) => $.gantt.zoom_day) },
-            { value: "week", label: t(($) => $.gantt.zoom_week) },
-            { value: "month", label: t(($) => $.gantt.zoom_month) },
-          ] as const).map((opt) => (
-            <Button
-              key={opt.value}
-              size="sm"
-              variant={zoom === opt.value ? "secondary" : "ghost"}
-              className={cn(
-                "h-6 px-2 text-caption",
-                zoom !== opt.value && "text-muted-foreground",
-              )}
-              onClick={() => act.setGanttZoom(opt.value)}
-            >
-              {opt.label}
-            </Button>
-          ))}
-        </div>
-        <div className="flex-1" />
-        <Button
-          size="sm"
-          variant={showCompleted ? "secondary" : "outline"}
-          className={cn(
-            "h-7 text-caption",
-            !showCompleted && "text-muted-foreground",
-          )}
-          onClick={act.toggleGanttShowCompleted}
-        >
-          {t(($) => $.gantt.show_completed)}
-        </Button>
-      </div>
-
-      {/* Body — single scroll container drives both vertical + horizontal */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
-        <div style={{ minWidth: LEFT_COL_WIDTH + timelineWidth }}>
-          {/* Sticky header row */}
-          <div className="sticky top-0 z-20 flex">
-            <div
-              className="sticky left-0 z-30 shrink-0 border-b border-r bg-background"
-              style={{ width: LEFT_COL_WIDTH, height: HEADER_HEIGHT }}
-            >
-              <div className="flex h-full items-end px-3 pb-1.5 text-[11px] font-medium text-muted-foreground">
-                {t(($) => $.gantt.header_issue)}
-              </div>
-            </div>
-            <GanttAxis
-              range={range}
-              dayPx={dayPx}
-              zoom={zoom}
-              todayOffsetDays={todayOffsetDays}
-              width={timelineWidth}
-            />
-          </div>
-
-          {/* Scheduled rows + background overlay */}
-          <div className="relative">
-            {/* Background gridlines + today line spanning all rows. Positioned
-                starting after the left label column. */}
-            <div
-              className="pointer-events-none absolute top-0"
-              style={{ left: LEFT_COL_WIDTH, width: timelineWidth }}
-            >
-              <BackgroundLayer
-                range={range}
-                dayPx={dayPx}
-                height={scheduled.length * ROW_HEIGHT}
-                todayOffsetDays={todayOffsetDays}
-              />
-            </div>
-            {scheduled.map((issue) => (
-              <ScheduledRow
-                key={issue.id}
-                issue={issue}
-                range={range}
-                dayPx={dayPx}
-                totalDays={totalDays}
-              />
+    <IssueContextMenuProvider>
+      <div className="flex flex-col flex-1 min-h-0">
+        {/* Toolbar */}
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3">
+          <div className="inline-flex items-center rounded-md border border-foreground/10 p-0.5">
+            {([
+              { value: "day", label: t(($) => $.gantt.zoom_day) },
+              { value: "week", label: t(($) => $.gantt.zoom_week) },
+              { value: "month", label: t(($) => $.gantt.zoom_month) },
+            ] as const).map((opt) => (
+              <Button
+                key={opt.value}
+                size="sm"
+                variant={zoom === opt.value ? "secondary" : "ghost"}
+                className={cn(
+                  "h-6 px-2 text-caption",
+                  zoom !== opt.value && "text-muted-foreground",
+                )}
+                onClick={() => act.setGanttZoom(opt.value)}
+              >
+                {opt.label}
+              </Button>
             ))}
           </div>
+          <div className="flex-1" />
+          <Button
+            size="sm"
+            variant={showCompleted ? "secondary" : "outline"}
+            className={cn(
+              "h-7 text-caption",
+              !showCompleted && "text-muted-foreground",
+            )}
+            onClick={act.toggleGanttShowCompleted}
+          >
+            {t(($) => $.gantt.show_completed)}
+          </Button>
+        </div>
+
+        {/* Body — single scroll container drives both vertical + horizontal */}
+        <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
+          <div style={{ minWidth: LEFT_COL_WIDTH + timelineWidth }}>
+            {/* Sticky header row */}
+            <div className="sticky top-0 z-20 flex">
+              <div
+                className="sticky left-0 z-30 shrink-0 border-b border-r bg-background"
+                style={{ width: LEFT_COL_WIDTH, height: HEADER_HEIGHT }}
+              >
+                <div className="flex h-full items-end px-3 pb-1.5 text-[11px] font-medium text-muted-foreground">
+                  {t(($) => $.gantt.header_issue)}
+                </div>
+              </div>
+              <GanttAxis
+                range={range}
+                dayPx={dayPx}
+                zoom={zoom}
+                todayOffsetDays={todayOffsetDays}
+                width={timelineWidth}
+              />
+            </div>
+
+            {/* Scheduled rows + background overlay */}
+            <div className="relative">
+              {/* Background gridlines + today line spanning all rows. Positioned
+                  starting after the left label column. */}
+              <div
+                className="pointer-events-none absolute top-0"
+                style={{ left: LEFT_COL_WIDTH, width: timelineWidth }}
+              >
+                <BackgroundLayer
+                  range={range}
+                  dayPx={dayPx}
+                  height={scheduled.length * ROW_HEIGHT}
+                  todayOffsetDays={todayOffsetDays}
+                />
+              </div>
+              {scheduled.map((issue) => (
+                <ScheduledRow
+                  key={issue.id}
+                  issue={issue}
+                  range={range}
+                  dayPx={dayPx}
+                  totalDays={totalDays}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </IssueContextMenuProvider>
   );
 }

@@ -49,6 +49,7 @@ import { sortIssues } from "../utils/sort";
 import { BOARD_STATUSES, STATUS_CONFIG } from "@multica/core/issues/config";
 import { useModalStore } from "@multica/core/modals";
 import { DraggableBoardCard, BoardCardContent } from "./board-card";
+import { IssueContextMenuProvider } from "../actions";
 import { StatusIcon } from "./status-icon";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { Button } from "@multica/ui/components/ui/button";
@@ -1121,88 +1122,65 @@ export function SwimLaneView({
   }, [cells]);
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={collisionDetection}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <div className="flex flex-1 min-h-0 gap-4 overflow-auto p-4">
-        <div className="flex shrink-0 flex-col" style={{ width: `${trackWidth}px` }}>
-        {/* Sticky status header row — visually matches the top of a BoardColumn */}
-        <div className="sticky top-0 z-10 mb-2 bg-background/95 pb-2 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-          <div style={gridStyle}>
-            {sortedStatuses.map((status) => {
-              const cfg = STATUS_CONFIG[statusCategoryOfKey(status)];
-              const total = statusTotals.get(status) ?? 0;
-              return (
-                <div
-                  key={status}
-                  className={`flex items-center justify-between rounded-xl ${cfg?.columnBg ?? "bg-muted/40"} px-3 py-2`}
-                >
-                  <StatusHeading status={status} count={total} />
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      render={
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={t(($) => $.board.hide_column)}
-                          className="rounded-full text-muted-foreground"
+    <IssueContextMenuProvider>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="flex flex-1 min-h-0 gap-4 overflow-auto p-4">
+          <div className="flex shrink-0 flex-col" style={{ width: `${trackWidth}px` }}>
+          {/* Sticky status header row — visually matches the top of a BoardColumn */}
+          <div className="sticky top-0 z-10 mb-2 bg-background/95 pb-2 backdrop-blur supports-[backdrop-filter]:bg-background/75">
+            <div style={gridStyle}>
+              {sortedStatuses.map((status) => {
+                const cfg = STATUS_CONFIG[statusCategoryOfKey(status)];
+                const total = statusTotals.get(status) ?? 0;
+                return (
+                  <div
+                    key={status}
+                    className={`flex items-center justify-between rounded-xl ${cfg?.columnBg ?? "bg-muted/40"} px-3 py-2`}
+                  >
+                    <StatusHeading status={status} count={total} />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={t(($) => $.board.hide_column)}
+                            className="rounded-full text-muted-foreground"
+                          >
+                            <MoreHorizontal className="size-3.5" />
+                          </Button>
+                        }
+                      />
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => viewStoreApi.getState().hideStatus(status)}
                         >
-                          <MoreHorizontal className="size-3.5" />
-                        </Button>
-                      }
-                    />
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() => viewStoreApi.getState().hideStatus(status)}
-                      >
-                        <EyeOff className="size-3.5" />
-                        {t(($) => $.board.hide_column)}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              );
-            })}
+                          <EyeOff className="size-3.5" />
+                          {t(($) => $.board.hide_column)}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        {/* Lane rows. Pinned lanes (the no-X bucket, and parent-grouping's
-            orphan fallback) sit at the top and are non-draggable; the rest
-            are wrapped in a SortableContext so users can reorder lanes by
-            dragging the grip handle. */}
-        <div className="flex flex-col gap-4">
-          {laneGroups
-            .filter((g) => g.isPinned)
-            .map((lane) => (
-              <DraggableSwimLane
-                key={lane.key}
-                lane={lane}
-                grouping={swimlaneGrouping}
-                isCollapsed={collapsedLanes.has(lane.key)}
-                onToggleCollapse={() => toggleLane(lane.key)}
-                localCells={localCells}
-                sortedStatuses={sortedStatuses}
-                issueMap={issueMapRef.current}
-                childProgressMap={childProgressMap}
-                gridStyle={gridStyle}
-                paths={paths}
-                projectId={projectId}
-              />
-            ))}
-          <SortableContext
-            items={laneGroups
-              .filter((g) => !g.isPinned)
-              .map((g) => laneIdFor(swimlaneGrouping, g.rawId))}
-            strategy={verticalListSortingStrategy}
-          >
+          {/* Lane rows. Pinned lanes (the no-X bucket, and parent-grouping's
+              orphan fallback) sit at the top and are non-draggable; the rest
+              are wrapped in a SortableContext so users can reorder lanes by
+              dragging the grip handle. */}
+          <div className="flex flex-col gap-4">
             {laneGroups
-              .filter((g) => !g.isPinned)
+              .filter((g) => g.isPinned)
               .map((lane) => (
                 <DraggableSwimLane
                   key={lane.key}
@@ -1219,34 +1197,59 @@ export function SwimLaneView({
                   projectId={projectId}
                 />
               ))}
-          </SortableContext>
+            <SortableContext
+              items={laneGroups
+                .filter((g) => !g.isPinned)
+                .map((g) => laneIdFor(swimlaneGrouping, g.rawId))}
+              strategy={verticalListSortingStrategy}
+            >
+              {laneGroups
+                .filter((g) => !g.isPinned)
+                .map((lane) => (
+                  <DraggableSwimLane
+                    key={lane.key}
+                    lane={lane}
+                    grouping={swimlaneGrouping}
+                    isCollapsed={collapsedLanes.has(lane.key)}
+                    onToggleCollapse={() => toggleLane(lane.key)}
+                    localCells={localCells}
+                    sortedStatuses={sortedStatuses}
+                    issueMap={issueMapRef.current}
+                    childProgressMap={childProgressMap}
+                    gridStyle={gridStyle}
+                    paths={paths}
+                    projectId={projectId}
+                  />
+                ))}
+            </SortableContext>
 
-          {/* Per-status load-more sentinels — same bucketed cache as Board. */}
-          <SwimLaneLoadMoreRow
-            sortedStatuses={sortedStatuses}
-            gridStyle={gridStyle}
-            myIssuesOpts={myIssuesOpts}
-            sort={sort}
-          />
-        </div>
-        </div>
-
-        {hiddenStatuses.length > 0 && (
-          <SwimLaneHiddenColumnsPanel
-            hiddenStatuses={hiddenStatuses}
-            statusTotals={statusTotals}
-          />
-        )}
-      </div>
-
-      <DragOverlay dropAnimation={null}>
-        {activeIssue ? (
-          <div className="w-[280px] rotate-2 scale-105 cursor-grabbing opacity-90 shadow-lg shadow-black/10">
-            <BoardCardContent issue={activeIssue} childProgress={childProgressMap.get(activeIssue.id)} />
+            {/* Per-status load-more sentinels — same bucketed cache as Board. */}
+            <SwimLaneLoadMoreRow
+              sortedStatuses={sortedStatuses}
+              gridStyle={gridStyle}
+              myIssuesOpts={myIssuesOpts}
+              sort={sort}
+            />
           </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+          </div>
+
+          {hiddenStatuses.length > 0 && (
+            <SwimLaneHiddenColumnsPanel
+              hiddenStatuses={hiddenStatuses}
+              statusTotals={statusTotals}
+            />
+          )}
+        </div>
+
+        <DragOverlay dropAnimation={null}>
+          {activeIssue ? (
+            <div className="w-[280px] rotate-2 scale-105 cursor-grabbing opacity-90 shadow-lg shadow-black/10">
+              <BoardCardContent issue={activeIssue} childProgress={childProgressMap.get(activeIssue.id)} />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </IssueContextMenuProvider>
   );
 }
 

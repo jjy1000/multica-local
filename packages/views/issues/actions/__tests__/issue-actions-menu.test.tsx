@@ -116,7 +116,10 @@ vi.mock("../../../common/actor-avatar", () => ({
 
 // Import after mocks.
 import { IssueActionsDropdown } from "../issue-actions-dropdown";
-import { IssueActionsContextMenu } from "../issue-actions-context-menu";
+import {
+  IssueActionsContextMenu,
+  IssueContextMenuProvider,
+} from "../issue-actions-context-menu";
 
 const mockIssue: Issue = {
   id: "issue-1",
@@ -288,9 +291,11 @@ describe("IssueActionsContextMenu", () => {
   it("renders the menu when the wrapped element receives a contextmenu event", async () => {
     render(
       wrap(
-        <IssueActionsContextMenu issue={mockIssue}>
-          <div data-testid="row">Row</div>
-        </IssueActionsContextMenu>,
+        <IssueContextMenuProvider>
+          <IssueActionsContextMenu issue={mockIssue}>
+            <div data-testid="row">Row</div>
+          </IssueActionsContextMenu>
+        </IssueContextMenuProvider>,
       ),
     );
 
@@ -301,5 +306,62 @@ describe("IssueActionsContextMenu", () => {
     // sub-issue rows all share, so this one assertion covers them together.
     expect(screen.getByText("Open in new tab")).toBeInTheDocument();
     expect(screen.getByText("Delete issue")).toBeInTheDocument();
+  });
+
+  // Regression for the app-wide freeze: with one Base UI ContextMenu root per
+  // row, the menu's own status change re-bucketed the issue and unmounted the
+  // anchored row — taking the open modal menu with it. The leaked backdrop
+  // then swallowed every click in the window. The surface-level singleton
+  // must survive the row's unmount and stay fully interactive.
+  it("keeps the open menu alive and clickable when its anchored row unmounts", async () => {
+    function Surface({ showRow }: { showRow: boolean }) {
+      return (
+        <IssueContextMenuProvider>
+          {showRow && (
+            <IssueActionsContextMenu issue={mockIssue}>
+              <div data-testid="row">Row</div>
+            </IssueActionsContextMenu>
+          )}
+        </IssueContextMenuProvider>
+      );
+    }
+
+    const { rerender } = render(wrap(<Surface showRow />));
+    fireEvent.contextMenu(screen.getByTestId("row"));
+    expect(await screen.findByText("Status")).toBeInTheDocument();
+
+    // The optimistic status patch re-buckets the issue and the row unmounts
+    // while the menu is still open.
+    rerender(wrap(<Surface showRow={false} />));
+
+    expect(screen.queryByTestId("row")).not.toBeInTheDocument();
+    // The menu is owned by the surface, not the row: still open, and its
+    // items still fire — clicking Delete opens the confirm modal.
+    expect(screen.getByText("Status")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Delete issue"));
+    expect(mockOpenModal).toHaveBeenCalledWith("issue-delete-confirm", {
+      issueId: "issue-1",
+      identifier: "TES-1",
+      onDeletedNavigateTo: undefined,
+    });
+  });
+
+  it("throws when no provider is mounted above (surfaces must opt in)", () => {
+    // React logs the error even when caught by the boundary-less render;
+    // silence it so the assertion is the only signal.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() =>
+        render(
+          wrap(
+            <IssueActionsContextMenu issue={mockIssue}>
+              <div>Row</div>
+            </IssueActionsContextMenu>
+          ),
+        ),
+      ).toThrow(/IssueContextMenuProvider/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

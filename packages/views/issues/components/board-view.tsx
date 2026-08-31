@@ -22,6 +22,7 @@ import type { IssueGrouping } from "@multica/core/issues/stores/view-store";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { BoardColumn, BOARD_CARD_WIDTH, type BoardColumnGroup } from "./board-column";
 import { BoardCardContent } from "./board-card";
+import { IssueContextMenuProvider } from "../actions";
 import { HiddenColumnsPanel, HiddenColumnRow } from "./hidden-columns-panel";
 import { InfiniteScrollSentinel } from "./infinite-scroll-sentinel";
 import type { ChildProgress } from "./list-row";
@@ -413,88 +414,90 @@ export function BoardView({
   }, [groupedIssues, groups, grouping, setColumns, isDraggingRef]);
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={collisionDetection}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <div
-        ref={pan.ref}
-        onPointerDown={pan.onPointerDown}
-        onPointerMove={pan.onPointerMove}
-        onPointerUp={pan.onPointerUp}
-        onPointerCancel={pan.onPointerCancel}
-        onLostPointerCapture={pan.onLostPointerCapture}
-        className="flex flex-1 min-h-0 gap-4 overflow-x-auto p-2"
+    <IssueContextMenuProvider>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
       >
-        {groups.length === 0 ? (
-          <div className="flex min-w-full flex-1 items-center justify-center text-sm text-muted-foreground">
-            {t(($) => $.board.empty_grouping)}
-          </div>
-        ) : (
-          groups.map((group) =>
-            isStatusGroup(group) ? (
-              <PaginatedBoardColumn
-                key={group.id}
-                group={group}
-                issueIds={columns[group.id] ?? EMPTY_IDS}
-                issueMap={issueMapRef.current}
-                childProgressMap={childProgressMap}
-                myIssuesOpts={myIssuesOpts}
-                sort={sort}
-                projectId={projectId}
-                sortLabel={sortLabel}
-              />
-            ) : (
-              assigneeGroupQueryKey && assigneeGroupFilter ? (
-                <PaginatedAssigneeBoardColumn
+        <div
+          ref={pan.ref}
+          onPointerDown={pan.onPointerDown}
+          onPointerMove={pan.onPointerMove}
+          onPointerUp={pan.onPointerUp}
+          onPointerCancel={pan.onPointerCancel}
+          onLostPointerCapture={pan.onLostPointerCapture}
+          className="flex flex-1 min-h-0 gap-4 overflow-x-auto p-2"
+        >
+          {groups.length === 0 ? (
+            <div className="flex min-w-full flex-1 items-center justify-center text-sm text-muted-foreground">
+              {t(($) => $.board.empty_grouping)}
+            </div>
+          ) : (
+            groups.map((group) =>
+              isStatusGroup(group) ? (
+                <PaginatedBoardColumn
                   key={group.id}
                   group={group}
                   issueIds={columns[group.id] ?? EMPTY_IDS}
                   issueMap={issueMapRef.current}
                   childProgressMap={childProgressMap}
-                  queryKey={assigneeGroupQueryKey}
-                  filter={assigneeGroupFilter}
+                  myIssuesOpts={myIssuesOpts}
                   sort={sort}
                   projectId={projectId}
                   sortLabel={sortLabel}
                 />
               ) : (
-                <BoardColumn
-                  key={group.id}
-                  group={group}
-                  issueIds={columns[group.id] ?? EMPTY_IDS}
-                  issueMap={issueMapRef.current}
-                  childProgressMap={childProgressMap}
-                  projectId={projectId}
-                  totalCount={group.totalCount}
-                  sortLabel={sortLabel}
-                />
-              )
-            ),
-          )
-        )}
+                assigneeGroupQueryKey && assigneeGroupFilter ? (
+                  <PaginatedAssigneeBoardColumn
+                    key={group.id}
+                    group={group}
+                    issueIds={columns[group.id] ?? EMPTY_IDS}
+                    issueMap={issueMapRef.current}
+                    childProgressMap={childProgressMap}
+                    queryKey={assigneeGroupQueryKey}
+                    filter={assigneeGroupFilter}
+                    sort={sort}
+                    projectId={projectId}
+                    sortLabel={sortLabel}
+                  />
+                ) : (
+                  <BoardColumn
+                    key={group.id}
+                    group={group}
+                    issueIds={columns[group.id] ?? EMPTY_IDS}
+                    issueMap={issueMapRef.current}
+                    childProgressMap={childProgressMap}
+                    projectId={projectId}
+                    totalCount={group.totalCount}
+                    sortLabel={sortLabel}
+                  />
+                )
+              ),
+            )
+          )}
 
-        {grouping === "status" && hiddenStatuses.length > 0 && (
-          <BoardHiddenColumnsPanel
-            hiddenStatuses={hiddenStatuses}
-            myIssuesOpts={myIssuesOpts}
-            sort={sort}
-          />
-        )}
-      </div>
+          {grouping === "status" && hiddenStatuses.length > 0 && (
+            <BoardHiddenColumnsPanel
+              hiddenStatuses={hiddenStatuses}
+              myIssuesOpts={myIssuesOpts}
+              sort={sort}
+            />
+          )}
+        </div>
 
-      <DragOverlay dropAnimation={null}>
-        {activeIssue ? (
-          <div style={{ width: BOARD_CARD_WIDTH }} className="rotate-1 cursor-grabbing opacity-90 shadow-lg shadow-black/10">
-            <BoardCardContent issue={activeIssue} childProgress={childProgressMap.get(activeIssue.id)} />
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+        <DragOverlay dropAnimation={null}>
+          {activeIssue ? (
+            <div style={{ width: BOARD_CARD_WIDTH }} className="rotate-1 cursor-grabbing opacity-90 shadow-lg shadow-black/10">
+              <BoardCardContent issue={activeIssue} childProgress={childProgressMap.get(activeIssue.id)} />
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </IssueContextMenuProvider>
   );
 }
 

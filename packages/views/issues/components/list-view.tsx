@@ -25,6 +25,7 @@ import { useViewStore } from "@multica/core/issues/stores/view-store-context";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
 import { StatusHeading } from "./status-heading";
 import { ListRow, DraggableListRow, type ChildProgress } from "./list-row";
+import { IssueContextMenuProvider } from "../actions";
 import { useDragSettle } from "./use-drag-settle";
 import { InfiniteScrollSentinel } from "./infinite-scroll-sentinel";
 import { useT } from "../../i18n";
@@ -344,34 +345,38 @@ export function ListView({
 
   if (!dragEnabled) {
     return (
-      <div className="flex-1 min-h-0 overflow-y-auto p-2 pt-0">
-        {content}
-      </div>
+      <IssueContextMenuProvider>
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 pt-0">
+          {content}
+        </div>
+      </IssueContextMenuProvider>
     );
   }
 
   return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={collisionDetection}
-      onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
-      onDragEnd={handleDragEnd}
-      onDragCancel={handleDragCancel}
-    >
-      <div className="flex-1 min-h-0 overflow-y-auto p-2 pt-0">
-        {content}
-      </div>
+    <IssueContextMenuProvider>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
+      >
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 pt-0">
+          {content}
+        </div>
 
-      <DragOverlay dropAnimation={null}>
-        {activeIssue ? (
-          <div className="max-w-2xl rotate-1 cursor-grabbing opacity-90 shadow-lg shadow-black/10 rounded-md border border-border bg-card px-4 py-2">
-            <span className="text-xs text-muted-foreground mr-2">{activeIssue.identifier}</span>
-            <span className="text-body">{activeIssue.title}</span>
-          </div>
-        ) : null}
-      </DragOverlay>
-    </DndContext>
+        <DragOverlay dropAnimation={null}>
+          {activeIssue ? (
+            <div className="max-w-2xl rotate-1 cursor-grabbing opacity-90 shadow-lg shadow-black/10 rounded-md border border-border bg-card px-4 py-2">
+              <span className="text-xs text-muted-foreground mr-2">{activeIssue.identifier}</span>
+              <span className="text-body">{activeIssue.title}</span>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </IssueContextMenuProvider>
   );
 }
 
