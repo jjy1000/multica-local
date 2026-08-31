@@ -8,6 +8,7 @@ import {
   Inbox,
   ListTodo,
   Monitor,
+  Plug,
   Settings,
   Users,
   Zap,
@@ -33,6 +34,7 @@ export const NAV_PAGE_REGISTRY = [
   { key: "usage", labelKey: "usage", icon: BarChart3, group: "workspace" },
   { key: "runtimes", labelKey: "runtimes", icon: Monitor, group: "configure" },
   { key: "skills", labelKey: "skills", icon: BookOpenText, group: "configure" },
+  { key: "mcp", labelKey: "mcp", icon: Plug, group: "configure" },
   { key: "settings", labelKey: "settings", icon: Settings, group: "configure" },
 ] as const satisfies readonly NavPageDefinition[];
 

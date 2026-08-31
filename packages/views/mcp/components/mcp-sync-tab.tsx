@@ -81,12 +81,9 @@ export function McpSyncTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h2 className="text-body font-semibold">{t(($) => $.mcp_sync.title)}</h2>
-          <p className="text-caption text-muted-foreground">
-            {t(($) => $.mcp_sync.description)}
-          </p>
-        </div>
+        <p className="text-caption text-muted-foreground">
+          {t(($) => $.mcp_sync.description)}
+        </p>
         <Button
           type="button"
           variant="outline"

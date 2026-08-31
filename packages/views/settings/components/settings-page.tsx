@@ -10,7 +10,6 @@ import {
   FlaskConical,
   Bell,
   CircleDot,
-  Plug,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@multica/ui/components/ui/tabs";
 import { useCurrentWorkspace } from "@multica/core/paths";
@@ -23,7 +22,6 @@ import { RepositoriesTab } from "./repositories-tab";
 import { LabsTab } from "./labs-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { IssueStatusesTab } from "./issue-statuses-tab";
-import { McpSyncTab } from "./mcp-sync-tab";
 import { useT } from "../../i18n";
 
 const ACCOUNT_TAB_KEYS = ["profile", "preferences", "notifications", "tokens"] as const;
@@ -46,21 +44,18 @@ const ACCOUNT_TAB_ICONS = {
 const WORKSPACE_TAB_KEYS = [
   "general",
   "repositories",
-  "mcp",
   "labs",
   "issue_statuses",
 ] as const;
 const WORKSPACE_TAB_VALUES = {
   general: "workspace",
   repositories: "repositories",
-  mcp: "mcp-sync",
   labs: "labs",
   issue_statuses: "issue-statuses",
 } as const;
 const WORKSPACE_TAB_ICONS = {
   general: Settings,
   repositories: FolderGit2,
-  mcp: Plug,
   labs: FlaskConical,
   issue_statuses: CircleDot,
 } as const;
@@ -183,7 +178,6 @@ export function SettingsPage({ extraAccountTabs }: SettingsPageProps = {}) {
           <TabsContent value="tokens"><TokensTab /></TabsContent>
           <TabsContent value="workspace"><WorkspaceTab /></TabsContent>
           <TabsContent value="repositories"><RepositoriesTab /></TabsContent>
-          <TabsContent value="mcp-sync"><McpSyncTab /></TabsContent>
           <TabsContent value="labs"><LabsTab /></TabsContent>
           <TabsContent value="issue-statuses"><IssueStatusesTab /></TabsContent>
           {extraAccountTabs?.map((tab) => (
