@@ -23,11 +23,13 @@
 //   - The 19827 / 19828 ports are picked up at runtime via lsof on
 //     `llm-wiki`. The first loopback port that responds with the LLM
 //     Wiki health JSON wins.
-//   - Auth: bearer token. The desktop app stores a long-lived token
-//     in its keychain; we read it from
-//     ~/Library/Application Support/LLM Wiki/auth.json (path the
-//     desktop app writes; future versions may encrypt it under the
-//     macOS keychain — HandleToken auto-detects either path).
+//   - Auth: bearer token. The desktop app (v0.6.x) stores a
+//     long-lived token in its Tauri app-state
+//     (~/Library/Application Support/com.llmwiki.app/app-state.json,
+//     apiConfig.token); older builds wrote a standalone auth.json.
+//     DiscoverToken auto-detects every layout, plus the env var
+//     LLM_WIKI_API_TOKEN and Multica's own store
+//     (~/.multica/llm-wiki.json — see token_store.go).
 //   - Flag gate: every caller in this package is wrapped via
 //     (*Client).WithFlag(ctx, "llm_wiki_bridge"). If the flag is off
 //     the helper returns a sentinel error
@@ -36,7 +38,8 @@
 // Concurrency:
 //
 //   - One *Client per process; the client holds a single
-//     http.Client with a 5-second timeout. Requests are safe for
+//     http.Client with a 45-second timeout (the /graph endpoint on
+//     a mature vault takes ~20s). Requests are safe for
 //     concurrent use.
 //   - listFiles / search etc. cap the response at topK / maxFiles
 //     the upstream permits; we surface upstream clamps as-is.
@@ -91,8 +94,11 @@ type Config struct {
 	// Token is the bearer token the desktop app issued; empty
 	// means read from disk via DiscoverToken.
 	Token string
-	// HTTPTimeout bounds each request; 5s default is enough for
-	// 100-result vector search calls.
+	// HTTPTimeout bounds each request; 45s default. Measured on a
+	// 170-source vault: /graph takes ~20s, so the original 5s default
+	// (tuned when the vault was a handful of pages) timed out every
+	// graph query. Everything is localhost; the cost of a generous
+	// ceiling is only a slower failure when the app is wedged.
 	HTTPTimeout time.Duration
 	// FlagOn is the Labs flag gate. Required — every method calls
 	// it before issuing a network request. Pass
@@ -109,7 +115,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	timeout := cfg.HTTPTimeout
 	if timeout <= 0 {
-		timeout = 5 * time.Second
+		timeout = 45 * time.Second
 	}
 
 	c := &Client{
@@ -123,9 +129,9 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("could not locate LLM Wiki desktop API: %w", err)
 		}
-		c.baseURL = base
+		c.baseURL = normalizeBaseURL(base)
 	} else {
-		c.baseURL = cfg.BaseURL
+		c.baseURL = normalizeBaseURL(cfg.BaseURL)
 	}
 
 	if c.token == "" {
@@ -195,6 +201,12 @@ func (c *Client) Projects(ctx context.Context) ([]Project, *Project, error) {
 
 // Search executes a vector + keyword search against the active
 // project. topK <= 0 falls back to the upstream clamp (typically 10).
+//
+// 0.5.92: the v0.6.x app returns its hits under `results`
+// (vectorHits/tokenHits/graphHits are additive side-channels); the
+// 0.4.x-era shape decoded `hits` and silently produced zero results
+// even once the /api/v1 prefix fix made the request land. Decode
+// both, new key first.
 func (c *Client) Search(ctx context.Context, query string, topK int, includeContent bool) ([]SearchHit, error) {
 	if err := c.WithFlag(ctx); err != nil {
 		return nil, err
@@ -205,16 +217,30 @@ func (c *Client) Search(ctx context.Context, query string, topK int, includeCont
 		"includeContent": includeContent,
 	}
 	var raw struct {
-		Hits []SearchHit `json:"hits"`
+		Results []SearchHit `json:"results"`
+		Hits    []SearchHit `json:"hits"`
 	}
 	if err := c.postJSON(ctx, "/projects/current/search", body, &raw); err != nil {
 		return nil, err
+	}
+	if raw.Results != nil {
+		return raw.Results, nil
 	}
 	return raw.Hits, nil
 }
 
 // Files lists the project tree, optionally rooted at wiki / sources
 // / all.
+//
+// 0.5.92 drift fixes against the v0.6.x app:
+//   - `recursive` is now ALWAYS sent explicitly. Omitting the param
+//     makes the app default to recursive=true, and a listing that
+//     crosses its hard cap (2000 entries) is a 413 ERROR, not the
+//     truncation the 0.4.x-era code assumed.
+//   - When a recursive listing does hit that cap, Files retries
+//     non-recursively so callers get at least the top-level tree
+//     instead of a bare error; drill-down stays available via
+//     narrower root= calls.
 func (c *Client) Files(ctx context.Context, root string, recursive bool, maxFiles int) ([]FileNode, error) {
 	if err := c.WithFlag(ctx); err != nil {
 		return nil, err
@@ -222,23 +248,33 @@ func (c *Client) Files(ctx context.Context, root string, recursive bool, maxFile
 	if root == "" {
 		root = "wiki"
 	}
-	q := url.Values{}
-	q.Set("root", root)
-	if recursive {
-		q.Set("recursive", "true")
+	list := func(rec bool) ([]FileNode, error) {
+		q := url.Values{}
+		q.Set("root", root)
+		// Explicit either way — omission means recursive on v0.6.x.
+		if rec {
+			q.Set("recursive", "true")
+		} else {
+			q.Set("recursive", "false")
+		}
+		if maxFiles > 0 {
+			q.Set("maxFiles", fmt.Sprintf("%d", maxFiles))
+		}
+		var raw struct {
+			Files     []FileNode `json:"files"`
+			Truncated bool       `json:"truncated"`
+		}
+		if err := c.getJSON(ctx, "/projects/current/files?"+q.Encode(), nil, &raw); err != nil {
+			return nil, err
+		}
+		return raw.Files, nil
 	}
-	if maxFiles > 0 {
-		q.Set("maxFiles", fmt.Sprintf("%d", maxFiles))
+	files, err := list(recursive)
+	if err == nil || !recursive || !strings.Contains(err.Error(), "exceeds maxFiles") {
+		return files, err
 	}
-	path := "/projects/current/files?" + q.Encode()
-	var raw struct {
-		Files     []FileNode `json:"files"`
-		Truncated bool       `json:"truncated"`
-	}
-	if err := c.getJSON(ctx, path, nil, &raw); err != nil {
-		return nil, err
-	}
-	return raw.Files, nil
+	// Cap cliff on the recursive walk — degrade to the top level.
+	return list(false)
 }
 
 // ReadFile reads a text file under the project's public tree.
@@ -388,6 +424,31 @@ func decodeResponse(resp *http.Response, out any) error {
 	return json.Unmarshal(body, out)
 }
 
+// normalizeBaseURL guarantees the client base always carries the
+// /api/v1 prefix every getJSON/postJSON call-site path assumes.
+//
+// 0.5.92 regression: the 0.3.x→0.5.91 builds composed request URLs
+// as bare base + path, with the prefix present only because the unit
+// tests baked it into Config.BaseURL. Production's DiscoverBaseURL
+// returns the bare loopback host, so every read verb
+// (projects/files/read/search/graph) hit e.g.
+// http://127.0.0.1:19828/projects/... and 404'd against the desktop
+// app — while /status stayed green because the app happens to also
+// serve /health at the root. Normalising here closes that gap for
+// both the discovered and the explicitly-configured shapes; a
+// BaseURL that already ends in /api/v1 (the old test convention) is
+// left untouched.
+func normalizeBaseURL(u string) string {
+	u = strings.TrimRight(strings.TrimSpace(u), "/")
+	if u == "" {
+		return ""
+	}
+	if strings.HasSuffix(u, DefaultAPIPath) {
+		return u
+	}
+	return u + DefaultAPIPath
+}
+
 // DiscoverBaseURL finds the loopback port LLM Wiki is listening on
 // by issuing a /health probe against 19827 / 19828. The desktop app
 // binds both ports for backwards compatibility, but only one is the
@@ -418,34 +479,77 @@ func DiscoverBaseURL(ctx context.Context, hc *http.Client) (string, error) {
 	return "", errors.New("LLM Wiki desktop app not running on 19827 or 19828")
 }
 
-// DiscoverToken reads the bearer token the desktop app stores in
-// its application support directory. The location matches the
-// desktop app's own reading code (api-client.ts), so changes
-// upstream are picked up by re-reading on every New().
+// DiscoverToken resolves the LLM Wiki desktop API bearer token. The
+// desktop app moved its storage across versions, so the lookup is a
+// priority chain:
+//
+//  1. $LLM_WIKI_API_TOKEN — explicit override, the same env var the
+//     app's own MCP config ships with
+//  2. ~/.multica/llm-wiki.json — the key the user pasted into
+//     Multica (Labs → LLM Wiki page, or
+//     `multica experimental llm-wiki token --set`)
+//  3. ~/Library/Application Support/com.llmwiki.app/app-state.json
+//     (apiConfig.token) — what the v0.6.x Tauri app persists
+//  4. legacy auth.json layouts — pre-0.6 builds, kept so a
+//     downgraded app keeps working
+//
+// 0.5.92 regression: the old implementation only knew the legacy
+// auth.json paths, which no current app build writes — the bridge
+// silently ran tokenless and only survived because the app allowed
+// unauthenticated local access.
 func DiscoverToken(ctx context.Context) (string, error) {
-	home, err := os.UserHomeDir()
+	if tok := os.Getenv("LLM_WIKI_API_TOKEN"); tok != "" {
+		return tok, nil
+	}
+	home, err := homeFn()
 	if err != nil {
 		return "", err
 	}
-	candidates := []string{
-		filepath.Join(home, "Library", "Application Support", "LLM Wiki", "auth.json"),
-		filepath.Join(home, ".config", "LLM Wiki", "auth.json"),
-		filepath.Join(home, ".llm-wiki", "auth.json"),
-	}
-	for _, p := range candidates {
+	for _, p := range TokenCandidatePaths(home) {
 		b, err := os.ReadFile(p)
 		if err != nil {
 			continue
 		}
-		var raw struct {
-			Token string `json:"token"`
-		}
-		if err := json.Unmarshal(b, &raw); err != nil {
-			continue
-		}
-		if raw.Token != "" {
-			return raw.Token, nil
+		if tok := parseTokenJSON(b); tok != "" {
+			return tok, nil
 		}
 	}
-	return "", errors.New("LLM Wiki token file not found; open the desktop app to generate one")
+	return "", errors.New("LLM Wiki API token not found; generate one in LLM Wiki.app Settings → API + MCP, then paste it in Multica Labs → LLM Wiki (or `multica experimental llm-wiki token --set <token>`)")
+}
+
+// homeFn is the home-dir source, a package var so tests can redirect
+// the candidate scan into a temp directory. Not for production use.
+var homeFn = os.UserHomeDir
+
+// TokenCandidatePaths lists the on-disk files DiscoverToken reads,
+// most-authoritative first: Multica's own token store, then the
+// desktop app's app-state, then the legacy auth.json layouts.
+func TokenCandidatePaths(home string) []string {
+	return []string{
+		filepath.Join(home, ".multica", "llm-wiki.json"),
+		filepath.Join(home, "Library", "Application Support", "com.llmwiki.app", "app-state.json"),
+		filepath.Join(home, "Library", "Application Support", "LLM Wiki", "auth.json"),
+		filepath.Join(home, ".config", "LLM Wiki", "auth.json"),
+		filepath.Join(home, ".llm-wiki", "auth.json"),
+	}
+}
+
+// parseTokenJSON extracts a bearer token from any token-file shape
+// the app has shipped: {"token": "..."} (auth.json, Multica store)
+// and {"apiConfig": {"token": "..."}} (Tauri app-state). Returns ""
+// for unparseable or token-less payloads.
+func parseTokenJSON(b []byte) string {
+	var top struct {
+		Token     string `json:"token"`
+		APIConfig struct {
+			Token string `json:"token"`
+		} `json:"apiConfig"`
+	}
+	if err := json.Unmarshal(b, &top); err != nil {
+		return ""
+	}
+	if top.Token != "" {
+		return top.Token
+	}
+	return top.APIConfig.Token
 }

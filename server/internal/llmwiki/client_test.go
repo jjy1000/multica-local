@@ -84,6 +84,233 @@ func TestClient_Health_OK(t *testing.T) {
 	}
 }
 
+// TestClient_BareHostBaseURL_KeepsAPIPrefix is THE regression test
+// for the 0.5.92 read-path bug: production composes requests from
+// the bare loopback host DiscoverBaseURL returns (e.g.
+// "http://127.0.0.1:19828") plus verb paths like
+// "/projects/current/search". Before the normalizeBaseURL fix the
+// /api/v1 prefix only ever appeared because the unit tests baked it
+// into Config.BaseURL — every production read verb 404'd while
+// /status stayed green (the app also serves /health at the root).
+// This test pins the exact production composition: bare-host
+// BaseURL in, prefixed path on the wire.
+func TestClient_BareHostBaseURL_KeepsAPIPrefix(t *testing.T) {
+	t.Parallel()
+
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.URL.Path)
+		if r.Header.Get("Authorization") != "Bearer t" {
+			t.Errorf("bearer token missing on %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/health":
+			_, _ = io.WriteString(w, `{"ok":true,"status":"running"}`)
+		case "/api/v1/projects/current/search":
+			// v0.6.x app shape: hits live under `results`.
+			_, _ = io.WriteString(w, `{"results":[{"id":"1","title":"x","snippet":"s","score":1,"path":"wiki/x.md"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := New(t.Context(), Config{
+		BaseURL: srv.URL, // bare host — the shape DiscoverBaseURL returns
+		Token:   "t",
+		FlagOn:  func(_ context.Context) bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := c.Health(t.Context()); err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	hits, err := c.Search(t.Context(), "外循环", 3, false)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 || hits[0].Path != "wiki/x.md" {
+		t.Fatalf("unexpected hits: %+v", hits)
+	}
+	want := []string{"/api/v1/health", "/api/v1/projects/current/search"}
+	if len(seen) != len(want) {
+		t.Fatalf("requests seen = %v, want %v", seen, want)
+	}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Fatalf("request[%d] = %s, want %s (missing /api/v1 prefix regression)", i, seen[i], want[i])
+		}
+	}
+}
+
+// TestNormalizeBaseURL pins the prefix normalisation edge cases.
+func TestNormalizeBaseURL(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"http://127.0.0.1:19828":     "http://127.0.0.1:19828/api/v1",
+		"http://127.0.0.1:19828/":    "http://127.0.0.1:19828/api/v1",
+		"http://127.0.0.1:1/api/v1":  "http://127.0.0.1:1/api/v1", // old test convention untouched
+		"http://127.0.0.1:1/api/v1/": "http://127.0.0.1:1/api/v1", // trailing slash trimmed
+		"":                           "",
+		"  http://127.0.0.1:19828  ": "http://127.0.0.1:19828/api/v1",
+	}
+	for in, want := range cases {
+		if got := normalizeBaseURL(in); got != want {
+			t.Errorf("normalizeBaseURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestParseTokenJSON covers every token-file shape the app has
+// shipped: the legacy auth.json flat shape and the v0.6.x Tauri
+// app-state apiConfig nesting.
+func TestParseTokenJSON(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"flat auth.json", `{"token":"tok-legacy"}`, "tok-legacy"},
+		{"app-state apiConfig", `{"apiConfig":{"token":"tok-app"},"mineruConfig":{"token":"x"}}`, "tok-app"},
+		{"garbage", `not json at all`, ""},
+		{"token-less", `{"someOtherField":1}`, ""},
+	}
+	for _, tc := range cases {
+		if got := parseTokenJSON([]byte(tc.body)); got != tc.want {
+			t.Errorf("%s: parseTokenJSON = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestTokenCandidatePaths pins the discovery order: Multica's own
+// store first, then the v0.6.x app-state, then the legacy layouts.
+func TestTokenCandidatePaths(t *testing.T) {
+	t.Parallel()
+	paths := TokenCandidatePaths("/home/u")
+	want := []string{
+		"/home/u/.multica/llm-wiki.json",
+		"/home/u/Library/Application Support/com.llmwiki.app/app-state.json",
+		"/home/u/Library/Application Support/LLM Wiki/auth.json",
+		"/home/u/.config/LLM Wiki/auth.json",
+		"/home/u/.llm-wiki/auth.json",
+	}
+	if len(paths) != len(want) {
+		t.Fatalf("got %d candidates, want %d: %v", len(paths), len(want), paths)
+	}
+	for i := range want {
+		if paths[i] != want[i] {
+			t.Errorf("candidate[%d] = %s, want %s", i, paths[i], want[i])
+		}
+	}
+}
+
+// TestClient_Search_DecodesBothResultKeys pins the v0.6.x search
+// envelope drift: the app ships hits under `results` (the 0.4.x-era
+// code decoded `hits` and silently returned zero rows once the
+// prefix fix let requests land). `results` wins when both appear;
+// a legacy `hits`-only body still decodes.
+func TestClient_Search_DecodesBothResultKeys(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		body    string
+		wantLen int
+	}{
+		{"v0.6 results key", `{"results":[{"title":"a","path":"p/a"},{"title":"b","path":"p/b"}]}`, 2},
+		{"legacy hits key", `{"hits":[{"title":"a","path":"p/a"}]}`, 1},
+		{"results wins over hits", `{"results":[{"title":"a","path":"p/a"}],"hits":[{"title":"x","path":"p/x"}]}`, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/projects/current/search" {
+					http.NotFound(w, r)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+
+			c, err := New(t.Context(), Config{
+				BaseURL: srv.URL,
+				Token:   "t",
+				FlagOn:  func(_ context.Context) bool { return true },
+			})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			hits, err := c.Search(t.Context(), "q", 5, false)
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			if len(hits) != tc.wantLen {
+				t.Fatalf("got %d hits, want %d", len(hits), tc.wantLen)
+			}
+		})
+	}
+}
+
+// TestClient_Files_RecursiveCapFallsBackToTopLevel pins the v0.6.x
+// behaviour drift: an explicit recursive=false must be sent (the
+// app treats an omitted param as recursive), and when a recursive
+// listing crosses the app's hard maxFiles cap (a 413 ERROR, not a
+// truncation) Files degrades to the top-level listing instead of
+// failing the caller outright.
+func TestClient_Files_RecursiveCapFallsBackToTopLevel(t *testing.T) {
+	t.Parallel()
+
+	var sawRecursive []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/projects/current/files" {
+			http.NotFound(w, r)
+			return
+		}
+		rec := r.URL.Query().Get("recursive")
+		sawRecursive = append(sawRecursive, rec)
+		w.Header().Set("Content-Type", "application/json")
+		if rec == "true" {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			_, _ = io.WriteString(w, `{"error":"File listing exceeds maxFiles limit (2000)","ok":false}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"files":[{"path":"wiki","name":"wiki","kind":"directory","size":0,"mtime":0}],"truncated":false}`)
+	}))
+	defer srv.Close()
+
+	c, err := New(t.Context(), Config{
+		BaseURL: srv.URL,
+		Token:   "t",
+		FlagOn:  func(_ context.Context) bool { return true },
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	files, err := c.Files(t.Context(), "wiki", true, 0)
+	if err != nil {
+		t.Fatalf("Files after cap fallback: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != "wiki" {
+		t.Fatalf("unexpected top-level files: %+v", files)
+	}
+	if len(sawRecursive) != 2 || sawRecursive[0] != "true" || sawRecursive[1] != "false" {
+		t.Fatalf("recursive params seen = %v, want [true false]", sawRecursive)
+	}
+
+	// Non-recursive callers never trigger the cap path.
+	sawRecursive = nil
+	if _, err := c.Files(t.Context(), "wiki", false, 0); err != nil {
+		t.Fatalf("non-recursive Files: %v", err)
+	}
+	if len(sawRecursive) != 1 || sawRecursive[0] != "false" {
+		t.Fatalf("non-recursive call should send recursive=false once, saw %v", sawRecursive)
+	}
+}
+
 // TestWriter_RejectsParentTraversal is the file-side mirror of the
 // server-side rejection. We do not rely on the handler's own check
 // because CLI / Skill adapters call the writer directly; this test

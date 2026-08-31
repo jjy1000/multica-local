@@ -209,7 +209,12 @@ func init() {
 		llmWikiSearchCmd,
 		llmWikiGraphCmd,
 		llmWikiWriteCmd,
+		llmWikiTokenCmd,
 	)
+
+	llmWikiTokenCmd.Flags().StringVar(&llmTokenSet, "set", "", "persist the API token into Multica's own store")
+	llmWikiTokenCmd.Flags().BoolVar(&llmTokenSetStdin, "set-stdin", false, "read the API token from stdin")
+	llmWikiTokenCmd.Flags().BoolVar(&llmTokenClear, "clear", false, "drop the stored API token")
 
 	llmWikiFilesCmd.Flags().StringVar(&llmFilesRoot, "root", "wiki", "wiki|sources|all")
 	llmWikiFilesCmd.Flags().BoolVar(&llmFilesRecursive, "recursive", true, "recursive listing")
@@ -235,6 +240,7 @@ func init() {
 		llmWikiSearchCmd,
 		llmWikiGraphCmd,
 		llmWikiWriteCmd,
+		llmWikiTokenCmd,
 	} {
 		c.Flags().BoolVar(&outputJSON, "output", false, "Emit JSON envelope instead of pretty text")
 	}
@@ -830,6 +836,89 @@ func runLLMWikiWrite(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// llm-wiki token (0.5.92) — show / set / clear the LLM Wiki API
+// token Multica persists itself (~/.multica/llm-wiki.json). The
+// server-side discovery chain reads this store first, so a paste
+// here always wins over the app's own app-state file.
+var llmWikiTokenCmd = &cobra.Command{
+	Use:   "token",
+	Short: "Show, set (--set/--set-stdin), or clear (--clear) the LLM Wiki API token",
+	Long: "Without flags: report where the bridge currently resolves the LLM Wiki API token " +
+		"from (user store, env, the app's own state, legacy layouts, or none) — never the token itself.\n" +
+		"--set <token> / --set-stdin: persist the key you generated in LLM Wiki.app " +
+		"(Settings → API + MCP) into Multica's own store.\n" +
+		"--clear: drop the stored key; discovery falls back to the app's own state.",
+	RunE: runLLMWikiToken,
+}
+
+var (
+	llmTokenSet     string
+	llmTokenSetStdin bool
+	llmTokenClear   bool
+)
+
+// runLLMWikiToken decodes the raw {configured, source} shape the
+// handler writes (the llm-wiki endpoints return bare JSON, not the
+// experimental envelope), so the human output can name the source.
+func runLLMWikiToken(cmd *cobra.Command, _ []string) error {
+	switch {
+	case llmTokenClear:
+		var out struct {
+			Configured bool   `json:"configured"`
+			Source     string `json:"source"`
+		}
+		if err := experimentalDELETE(cmd.Context(), "/api/experimental/llm-wiki/token", &out); err != nil {
+			return err
+		}
+		if outputJSON {
+			return writeJSONOutput(out)
+		}
+		fmt.Println("cleared (discovery falls back to env / the app's own state)")
+		return nil
+	case llmTokenSet != "" || llmTokenSetStdin:
+		token := llmTokenSet
+		if llmTokenSetStdin {
+			b, err := io.ReadAll(os.Stdin)
+			if err != nil {
+				return fmt.Errorf("read stdin: %w", err)
+			}
+			token = strings.TrimSpace(string(b))
+		}
+		if strings.TrimSpace(token) == "" {
+			return errors.New("token is empty; generate one in LLM Wiki.app Settings → API + MCP")
+		}
+		var out struct {
+			Configured bool   `json:"configured"`
+			Source     string `json:"source"`
+		}
+		if err := experimentalPOST(cmd.Context(), "/api/experimental/llm-wiki/token", map[string]any{"token": token}, &out, false); err != nil {
+			return err
+		}
+		if outputJSON {
+			return writeJSONOutput(out)
+		}
+		fmt.Println("token saved to ~/.multica/llm-wiki.json")
+		return nil
+	default:
+		var out struct {
+			Configured bool   `json:"configured"`
+			Source     string `json:"source"`
+		}
+		if err := experimentalGET(cmd.Context(), "/api/experimental/llm-wiki/token", &out); err != nil {
+			return err
+		}
+		if outputJSON {
+			return writeJSONOutput(out)
+		}
+		if out.Configured {
+			fmt.Printf("configured (source: %s)\n", out.Source)
+		} else {
+			fmt.Println("not configured — generate a token in LLM Wiki.app Settings → API + MCP, then `multica experimental llm-wiki token --set <token>`")
+		}
+		return nil
+	}
+}
+
 func experimentalGET(ctx context.Context, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, experimentalAPIURL()+path, nil)
 	if err != nil {
@@ -897,6 +986,40 @@ func experimentalPOST(ctx context.Context, path string, body any, out any, wantE
 		return fmt.Errorf("decode %s: %w", path, err)
 	}
 	return nil
+}
+
+// experimentalDELETE mirrors experimentalGET for the verb-less
+// delete endpoints (llm-wiki token clear). Handlers return a raw
+// JSON body, decoded like GET.
+func experimentalDELETE(ctx context.Context, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, experimentalAPIURL()+path, nil)
+	if err != nil {
+		return err
+	}
+	if tok, err := experimentalAuthToken(); err != nil {
+		return err
+	} else if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := experimentalHTTPClient().Do(req)
+	if err != nil {
+		return fmt.Errorf("delete %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("flag off or route not registered (404); open Settings → Labs and enable the corresponding flag")
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("flag off (403): %s", strings.TrimSpace(string(body)))
+	}
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("delete %s: %s — %s", path, resp.Status, strings.TrimSpace(string(body)))
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return json.Unmarshal(body, out)
 }
 
 // writeJSONOutput mirrors the helper used by other multica commands.

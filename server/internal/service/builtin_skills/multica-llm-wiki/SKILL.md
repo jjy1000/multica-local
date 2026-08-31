@@ -35,16 +35,43 @@ path 0.3.18's safety net was designed to keep out of the labs.
 multica experimental llm-wiki status --output json
 ```
 
-Three outcomes:
+Read the `failure` field (0.5.92+) and tell the user exactly what to
+do — do NOT continue on any non-ok state:
 
-- `{"ok": true, "health": {...}}` — desktop app is online
-- `{"ok": false, "reason": "..."}` — desktop app offline; ask the
-  user to launch `/Applications/LLM Wiki.app`
-- 403 with `llm_wiki_bridge` — flag is off (see the rule above)
+| `status` 结果 | 含义 | 你必须告诉用户的话 |
+|---|---|---|
+| `"ok"`（`ok: true`） | 桥接在线 | 继续后面的步骤 |
+| `"not_installed"` | `/Applications/LLM Wiki.app` 不存在 | 「请先安装 LLM Wiki 客户端，装好后打开它的 设置 → API + MCP 启用本地 API」 |
+| `"not_running"` | 客户端已安装但 19827/19828 无响应 | 「请启动 /Applications/LLM Wiki.app 并保持后台运行，然后重试」 |
+| `"unauthorized"` | app 在运行但拒绝了请求（密钥缺失/被拒） | 「请在 LLM Wiki.app 设置 → API + MCP 生成密钥，然后在 Multica 的 Labs → LLM Wiki 页面粘贴保存，或执行 `multica experimental llm-wiki token --set <token>`」 |
+| 403 with `llm_wiki_bridge` | flag is off (see the rule above) | Labs 开关提醒 |
 
-If desktop app is offline, stop here and surface the diagnostic to
-the user. Do NOT continue; reads return empty and writes land in
-files the desktop app cannot pick up until it is running.
+If desktop app is offline (any non-ok `failure`), stop here and
+surface the diagnostic to the user. Do NOT continue; reads return
+empty and writes land in files the desktop app cannot pick up until
+it is running.
+
+### Token management (0.5.92+)
+
+The bridge resolves its bearer token in this order: env
+`LLM_WIKI_API_TOKEN` → Multica's own store (`~/.multica/llm-wiki.json`,
+what `token --set` writes and what the Labs → LLM Wiki page pastes)
+→ the app's own state (`com.llmwiki.app/app-state.json`) → legacy
+`auth.json` layouts. To inspect without leaking the secret:
+
+```sh
+multica experimental llm-wiki token --output json   # {"configured":bool,"source":"user|env|app|legacy|none"}
+```
+
+Set (paste from the user's chat message ONLY — never guess a token):
+
+```sh
+multica experimental llm-wiki token --set "<token>"
+```
+
+Clear: `multica experimental llm-wiki token --clear`. A `source` of
+`none` plus `failure: unauthorized` in status means the user must
+generate a key in the app first — ask them, don't retry.
 
 ## Step 2 — read verbs
 

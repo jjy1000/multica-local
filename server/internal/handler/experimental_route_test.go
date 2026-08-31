@@ -63,6 +63,11 @@ func TestRouteRegistration_LLMWikiRoutesExist(t *testing.T) {
 		"GET /api/experimental/llm-wiki/graph",
 		"POST /api/experimental/llm-wiki/write",
 		"DELETE /api/experimental/llm-wiki/file",
+		// 0.5.92: the key-paste surface (Labs → LLM Wiki page +
+		// `multica experimental llm-wiki token`).
+		"GET /api/experimental/llm-wiki/token",
+		"POST /api/experimental/llm-wiki/token",
+		"DELETE /api/experimental/llm-wiki/token",
 	}
 	for _, want := range need {
 		found := false

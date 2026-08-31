@@ -1921,6 +1921,14 @@ export const LLMWikiStatusResponseSchema = z
     health: LLMWikiHealthSchema.nullable().optional().default(null),
     vault_root: z.string().optional().default(""),
     reason: z.string().optional().default(""),
+    // 0.5.92: precise-failure fields so the status page can warn
+    // distinctly — client missing ("not_installed"), installed but
+    // not launched ("not_running"), running but key rejected
+    // ("unauthorized") — instead of one unreachable amber card.
+    installed: z.boolean().optional().default(true),
+    failure: z.string().optional().default(""),
+    hint: z.string().optional().default(""),
+    token_configured: z.boolean().optional().default(false),
   })
   .loose();
 
@@ -1931,6 +1939,10 @@ export interface LLMWikiStatusResponse {
   health: { ok?: boolean; [key: string]: unknown } | null;
   vault_root: string;
   reason: string;
+  installed: boolean;
+  failure: string;
+  hint: string;
+  token_configured: boolean;
 }
 
 export const EMPTY_LLM_WIKI_STATUS_RESPONSE: LLMWikiStatusResponse = {
@@ -1940,6 +1952,30 @@ export const EMPTY_LLM_WIKI_STATUS_RESPONSE: LLMWikiStatusResponse = {
   health: null,
   vault_root: "",
   reason: "",
+  installed: true,
+  failure: "",
+  hint: "",
+  token_configured: false,
+};
+
+// GET/POST/DELETE /api/experimental/llm-wiki/token (0.5.92) — the
+// key-paste surface reports configuration state only, never the
+// token itself.
+export const LLMWikiTokenResponseSchema = z
+  .object({
+    configured: z.boolean().optional().default(false),
+    source: z.string().optional().default("none"),
+  })
+  .loose();
+
+export interface LLMWikiTokenResponse {
+  configured: boolean;
+  source: string;
+}
+
+export const EMPTY_LLM_WIKI_TOKEN_RESPONSE: LLMWikiTokenResponse = {
+  configured: false,
+  source: "none",
 };
 
 // ---------------------------------------------------------------------------

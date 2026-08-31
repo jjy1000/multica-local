@@ -1,13 +1,18 @@
-import { useEffect, useState } from "react";
-import { FlaskConical, Loader2 } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { FlaskConical, KeyRound, Loader2 } from "lucide-react";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import {
   api,
   parseWithFallback,
   LLMWikiStatusResponseSchema,
   EMPTY_LLM_WIKI_STATUS_RESPONSE,
+  LLMWikiTokenResponseSchema,
+  EMPTY_LLM_WIKI_TOKEN_RESPONSE,
   type LLMWikiStatusResponse,
+  type LLMWikiTokenResponse,
 } from "@multica/core/api";
+import { Button } from "@multica/ui/components/ui/button";
+import { Input } from "@multica/ui/components/ui/input";
 import { IssueBreadcrumb } from "@multica/views/experimental/components";
 
 // LLMWikiBridgeView (0.3.19+)
@@ -15,8 +20,16 @@ import { IssueBreadcrumb } from "@multica/views/experimental/components";
 // Minimal status page for the LLM Wiki bridge. Shows whether the
 // desktop LLM Wiki.app is reachable, a quick-start guide, and the
 // available /api/experimental/llm-wiki/* verbs.
+//
+// 0.5.92: the status card warns precisely instead of one amber
+// "unreachable" blob — client missing (not_installed), installed
+// but not launched (not_running), running but key rejected
+// (unauthorized) — and a new API-key card lets the user paste the
+// token generated in LLM Wiki.app (Settings → API + MCP) straight
+// into Multica's own store (POST /api/experimental/llm-wiki/token).
 
 type StatusResponse = LLMWikiStatusResponse;
+type TokenResponse = LLMWikiTokenResponse;
 
 export function LLMWikiBridgeView() {
   // The LLM Wiki bridge is a workspace-level status surface (the
@@ -26,6 +39,9 @@ export function LLMWikiBridgeView() {
   const bridgeEnabled = useExperimentalFlag("llm_wiki_bridge", false);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped by the TokenCard after a save/clear so the status card
+  // re-probes (a saved key can turn unauthorized → ok immediately).
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!bridgeEnabled) {
@@ -70,7 +86,7 @@ export function LLMWikiBridgeView() {
     return () => {
       cancelled = true;
     };
-  }, [bridgeEnabled]);
+  }, [bridgeEnabled, reloadKey]);
 
   if (!bridgeEnabled) {
     return (
@@ -99,6 +115,7 @@ export function LLMWikiBridgeView() {
         <IssueBreadcrumb infoHintWhenUnbound />
         <Intro />
         <StatusCard status={status} loading={loading} />
+        <TokenCard onChanged={() => setReloadKey((k) => k + 1)} />
         <VerbsCard />
         <SkillUsageCard />
       </main>
@@ -171,22 +188,67 @@ function StatusCard({ status, loading }: {
     healthVersion ?? (healthUptime != null ? `uptime ${healthUptime}s` : "—");
   const apiLabel = status.desktop_api ?? "—";
 
+  if (!status.ok) {
+    // 0.5.92: three distinct warning states keyed off the server's
+    // `failure` code — install guidance, launch guidance, or key
+    // guidance. Older servers (no `failure` field) degrade to the
+    // not-running card via the fallback.
+    const failure =
+      status.failure || "not_running";
+    if (failure === "not_installed") {
+      return (
+        <WarningCard
+          title="未检测到 LLM Wiki 客户端"
+          body={
+            <>
+              /Applications/LLM Wiki.app 不存在。请先安装 LLM Wiki
+              客户端，然后打开它的 <b>设置 → API + MCP</b>，启用本地 API
+              （建议同时生成 API 密钥），再回到此页面刷新。
+            </>
+          }
+          hint={status.hint}
+          reason={status.reason}
+        />
+      );
+    }
+    if (failure === "unauthorized") {
+      return (
+        <WarningCard
+          title="API 鉴权失败"
+          body={
+            <>
+              LLM Wiki 正在运行，但拒绝了桥接请求 —— 需要有效的 API
+              密钥。请在 LLM Wiki.app 的 <b>设置 → API + MCP</b>{" "}
+              生成密钥，然后在下方「API 密钥」卡片中粘贴并保存。
+            </>
+          }
+          hint={status.hint}
+          reason={status.reason}
+        />
+      );
+    }
+    return (
+      <WarningCard
+        title="LLM Wiki 未运行"
+        body={
+          status.installed === false ? (
+            <>未检测到客户端；请安装 /Applications/LLM Wiki.app。</>
+          ) : (
+            <>
+              LLM Wiki 已安装但没有在运行。请启动 /Applications/LLM
+              Wiki.app 并保持后台运行，然后刷新此页面。
+            </>
+          )
+        }
+        hint={status.hint}
+        reason={status.reason}
+      />
+    );
+  }
+
   return (
-    <section
-      className={
-        status.ok
-          ? "rounded-xl border border-emerald-200 bg-emerald-50/30 p-5 dark:border-emerald-800 dark:bg-emerald-950/20"
-          : "rounded-xl border border-amber-200 bg-amber-50/40 p-5 dark:border-amber-800 dark:bg-amber-950/30"
-      }
-    >
-      <p className="text-sm font-medium text-foreground">
-        {status.ok ? "LLM Wiki 已连接" : "LLM Wiki 未连接"}
-      </p>
-      {status.reason ? (
-        <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
-          {status.reason}
-        </p>
-      ) : null}
+    <section className="rounded-xl border border-emerald-200 bg-emerald-50/30 p-5 dark:border-emerald-800 dark:bg-emerald-950/20">
+      <p className="text-sm font-medium text-foreground">LLM Wiki 已连接</p>
       <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
         <div>
           <dt className="text-muted-foreground">API 端口</dt>
@@ -194,15 +256,7 @@ function StatusCard({ status, loading }: {
         </div>
         <div>
           <dt className="text-muted-foreground">可连接</dt>
-          <dd
-            className={
-              status.reachable
-                ? "font-mono text-emerald-700 dark:text-emerald-300"
-                : "font-mono text-amber-700 dark:text-amber-300"
-            }
-          >
-            {status.reachable ? "✓ 是" : "✗ 否"}
-          </dd>
+          <dd className="font-mono text-emerald-700 dark:text-emerald-300">✓ 是</dd>
         </div>
         <div>
           <dt className="text-muted-foreground">仓库目录</dt>
@@ -214,7 +268,171 @@ function StatusCard({ status, loading }: {
           <dt className="text-muted-foreground">健康状态</dt>
           <dd className="font-mono text-foreground">{healthSummary}</dd>
         </div>
+        <div>
+          <dt className="text-muted-foreground">API 密钥</dt>
+          <dd
+            className={
+              status.token_configured
+                ? "font-mono text-emerald-700 dark:text-emerald-300"
+                : "font-mono text-amber-700 dark:text-amber-300"
+            }
+          >
+            {status.token_configured ? "已配置" : "未配置（密钥启用后必需）"}
+          </dd>
+        </div>
       </dl>
+    </section>
+  );
+}
+
+// WarningCard is the shared amber shell for the three 0.5.92
+// failure states. `hint` is the server's English remediation line
+// (shown small, for power users); `reason` is the raw probe error.
+function WarningCard({ title, body, hint, reason }: {
+  title: string;
+  body: ReactNode;
+  hint?: string;
+  reason?: string;
+}) {
+  return (
+    <section className="rounded-xl border border-amber-200 bg-amber-50/40 p-5 dark:border-amber-800 dark:bg-amber-950/30">
+      <p className="text-sm font-medium text-amber-900 dark:text-amber-100">{title}</p>
+      <p className="mt-1 text-xs leading-relaxed text-amber-800 dark:text-amber-200">{body}</p>
+      {hint ? (
+        <p className="mt-2 rounded-md border border-dashed border-amber-300/60 px-2 py-1 font-mono text-[10px] text-amber-700 dark:border-amber-700/60 dark:text-amber-300">
+          {hint}
+        </p>
+      ) : null}
+      {reason && reason !== hint ? (
+        <p className="mt-1 text-[10px] text-muted-foreground">{reason}</p>
+      ) : null}
+    </section>
+  );
+}
+
+// TokenCard (0.5.92) — paste the API key generated in LLM Wiki.app
+// (Settings → API + MCP) into Multica's own store. The bridge reads
+// this store first, so a paste here always wins; the endpoint only
+// ever reports configured/source, never the token itself.
+function TokenCard({ onChanged }: { onChanged: () => void }) {
+  const [tokenState, setTokenState] = useState<TokenResponse | null>(null);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const loadTokenState = async (): Promise<void> => {
+    try {
+      const response = await api.rawRequest("/api/experimental/llm-wiki/token");
+      const raw = (await response.json()) as unknown;
+      setTokenState(
+        parseWithFallback<TokenResponse>(
+          raw,
+          LLMWikiTokenResponseSchema,
+          EMPTY_LLM_WIKI_TOKEN_RESPONSE,
+          { endpoint: "/api/experimental/llm-wiki/token" },
+        ),
+      );
+    } catch {
+      setTokenState(null);
+    }
+  };
+
+  useEffect(() => {
+    void loadTokenState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const save = async (): Promise<void> => {
+    if (!value.trim() || busy) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await api.rawRequest("/api/experimental/llm-wiki/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: value.trim() }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setValue("");
+      setMessage("已保存。桥接将优先使用此密钥。");
+      onChanged();
+    } catch {
+      setMessage("保存失败，请重试。");
+    } finally {
+      setBusy(false);
+      void loadTokenState();
+    }
+  };
+
+  const clear = async (): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await api.rawRequest("/api/experimental/llm-wiki/token", {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setMessage("已清除。将回退到 LLM Wiki.app 自身的密钥。");
+      onChanged();
+    } catch {
+      setMessage("清除失败，请重试。");
+    } finally {
+      setBusy(false);
+      void loadTokenState();
+    }
+  };
+
+  const sourceLabels: Record<string, string> = {
+    user: "已粘贴（Multica 存储，优先级最高）",
+    env: "环境变量 LLM_WIKI_API_TOKEN",
+    app: "自动读取 LLM Wiki.app 的本地状态",
+    legacy: "旧版 auth.json 布局",
+    none: "未配置",
+  };
+  const source = tokenState?.source ?? "none";
+
+  return (
+    <section className="rounded-xl border border-border bg-card p-6">
+      <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+        <KeyRound className="size-4" aria-hidden />
+        API 密钥
+      </h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        在 LLM Wiki.app 的 <b>设置 → API + MCP</b> 中生成密钥后粘贴到此处。
+        当前状态：
+        <span
+          className={
+            tokenState?.configured
+              ? "ml-1 font-medium text-emerald-700 dark:text-emerald-300"
+              : "ml-1 font-medium text-amber-700 dark:text-amber-300"
+          }
+        >
+          {sourceLabels[source] ?? source}
+        </span>
+      </p>
+      <div className="mt-3 flex items-center gap-2">
+        <Input
+          type="password"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="粘贴 API 密钥（llm wiki 客户端生成）"
+          className="max-w-sm font-mono text-xs"
+          disabled={busy}
+        />
+        <Button size="sm" onClick={() => void save()} disabled={busy || !value.trim()}>
+          保存
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void clear()}
+          disabled={busy || source !== "user"}
+        >
+          清除
+        </Button>
+      </div>
+      {message ? <p className="mt-2 text-xs text-muted-foreground">{message}</p> : null}
     </section>
   );
 }
@@ -237,8 +455,8 @@ function VerbsCard() {
         </thead>
         <tbody className="divide-y divide-border">
           {[
-            ["search", "GET /api/experimental/llm-wiki/search?q=...", "向量 + 关键词混合搜索"],
-            ["read", "GET /api/experimental/llm-wiki/files/*", "读取单个文件内容"],
+            ["search", "POST /api/experimental/llm-wiki/search", "向量 + 关键词混合搜索"],
+            ["read", "GET /api/experimental/llm-wiki/read?path=...", "读取单个文件内容"],
             ["graph", "GET /api/experimental/llm-wiki/graph", "知识图谱查询"],
             ["files", "GET /api/experimental/llm-wiki/files", "列出仓库文件"],
             ["status", "GET /api/experimental/llm-wiki/status", "连接和索引状态"],

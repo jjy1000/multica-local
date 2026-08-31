@@ -15,6 +15,11 @@ export {
   EMPTY_LLM_WIKI_STATUS_RESPONSE,
 } from "./schemas";
 export type { LLMWikiStatusResponse } from "./schemas";
+export {
+  LLMWikiTokenResponseSchema,
+  EMPTY_LLM_WIKI_TOKEN_RESPONSE,
+} from "./schemas";
+export type { LLMWikiTokenResponse } from "./schemas";
 export { WSClient } from "./ws-client";
 
 import type { ApiClient as ApiClientType } from "./client";

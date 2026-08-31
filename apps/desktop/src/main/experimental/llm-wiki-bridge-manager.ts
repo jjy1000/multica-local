@@ -62,19 +62,63 @@ import type {
 } from "./manager-template";
 
 // LLMWikiAppBundleID is the macOS bundle identifier of the local
-// desktop app we prefer when present. The bundle ships its own MCP
-// server inside Contents/Resources/ — when that file exists AND the
-// user has the app installed, we spawn it directly. Otherwise we
-// fall back to the bundled stub so the Labs flag stays operational
-// even on a workstation without LLM Wiki.app.
+// desktop app we prefer when present. Since the app's v0.6.x
+// releases, `Contents/Resources/mcp-server` is a DIRECTORY (Node
+// package: dist/src/index.js + vendored node_modules) — the real
+// stdio MCP entry must be spawned through a Node runtime with
+// LLM_WIKI_API_TOKEN in the env (exactly the shape the app's own
+// "copy MCP config" sheet ships). 0.5.92 regression: this manager
+// used to treat the directory itself as the spawn binary, which
+// EACCES'd every start once the user had the v0.6.x app installed.
+//
+// We spawn Electron's own binary with ELECTRON_RUN_AS_NODE=1 rather
+// than relying on a system `node` on PATH. When the entry is
+// missing (older app layouts or no app at all) we fall back to the
+// bundled Python stub so the Labs flag stays operational.
 //
 // Why not probe via `mdfind` / `osascript`: spawning `mdfind` from
 // the Electron main process is slow (>200ms cold) and unreliable
 // across sandboxed builds. fs.accessSync is sub-millisecond and
 // matches the convention other managers use for bundled-binary
 // preflight checks.
-const LLM_WIKI_APP_MCP_SERVER =
-  "/Applications/LLM Wiki.app/Contents/Resources/mcp-server";
+const LLM_WIKI_APP_MCP_ENTRY =
+  "/Applications/LLM Wiki.app/Contents/Resources/mcp-server/dist/src/index.js";
+
+// readLLMWikiToken resolves the API token to inject into the real
+// MCP server's env (LLM_WIKI_API_TOKEN — the same variable the
+// app's own "copy MCP config" sheet ships). Priority mirrors the
+// Go-side DiscoverToken: Multica's own paste store first, then the
+// app's Tauri app-state (apiConfig.token). Silent "" when neither
+// exists — the app's allow-unauthenticated mode still works.
+function readLLMWikiToken(): string {
+  try {
+    const store = JSON.parse(
+      readFileSync(join(homedir(), ".multica", "llm-wiki.json"), "utf-8"),
+    ) as { token?: unknown };
+    if (typeof store.token === "string" && store.token !== "") return store.token;
+  } catch {
+    // fall through
+  }
+  try {
+    const state = JSON.parse(
+      readFileSync(
+        join(
+          homedir(),
+          "Library",
+          "Application Support",
+          "com.llmwiki.app",
+          "app-state.json",
+        ),
+        "utf-8",
+      ),
+    ) as { apiConfig?: { token?: unknown } };
+    const tok = state.apiConfig?.token;
+    if (typeof tok === "string" && tok !== "") return tok;
+  } catch {
+    // fall through
+  }
+  return "";
+}
 
 // Resource subdir under apps/desktop/resources/. bundle-cli.mjs
 // stages the vendor copy (apps/desktop/vendor/llm-wiki-bridge/run.sh)
@@ -139,11 +183,11 @@ class LLMWikiBridgeManager implements ExperimentalManager {
     }
     this.statusValue = "starting";
 
-    const bin = this.resolveBinary();
-    if (!existsSync(bin)) {
+    const spawnPlan = this.resolveSpawnPlan();
+    if (!existsSync(spawnPlan.bin)) {
       this.statusValue = "error";
       const err = new Error(
-        `experimental service "${this.name}" is not bundled: ${bin} does not exist. ` +
+        `experimental service "${this.name}" is not bundled: ${spawnPlan.bin} does not exist. ` +
           "Drop the vendor copy into apps/desktop/vendor/llm-wiki-bridge/ then re-run " +
           "`pnpm --filter @multica/desktop bundle-cli`.",
       ) as Error & { code?: string };
@@ -171,9 +215,9 @@ class LLMWikiBridgeManager implements ExperimentalManager {
     // (~/.multica/profiles/desktop-<host>/config.json).
     const documents = app.getPath("documents");
     const vaultCwd = join(documents, "llm wiki");
-    const child = spawn(bin, [], {
+    const child = spawn(spawnPlan.bin, spawnPlan.args, {
       cwd: existsSync(vaultCwd) ? vaultCwd : documents,
-      env: this.bridgeEnv(),
+      env: this.bridgeEnv(spawnPlan.appMode),
       stdio: ["pipe", "pipe", "pipe"],
       detached: false,
     });
@@ -306,28 +350,45 @@ class LLMWikiBridgeManager implements ExperimentalManager {
     return reply;
   }
 
-  // resolveBinary prefers the user-installed /Applications/LLM Wiki.app
-  // MCP server when its binary exists on disk; otherwise it falls back
-  // to the bundled stub staged by bundle-cli into resources/.
-  private resolveBinary(): string {
-    if (existsSync(LLM_WIKI_APP_MCP_SERVER)) {
-      return LLM_WIKI_APP_MCP_SERVER;
+  // SpawnPlan describes what start() actually launches: either the
+  // app's real stdio MCP server (appMode — Electron binary run as
+  // Node, entry script as the sole argv) or the bundled Python stub.
+  private resolveSpawnPlan(): { bin: string; args: string[]; appMode: boolean } {
+    if (existsSync(LLM_WIKI_APP_MCP_ENTRY)) {
+      return {
+        bin: process.execPath,
+        args: [LLM_WIKI_APP_MCP_ENTRY],
+        appMode: true,
+      };
     }
-    return resolveResourcePath(LLMWIKI_RESOURCE_SUBDIR, LLMWIKI_STUB_BIN);
+    return {
+      bin: resolveResourcePath(LLMWIKI_RESOURCE_SUBDIR, LLMWIKI_STUB_BIN),
+      args: [],
+      appMode: false,
+    };
   }
 
-  // bridgeEnv builds the child env for the stdio server. vault_read /
-  // vault_write forward to the multica backend (/api/experimental/
-  // llm-wiki/*), so the child needs the same credential pair the CLI
-  // uses: MULTICA_API_URL (+ MULTICA_API_TOKEN). The main process does
-  // not carry the token in its own env — read it from the desktop
-  // profile config.json, the same file daemon-manager writes the PAT
-  // into (daemon-manager.ts::syncToken).
+  // bridgeEnv builds the child env. Two credential pairs depending
+  // on the spawn mode:
   //
-  // Honours a MULTICA_API_URL already present in process.env so an ops
-  // override (e.g. launchctl setenv) wins over the desktop.json
-  // default, mirroring cmd_experimental.go::experimentalAPIURL.
-  private bridgeEnv(): NodeJS.ProcessEnv {
+  //   - Stub mode (appMode=false): vault_read / vault_write forward
+  //     to the multica backend (/api/experimental/llm-wiki/*), so
+  //     the child needs MULTICA_API_URL + MULTICA_API_TOKEN. The
+  //     main process does not carry the token in its own env — read
+  //     it from the desktop profile config.json, the same file
+  //     daemon-manager writes the PAT into (daemon-manager.ts::
+  //     syncToken).
+  //   - App mode (appMode=true): the real MCP server talks to the
+  //     LLM Wiki desktop API itself and wants LLM_WIKI_API_TOKEN —
+  //     the same env var the app's own MCP config ships, resolved
+  //     with the same priority as the Go-side DiscoverToken
+  //     (Multica's paste store first, then the app's app-state).
+  //
+  // Both honour a MULTICA_API_URL already present in process.env so
+  // an ops override (e.g. launchctl setenv) wins over the
+  // desktop.json default, mirroring cmd_experimental.go::
+  // experimentalAPIURL.
+  private bridgeEnv(appMode: boolean): NodeJS.ProcessEnv {
     const env = { ...process.env };
     if (!env.MULTICA_API_URL) {
       env.MULTICA_API_URL = this.resolveApiUrl();
@@ -335,6 +396,13 @@ class LLMWikiBridgeManager implements ExperimentalManager {
     if (!env.MULTICA_API_TOKEN) {
       const token = this.resolveProfileToken(env.MULTICA_API_URL);
       if (token !== "") env.MULTICA_API_TOKEN = token;
+    }
+    if (appMode) {
+      // Run the Electron binary as a plain Node runtime for the
+      // app's JS MCP entry — no dependency on a system `node`.
+      env.ELECTRON_RUN_AS_NODE = "1";
+      const llmToken = readLLMWikiToken();
+      if (llmToken !== "") env.LLM_WIKI_API_TOKEN = llmToken;
     }
     return env;
   }

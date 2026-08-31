@@ -19,8 +19,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -142,6 +144,9 @@ func RegisterLLMWikiBridgeRoutes(r chi.Router, h *Handler) {
 		r.Get("/graph", h.QueryLLMWikiGraph)
 		r.Post("/write", h.WriteLLMWikiFile)
 		r.Delete("/file", h.DeleteLLMWikiFile)
+		r.Get("/token", h.GetLLMWikiToken)
+		r.Post("/token", h.SetLLMWikiToken)
+		r.Delete("/token", h.ClearLLMWikiToken)
 	})
 }
 
@@ -167,38 +172,167 @@ func init() {
 	llmwiki.SetFlagGate(func(_ context.Context) bool { return experimental.DefaultFor("llm_wiki_bridge") })
 }
 
+// llmWikiAppPath is the only install location the bridge recognises
+// for the desktop client. The bundled-app sandbox cannot run
+// `mdfind`; an os.Stat on the conventional path is the same
+// sub-millisecond convention the desktop managers use for
+// preflight checks.
+const llmWikiAppPath = "/Applications/LLM Wiki.app"
+
+func llmWikiAppInstalled() bool {
+	_, err := os.Stat(llmWikiAppPath)
+	return err == nil
+}
+
+// classifyLLMWikiFailure maps a /status health error to the
+// machine-readable failure code the renderer's warning cards key
+// off. "not_running" refines to "not_installed" when the client is
+// absent from /Applications so the UI can say "install it" instead
+// of "launch it". Unauthorised is its own code: the app is running
+// fine, the key is missing or rejected — a settings problem, not an
+// availability one.
+func classifyLLMWikiFailure(err error, installed bool) string {
+	if err == nil {
+		return "ok"
+	}
+	if errors.Is(err, llmwiki.ErrUnauthorized) {
+		return "unauthorized"
+	}
+	if !installed {
+		return "not_installed"
+	}
+	return "not_running"
+}
+
+// llmWikiFailureHint returns the one-line remediation the status
+// payload ships alongside the failure code. English here (matching
+// every other server-side string in this file); the renderer shows
+// its own localised wording keyed off `failure`.
+func llmWikiFailureHint(failure string) string {
+	switch failure {
+	case "not_installed":
+		return "LLM Wiki.app is not in /Applications — install it, then open its Settings → API + MCP and enable the local API"
+	case "not_running":
+		return "LLM Wiki.app is installed but not reachable on 127.0.0.1:19827/19828 — launch it and keep it running in the background"
+	case "unauthorized":
+		return "API token missing or rejected — generate one in LLM Wiki.app Settings → API + MCP, then paste it into Multica Labs → LLM Wiki (or `multica experimental llm-wiki token --set`)"
+	default:
+		return ""
+	}
+}
+
 // GetLLMWikiStatus reports whether the desktop API is reachable
 // and what /health sees. Renderer panels use this to render the
 // "LLM Wiki online / offline" badge.
+//
+// 0.5.92: the payload gained `installed`, `failure`, `hint`, and
+// `token_configured` so the status page can warn precisely —
+// client missing vs installed-but-not-launched vs running-but-
+// unauthorized used to collapse into one unreachable amber card.
+// All pre-existing fields are unchanged for DTO compatibility.
 func (h *Handler) GetLLMWikiStatus(w http.ResponseWriter, r *http.Request) {
+	installed := llmWikiAppInstalled()
+	tokenConfigured := llmwiki.TokenSource() != "none"
 	if h.LLMWikiClient == nil {
+		// Client construction at register time failed — the desktop
+		// API answered no health probe at boot. Same failure family
+		// as a runtime probe error; the installed flag separates the
+		// "install it" case from the "launch it" case.
+		failure := "not_running"
+		if !installed {
+			failure = "not_installed"
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":           false,
-			"reason":       "llm_wiki_bridge client not initialised; open /Applications/LLM Wiki.app and retry",
-			"reachable":    false,
-			"desktop_api":  nil,
-			"vault_root":   vaultRoot(),
-			"flag_enabled": experimental.DefaultFor("llm_wiki_bridge"),
+			"ok":               false,
+			"reason":           "llm_wiki_bridge client not initialised; open /Applications/LLM Wiki.app and retry",
+			"reachable":        false,
+			"failure":          failure,
+			"hint":             llmWikiFailureHint(failure),
+			"desktop_api":      nil,
+			"vault_root":       vaultRoot(),
+			"flag_enabled":     experimental.DefaultFor("llm_wiki_bridge"),
+			"installed":        installed,
+			"token_configured": tokenConfigured,
 		})
 		return
 	}
 	health, err := h.LLMWikiClient.Health(withLLMWikiUserID(r.Context(), requestUserID(r)))
 	if err != nil {
+		failure := classifyLLMWikiFailure(err, installed)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"ok":          false,
-			"reason":      err.Error(),
-			"reachable":   false,
-			"desktop_api": h.LLMWikiClient.BaseURL(),
-			"vault_root":  vaultRoot(),
+			"ok":               false,
+			"reason":           err.Error(),
+			"reachable":        false,
+			"failure":          failure,
+			"hint":             llmWikiFailureHint(failure),
+			"desktop_api":      h.LLMWikiClient.BaseURL(),
+			"vault_root":       vaultRoot(),
+			"installed":        installed,
+			"token_configured": tokenConfigured,
 		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":          true,
-		"reachable":   true,
-		"desktop_api": h.LLMWikiClient.BaseURL(),
-		"health":      health,
-		"vault_root":  vaultRoot(),
+		"ok":               true,
+		"reachable":        true,
+		"failure":          "ok",
+		"hint":             "",
+		"desktop_api":      h.LLMWikiClient.BaseURL(),
+		"health":           health,
+		"vault_root":       vaultRoot(),
+		"installed":        installed,
+		"token_configured": tokenConfigured,
+	})
+}
+
+// GetLLMWikiToken reports the token's configuration state without
+// ever returning the token itself. The renderer's key card and the
+// CLI `token` verb key off `source` to explain where the bridge is
+// getting its credentials from.
+func (h *Handler) GetLLMWikiToken(w http.ResponseWriter, r *http.Request) {
+	source := llmwiki.TokenSource()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"configured": source != "none",
+		"source":     source,
+	})
+}
+
+// SetLLMWikiToken persists the user-pasted API token into
+// ~/.multica/llm-wiki.json (the most authoritative discovery
+// source). The token never comes back in any response.
+func (h *Handler) SetLLMWikiToken(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid json: " + err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Token) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token is required"})
+		return
+	}
+	if err := llmwiki.SaveUserToken(req.Token); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"configured": true,
+		"source":     "user",
+	})
+}
+
+// ClearLLMWikiToken drops the user-pasted token; discovery falls
+// back through env var → app app-state → legacy layouts.
+func (h *Handler) ClearLLMWikiToken(w http.ResponseWriter, r *http.Request) {
+	if err := llmwiki.ClearUserToken(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	source := llmwiki.TokenSource()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"configured": source != "none",
+		"source":     source,
 	})
 }
 
