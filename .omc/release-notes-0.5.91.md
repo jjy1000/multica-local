@@ -1,6 +1,6 @@
 # 0.5.91 Release Notes — 右键菜单单例重构，根治应用卡死
 
-> **状态：已发布（shipped 2026-08-31）。** `/Applications/Multica.app` = **0.5.91**，冷启动验证 PASS。Ship 链 7/7（快照 `.bak` + pg_dump 保留；281 条迁移全 skip——本周期零新迁移）。Ship log：[`.omc/0.5.91-ship-2026-08-31.md`](0.5.91-ship-2026-08-31.md)。
+> **状态：已发布（shipped 2026-08-31）。** `/Applications/Multica.app` = **0.5.91**，冷启动验证 PASS（~4s）。Ship 链 7/7（快照 `.bak` + pg_dump 32M 保留；277 条迁移全 skip——本周期零新迁移）。Ship log：[`.omc/0.5.91-ship-2026-08-31.md`](0.5.91-ship-2026-08-31.md)。
 
 ## 修复：issue 右键菜单导致的整应用卡死
 
