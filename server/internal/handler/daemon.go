@@ -30,6 +30,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/service/agent_trust"
 	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
+	"github.com/multica-ai/multica/server/internal/service/mcpsync"
 	"github.com/multica-ai/multica/server/internal/service/mythos"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -1327,6 +1328,31 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		var mcpConfig json.RawMessage
 		if agent.McpConfig != nil {
 			mcpConfig = json.RawMessage(agent.McpConfig)
+		}
+		// MCP sync (0.5.92): overlay the Claude Code mirror beneath the
+		// agent's manual mcp_config for claude-provider runtimes. Manual
+		// entries win on name collisions (explicit per-agent config is more
+		// specific than the workspace-wide mirror). Every failure path keeps
+		// mcpConfig untouched — a DB read error or an unparsable manual
+		// config must degrade to the pre-sync behavior, not to a silently
+		// different MCP set.
+		if runtime.Provider == "claude" {
+			syncedRows, err := h.Queries.GetSyncedMcpServerDefinitions(r.Context())
+			if err != nil {
+				slog.Warn("load synced mcp servers for claim failed", "error", err)
+			} else if len(syncedRows) > 0 {
+				synced := make(map[string]json.RawMessage, len(syncedRows))
+				for _, row := range syncedRows {
+					synced[row.Name] = row.Definition
+				}
+				if merged, overridden := mcpsync.MergeForClaim(mcpConfig, synced); merged != nil {
+					mcpConfig = merged
+					if overridden > 0 {
+						slog.Debug("claim mcp merge: manual config overrode synced servers",
+							"agent_id", uuidToString(agent.ID), "overridden", overridden)
+					}
+				}
+			}
 		}
 		// runtime_config is stored as JSONB and may legitimately be the
 		// empty object `{}` for agents that haven't opted into any
@@ -3109,9 +3135,17 @@ func (h *Handler) ReportTaskUsage(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Usage []TaskUsagePayload `json:"usage"`
+		// McpCalls is task-level (no per-model split). Pointer so an older
+		// daemon that omits the field leaves the stored count untouched
+		// instead of zeroing it; negative values are rejected outright.
+		McpCalls *int `json:"mcp_calls"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.McpCalls != nil && *req.McpCalls < 0 {
+		writeError(w, http.StatusBadRequest, "mcp_calls must be >= 0")
 		return
 	}
 
@@ -3148,6 +3182,18 @@ func (h *Handler) ReportTaskUsage(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		h.TaskService.CaptureTaskUsage(r.Context(), task, provider, u.Model, u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens)
+	}
+
+	// Task-level MCP tool-call volume rides the same channel so blocked runs
+	// are captured. Written even when the usage list is empty — a task can
+	// invoke MCP tools without accumulating any token entries.
+	if req.McpCalls != nil {
+		if err := h.Queries.SetTaskMcpCalls(r.Context(), db.SetTaskMcpCallsParams{
+			TaskID:   parseUUID(taskID),
+			McpCalls: int32(*req.McpCalls),
+		}); err != nil {
+			slog.Warn("set task mcp calls failed", "task_id", taskID, "error", err)
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

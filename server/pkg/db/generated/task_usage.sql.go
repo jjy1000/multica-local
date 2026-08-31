@@ -168,6 +168,66 @@ func (q *Queries) ListDashboardAgentRunTime(ctx context.Context, arg ListDashboa
 	return items, nil
 }
 
+const listDashboardMcpCallsDaily = `-- name: ListDashboardMcpCallsDaily :many
+SELECT
+    DATE(atq.completed_at AT TIME ZONE $1::text) AS date,
+    SUM(atq.mcp_calls)::bigint AS mcp_calls
+FROM agent_task_queue atq
+JOIN agent a ON a.id = atq.agent_id
+LEFT JOIN issue i ON i.id = atq.issue_id
+WHERE a.workspace_id = $2
+  AND atq.started_at IS NOT NULL
+  AND atq.completed_at IS NOT NULL
+  AND atq.completed_at >= $3::timestamptz
+  AND ($4::uuid IS NULL OR i.project_id = $4)
+GROUP BY DATE(atq.completed_at AT TIME ZONE $1::text)
+ORDER BY DATE(atq.completed_at AT TIME ZONE $1::text) DESC
+`
+
+type ListDashboardMcpCallsDailyParams struct {
+	Tz          string             `json:"tz"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Since       pgtype.Timestamptz `json:"since"`
+	ProjectID   pgtype.UUID        `json:"project_id"`
+}
+
+type ListDashboardMcpCallsDailyRow struct {
+	Date     pgtype.Date `json:"date"`
+	McpCalls int64       `json:"mcp_calls"`
+}
+
+// Daily MCP tool-call totals for the workspace, optionally scoped to a
+// project. MCP calls are a task-level fact (no per-model split), so unlike
+// the token series this aggregates straight from agent_task_queue instead
+// of task_usage_hourly — same treatment as ListDashboardRunTimeDaily.
+// Bucketed by completed_at (terminal time) sliced into calendar days under
+// the caller-supplied @tz; @since is the viewer's local start-of-day-(N)
+// (parseSinceParamInTZ), passed straight through — NOT re-truncated.
+func (q *Queries) ListDashboardMcpCallsDaily(ctx context.Context, arg ListDashboardMcpCallsDailyParams) ([]ListDashboardMcpCallsDailyRow, error) {
+	rows, err := q.db.Query(ctx, listDashboardMcpCallsDaily,
+		arg.Tz,
+		arg.WorkspaceID,
+		arg.Since,
+		arg.ProjectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDashboardMcpCallsDailyRow{}
+	for rows.Next() {
+		var i ListDashboardMcpCallsDailyRow
+		if err := rows.Scan(&i.Date, &i.McpCalls); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDashboardRunTimeDaily = `-- name: ListDashboardRunTimeDaily :many
 SELECT
     DATE(atq.completed_at AT TIME ZONE $2::text) AS date,
@@ -507,6 +567,25 @@ func (q *Queries) ListIssueTaskUsage(ctx context.Context, issueID pgtype.UUID) (
 		return nil, err
 	}
 	return items, nil
+}
+
+const setTaskMcpCalls = `-- name: SetTaskMcpCalls :exec
+UPDATE agent_task_queue
+SET mcp_calls = $1
+WHERE id = $2
+`
+
+type SetTaskMcpCallsParams struct {
+	McpCalls int32       `json:"mcp_calls"`
+	TaskID   pgtype.UUID `json:"task_id"`
+}
+
+// Task-level MCP tool-call count, reported by the daemon through the usage
+// channel (independent of complete/fail so blocked runs are captured too).
+// Idempotent: the daemon re-sends the same total if a usage report retries.
+func (q *Queries) SetTaskMcpCalls(ctx context.Context, arg SetTaskMcpCallsParams) error {
+	_, err := q.db.Exec(ctx, setTaskMcpCalls, arg.McpCalls, arg.TaskID)
+	return err
 }
 
 const upsertTaskUsage = `-- name: UpsertTaskUsage :exec

@@ -3029,8 +3029,8 @@ func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 	// goroutine. Both claude.go and codex.go populate result.Usage even when
 	// runCtx is cancelled, so dropping this on the cancelled path silently
 	// under-reports billing.
-	if len(result.Usage) > 0 {
-		if usageErr := d.client.ReportTaskUsage(ctx, task.ID, result.Usage); usageErr != nil {
+	if len(result.Usage) > 0 || result.McpToolCalls > 0 {
+		if usageErr := d.client.ReportTaskUsage(ctx, task.ID, result.Usage, result.McpToolCalls); usageErr != nil {
 			taskLog.Warn("report task usage failed", "error", usageErr)
 		}
 	}
@@ -4102,7 +4102,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		"timeout", execOpts.Timeout,
 	)
 
-	result, tools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID)
+	result, tools, mcpTools, err := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID)
 	if err != nil {
 		return TaskResult{}, err
 	}
@@ -4114,13 +4114,17 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		firstUsage := result.Usage
 		taskLog.Warn("session resume failed, retrying with fresh session", "error", result.Error)
 		execOpts.ResumeSessionID = ""
-		retryResult, retryTools, retryErr := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID)
+		retryResult, retryTools, retryMcpTools, retryErr := d.executeAndDrain(ctx, backend, prompt, execOpts, taskLog, task.ID)
 		if retryErr != nil {
 			taskLog.Error("fresh session also failed to start", "error", retryErr)
 		} else {
 			result = retryResult
 			result.Usage = mergeUsage(firstUsage, result.Usage)
 			tools = retryTools
+			// Unlike `tools` (which tracks the run that produced the final
+			// result), MCP invocations are a usage metric — calls from the
+			// abandoned first attempt really happened, so they sum.
+			mcpTools += retryMcpTools
 		}
 	}
 
@@ -4163,12 +4167,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			// a normal completion so the task is not incorrectly marked as
 			// blocked.
 			return TaskResult{
-				Status:    "completed",
-				Comment:   "",
-				SessionID: result.SessionID,
-				WorkDir:   env.WorkDir,
-				EnvRoot:   env.RootDir,
-				Usage:     usageEntries,
+				Status:       "completed",
+				Comment:      "",
+				SessionID:    result.SessionID,
+				WorkDir:      env.WorkDir,
+				McpToolCalls: int(mcpTools),
+				EnvRoot:      env.RootDir,
+				Usage:        usageEntries,
 			}, nil
 		}
 		// Detect "poisoned" terminal output: the agent didn't reach a real
@@ -4187,18 +4192,20 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 				Comment:       result.Output,
 				SessionID:     result.SessionID,
 				WorkDir:       env.WorkDir,
+				McpToolCalls:  int(mcpTools),
 				EnvRoot:       env.RootDir,
 				Usage:         usageEntries,
 				FailureReason: reason,
 			}, nil
 		}
 		return TaskResult{
-			Status:    "completed",
-			Comment:   result.Output,
-			SessionID: result.SessionID,
-			WorkDir:   env.WorkDir,
-			EnvRoot:   env.RootDir,
-			Usage:     usageEntries,
+			Status:       "completed",
+			Comment:      result.Output,
+			SessionID:    result.SessionID,
+			WorkDir:      env.WorkDir,
+			McpToolCalls: int(mcpTools),
+			EnvRoot:      env.RootDir,
+			Usage:        usageEntries,
 		}, nil
 	case "timeout":
 		// Surface session_id/work_dir so the chat resume pointer is kept
@@ -4221,6 +4228,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			Comment:       comment,
 			SessionID:     result.SessionID,
 			WorkDir:       env.WorkDir,
+			McpToolCalls:  int(mcpTools),
 			EnvRoot:       env.RootDir,
 			FailureReason: failureReason,
 			Usage:         usageEntries,
@@ -4240,6 +4248,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			Comment:       comment,
 			SessionID:     result.SessionID,
 			WorkDir:       env.WorkDir,
+			McpToolCalls:  int(mcpTools),
 			EnvRoot:       env.RootDir,
 			FailureReason: "idle_watchdog",
 			Usage:         usageEntries,
@@ -4251,12 +4260,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		// status string for the "agent finished" log line so operators can
 		// distinguish "task cancelled by server" from a real timeout.
 		return TaskResult{
-			Status:    "cancelled",
-			Comment:   "task cancelled by server",
-			SessionID: result.SessionID,
-			WorkDir:   env.WorkDir,
-			EnvRoot:   env.RootDir,
-			Usage:     usageEntries,
+			Status:       "cancelled",
+			Comment:      "task cancelled by server",
+			SessionID:    result.SessionID,
+			WorkDir:      env.WorkDir,
+			McpToolCalls: int(mcpTools),
+			EnvRoot:      env.RootDir,
+			Usage:        usageEntries,
 		}, nil
 	default:
 		errMsg := result.Error
@@ -4298,6 +4308,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 			Comment:       errMsg,
 			SessionID:     result.SessionID,
 			WorkDir:       env.WorkDir,
+			McpToolCalls:  int(mcpTools),
 			EnvRoot:       env.RootDir,
 			Usage:         usageEntries,
 			FailureReason: failureReason,
@@ -4306,8 +4317,11 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 }
 
 // executeAndDrain runs a backend, drains its message stream (forwarding to the
-// server), and waits for the final result.
-func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID string) (agent.Result, int32, error) {
+// server), and waits for the final result. Returns the result plus two
+// counters: total tool_use events and the subset that were MCP server
+// invocations (tool names with the `mcp__` prefix) — the latter feeds the
+// "MCP 调用量" usage metric.
+func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, prompt string, opts agent.ExecOptions, taskLog *slog.Logger, taskID string) (agent.Result, int32, int32, error) {
 	// Wrap the caller's ctx so the idle watchdog (below) can interrupt both
 	// the agent subprocess (via the ctx passed to backend.Execute) AND the
 	// drain loop with a single cancel. Without this layer the backend would
@@ -4324,7 +4338,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		// each backend (MUL-6164).
 		err = agent.ExplainExecError(err)
 		taskLog.Debug("backend execute returned error", "error", err)
-		return agent.Result{}, 0, err
+		return agent.Result{}, 0, 0, err
 	}
 	taskLog.Debug("backend started, draining messages")
 
@@ -4346,6 +4360,10 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	defer drainCancel()
 
 	var toolCount atomic.Int32
+	// mcpToolCount is the MCP-server subset of toolCount. The `mcp__` prefix
+	// is how the CLI names MCP-provided tools (mcp__<server>__<tool>); other
+	// providers that adopt the same convention are counted for free.
+	var mcpToolCount atomic.Int32
 	// lastActivityAt records (as unix nanos) when the drain loop most
 	// recently received a message from the backend. The idle watchdog
 	// reads this to decide whether the agent has gone silent for too long.
@@ -4461,6 +4479,9 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 					}
 				case agent.MessageToolUse:
 					n := toolCount.Add(1)
+					if strings.HasPrefix(msg.Tool, "mcp__") {
+						mcpToolCount.Add(1)
+					}
 					inFlightTools.Add(1)
 					taskLog.Info(fmt.Sprintf("tool #%d: %s", n, msg.Tool))
 					if msg.CallID != "" {
@@ -4558,7 +4579,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 				result.Error = idleWatchdogReason(time.Duration(idleWatchdogThreshold.Load()))
 			}
 		}
-		return result, toolCount.Load(), nil
+		return result, toolCount.Load(), mcpToolCount.Load(), nil
 	case <-drainCtx.Done():
 		// Idle watchdog cancels via agentCancel(), which propagates here as
 		// context.Canceled. Check this BEFORE the generic cancelled/timeout
@@ -4568,7 +4589,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 			return agent.Result{
 				Status: "idle_watchdog",
 				Error:  idleWatchdogReason(time.Duration(idleWatchdogThreshold.Load())),
-			}, toolCount.Load(), nil
+			}, toolCount.Load(), mcpToolCount.Load(), nil
 		}
 		// Distinguish external cancellation (e.g. server-initiated cancel
 		// because the issue was reassigned, or the user invoked CancelTask)
@@ -4579,12 +4600,12 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 			return agent.Result{
 				Status: "cancelled",
 				Error:  "task cancelled by upstream context (server cancel or daemon shutdown)",
-			}, toolCount.Load(), nil
+			}, toolCount.Load(), mcpToolCount.Load(), nil
 		}
 		return agent.Result{
 			Status: "timeout",
 			Error:  "agent did not produce result within drain timeout",
-		}, toolCount.Load(), nil
+		}, toolCount.Load(), mcpToolCount.Load(), nil
 	}
 }
 

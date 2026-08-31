@@ -26,6 +26,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/scheduler"
 	"github.com/multica-ai/multica/server/internal/service"
 	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
+	"github.com/multica-ai/multica/server/internal/service/mcpsync"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/featureflag"
 	"github.com/redis/go-redis/v9"
@@ -518,6 +519,20 @@ func main() {
 	// process-scoped; stopped in the after-HTTP-drain chain below.
 	causalMaintenance := causalgraph.NewCausalMaintenance(pool, causalgraph.CausalMaintenanceConfig{})
 	causalMaintenance.Start()
+	// 0.5.92: Claude Code MCP mirror worker. Ticks the ~/.claude.json
+	// mcpServers subtree into mcp_sync_server (settings "MCP 管理" tab +
+	// claim-time merge). Same lifetime contract as causalMaintenance.
+	mcpSync, err := mcpsync.NewSyncer(pool, queries, mcpsync.Config{
+		SourcePath: os.Getenv("MULTICA_MCP_SYNC_SOURCE"),
+		Interval:   envDuration("MULTICA_MCP_SYNC_INTERVAL", mcpsync.DefaultInterval),
+	}, slog.Default())
+	if err != nil {
+		slog.Warn("mcpsync: worker disabled", "error", err)
+	} else {
+		h.McpSync = mcpSync
+		mcpSync.Start()
+		slog.Info("mcpsync: worker started", "source", mcpSync.SourcePath())
+	}
 	go func() {
 		_ = schedulerMgr.Run(sweepCtx)
 	}()
@@ -608,6 +623,11 @@ func main() {
 	// exit instead of a SIGKILL mid-sweep; sweeps are idempotent
 	// anyway).
 	causalMaintenance.Stop()
+	// 0.5.92: stop the MCP sync worker — same contract as causalMaintenance
+	// (clean loop exit instead of a SIGKILL mid-pass; passes are idempotent).
+	if mcpSync != nil {
+		mcpSync.Stop()
+	}
 	// 0.5.31: stop the auth_token_gc goroutine before process exit.
 	// Same rationale as swarm_gc / runtime_gc / semantica_gc — the
 	// ticker loop should exit cleanly on Stop rather than be

@@ -11,6 +11,8 @@
   "exports": {
     ".": "./index.ts",
     "./markdown": "./markdown/index.ts",
+    "./mcp-sync": "./mcp-sync/index.ts",
+    "./mcp-sync/queries": "./mcp-sync/queries.ts",
     "./types": "./types/index.ts",
     "./types/*": "./types/*.ts",
     "./attachments": "./attachments/index.ts",

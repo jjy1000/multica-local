@@ -1580,6 +1580,16 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				r.Get("/usage/by-agent", h.GetDashboardUsageByAgent)
 				r.Get("/agent-runtime", h.GetDashboardAgentRunTime)
 				r.Get("/runtime/daily", h.GetDashboardRunTimeDaily)
+				r.Get("/mcp-calls/daily", h.GetDashboardMcpCallsDaily)
+			})
+
+			// MCP sync mirror (0.5.92) — workspace resolved from the request
+			// like the dashboard routes, read-only by contract: no edit or
+			// delete route exists. Refresh re-runs the sync pass and returns
+			// the updated snapshot.
+			r.Route("/api/mcp-sync", func(r chi.Router) {
+				r.Get("/", h.GetMcpSync)
+				r.Post("/refresh", h.RefreshMcpSync)
 			})
 
 			// Runtimes

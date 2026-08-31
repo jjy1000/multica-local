@@ -832,5 +832,30 @@
         "description": "创建并处理 issue"
       }
     }
+  },
+  "mcp_sync": {
+    "title": "MCP 管理（来自 Claude Code）",
+    "description": "只读镜像你的 Claude Code MCP server（~/.claude.json）。Claude Code 侧变更会自动同步到这里；同步来的 server 在 Multica 中不可编辑、不可删除。",
+    "refresh": "立即同步",
+    "refreshing": "同步中…",
+    "refresh_success": "已同步（{{count}} 个 server 可供智能体使用）",
+    "refresh_done_with_error": "同步完成但出现错误——见下方",
+    "refresh_failed": "同步失败",
+    "last_synced": "上次同步：{{time}}",
+    "never_synced": "尚未同步",
+    "server_count": "{{count}} 个 server 可供智能体使用",
+    "sync_error_label": "上次同步失败——当前显示最近一次成功镜像",
+    "loading": "正在读取镜像…",
+    "empty_title": "还没有同步到任何 MCP Server",
+    "empty_hint": "在 Claude Code 中运行 `claude mcp add`（user 作用域）添加 server，一分钟内会自动出现在这里。",
+    "column_name": "名称",
+    "column_type": "类型",
+    "column_target": "命令 / URL",
+    "column_secrets": "密钥",
+    "column_status": "状态",
+    "status_synced": "已同步",
+    "status_removed": "源中已移除",
+    "secrets_masked": "{{count}} 个键 · 值已脱敏",
+    "readonly_hint": "镜像条目为只读。删除请到 Claude Code 侧操作，下次同步后该条目会被标记并停止对智能体生效。与智能体手动 MCP 配置同名时，手动配置优先。"
   }
 }

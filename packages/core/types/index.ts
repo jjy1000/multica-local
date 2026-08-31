@@ -55,6 +55,7 @@ export type {
   DashboardUsageByAgent,
   DashboardAgentRunTime,
   DashboardRunTimeDaily,
+  DashboardMcpCallsDaily,
   RuntimeUpdate,
   RuntimeUpdateStatus,
   RuntimeModel,
@@ -205,3 +206,8 @@ export type {
   BillingCheckoutSessionStatus,
   CreateBillingPortalSessionResponse,
 } from "./billing";
+export type {
+  McpSyncServer,
+  McpSyncServerStatus,
+  McpSyncSnapshot,
+} from "./mcp-sync";

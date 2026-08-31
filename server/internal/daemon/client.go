@@ -256,12 +256,16 @@ func (c *Client) CompleteTask(ctx context.Context, taskID, output, branchName, s
 	return c.postJSONWithRetry(ctx, fmt.Sprintf("/api/daemon/tasks/%s/complete", taskID), body, nil, defaultTerminalRetrySchedule)
 }
 
-func (c *Client) ReportTaskUsage(ctx context.Context, taskID string, usage []TaskUsageEntry) error {
-	if len(usage) == 0 {
+func (c *Client) ReportTaskUsage(ctx context.Context, taskID string, usage []TaskUsageEntry, mcpCalls int) error {
+	if len(usage) == 0 && mcpCalls == 0 {
 		return nil
 	}
 	return c.postJSON(ctx, fmt.Sprintf("/api/daemon/tasks/%s/usage", taskID), map[string]any{
 		"usage": usage,
+		// Task-level MCP tool-call volume (0.5.92). Included even with an
+		// empty usage list — a run can invoke MCP tools without accumulating
+		// token entries worth reporting.
+		"mcp_calls": mcpCalls,
 	}, nil)
 }
 

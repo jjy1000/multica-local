@@ -833,5 +833,30 @@
         "description": "Create and work on issues"
       }
     }
+  },
+  "mcp_sync": {
+    "title": "MCP 管理 (from Claude Code)",
+    "description": "Read-only mirror of your Claude Code MCP servers (~/.claude.json). Changes in Claude Code sync here automatically; synced servers cannot be edited or deleted in Multica.",
+    "refresh": "Sync now",
+    "refreshing": "Syncing…",
+    "refresh_success": "Synced ({{count}} servers available to agents)",
+    "refresh_done_with_error": "Sync finished with an error — see below",
+    "refresh_failed": "Sync failed",
+    "last_synced": "Last synced: {{time}}",
+    "never_synced": "Never synced",
+    "server_count": "{{count}} servers available to agents",
+    "sync_error_label": "Last sync failed — showing the last good mirror",
+    "loading": "Loading mirror…",
+    "empty_title": "No MCP servers mirrored yet",
+    "empty_hint": "Add a server with `claude mcp add` (user scope) and it will appear here within a minute.",
+    "column_name": "Name",
+    "column_type": "Type",
+    "column_target": "Command / URL",
+    "column_secrets": "Secrets",
+    "column_status": "Status",
+    "status_synced": "Synced",
+    "status_removed": "Removed in Claude Code",
+    "secrets_masked": "{{count}} keys · values masked",
+    "readonly_hint": "Mirror entries are read-only. Removals happen in Claude Code; on the next sync the entry is marked and stops applying to agents. An agent's manual MCP config wins on name collisions."
   }
 }

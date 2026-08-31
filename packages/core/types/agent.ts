@@ -825,6 +825,15 @@ export interface DashboardRunTimeDaily {
   failed_count: number;
 }
 
+// One (date) bucket of MCP tool-call volume for the workspace dashboard
+// (0.5.92). MCP calls are a task-level fact with no per-model split, so this
+// aggregates agent_task_queue directly (same treatment as run time) instead
+// of the hourly token rollup.
+export interface DashboardMcpCallsDaily {
+  date: string;
+  mcp_calls: number;
+}
+
 export type RuntimeUpdateStatus =
   | "pending"
   | "running"

@@ -27,6 +27,12 @@ export const dashboardKeys = {
     projectId: string | null,
     tz: string,
   ) => [...dashboardKeys.all(wsId), "runtime-daily", days, projectId, tz] as const,
+  mcpCallsDaily: (
+    wsId: string,
+    days: number,
+    projectId: string | null,
+    tz: string,
+  ) => [...dashboardKeys.all(wsId), "mcp-calls-daily", days, projectId, tz] as const,
 };
 
 // 5-min rollup cadence on the server, 60s background refetch on the client.
@@ -103,6 +109,28 @@ export function dashboardRunTimeDailyOptions(
     queryKey: dashboardKeys.runTimeDaily(wsId, days, projectId, tz),
     queryFn: () =>
       api.getDashboardRunTimeDaily({
+        days,
+        project_id: projectId ?? undefined,
+        tz,
+      }),
+    enabled: !!wsId,
+    staleTime: STALE_TIME,
+  });
+}
+
+// MCP tool-call volume per day (0.5.92). Anchored on completed_at like the
+// run-time series, so the KPI cut matches the other tiles; `tz` participates
+// in the key for the same repoint-on-preference-change reason.
+export function dashboardMcpCallsDailyOptions(
+  wsId: string,
+  days: number,
+  projectId: string | null,
+  tz: string,
+) {
+  return queryOptions({
+    queryKey: dashboardKeys.mcpCallsDaily(wsId, days, projectId, tz),
+    queryFn: () =>
+      api.getDashboardMcpCallsDaily({
         days,
         project_id: projectId ?? undefined,
         tz,

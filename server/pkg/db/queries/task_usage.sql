@@ -204,3 +204,33 @@ WHERE a.workspace_id = $1
   AND (sqlc.narg('project_id')::uuid IS NULL OR i.project_id = sqlc.narg('project_id'))
 GROUP BY atq.agent_id
 ORDER BY total_seconds DESC;
+
+-- name: SetTaskMcpCalls :exec
+-- Task-level MCP tool-call count, reported by the daemon through the usage
+-- channel (independent of complete/fail so blocked runs are captured too).
+-- Idempotent: the daemon re-sends the same total if a usage report retries.
+UPDATE agent_task_queue
+SET mcp_calls = sqlc.arg('mcp_calls')
+WHERE id = sqlc.arg('task_id');
+
+-- name: ListDashboardMcpCallsDaily :many
+-- Daily MCP tool-call totals for the workspace, optionally scoped to a
+-- project. MCP calls are a task-level fact (no per-model split), so unlike
+-- the token series this aggregates straight from agent_task_queue instead
+-- of task_usage_hourly — same treatment as ListDashboardRunTimeDaily.
+-- Bucketed by completed_at (terminal time) sliced into calendar days under
+-- the caller-supplied @tz; @since is the viewer's local start-of-day-(N)
+-- (parseSinceParamInTZ), passed straight through — NOT re-truncated.
+SELECT
+    DATE(atq.completed_at AT TIME ZONE sqlc.arg('tz')::text) AS date,
+    SUM(atq.mcp_calls)::bigint AS mcp_calls
+FROM agent_task_queue atq
+JOIN agent a ON a.id = atq.agent_id
+LEFT JOIN issue i ON i.id = atq.issue_id
+WHERE a.workspace_id = sqlc.arg('workspace_id')
+  AND atq.started_at IS NOT NULL
+  AND atq.completed_at IS NOT NULL
+  AND atq.completed_at >= sqlc.arg('since')::timestamptz
+  AND (sqlc.narg('project_id')::uuid IS NULL OR i.project_id = sqlc.narg('project_id'))
+GROUP BY DATE(atq.completed_at AT TIME ZONE sqlc.arg('tz')::text)
+ORDER BY DATE(atq.completed_at AT TIME ZONE sqlc.arg('tz')::text) DESC;

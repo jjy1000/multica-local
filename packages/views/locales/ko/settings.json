@@ -832,5 +832,30 @@
     "install_error_session_lost": "설치 세션이 만료되었거나 유실되었어요. 다시 스캔해 처음부터 진행하세요.",
     "install_error_forbidden": "이 워크스페이스에 Lark 봇을 설치할 권한이 더 이상 없어요. 워크스페이스 관리자에게 문의하세요.",
     "install_error_generic": "설치에 실패했어요. 다시 시도하세요."
+  },
+  "mcp_sync": {
+    "title": "MCP 관리(Claude Code에서)",
+    "description": "Claude Code MCP 서버(~/.claude.json)의 읽기 전용 미러입니다. Claude Code 측 변경이 자동으로 동기화되며, 동기화된 서버는 Multica에서 편집하거나 삭제할 수 없습니다.",
+    "refresh": "지금 동기화",
+    "refreshing": "동기화 중…",
+    "refresh_success": "동기화됨(에이전트가 {{count}}개 서버 사용 가능)",
+    "refresh_done_with_error": "동기화가 오류와 함께 완료되었습니다 — 아래 참조",
+    "refresh_failed": "동기화 실패",
+    "last_synced": "마지막 동기화: {{time}}",
+    "never_synced": "아직 동기화되지 않음",
+    "server_count": "에이전트가 {{count}}개 서버 사용 가능",
+    "sync_error_label": "마지막 동기화 실패 — 최근 성공한 미러 표시 중",
+    "loading": "미러 불러오는 중…",
+    "empty_title": "아직 미러된 MCP 서버가 없습니다",
+    "empty_hint": "Claude Code에서 `claude mcp add`(user 범위)로 서버를 추가하면 1분 이내에 여기에 나타납니다.",
+    "column_name": "이름",
+    "column_type": "유형",
+    "column_target": "명령 / URL",
+    "column_secrets": "시크릿",
+    "column_status": "상태",
+    "status_synced": "동기화됨",
+    "status_removed": "소스에서 제거됨",
+    "secrets_masked": "키 {{count}}개 · 값 마스킹됨",
+    "readonly_hint": "미러 항목은 읽기 전용입니다. 삭제는 Claude Code 측에서 수행하며, 다음 동기화 후 해당 항목은 표시되고 에이전트에 더 이상 적용되지 않습니다. 에이전트의 수동 MCP 구성과 이름이 같으면 수동 구성이 우선합니다."
   }
 }

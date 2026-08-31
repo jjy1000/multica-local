@@ -832,5 +832,30 @@
         "description": "イシューの作成と作業"
       }
     }
+  },
+  "mcp_sync": {
+    "title": "MCP 管理（Claude Code から）",
+    "description": "Claude Code の MCP サーバー（~/.claude.json）の読み取り専用ミラー。Claude Code 側の変更は自動的に同期され、同期されたサーバーは Multica では編集・削除できません。",
+    "refresh": "今すぐ同期",
+    "refreshing": "同期中…",
+    "refresh_success": "同期しました（{{count}} 個のサーバーがエージェントで利用可能）",
+    "refresh_done_with_error": "同期は完了しましたがエラーがあります — 下記を参照",
+    "refresh_failed": "同期に失敗しました",
+    "last_synced": "最終同期：{{time}}",
+    "never_synced": "未同期",
+    "server_count": "{{count}} 個のサーバーがエージェントで利用可能",
+    "sync_error_label": "前回の同期に失敗 — 最後に成功したミラーを表示中",
+    "loading": "ミラーを読み込み中…",
+    "empty_title": "ミラーされた MCP サーバーはまだありません",
+    "empty_hint": "Claude Code で `claude mcp add`（user スコープ）を追加すると、1 分以内にここに表示されます。",
+    "column_name": "名前",
+    "column_type": "種類",
+    "column_target": "コマンド / URL",
+    "column_secrets": "シークレット",
+    "column_status": "状態",
+    "status_synced": "同期済み",
+    "status_removed": "ソースで削除済み",
+    "secrets_masked": "{{count}} 個のキー · 値はマスク済み",
+    "readonly_hint": "ミラーエントリは読み取り専用です。削除は Claude Code 側で行い、次回の同期でマーキングされエージェントに適用されなくなります。エージェントの手動 MCP 設定と同名の場合は手動設定が優先されます。"
   }
 }

@@ -171,6 +171,8 @@ type AgentTaskQueue struct {
 	OriginatorUserID  pgtype.UUID `json:"originator_user_id"`
 	AccountableUserID pgtype.UUID `json:"accountable_user_id"`
 	BranchName        pgtype.Text `json:"branch_name"`
+	// MCP tool calls observed during the run (stream tool_use events with the mcp__ prefix). Reported via the daemon usage channel; 0 for tasks that predate the metric or used no MCP tools.
+	McpCalls int32 `json:"mcp_calls"`
 }
 
 type AgentTrustEvent struct {
@@ -907,6 +909,24 @@ type LarkUserBinding struct {
 	LarkOpenID     string             `json:"lark_open_id"`
 	UnionID        pgtype.Text        `json:"union_id"`
 	BoundAt        pgtype.Timestamptz `json:"bound_at"`
+}
+
+type McpSyncServer struct {
+	ID          pgtype.UUID        `json:"id"`
+	Name        string             `json:"name"`
+	Definition  []byte             `json:"definition"`
+	SourceHash  string             `json:"source_hash"`
+	Status      string             `json:"status"`
+	FirstSeenAt pgtype.Timestamptz `json:"first_seen_at"`
+	LastSeenAt  pgtype.Timestamptz `json:"last_seen_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type McpSyncState struct {
+	ID             bool               `json:"id"`
+	LastSyncedAt   pgtype.Timestamptz `json:"last_synced_at"`
+	LastSourceHash string             `json:"last_source_hash"`
+	LastError      string             `json:"last_error"`
 }
 
 type Member struct {

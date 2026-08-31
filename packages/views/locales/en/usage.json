@@ -13,7 +13,9 @@
     "run_time_label": "Run time · {{days}}D",
     "run_time_hint": "Across {{tasks}} tasks",
     "tasks_label": "Tasks · {{days}}D",
-    "tasks_hint": "{{failed}} failed"
+    "tasks_hint": "{{failed}} failed",
+    "mcp_calls_label": "MCP calls · {{days}}D",
+    "mcp_calls_hint": "MCP server tool invocations"
   },
   "dim": {
     "label": "Dimension",

@@ -13,7 +13,9 @@
     "run_time_label": "运行时长 · {{days}}天",
     "run_time_hint": "共 {{tasks}} 个任务",
     "tasks_label": "任务数 · {{days}}天",
-    "tasks_hint": "失败 {{failed}} 个"
+    "tasks_hint": "失败 {{failed}} 个",
+    "mcp_calls_label": "MCP 调用 · {{days}}D",
+    "mcp_calls_hint": "MCP server 工具调用次数"
   },
   "dim": {
     "label": "维度",

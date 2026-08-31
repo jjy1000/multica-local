@@ -33,6 +33,7 @@ import (
 	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
 	agenttrust "github.com/multica-ai/multica/server/internal/service/agent_trust"
 	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
+	"github.com/multica-ai/multica/server/internal/service/mcpsync"
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	swarmsvc "github.com/multica-ai/multica/server/internal/service/swarm"
 	"github.com/multica-ai/multica/server/internal/storage"
@@ -223,6 +224,12 @@ type Handler struct {
 	// cmd/server/main.go shutdown. Nil is acceptable — test-only
 	// builds skip it.
 	AuthTokenGC *experimental.AuthTokenGC
+	// McpSync (0.5.92) owns the Claude Code MCP mirror worker
+	// (internal/service/mcpsync). Boot wires it from cmd/server/main.go
+	// alongside causalMaintenance; the settings "MCP 管理" refresh endpoint
+	// drives a manual pass through it. Nil is acceptable — the refresh
+	// handler falls back to 503 (test-only builds skip the wiring).
+	McpSync *mcpsync.Syncer
 	// RuntimeOnlineOverride (test-only, 0.5.25) — when non-nil, the
 	// isRuntimeOnline gate returns the dereferenced value instead of
 	// reading agent_runtime.status. Used by tests that need the gate

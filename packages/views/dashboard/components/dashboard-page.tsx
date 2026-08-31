@@ -26,6 +26,7 @@ import {
   dashboardUsageByAgentOptions,
   dashboardAgentRunTimeOptions,
   dashboardRunTimeDailyOptions,
+  dashboardMcpCallsDailyOptions,
 } from "@multica/core/dashboard";
 import { useCustomPricingStore } from "@multica/core/runtimes/custom-pricing-store";
 import { useViewingTimezone } from "../../common/use-viewing-timezone";
@@ -106,6 +107,7 @@ const EMPTY_DAILY: import("@multica/core/types").DashboardUsageDaily[] = [];
 const EMPTY_BY_AGENT: import("@multica/core/types").DashboardUsageByAgent[] = [];
 const EMPTY_RUNTIME: import("@multica/core/types").DashboardAgentRunTime[] = [];
 const EMPTY_RUNTIME_DAILY: import("@multica/core/types").DashboardRunTimeDaily[] = [];
+const EMPTY_MCP_CALLS_DAILY: import("@multica/core/types").DashboardMcpCallsDaily[] = [];
 const EMPTY_AGENTS: Agent[] = [];
 
 // Local segmented control — same visual language the runtime usage section
@@ -253,11 +255,15 @@ export function DashboardPage() {
   const runTimeDailyQuery = useQuery(
     dashboardRunTimeDailyOptions(wsId, chartFetchDays, projectId, viewTZ),
   );
+  const mcpCallsQuery = useQuery(
+    dashboardMcpCallsDailyOptions(wsId, chartFetchDays, projectId, viewTZ),
+  );
 
   const dailyUsage = dailyQuery.data ?? EMPTY_DAILY;
   const byAgentUsage = byAgentQuery.data ?? EMPTY_BY_AGENT;
   const runTimeRows = runTimeQuery.data ?? EMPTY_RUNTIME;
   const runTimeDailyRows = runTimeDailyQuery.data ?? EMPTY_RUNTIME_DAILY;
+  const mcpCallsRows = mcpCallsQuery.data ?? EMPTY_MCP_CALLS_DAILY;
 
   // Daily-aggregation surfaces (cost/tokens/time/tasks KPIs and the Daily
   // trend chart) re-scope to the user-selected `days` even when we
@@ -315,6 +321,14 @@ export function DashboardPage() {
   const dailyTasks = useMemo(
     () => aggregateDailyTasks(runTimeDailyInWindow),
     [runTimeDailyInWindow],
+  );
+  const mcpCallsInWindow = useMemo(
+    () => mcpCallsRows.filter((r) => r.date >= dailyCutoffIso),
+    [mcpCallsRows, dailyCutoffIso],
+  );
+  const mcpCallsTotal = useMemo(
+    () => mcpCallsInWindow.reduce((sum, r) => sum + r.mcp_calls, 0),
+    [mcpCallsInWindow],
   );
 
   // Weekly aggregates — built from the over-fetched per-date queries so the
@@ -419,7 +433,7 @@ export function DashboardPage() {
             <>
               {/* KPI row — same 3-divide-x card grid the runtime usage
                   section uses, expanded to four tiles. */}
-              <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
+              <div className="grid grid-cols-1 divide-y rounded-lg border bg-card sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-5">
                 <KpiCard
                   label={t(($) => $.kpi.cost_label, { days })}
                   value={
@@ -471,6 +485,18 @@ export function DashboardPage() {
                     failed: runTimeTotals.failedCount,
                   })}
                   accent={runTimeTotals.failedCount > 0 ? "default" : "default"}
+                />
+                <KpiCard
+                  label={t(($) => $.kpi.mcp_calls_label, { days })}
+                  value={
+                    <NumberFlow
+                      value={mcpCallsTotal}
+                      locales={locales}
+                      format={{ maximumFractionDigits: 0 }}
+                      aria-label={String(mcpCallsTotal)}
+                    />
+                  }
+                  hint={t(($) => $.kpi.mcp_calls_hint)}
                 />
               </div>
 

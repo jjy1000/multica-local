@@ -606,6 +606,33 @@ const DashboardRunTimeDailySchema = z.object({
 
 export const DashboardRunTimeDailyListSchema = z.array(DashboardRunTimeDailySchema);
 
+const DashboardMcpCallsDailySchema = z.object({
+  date: z.string().default(""),
+  mcp_calls: z.number().default(0),
+}).loose();
+
+export const DashboardMcpCallsDailyListSchema = z.array(DashboardMcpCallsDailySchema);
+
+// MCP sync mirror (0.5.92) — GET/POST /api/mcp-sync. Leniency rules match
+// the dashboard schemas; `definition` is the server's own JSON shape and is
+// passed through loose (env/header values arrive pre-masked from the server,
+// so the client never needs to inspect them).
+const McpSyncServerSchema = z.object({
+  name: z.string().default(""),
+  definition: z.record(z.string(), z.unknown()).default({}),
+  status: z.enum(["synced", "removed"]).catch("removed"),
+  first_seen_at: z.string().default(""),
+  last_seen_at: z.string().default(""),
+}).loose();
+
+const McpSyncSnapshotSchema = z.object({
+  servers: z.array(McpSyncServerSchema).default([]),
+  last_synced_at: z.string().default(""),
+  last_error: z.string().default(""),
+}).loose();
+
+export const McpSyncSnapshotResponseSchema = McpSyncSnapshotSchema;
+
 // ---------------------------------------------------------------------------
 // Runtime usage schemas — the runtime-detail page's four usage endpoints
 // (`/api/runtimes/:id/usage*`). Same leniency rules as the dashboard

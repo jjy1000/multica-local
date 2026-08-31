@@ -63,6 +63,8 @@ import type {
   DashboardUsageByAgent,
   DashboardAgentRunTime,
   DashboardRunTimeDaily,
+  DashboardMcpCallsDaily,
+  McpSyncSnapshot,
   RuntimeUpdate,
   RuntimeModelListRequest,
   RuntimeLocalSkillListRequest,
@@ -161,9 +163,11 @@ import {
   CloudRuntimeNodeSchema,
   CreateAgentFromTemplateResponseSchema,
   DashboardAgentRunTimeListSchema,
+  DashboardMcpCallsDailyListSchema,
   DashboardRunTimeDailyListSchema,
   DashboardUsageByAgentListSchema,
   DashboardUsageDailyListSchema,
+  McpSyncSnapshotResponseSchema,
   EMPTY_AGENT_TEMPLATE_DETAIL,
   EMPTY_AGENT_TEMPLATE_SUMMARY_LIST,
   EMPTY_APP_CONFIG,
@@ -1491,6 +1495,46 @@ export class ApiClient {
       DashboardRunTimeDailyListSchema,
       [],
       { endpoint: "GET /api/dashboard/runtime/daily" },
+    );
+  }
+
+  async getDashboardMcpCallsDaily(
+    params: { days?: number; project_id?: string | null; tz?: string },
+  ): Promise<DashboardMcpCallsDaily[]> {
+    const search = new URLSearchParams();
+    if (params.days) search.set("days", String(params.days));
+    if (params.project_id) search.set("project_id", params.project_id);
+    // `tz` cuts the day buckets in the viewer's calendar so MCP calls align
+    // with the Cost / Tokens / Time charts (same convention as run time).
+    if (params.tz) search.set("tz", params.tz);
+    const raw = await this.fetch<unknown>(`/api/dashboard/mcp-calls/daily?${search}`);
+    return parseWithFallback<DashboardMcpCallsDaily[]>(
+      raw,
+      DashboardMcpCallsDailyListSchema,
+      [],
+      { endpoint: "GET /api/dashboard/mcp-calls/daily" },
+    );
+  }
+
+  async getMcpSync(): Promise<McpSyncSnapshot> {
+    const raw = await this.fetch<unknown>("/api/mcp-sync");
+    return parseWithFallback<McpSyncSnapshot>(
+      raw,
+      McpSyncSnapshotResponseSchema,
+      { servers: [], last_synced_at: "", last_error: "" },
+      { endpoint: "GET /api/mcp-sync" },
+    );
+  }
+
+  async refreshMcpSync(): Promise<McpSyncSnapshot> {
+    const raw = await this.fetch<unknown>("/api/mcp-sync/refresh", {
+      method: "POST",
+    });
+    return parseWithFallback<McpSyncSnapshot>(
+      raw,
+      McpSyncSnapshotResponseSchema,
+      { servers: [], last_synced_at: "", last_error: "" },
+      { endpoint: "POST /api/mcp-sync/refresh" },
     );
   }
 

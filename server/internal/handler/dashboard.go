@@ -312,3 +312,50 @@ func (h *Handler) GetDashboardRunTimeDaily(w http.ResponseWriter, r *http.Reques
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+// DashboardMcpCallsDailyResponse is one (date) bucket of MCP tool-call
+// volume. MCP calls are a task-level fact with no per-model split, so unlike
+// the token series this aggregates straight from agent_task_queue — same
+// treatment as run time / task counts.
+type DashboardMcpCallsDailyResponse struct {
+	Date     string `json:"date"`
+	McpCalls int64  `json:"mcp_calls"`
+}
+
+// GetDashboardMcpCallsDaily returns per-date MCP tool-call totals for the
+// workspace, optionally scoped to a project. Bucketed by completed_at so the
+// day boundaries line up with the run-time series beside it.
+func (h *Handler) GetDashboardMcpCallsDaily(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	if _, ok := h.workspaceMember(w, r, workspaceID); !ok {
+		return
+	}
+	projectID, ok := parseProjectIDParam(w, r)
+	if !ok {
+		return
+	}
+	// Slice day buckets in the viewer's tz so the MCP-calls series cuts its
+	// calendar day identically to the Cost / Tokens / Time charts.
+	tz := h.resolveViewingTZ(r)
+	since := parseSinceParamInTZ(r, 30, tz)
+
+	rows, err := h.Queries.ListDashboardMcpCallsDaily(r.Context(), db.ListDashboardMcpCallsDailyParams{
+		WorkspaceID: parseUUID(workspaceID),
+		Tz:          tz,
+		Since:       since,
+		ProjectID:   projectID,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list daily mcp calls")
+		return
+	}
+
+	resp := make([]DashboardMcpCallsDailyResponse, len(rows))
+	for i, row := range rows {
+		resp[i] = DashboardMcpCallsDailyResponse{
+			Date:     row.Date.Time.Format("2006-01-02"),
+			McpCalls: row.McpCalls,
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}

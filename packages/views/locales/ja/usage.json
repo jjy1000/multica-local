@@ -13,7 +13,9 @@
     "run_time_label": "実行時間 · {{days}}日",
     "run_time_hint": "{{tasks}} 件のタスク全体",
     "tasks_label": "タスク · {{days}}日",
-    "tasks_hint": "{{failed}} 件失敗"
+    "tasks_hint": "{{failed}} 件失敗",
+    "mcp_calls_label": "MCP 呼び出し · {{days}}D",
+    "mcp_calls_hint": "MCP サーバーのツール呼び出し"
   },
   "dim": {
     "label": "単位",
