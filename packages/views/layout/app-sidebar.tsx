@@ -32,6 +32,8 @@ import {
   Pin,
   Brain,
   MessagesSquare,
+  LineChart,
+  GitBranch,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
 import { ActorAvatar } from "@multica/ui/components/common/actor-avatar";
@@ -133,6 +135,10 @@ const experimentalIconByKey: Record<string, typeof FlaskConical> = {
   chat_pin_ui: Pin,
   swarm_topology: Network,
   semantica: Brain,
+  // 0.5.91 wiring: enable the sidebar entry for both newly installable labs
+  // so the icon registry does not fall back to FlaskConical.
+  timesfm: LineChart,
+  causal_graph: GitBranch,
 };
 
 /**

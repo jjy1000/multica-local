@@ -115,7 +115,7 @@
     "back_to_list": "Back to all labs",
     "desc_claude_lab": "Multi-agent research workspace. Plan, chat, run code, search literature, and forecast — all in one tab.",
     "desc_pythia": "Multi-perspective forecasting engine. Streams structured predictions (scenario, probability, confidence) for issues and watchlist symbols.",
-    "desc_mythos": "Agent swarm with two modes: `sole` (the swarm owns the issue end-to-end) and `enhancer` (the swarm preludes + supervises your chosen assignee).",
+    "desc_mythos": "OpenMythos agent swarm (display name for the swarm lab). Runs as an outer-loop enhancer: preludes + supervises a user-picked assignee. Standalone sole mode is retired for new bindings.",
     "desc_llm_wiki_bridge": "Local stdio bridge for LLM Wiki. Streams wiki files / search / status to your editor or agent runtime over MCP-style verbs.",
     "desc_code_canvas": "Interactive canvas for prototyping, sketching code, and exploring agent-generated snippets in a side-by-side editor.",
     "desc_semantica": "Local subprocess bridging Semantica (knowledge graph + decision records) into Multica, with delegation and terminal-issue decision sync.",

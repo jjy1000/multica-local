@@ -20,7 +20,13 @@
       "permissions": ["agent:invoke"]
     },
     "entry_points": {
-      "sidebar": [],
+      "sidebar": [
+        {
+          "key": "experimental_timesfm",
+          "label_key": "experimental_timesfm",
+          "route": "/experimental/timesfm-lab"
+        }
+      ],
       "settings": { "route": "/experimental/timesfm-lab" }
     },
     "runtime": {

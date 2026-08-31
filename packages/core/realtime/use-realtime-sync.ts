@@ -317,7 +317,27 @@ export async function handleInboxNew(
 function invalidateWorkspaceScopedQueries(qc: QueryClient): void {
   const wsId = getCurrentWsId();
   if (wsId) {
-    qc.invalidateQueries({ queryKey: issueKeys.all(wsId) });
+    // Skip issue detail keys (["issues", wsId, "detail", id]) so a WS reconnect
+    // does not overwrite the in-flight cache of an issue detail page the user
+    // is currently editing. Per-mount useWSReconnect still refetches the
+    // mounted detail; inactive detail caches only get marked stale on next
+    // mount, which is the same lazy-recovery behaviour other per-issue caches
+    // get. Predicate form mirrors `invalidateSquadMemberStatusQueries` below.
+    qc.invalidateQueries({
+      predicate: (query) => {
+        const key = query.queryKey;
+        if (
+          key[0] === "issues" &&
+          key[1] === wsId &&
+          key[2] === "detail"
+        ) {
+          return false;
+        }
+        return issueKeys.all(wsId).every(
+          (segment, i) => key[i] === segment,
+        );
+      },
+    });
     qc.invalidateQueries({ queryKey: inboxKeys.all(wsId) });
     qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
     qc.invalidateQueries({ queryKey: workspaceKeys.members(wsId) });

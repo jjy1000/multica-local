@@ -228,6 +228,7 @@ export function useUpdateIssue() {
       (entry): entry is [QueryKey, ListIssuesCache] => !!entry[1]?.byStatus,
     );
   return useMutation({
+    networkMode: "always",
     mutationFn: ({ id, ...data }: { id: string } & UpdateIssueRequest) =>
       api.updateIssue(id, data),
     onMutate: ({ id, ...data }) => {

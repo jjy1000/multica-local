@@ -115,7 +115,11 @@ export function StatusPicker({
               selected={option.key === status}
               hoverClassName={STATUS_CONFIG[group.category].hoverBg}
               onClick={() => {
-                onUpdate({ status: option.key });
+                try {
+                  onUpdate({ status: option.key });
+                } catch (error) {
+                  console.warn('[status-picker] stale closure dropped', { status: option.key, error });
+                }
                 setOpen(false);
                 setQuery("");
               }}

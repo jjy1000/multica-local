@@ -115,7 +115,7 @@
     "back_to_list": "返回实验室列表",
     "desc_claude_lab": "多智能体科研工作台。计划、对话、运行代码、检索文献、预测 — 全部在一个标签页内。",
     "desc_pythia": "多视角预测引擎。针对议题和关注列表符号，持续推送结构化预测（情景、概率、置信度）。",
-    "desc_mythos": "智能体蜂群，两种模式：`sole`（蜂群端到端负责议题）/ `enhancer`（蜂群预演 + 监督你指派的执行人）。",
+    "desc_mythos": "OpenMythos 智能体蜂群（蜂群实验室的展示名）。以外环 enhancer 模式运行：预演 + 监督用户指派的执行人。新建绑定已退役 standalone sole 模式。",
     "desc_llm_wiki_bridge": "LLM Wiki 的本地 stdio 桥接。通过 MCP 风格动词，把 wiki 文件 / 搜索 / 状态流式送到编辑器或智能体运行时。",
     "desc_code_canvas": "用于原型、草图代码、并排浏览智能体生成片段的交互画布。",
     "desc_semantica": "本地子进程,把 Semantica(知识图谱 + 决策记录)桥接到 Multica,含委托与终态 issue 决策同步。",
