@@ -524,7 +524,10 @@ function MythosSuperviseSection({ runID }: { runID: string }) {
           )}
           {stateQuery.data.total_ticks > 0 && (
             <div className="text-[10px]">
-              {stateQuery.data.total_ticks} ticks · {stateQuery.data.last_tick_duration_ms}ms
+              {t(($) => $.lab_output_panel.ticks_detail, {
+                ticks: stateQuery.data.total_ticks,
+                ms: stateQuery.data.last_tick_duration_ms,
+              })}
             </div>
           )}
           {stateQuery.data.latest_reflection && (
@@ -888,12 +891,14 @@ function PythiaPanel({
       >
         <div className="flex items-center gap-1.5 text-[11px] font-medium text-purple-700 dark:text-purple-300">
           <Loader2 className="size-3 animate-spin" aria-hidden />
-          <span>Pythia 推演中 · {elapsed}s / {budgetSec}s</span>
+          <span>
+            {t(($) => $.lab_output_panel.pythia_in_progress, { elapsed, budget: budgetSec })}
+          </span>
         </div>
         <p className="text-[10px] leading-snug text-muted-foreground">
           {triggerForecast.isPending
-            ? "正在请求 10 轮 SSE 流…"
-            : "10 轮 oracle 调用,每轮 ~3-5s + 5s 间隔"}
+            ? t(($) => $.lab_output_panel.pythia_stream_requesting)
+            : t(($) => $.lab_output_panel.pythia_stream_cost_hint)}
         </p>
       </div>
     );
@@ -909,10 +914,10 @@ function PythiaPanel({
         data-testid="lab-output-panel-pythia-stuck"
       >
         <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
-          推演未在 90 秒内返回结果
+          {t(($) => $.lab_output_panel.pythia_stuck_title)}
         </p>
         <p className="text-[10px] leading-snug text-muted-foreground">
-          可能原因:Python 引擎未启动 / oracle 进程崩溃 / 网络中断。点重试可手动重新触发 3 轮。
+          {t(($) => $.lab_output_panel.pythia_stuck_detail)}
         </p>
         <button
           type="button"
@@ -921,11 +926,15 @@ function PythiaPanel({
           className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-500/40 bg-background px-2 py-1 text-[11px] font-medium text-foreground hover:bg-amber-500/10 disabled:opacity-50"
         >
           <RefreshCw className="size-3" aria-hidden />
-          {triggerForecast.isPending ? "请求中…" : "重新推演 (3 轮)"}
+          {triggerForecast.isPending
+            ? t(($) => $.lab_output_panel.pythia_requesting)
+            : t(($) => $.lab_output_panel.pythia_retry, { rounds: 3 })}
         </button>
         {triggerForecast.isError && (
           <p className="text-[10px] text-destructive">
-            {triggerForecast.error instanceof Error ? triggerForecast.error.message : "重试失败"}
+            {triggerForecast.error instanceof Error
+              ? triggerForecast.error.message
+              : t(($) => $.lab_output_panel.pythia_retry_failed)}
           </p>
         )}
       </div>
@@ -948,7 +957,9 @@ function PythiaPanel({
           className="inline-flex shrink-0 items-center gap-1 rounded-md border border-purple-500/40 bg-purple-500/5 px-2 py-1 text-[11px] font-medium text-purple-700 hover:bg-purple-500/10 disabled:opacity-50 dark:text-purple-300"
         >
           <RefreshCw className="size-3" aria-hidden />
-          {triggerForecast.isPending ? "请求中…" : "启动 Pythia 推演 (3 轮)"}
+          {triggerForecast.isPending
+            ? t(($) => $.lab_output_panel.pythia_requesting)
+            : t(($) => $.lab_output_panel.pythia_start, { rounds: 3 })}
         </button>
       </div>
     );

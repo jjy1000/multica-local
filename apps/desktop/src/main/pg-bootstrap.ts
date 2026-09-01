@@ -297,7 +297,7 @@ export async function initPgDataDir(): Promise<void> {
   // Linux, or inside a hardened sandbox.
   const confPath = postgresqlConf();
   if (existsSync(confPath)) {
-    let conf = readFileSync(confPath, "utf-8");
+    const conf = readFileSync(confPath, "utf-8");
     let patched = conf;
     if (!/^listen_addresses\s*=/m.test(patched)) {
       patched += "\n# Added by Multica desktop\nlisten_addresses = '127.0.0.1'\n";

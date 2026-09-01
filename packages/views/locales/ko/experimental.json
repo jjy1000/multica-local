@@ -199,7 +199,17 @@
     "code_canvas_render_failed": "렌더링 실패: {{error}}",
     "timesfm_title": "예측 레코드",
     "timesfm_empty_hint": "예측은 이슈 기반입니다. 이 이슈를 timesfm_oracle 에이전트에게 할당하면 모든 예측이 여기에 자동으로 기록됩니다.",
-    "timesfm_fallback_hint": "최근 실행은 계절성 나이브 폴백을 사용했습니다 — 모델 가중치가 준비되지 않았습니다(~/.multica/models/timesfm/model.safetensors)."
+    "timesfm_fallback_hint": "최근 실행은 계절성 나이브 폴백을 사용했습니다 — 모델 가중치가 준비되지 않았습니다(~/.multica/models/timesfm/model.safetensors).",
+    "pythia_in_progress": "Pythia 추론 중 · {{elapsed}}초 / {{budget}}초",
+    "pythia_stream_requesting": "10라운드 SSE 스트림을 요청하는 중…",
+    "pythia_stream_cost_hint": "oracle 호출 10회, 각 약 3-5초 + 5초 간격",
+    "pythia_stuck_title": "90초 이내에 결과를 받지 못했습니다",
+    "pythia_stuck_detail": "가능한 원인: Python 엔진 미실행 / oracle 프로세스 충돌 / 네트워크 단절. 재시도를 누르면 3라운드를 수동으로 다시 실행합니다.",
+    "ticks_detail": "{{ticks}} ticks · {{ms}}ms",
+    "pythia_requesting": "요청 중…",
+    "pythia_retry": "{{rounds}}라운드 재실행",
+    "pythia_start": "Pythia 추론 시작 ({{rounds}}라운드)",
+    "pythia_retry_failed": "재시도 실패"
   },
   "lab_last_result_chip": {
     "title": "최신 결과"

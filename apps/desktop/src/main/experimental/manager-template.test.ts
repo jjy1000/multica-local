@@ -18,7 +18,7 @@
 // binary on disk — the manager should refuse to spawn at all.
 
 import { describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -99,9 +99,9 @@ describe("BaseExperimentalManager BINARY_NOT_BUNDLED pre-check", () => {
       // spawn this binary and start a health-probe loop, which is not
       // what we want in a unit test. We assert only the pre-check pass.
       const binDir = join(tmp, "resources", "openscience");
-      require("node:fs").mkdirSync(binDir, { recursive: true });
+      mkdirSync(binDir, { recursive: true });
       writeFileSync(join(binDir, "openscience"), "#!/bin/sh\necho hi\n");
-      require("node:fs").chmodSync(join(binDir, "openscience"), 0o755);
+      chmodSync(join(binDir, "openscience"), 0o755);
 
       (globalThis as { __TEST_APP_PATH__?: string }).__TEST_APP_PATH__ = tmp;
       const manager = new BaseExperimentalManager({

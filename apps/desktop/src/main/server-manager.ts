@@ -39,8 +39,9 @@
 // SIGKILL — the same pattern daemon-manager uses.
 
 import { execFile, spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open as openFile, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as net from "node:net";
@@ -203,7 +204,6 @@ const DEBUG_LOG = join(homedir(), ".multica", "server-manager.log");
 async function debugLog(msg: string): Promise<void> {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
   try {
-    const { appendFile } = await import("node:fs/promises");
     await appendFile(DEBUG_LOG, line, "utf-8");
   } catch {
     /* ignore */
@@ -286,7 +286,6 @@ async function probePg(): Promise<boolean> {
   try {
     const u = new URL(url);
     return new Promise((resolve) => {
-      const net = require("node:net") as typeof import("node:net");
       const sock = new net.Socket();
       let done = false;
       const finish = (ok: boolean) => {
@@ -431,11 +430,7 @@ function serializeEnvFile(env: ServerEnv): string {
 }
 
 function randomHex(bytes: number): string {
-  // No native `randomBytes` in the renderer; we use Node's crypto via
-  // a tiny require to avoid pulling it into the top-level imports
-  // (kept local for the spawn-time-only path).
-  const nodeCrypto = require("node:crypto") as typeof import("node:crypto");
-  return nodeCrypto.randomBytes(bytes).toString("hex");
+  return randomBytes(bytes).toString("hex");
 }
 
 /**
@@ -494,12 +489,9 @@ export async function runMigrate(
         }
         // log migrate output to server.log for traceability
         const log = serverLogPath(profile);
-        require("node:fs/promises")
-          .appendFile(
-            log,
-            `[migrate] ${new Date().toISOString()} ${stdout}\n${stderr}\n`,
-          )
-          .catch(() => undefined);
+        appendFile(log, `[migrate] ${new Date().toISOString()} ${stdout}\n${stderr}\n`).catch(
+          () => undefined,
+        );
         resolve();
       },
     );
@@ -514,7 +506,7 @@ async function startServer(profile: string, port: number): Promise<void> {
         "Re-install the app or run `make build` in apps/desktop/.",
     );
   }
-  let env = await buildServerEnv(profile, port);
+  const env = await buildServerEnv(profile, port);
   await mkdir(profileDir(profile), { recursive: true });
   // 0.3.15 ship: the install handler reads the claude_science manifest
   // from MULTICA_RESOURCES_DIR. The directory lives under the app's
@@ -529,7 +521,7 @@ async function startServer(profile: string, port: number): Promise<void> {
   };
   // 0.5.37 audit: rotate server.log if it exceeds 50 MB before opening the fd.
   await rotateLogIfNeeded(serverLogPath(profile));
-  const logFd = await require("node:fs/promises").open(serverLogPath(profile), "a");
+  const logFd = await openFile(serverLogPath(profile), "a");
   // P2 fix (memory multica-0.3.2): the previous build opened the log but
   // never wrote a startup marker, so users (and us) couldn't tell whether
   // the spawn actually took. When the bundled server quietly drops its
@@ -555,15 +547,13 @@ async function startServer(profile: string, port: number): Promise<void> {
   const child = spawn(bin, [], {
     cwd: profileDir(profile),
     env: { ...process.env, ...envWithResources },
-    stdio: ["ignore", logFd, logFd],
+    stdio: ["ignore", logFd.fd, logFd.fd],
     detached: false,
   });
   serverProcess = child;
   child.on("exit", (code, signal) => {
     const log = `[server] exit code=${code} signal=${signal} at ${new Date().toISOString()}\n`;
-    require("node:fs/promises")
-      .appendFile(serverLogPath(profile), log)
-      .catch(() => undefined);
+    appendFile(serverLogPath(profile), log).catch(() => undefined);
     if (currentState.state === "running" || currentState.state === "starting") {
       currentState = { state: "stopped" };
     }

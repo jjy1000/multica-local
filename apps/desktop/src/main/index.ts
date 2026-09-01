@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, screen, shell } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, Notification, screen } from "electron";
 import { homedir } from "os";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
@@ -874,12 +874,8 @@ function installBrewDialogHandlers(): void {
   });
 
   ipcMain.handle("server:open-external", (_event, url: string) => {
-    if (
-      typeof url === "string" &&
-      (url.startsWith("https://") || url.startsWith("http://")) &&
-      url.length < 2048
-    ) {
-      shell.openExternal(url);
+    if (typeof url === "string" && url.length < 2048) {
+      openExternalSafely(url);
     }
   });
 
@@ -991,10 +987,10 @@ async function showInstallBrewDialog(win: BrowserWindow): Promise<void> {
     noLink: true,
   });
   if (r.response === 0) {
-    shell.openExternal(POSTGRES_APP_URL);
+    openExternalSafely(POSTGRES_APP_URL);
   } else if (r.response === 1) {
     // The renderer can fetch the detailed modal via
     // server:get-pg-install-instructions; here we just open the URL.
-    shell.openExternal(POSTGRES_APP_URL);
+    openExternalSafely(POSTGRES_APP_URL);
   }
 }

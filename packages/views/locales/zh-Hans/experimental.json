@@ -199,7 +199,17 @@
     "code_canvas_render_failed": "渲染失败: {{error}}",
     "timesfm_title": "预测记录",
     "timesfm_empty_hint": "预测由 issue 驱动:把该 issue 分配给 timesfm_oracle 智能体,每次预测都会自动落在这里。",
-    "timesfm_fallback_hint": "最新记录使用季节性朴素回退 — 模型权重未就位(~/.multica/models/timesfm/model.safetensors)。"
+    "timesfm_fallback_hint": "最新记录使用季节性朴素回退 — 模型权重未就位(~/.multica/models/timesfm/model.safetensors)。",
+    "pythia_in_progress": "Pythia 推演中 · {{elapsed}}s / {{budget}}s",
+    "pythia_stream_requesting": "正在请求 10 轮 SSE 流...",
+    "pythia_stream_cost_hint": "10 轮 oracle 调用，每轮 ~3-5s + 5s 间隔",
+    "pythia_stuck_title": "推演未在 90 秒内返回结果",
+    "pythia_stuck_detail": "可能原因：Python 引擎未启动 / oracle 进程崩溃 / 网络中断。点重试可手动重新触发 3 轮。",
+    "ticks_detail": "{{ticks}} ticks · {{ms}}ms",
+    "pythia_requesting": "请求中...",
+    "pythia_retry": "重新推演 ({{rounds}} 轮)",
+    "pythia_start": "启动 Pythia 推演 ({{rounds}} 轮)",
+    "pythia_retry_failed": "重试失败"
   },
   "lab_last_result_chip": {
     "title": "最近结果"

@@ -199,7 +199,17 @@
     "code_canvas_render_failed": "描画に失敗: {{error}}",
     "timesfm_title": "予測レコード",
     "timesfm_empty_hint": "予測は issue 駆動です。この issue を timesfm_oracle エージェントに割り当てると、予測結果が自動的にここに記録されます。",
-    "timesfm_fallback_hint": "最新の実行は季節単純フォールバックを使用しました — モデル重みが未配置です(~/.multica/models/timesfm/model.safetensors)。"
+    "timesfm_fallback_hint": "最新の実行は季節単純フォールバックを使用しました — モデル重みが未配置です(~/.multica/models/timesfm/model.safetensors)。",
+    "pythia_in_progress": "Pythia 推演中 · {{elapsed}}秒 / {{budget}}秒",
+    "pythia_stream_requesting": "10 ラウンドの SSE ストリームをリクエスト中…",
+    "pythia_stream_cost_hint": "10 回の oracle 呼び出し、各約 3〜5 秒 + 5 秒間隔",
+    "pythia_stuck_title": "90 秒以内に結果が返ってきませんでした",
+    "pythia_stuck_detail": "考えられる原因：Python エンジンが起動していない / oracle プロセスがクラッシュした / ネットワーク切断。再試行すると 3 ラウンドを手動で再実行します。",
+    "ticks_detail": "{{ticks}} ticks · {{ms}}ms",
+    "pythia_requesting": "リクエスト中…",
+    "pythia_retry": "{{rounds}} ラウンドを再実行",
+    "pythia_start": "Pythia 推演を開始（{{rounds}} ラウンド）",
+    "pythia_retry_failed": "再試行に失敗しました"
   },
   "lab_last_result_chip": {
     "title": "最新の結果"

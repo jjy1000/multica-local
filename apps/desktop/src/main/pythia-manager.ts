@@ -1,4 +1,7 @@
-import { ipcMain, type BrowserWindow } from "electron";
+import { app, ipcMain, type BrowserWindow } from "electron";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { BaseExperimentalManager, type ExperimentalManager } from "./experimental/manager-template";
 import { registerExperimentalUpstream, unregisterExperimentalUpstream } from "./experimental/upstream-registry";
 
@@ -49,14 +52,9 @@ let sharedManager: PythiaManager | null = null;
 // edge-case handling.
 function pythiaRuntimeEnv(): Record<string, string> {
   try {
-    const os = require("os") as typeof import("os");
-    const fs = require("fs") as typeof import("fs");
-    const path = require("path") as typeof import("path");
-    const homedir = os.homedir();
-    const profilesRoot = path.join(homedir, ".multica", "profiles");
-    if (!fs.existsSync(profilesRoot)) return { MULTICA_REQUIRED: "1" };
-    const entries = fs
-      .readdirSync(profilesRoot, { withFileTypes: true })
+    const profilesRoot = join(homedir(), ".multica", "profiles");
+    if (!existsSync(profilesRoot)) return { MULTICA_REQUIRED: "1" };
+    const entries = readdirSync(profilesRoot, { withFileTypes: true })
       .filter((d: { isDirectory: () => boolean }) => d.isDirectory())
       .map((d: { name: string }) => d.name);
     // Prefer the desktop- profile (mirrors daemon-manager.resolveActiveProfile
@@ -64,9 +62,9 @@ function pythiaRuntimeEnv(): Record<string, string> {
     const desktopProfile = entries.find((n: string) => n.startsWith("desktop-"));
     const candidates = desktopProfile ? [desktopProfile] : entries;
     for (const profile of candidates) {
-      const cfgPath = path.join(profilesRoot, profile, "config.json");
-      if (!fs.existsSync(cfgPath)) continue;
-      const raw = fs.readFileSync(cfgPath, "utf-8");
+      const cfgPath = join(profilesRoot, profile, "config.json");
+      if (!existsSync(cfgPath)) continue;
+      const raw = readFileSync(cfgPath, "utf-8");
       let cfg: Record<string, unknown>;
       try {
         cfg = JSON.parse(raw);
@@ -99,10 +97,7 @@ function pythiaEntryPointPath(resourceSubdir: string, ...segments: string[]): st
   // We hand the path resolution off to BaseExperimentalManager via
   // resolveResourcePath, but we also need it for the -m flag
   // argument here. Importing the helper is awkward across files, so
-  // inline a minimal copy.
-  // The pattern matches server-manager.ts:280-288 exactly.
-  const { app } = require("electron") as typeof import("electron");
-  const { join } = require("node:path") as typeof import("node:path");
+  // inline a minimal copy — same shape as resolveResourcePath() in server-manager.ts.
   const path = app.isPackaged
     ? join(process.resourcesPath, "app.asar.unpacked", "resources", resourceSubdir, ...segments)
     : join(app.getAppPath(), "resources", resourceSubdir, ...segments);

@@ -3,7 +3,10 @@ import reactConfig from "@multica/eslint-config/react";
 
 export default [
   ...reactConfig,
-  { ignores: ["out/", "dist/"] },
+  // vendor/ holds source-of-truth mirrors (`pythia-src`, `semantica-src`) that
+  // `bundle-cli.mjs` re-copies on every run, so lint findings there are neither
+  // ours to fix nor stable across builds.
+  { ignores: ["out/", "dist/", "vendor/"] },
   {
     files: ["scripts/**/*.{mjs,js}"],
     languageOptions: {
