@@ -47,6 +47,7 @@ import { memberListOptions } from "@multica/core/workspace/queries";
 import { resolvePublicFileUrl } from "@multica/core/workspace/avatar-url";
 import { StatusIcon } from "../issues/components";
 import { ProjectIcon } from "../projects/components/project-icon";
+import { useProjectStatusLabels } from "../projects/components/labels";
 import { PROJECT_STATUS_CONFIG } from "@multica/core/projects/config";
 import type { ProjectStatus } from "@multica/core/types";
 import { ActorAvatar } from "../common/actor-avatar";
@@ -148,6 +149,10 @@ export function SearchCommand() {
   const recentItems = useRecentIssuesStore(selectRecentIssues(wsId));
   const p: WorkspacePaths = useWorkspacePaths();
   const { theme, setTheme } = useTheme();
+  // MUL-6835: project status names flow through the projects namespace —
+  // PROJECT_STATUS_CONFIG.label is static English. (Fork keeps its inline
+  // row rendering, so the hook lives here instead of a ProjectResultRow.)
+  const projectStatusLabels = useProjectStatusLabels();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
 
   // Resolve each recent issue via its cached detail entry. Recent items are
@@ -619,7 +624,7 @@ export function SearchCommand() {
                       <span
                         className={`ml-auto text-caption shrink-0 ${PROJECT_STATUS_CONFIG[project.status as ProjectStatus]?.color ?? "text-muted-foreground"}`}
                       >
-                        {PROJECT_STATUS_CONFIG[project.status as ProjectStatus]?.label ?? project.status}
+                        {projectStatusLabels[project.status as ProjectStatus] ?? project.status}
                       </span>
                     </div>
                     {project.match_source === "description" &&

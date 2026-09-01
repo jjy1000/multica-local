@@ -1,6 +1,5 @@
 "use client";
 
-import { PRIORITY_CONFIG } from "@multica/core/issues/config";
 import { useIssueStatuses } from "@multica/core/issue-statuses/hooks";
 import { formatDateOnly } from "@multica/core/issues/date";
 import { useActorName } from "@multica/core/workspace/hooks";
@@ -8,6 +7,9 @@ import { StatusIcon, PriorityIcon } from "../../issues/components";
 import type { InboxItem, InboxItemType, IssueStatus, IssuePriority } from "@multica/core/types";
 import { getQuickCreateFailureDetail } from "./inbox-display";
 import { useT } from "../../i18n";
+import { useStatusLabel } from "../../issues/utils/status-label";
+import { priorityLabel } from "../../issues/utils/priority-label";
+import { useStatusLabel } from "../../issues/utils/status-label";
 
 // Hook returning the inbox-item type → human label map. Replaces the
 // previous static `typeLabels` const so the labels can flow through
@@ -44,20 +46,20 @@ function shortDate(dateStr: string): string {
 
 export function InboxDetailLabel({ item }: { item: InboxItem }) {
   const { t } = useT("inbox");
-  // Priority values are rendered as words here, so they go through the same
-  // i18n map every other surface uses — PRIORITY_CONFIG's labels are static
-  // English and leaked into zh-Hans as "设优先级为 Urgent". (MUL-6835 residue)
   const { t: tIssues } = useT("issues");
   const typeLabels = useTypeLabels();
   const { getActorName } = useActorName();
   // Inbox is a cross-workspace surface, so the catalog is read per item's own
   // workspace rather than from the route. (MUL-6243)
   const { categoryOf, entryOf } = useIssueStatuses(item.workspace_id);
+  const statusLabelOf = useStatusLabel(item.workspace_id);
   const details = item.details ?? {};
 
   switch (item.type) {
     case "status_changed": {
       if (!details.to) return <span>{typeLabels[item.type]}</span>;
+      // The fork's useIssueStatuses has no colorOf; entryOf carries the same
+      // catalog entry, and system statuses keep the category-derived color.
       const entry = entryOf(details.to);
       return (
         <span className="inline-flex items-center gap-1">
@@ -68,14 +70,14 @@ export function InboxDetailLabel({ item }: { item: InboxItem }) {
             color={entry?.is_system === true ? null : entry?.color}
             className="h-3 w-3"
           />
-          {entry?.name ?? details.to}
+          {statusLabelOf(details.to)}
         </span>
       );
     }
     case "priority_changed": {
       if (!details.to) return <span>{typeLabels[item.type]}</span>;
       const priority = details.to as IssuePriority;
-      const label = priority in PRIORITY_CONFIG ? tIssues(($) => $.priority[priority]) : String(details.to);
+      const label = priorityLabel(priority, tIssues);
       return (
         <span className="inline-flex items-center gap-1">
           {t(($) => $.labels.set_priority_to)}

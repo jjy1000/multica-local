@@ -9,9 +9,37 @@ import enCommon from "../locales/en/common.json";
 import enAuth from "../locales/en/auth.json";
 import enSettings from "../locales/en/settings.json";
 import enSearch from "../locales/en/search.json";
+// The palette labels its Pages group from the sidebar's own nav strings, so
+// the layout namespace is part of its contract, not incidental setup.
+import enLayout from "../locales/en/layout.json";
+import enProjects from "../locales/en/projects.json";
+import zhHansProjects from "../locales/zh-Hans/projects.json";
 
 const TEST_RESOURCES = {
-  en: { common: enCommon, auth: enAuth, settings: enSettings, search: enSearch },
+  en: {
+    common: enCommon,
+    auth: enAuth,
+    settings: enSettings,
+    search: enSearch,
+    layout: enLayout,
+    projects: enProjects,
+  },
+};
+
+// Deliberately NOT a full zh-Hans bundle: only `projects` is translated, and
+// every other namespace stays on its English bundle under the zh-Hans key.
+// The one thing under test is whether a project row names its status through
+// the projects namespace, and keeping the chrome in English lets these tests
+// go on addressing the palette by its English placeholder and group headings.
+const ZH_TEST_RESOURCES = {
+  "zh-Hans": {
+    common: enCommon,
+    auth: enAuth,
+    settings: enSettings,
+    search: enSearch,
+    layout: enLayout,
+    projects: zhHansProjects,
+  },
 };
 
 function I18nWrapper({ children }: { children: ReactNode }) {
@@ -23,6 +51,17 @@ function I18nWrapper({ children }: { children: ReactNode }) {
 }
 
 const renderSearch = () => render(<SearchCommand />, { wrapper: I18nWrapper });
+
+function ChineseI18nWrapper({ children }: { children: ReactNode }) {
+  return (
+    <I18nProvider locale="zh-Hans" resources={ZH_TEST_RESOURCES}>
+      {children}
+    </I18nProvider>
+  );
+}
+
+const renderSearchInChinese = () =>
+  render(<SearchCommand />, { wrapper: ChineseI18nWrapper });
 
 const {
   mockPush,
@@ -669,4 +708,34 @@ describe("SearchCommand", () => {
       ),
     ).toBeInTheDocument();
   });
+  it("renders project status in the selected UI language (MUL-6835)", async () => {
+    const user = userEvent.setup();
+    mockSearchProjects.mockResolvedValue({
+      projects: [
+        {
+          workspace_id: "ws-test",
+          id: "proj-localized",
+          title: "localized project",
+          description: null,
+          icon: null,
+          status: "in_progress",
+          match_source: "title",
+          matched_snippet: null,
+        },
+      ],
+      total: 1,
+    });
+
+    renderSearchInChinese();
+    await user.type(
+      screen.getByPlaceholderText("Type a command or search..."),
+      "localized",
+    );
+
+    await waitFor(() => expect(screen.getByText("进行中")).toBeInTheDocument(), {
+      timeout: 2000,
+    });
+    expect(screen.queryByText("In Progress")).toBeNull();
+  });
+
 });
