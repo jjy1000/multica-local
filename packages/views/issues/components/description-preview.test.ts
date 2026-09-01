@@ -11,13 +11,18 @@ describe("descriptionPreview", () => {
   // A `/issue` message carrying an image materializes into image Markdown plus
   // an invisible provenance marker. The image pass drops the picture, so the
   // marker must be stripped too or it becomes the card's visible preview text.
-  it("hides the channel-media marker that outlives the image it annotates", () => {
+  // PARKED with the inbox-family ledger (MUL-6632). These assert upstream's
+  // stripChannelMediaMarkers, which description-preview.ts:5 documents as
+  // deliberately not ported: this fork has no channel surfaces, so no
+  // provenance marker can ever reach a preview. Kept as skip rather than
+  // deleted so the contract resurfaces if a channel-like surface is added.
+  it.skip("hides the channel-media marker that outlives the image it annotates", () => {
     expect(descriptionPreview(`Ordered rich text\n\n${IMAGE}\n\n${MARKER}`)).toBe(
       "Ordered rich text",
     );
   });
 
-  it("previews nothing for an image-only channel description", () => {
+  it.skip("previews nothing for an image-only channel description", () => {
     expect(descriptionPreview(`${IMAGE}\n\n${MARKER}`)).toBe("");
   });
 

@@ -80,21 +80,38 @@ bash scripts/ensure-postgres.sh "$ENV_FILE"
 # Step 1: TypeScript typecheck
 # --------------------------------------------------------------------------
 echo ""
-echo "==> [1/5] TypeScript typecheck..."
+echo "==> [1/6] TypeScript typecheck..."
 pnpm typecheck || { EXIT_CODE=1; exit 1; }
 
 # --------------------------------------------------------------------------
-# Step 2: TypeScript unit tests (Vitest)
+# Step 2: Lint
+# --------------------------------------------------------------------------
+# This step was missing from the pipeline, which is how 30 lint errors sat on
+# main unnoticed (including the security guard for shell.openExternal).
+echo ""
+echo "==> [2/6] ESLint..."
+pnpm lint || { EXIT_CODE=1; exit 1; }
+
+# --------------------------------------------------------------------------
+# Step 3: TypeScript unit tests (Vitest)
 # --------------------------------------------------------------------------
 echo ""
-echo "==> [2/5] TypeScript unit tests..."
+echo "==> [3/6] TypeScript unit tests..."
 pnpm test || { EXIT_CODE=1; exit 1; }
 
 # --------------------------------------------------------------------------
-# Step 3: Go tests
+# Step 4: Go tests
 # --------------------------------------------------------------------------
 echo ""
-echo "==> [3/5] Go tests..."
+echo "==> [4/6] Go tests..."
+# Every DB-backed Go package calls t.Skip() when DATABASE_URL is unset, so an
+# empty run looks identical to a passing one. Fail loudly instead of reporting
+# a green that executed nothing.
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo "    ERROR: DATABASE_URL is unset — the Go suite would silently skip every DB-backed package"
+  EXIT_CODE=1
+  exit 1
+fi
 echo "==> Running database migrations..."
 (cd server && go run ./cmd/migrate up) || { EXIT_CODE=1; exit 1; }
 # -race -p 1 mirrors `make test`: DB-backed packages share one DATABASE_URL,
@@ -102,10 +119,10 @@ echo "==> Running database migrations..."
 (cd server && go test -race -p 1 ./...) || { EXIT_CODE=1; exit 1; }
 
 # --------------------------------------------------------------------------
-# Step 4: Start services for E2E (only if not already running)
+# Step 5: Start services for E2E (only if not already running)
 # --------------------------------------------------------------------------
 echo ""
-echo "==> [4/5] Starting services for E2E..."
+echo "==> [5/6] Starting services for E2E..."
 
 if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
   echo "    Backend already running on :$PORT"
@@ -128,8 +145,8 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Step 5: E2E tests (Playwright)
+# Step 6: E2E tests (Playwright)
 # --------------------------------------------------------------------------
 echo ""
-echo "==> [5/5] E2E tests (Playwright)..."
+echo "==> [6/6] E2E tests (Playwright)..."
 pnpm exec playwright test || { EXIT_CODE=1; exit 1; }
