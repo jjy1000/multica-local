@@ -44,6 +44,10 @@ function shortDate(dateStr: string): string {
 
 export function InboxDetailLabel({ item }: { item: InboxItem }) {
   const { t } = useT("inbox");
+  // Priority values are rendered as words here, so they go through the same
+  // i18n map every other surface uses — PRIORITY_CONFIG's labels are static
+  // English and leaked into zh-Hans as "设优先级为 Urgent". (MUL-6835 residue)
+  const { t: tIssues } = useT("issues");
   const typeLabels = useTypeLabels();
   const { getActorName } = useActorName();
   // Inbox is a cross-workspace surface, so the catalog is read per item's own
@@ -70,11 +74,12 @@ export function InboxDetailLabel({ item }: { item: InboxItem }) {
     }
     case "priority_changed": {
       if (!details.to) return <span>{typeLabels[item.type]}</span>;
-      const label = PRIORITY_CONFIG[details.to as IssuePriority]?.label ?? details.to;
+      const priority = details.to as IssuePriority;
+      const label = priority in PRIORITY_CONFIG ? tIssues(($) => $.priority[priority]) : String(details.to);
       return (
         <span className="inline-flex items-center gap-1">
           {t(($) => $.labels.set_priority_to)}
-          <PriorityIcon priority={details.to as IssuePriority} className="h-3 w-3" />
+          <PriorityIcon priority={priority} className="h-3 w-3" />
           {label}
         </span>
       );
