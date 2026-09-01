@@ -79,7 +79,7 @@ import { availabilityConfig } from "../presence";
 import { CreateAgentDialog } from "./create-agent-dialog";
 import { AgentRowActions } from "./agent-row-actions";
 import { AgentListToolbar } from "./agent-list-toolbar";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 
 // Column template — single source of truth for header, rows, and skeletons.
 // Same conventions as the skills/autopilots lists (see list-grid.tsx):
@@ -790,6 +790,7 @@ function AgentBatchToolbar({
 // ---------------------------------------------------------------------------
 
 export function AgentsPage(_props: AgentsPageProps = {}) {
+  const locale = useLocale();
   const { t } = useT("agents");
   const wsId = useWorkspaceId();
   const paths = useWorkspacePaths();
@@ -1163,7 +1164,7 @@ export function AgentsPage(_props: AgentsPageProps = {}) {
                       )}
                       {isColVisible("runs") ? (
                         <ListGridCell className="hidden justify-end font-mono text-xs tabular-nums text-muted-foreground @2xl:flex">
-                          {row.runCount.toLocaleString()}
+                          {row.runCount.toLocaleString(locale)}
                         </ListGridCell>
                       ) : (
                         <ListGridCell className="hidden px-0 @2xl:flex" />

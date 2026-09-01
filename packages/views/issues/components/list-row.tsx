@@ -8,6 +8,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { AppLink } from "../../navigation";
 import type { Issue } from "@multica/core/types";
 import { formatDateOnly } from "@multica/core/issues/date";
+import { getI18n } from "react-i18next";
 import { ActorAvatar } from "../../common/actor-avatar";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
 import { useWorkspacePaths } from "@multica/core/paths";
@@ -29,7 +30,9 @@ export interface ChildProgress {
 }
 
 function formatDate(date: string): string {
-  return formatDateOnly(date, { month: "short", day: "numeric" }, "en-US");
+  const i18n = getI18n();
+  const locale = i18n?.resolvedLanguage ?? i18n?.language ?? "en-US";
+  return formatDateOnly(date, { month: "short", day: "numeric" }, locale);
 }
 
 function ListRowContent({

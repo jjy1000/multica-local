@@ -54,7 +54,7 @@ import {
   AutopilotRowActions,
 } from "./autopilot-list-actions";
 import type { TriggerFrequency } from "./trigger-config";
-import { useT, useTimeAgo } from "../../i18n";
+import { useLocale, useT, useTimeAgo } from "../../i18n";
 
 // Column template — single source of truth for header, rows, and skeletons.
 // Same conventions as the skills list (see list-grid.tsx and the comment
@@ -368,12 +368,13 @@ function LastRunCell({ autopilot }: { autopilot: Autopilot }) {
 }
 
 function NextRunCell({ autopilot }: { autopilot: Autopilot }) {
+  const locale = useLocale();
   const next = autopilot.next_run_at;
   return (
     <ListGridCell className="hidden @2xl:flex">
       {next ? (
         <span className="whitespace-nowrap text-caption tabular-nums text-muted-foreground">
-          {new Date(next).toLocaleString(undefined, {
+          {new Date(next).toLocaleString(locale, {
             month: "short",
             day: "numeric",
             hour: "2-digit",
@@ -598,6 +599,7 @@ function LoadingSkeleton() {
 // ---------------------------------------------------------------------------
 
 export function AutopilotsPage() {
+  const locale = useLocale();
   const { t } = useT("autopilots");
   const wsId = useWorkspaceId();
   const wsPaths = useWorkspacePaths();
@@ -945,7 +947,7 @@ export function AutopilotsPage() {
                       )}
                       {isColVisible("created") ? (
                         <ListGridCell className="hidden whitespace-nowrap text-xs tabular-nums text-muted-foreground @2xl:flex">
-                          {new Date(autopilot.created_at).toLocaleDateString()}
+                          {new Date(autopilot.created_at).toLocaleDateString(locale)}
                         </ListGridCell>
                       ) : (
                         <ListGridCell className="hidden px-0 @2xl:flex" />

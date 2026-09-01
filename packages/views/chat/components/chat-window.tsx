@@ -56,7 +56,7 @@ import { useChatContextItems } from "./use-chat-context-items";
 import { useChatResize } from "./use-chat-resize";
 import { createLogger } from "@multica/core/logger";
 import type { Agent, Attachment, ChatMessage, ChatMessagesPage, ChatPendingTask, ChatSession, PendingChatTasksResponse } from "@multica/core/types";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 
 const uiLogger = createLogger("chat.ui");
 const apiLogger = createLogger("chat.api");
@@ -1622,6 +1622,7 @@ function SessionRenameInput({
 
 function useFormatTimeAgo(): (dateStr: string) => string {
   const { t } = useT("chat");
+  const locale = useLocale();
   return (dateStr: string) => {
     const date = new Date(dateStr);
     const now = new Date();
@@ -1634,7 +1635,7 @@ function useFormatTimeAgo(): (dateStr: string) => string {
     if (diffMins < 60) return t(($) => $.session_history.time.minutes, { count: diffMins });
     if (diffHours < 24) return t(($) => $.session_history.time.hours, { count: diffHours });
     if (diffDays < 7) return t(($) => $.session_history.time.days, { count: diffDays });
-    return date.toLocaleDateString();
+    return date.toLocaleDateString(locale);
   };
 }
 

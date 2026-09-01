@@ -30,9 +30,14 @@ import { IssueAgentActivityIndicator } from "./issue-agent-activity-indicator";
 import { LabBadge } from "./lab-badge";
 import { CustomStatusChip, useIsCustomStatus } from "./custom-status-chip";
 import { useT } from "../../i18n";
+// getI18n (not the hook) so the module-level date helper can read the
+// active UI language; components re-render on change via useT anyway.
+import { getI18n } from "react-i18next";
 
 function formatDate(date: string): string {
-  return formatDateOnly(date, { month: "short", day: "numeric" }, "en-US");
+  const i18n = getI18n();
+  const locale = i18n?.resolvedLanguage ?? i18n?.language ?? "en-US";
+  return formatDateOnly(date, { month: "short", day: "numeric" }, locale);
 }
 
 

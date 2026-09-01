@@ -83,7 +83,7 @@ import { ActorAvatar } from "../../common/actor-avatar";
 import { FILTER_ITEM_CLASS, HoverCheck } from "../../common/hover-check";
 import { useRowLink } from "../../navigation";
 import { PageHeader } from "../../layout/page-header";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 
 // Column template — the simplest member of the ListGrid family (squads are
 // the fewest entity, 1-5 rows): subgrid template + var tracks + two-zone
@@ -747,6 +747,7 @@ function SquadListToolbar({
 // ---------------------------------------------------------------------------
 
 export function SquadsPage() {
+  const locale = useLocale();
   const { t } = useT("squads");
   const workspace = useCurrentWorkspace();
   const wsId = workspace?.id ?? "";
@@ -994,7 +995,7 @@ export function SquadsPage() {
                     )}
                     {isColVisible("created") ? (
                       <ListGridCell className="hidden whitespace-nowrap text-caption tabular-nums text-muted-foreground @2xl:flex">
-                        {new Date(squad.created_at).toLocaleDateString()}
+                        {new Date(squad.created_at).toLocaleDateString(locale)}
                       </ListGridCell>
                     ) : (
                       <ListGridCell className="hidden px-0 @2xl:flex" />
