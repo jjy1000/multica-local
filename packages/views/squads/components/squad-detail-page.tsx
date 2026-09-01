@@ -139,16 +139,16 @@ export function SquadDetailPage() {
         member_id: input.id,
         role: input.role?.trim() || undefined,
       }),
-    onSuccess: () => { refetchMembers(); toast.success("Member added"); },
+    onSuccess: () => { refetchMembers(); toast.success(t(($) => $.toasts.member_added)); },
     onError: (err) =>
-      toast.error(err instanceof Error && err.message ? err.message : "Failed to add member"),
+      toast.error(err instanceof Error && err.message ? err.message : t(($) => $.toasts.member_add_failed)),
   });
 
   const removeMemberMut = useMutation({
     mutationFn: (m: SquadMember) => api.removeSquadMember(squadId, { member_type: m.member_type, member_id: m.member_id }),
-    onSuccess: () => { refetchMembers(); toast.success("Member removed"); },
+    onSuccess: () => { refetchMembers(); toast.success(t(($) => $.toasts.member_removed)); },
     onError: (err) =>
-      toast.error(err instanceof Error && err.message ? err.message : "Failed to remove member"),
+      toast.error(err instanceof Error && err.message ? err.message : t(($) => $.toasts.member_remove_failed)),
   });
 
   const updateRoleMut = useMutation({
@@ -158,9 +158,9 @@ export function SquadDetailPage() {
         member_id: input.member.member_id,
         role: input.role,
       }),
-    onSuccess: () => { refetchMembers(); toast.success("Role updated"); },
+    onSuccess: () => { refetchMembers(); toast.success(t(($) => $.toasts.role_updated)); },
     onError: (err) =>
-      toast.error(err instanceof Error && err.message ? err.message : "Failed to update role"),
+      toast.error(err instanceof Error && err.message ? err.message : t(($) => $.toasts.role_update_failed)),
   });
 
   const setLeaderMut = useMutation({
@@ -169,17 +169,17 @@ export function SquadDetailPage() {
       refetchSquad();
       refetchMembers();
       queryClient.invalidateQueries({ queryKey: workspaceKeys.squads(wsId) });
-      toast.success("Leader updated");
+      toast.success(t(($) => $.toasts.leader_updated));
     },
     onError: (err) =>
-      toast.error(err instanceof Error && err.message ? err.message : "Failed to update leader"),
+      toast.error(err instanceof Error && err.message ? err.message : t(($) => $.toasts.leader_update_failed)),
   });
 
   const deleteMut = useMutation({
     mutationFn: () => api.deleteSquad(squadId),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: workspaceKeys.squads(wsId) }); push(p.squads()); toast.success("Squad archived"); },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: workspaceKeys.squads(wsId) }); push(p.squads()); toast.success(t(($) => $.archive_dialog.success)); },
     onError: (err) =>
-      toast.error(err instanceof Error && err.message ? err.message : "Failed to archive squad"),
+      toast.error(err instanceof Error && err.message ? err.message : t(($) => $.toasts.archive_failed)),
   });
 
   // CreateAgentDialog's onCreate contract: hit POST /api/agents and
@@ -268,7 +268,7 @@ export function SquadDetailPage() {
           onSetLeader={(id) => setLeaderMut.mutate(id)}
           onRemoveMember={(m) => removeMemberMut.mutate(m)}
           onUpdateRole={async (m, role) => { await updateRoleMut.mutateAsync({ member: m, role }); }}
-          onSaveInstructions={async (next) => { await updateSquadMut.mutateAsync({ instructions: next }); toast.success("Instructions saved"); }}
+          onSaveInstructions={async (next) => { await updateSquadMut.mutateAsync({ instructions: next }); toast.success(t(($) => $.toasts.instructions_saved)); }}
           setLeaderPending={setLeaderMut.isPending}
         />
       </div>
@@ -399,6 +399,7 @@ function SquadAvatarEditor({
   uploading: boolean;
   onUpload: (url: string) => Promise<unknown>;
 }) {
+  const { t } = useT("squads");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { upload, uploading: fileUploading } = useFileUpload(api);
   const busy = uploading || fileUploading;
@@ -411,9 +412,9 @@ function SquadAvatarEditor({
       const result = await upload(file);
       if (!result) return;
       await onUpload(result.link);
-      toast.success("Avatar updated");
+      toast.success(t(($) => $.toasts.avatar_updated));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to upload avatar");
+      toast.error(err instanceof Error ? err.message : t(($) => $.toasts.avatar_upload_failed));
     }
   };
 
@@ -468,13 +469,14 @@ function SquadNameEditor({
   value: string;
   onSave: (next: string) => Promise<void>;
 }) {
+  const { t } = useT("squads");
   return (
     <InlineEditPopover
       value={value}
       onSave={onSave}
-      title="Rename squad"
-      placeholder="Squad name"
-      validate={(v) => (v.trim().length > 0 ? null : "Name is required")}
+      title={t(($) => $.name_editor.title)}
+      placeholder={t(($) => $.name_editor.placeholder)}
+      validate={(v) => (v.trim().length > 0 ? null : t(($) => $.name_editor.required))}
     >
       {(triggerProps) => (
         <button
@@ -532,9 +534,9 @@ function InlineEditPopover({
     try {
       await onSave(draft);
       setOpen(false);
-      toast.success("Saved");
+      toast.success(t(($) => $.name_editor.saved));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to save");
+      toast.error(e instanceof Error ? e.message : t(($) => $.name_editor.save_failed));
     } finally {
       setSaving(false);
     }
@@ -660,7 +662,7 @@ function AddMemberDialog({
                     type="text"
                     value={pickerFilter}
                     onChange={(e) => setPickerFilter(e.target.value)}
-                    placeholder="Search members or agents..."
+                    placeholder={t(($) => $.add_member_dialog.search_placeholder)}
                     className="w-full bg-transparent text-body placeholder:text-muted-foreground outline-none"
                   />
                 </div>
@@ -716,7 +718,7 @@ function AddMemberDialog({
               type="text"
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              placeholder="e.g. Reviewer, Frontend Lead"
+              placeholder={t(($) => $.add_member_dialog.role_placeholder)}
               className="mt-1"
               onKeyDown={(e) => {
                 if (isImeComposing(e)) return;
@@ -776,7 +778,7 @@ function RoleEditor({ value, onSave }: { value: string; onSave: (next: string) =
           else if (e.key === "Escape") { setDraft(value); setEditing(false); }
         }}
         disabled={saving}
-        placeholder="Role (e.g. Reviewer)"
+        placeholder={t(($) => $.role_editor.placeholder)}
         className="h-6 mt-0.5 text-caption px-1.5"
       />
     );
@@ -966,7 +968,7 @@ function SquadDescriptionEditorBody({
         autoFocus
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        placeholder="What is this squad responsible for?"
+        placeholder={t(($) => $.description_dialog.responsibility_placeholder)}
         rows={6}
         onKeyDown={(e) => {
           if (e.key === "Escape") { onClose(); return; }
@@ -1415,7 +1417,7 @@ function SquadInstructionsTab({
           key={squad.id}
           defaultValue={value}
           onUpdate={setValue}
-          placeholder="e.g. Always start by writing a failing test. Prefer small, atomic commits."
+          placeholder={t(($) => $.instructions_tab.placeholder)}
           debounceMs={150}
           disableMentions
           className="min-h-full"

@@ -28,7 +28,13 @@
     "success": "스쿼드를 보관했습니다"
   },
   "name_editor": {
-    "cancel": "취소"
+    "title": "스쿼드 이름 변경",
+    "placeholder": "스쿼드 이름",
+    "required": "이름을 입력하세요",
+    "cancel": "취소",
+    "save": "저장",
+    "saved": "저장했습니다",
+    "save_failed": "저장하지 못했습니다"
   },
   "add_member_dialog": {
     "title": "멤버 추가",
@@ -38,11 +44,16 @@
     "label_optional": "(선택 사항)",
     "placeholder_role_inline": "역할 추가...",
     "cancel": "취소"
+,
+    "search_placeholder": "멤버 또는 에이전트 검색...",
+    "role_placeholder": "예: 리뷰어, 프런트엔드 리드"
   },
   "description_dialog": {
     "title": "설명 수정",
     "placeholder_empty": "설명 추가",
     "cancel": "취소"
+,
+    "responsibility_placeholder": "이 스쿼드는 무엇을 담당하나요?"
   },
   "discard_changes_dialog": {
     "title": "저장하지 않은 변경사항을 버릴까요?",
@@ -69,6 +80,23 @@
     "active_issue_more": "외 {{count}}개",
     "last_active_label": "마지막 활동 {{time}}"
   },
+  "toasts": {
+    "member_added": "멤버를 추가했습니다",
+    "member_add_failed": "멤버를 추가하지 못했습니다",
+    "member_removed": "멤버를 제거했습니다",
+    "member_remove_failed": "멤버를 제거하지 못했습니다",
+    "role_updated": "역할을 업데이트했습니다",
+    "role_update_failed": "역할을 업데이트하지 못했습니다",
+    "leader_updated": "리더를 업데이트했습니다",
+    "leader_update_failed": "리더를 업데이트하지 못했습니다",
+    "archive_failed": "스쿼드를 보관하지 못했습니다",
+    "instructions_saved": "지침을 저장했습니다",
+    "avatar_updated": "아바타가 업데이트되었습니다",
+    "avatar_upload_failed": "아바타 업로드에 실패했습니다"
+  },
+  "role_editor": {
+    "placeholder": "역할(예: 리뷰어)"
+  },
   "profile_card": {
     "unavailable": "스쿼드를 사용할 수 없습니다",
     "detail_link": "자세히 →",
@@ -83,6 +111,7 @@
     "description": "스쿼드에 할당된 이슈를 리더 에이전트가 처리할 때마다 스쿼드 지침이 리더 프롬프트에 포함됩니다. 스쿼드 전체의 방향, 작업 합의, 매 작업마다 따라야 할 맥락을 리더에게 전달할 때 사용하세요.",
     "unsaved_changes": "저장하지 않은 변경사항",
     "save_button": "저장",
+    "placeholder": "예: 항상 실패하는 테스트부터 작성하고, 작고 원자적인 커밋을 지향하세요.",
     "title": "지침"
   },
   "tasks_tab": "작업",

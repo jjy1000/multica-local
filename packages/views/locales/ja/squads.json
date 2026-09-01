@@ -28,7 +28,13 @@
     "success": "スカッドをアーカイブしました"
   },
   "name_editor": {
-    "cancel": "キャンセル"
+    "title": "スクワッド名を変更",
+    "placeholder": "スクワッド名",
+    "required": "名前を入力してください",
+    "cancel": "キャンセル",
+    "save": "保存",
+    "saved": "保存しました",
+    "save_failed": "保存できませんでした"
   },
   "add_member_dialog": {
     "title": "メンバーを追加",
@@ -38,11 +44,16 @@
     "label_optional": "（任意）",
     "placeholder_role_inline": "役割を追加…",
     "cancel": "キャンセル"
+,
+    "search_placeholder": "メンバーまたはエージェントを検索...",
+    "role_placeholder": "例：レビュアー、フロントエンドリード"
   },
   "description_dialog": {
     "title": "説明を編集",
     "placeholder_empty": "説明を追加",
     "cancel": "キャンセル"
+,
+    "responsibility_placeholder": "このスクワッドの担当は何ですか？"
   },
   "discard_changes_dialog": {
     "title": "保存していない変更を破棄しますか？",
@@ -68,6 +79,23 @@
     "last_active_label": "最終アクティブ {{time}}",
     "status_archived": "アーカイブ済み"
   },
+  "toasts": {
+    "member_added": "メンバーを追加しました",
+    "member_add_failed": "メンバーを追加できませんでした",
+    "member_removed": "メンバーを削除しました",
+    "member_remove_failed": "メンバーを削除できませんでした",
+    "role_updated": "役割を更新しました",
+    "role_update_failed": "役割を更新できませんでした",
+    "leader_updated": "リーダーを更新しました",
+    "leader_update_failed": "リーダーを更新できませんでした",
+    "archive_failed": "スクワッドをアーカイブできませんでした",
+    "instructions_saved": "指示を保存しました",
+    "avatar_updated": "アバターを更新しました",
+    "avatar_upload_failed": "アバターのアップロードに失敗しました"
+  },
+  "role_editor": {
+    "placeholder": "役割（例：レビュアー）"
+  },
   "profile_card": {
     "unavailable": "スクワッドを利用できません",
     "detail_link": "詳細 →",
@@ -80,6 +108,7 @@
     "description": "スクワッドの指示は、リーダーエージェントがこのスクワッドに割り当てられたイシューに取り組むたびに、そのプロンプトに挿入されます。スクワッド全体の方針、作業上の取り決め、リーダーがすべてのタスクで従うべきコンテキストを伝えるために使用します。",
     "unsaved_changes": "保存していない変更",
     "save_button": "保存",
+    "placeholder": "例：必ず失敗するテストから書き、小さなアトミックなコミットを心がけてください。",
     "title": "指示"
   },
   "tasks_tab": "タスク",
