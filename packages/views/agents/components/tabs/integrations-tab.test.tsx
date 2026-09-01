@@ -151,7 +151,7 @@ describe("IntegrationsTab", () => {
     membersRef.current = [{ user_id: "user-1", role: "member" }];
     renderTab(<IntegrationsTab agent={agent} />);
     expect(
-      screen.getByText(/Only workspace owners and admins can bind a Lark Bot/i),
+      screen.getByText(enAgents.tab_body.integrations.members_note),
     ).toBeTruthy();
     expect(screen.queryByTestId("lark-bind-button")).toBeNull();
   });

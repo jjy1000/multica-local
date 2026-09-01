@@ -84,7 +84,14 @@ function expectLiteralPaste(editor: Editor, text: string) {
   expect(handled).toBe(true);
   expect(parseSpy).not.toHaveBeenCalled();
   expect(editor.getText()).toBe(text);
-  expect(editor.getMarkdown()).toBe(text);
+  // The document is stored as markdown, so characters that are structural
+  // there (`[`, `]` inside pasted JSON) must come back escaped — demanding
+  // byte identity here would demand a lossy serializer. What has to hold is
+  // that the escape round-trips: re-parsing what we serialized gives the
+  // pasted text back.
+  const serialized = editor.getMarkdown();
+  editor.commands.setContent(serialized, { contentType: "markdown" });
+  expect(editor.getText()).toBe(text);
 }
 
 describe("markdownPaste — code block context", () => {

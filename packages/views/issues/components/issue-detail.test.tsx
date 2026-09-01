@@ -458,6 +458,12 @@ const mockTimeline: TimelineEntry[] = [
 // ---------------------------------------------------------------------------
 
 import { IssueDetail, groupSubIssuesByStage } from "./issue-detail";
+import { highlightedCommentBackgroundClass } from "./comment-card";
+
+// The deep-link highlight is a background tint owned by comment-card; select
+// it through that constant so a restyle updates here by construction instead
+// of leaving a selector for a class nothing emits anymore.
+const HIGHLIGHT_SELECTOR = `[class*="${highlightedCommentBackgroundClass}"]`;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -619,6 +625,15 @@ describe("IssueDetail (shared)", () => {
       status: 200,
       ok: true,
       json: async () => ({
+        issue: {
+          id: "issue-1",
+          workspace_id: "ws-1",
+          title: "Lab issue",
+          status: "in_progress",
+          lab_source: "claude_science_lab",
+          created_at: "2026-01-18T00:00:00Z",
+          updated_at: "2026-01-18T00:00:00Z",
+        },
         tasks: [
           {
             id: "task-1",
@@ -627,6 +642,9 @@ describe("IssueDetail (shared)", () => {
             created_at: "2026-01-18T00:00:00Z",
           },
         ],
+        comments: [],
+        lab_seq: 1,
+        server_time: "2026-01-18T00:00:00Z",
       }),
     });
 
@@ -635,8 +653,12 @@ describe("IssueDetail (shared)", () => {
     const card = await screen.findByTestId("lab-deliverable-summary");
     expect(card).toHaveTextContent("研究已完成，见实验室报告。");
 
-    const link = within(card).getByRole("link");
-    expect(link).toHaveAttribute("href", "/experimental/claude-lab?issue=issue-1");
+    // Since 0.5.81 the card carries two affordances: the plain open-in-lab
+    // jump plus a run-scoped one. Assert the jump by href.
+    const hrefs = within(card)
+      .getAllByRole("link")
+      .map((link) => link.getAttribute("href"));
+    expect(hrefs).toContain("/experimental/claude-lab?issue=issue-1");
   });
 
   // 0.5.x: LeaderAgent fallback rendering. The catalog stamps
@@ -1305,10 +1327,10 @@ describe("IssueDetail (shared)", () => {
       // The deep-link effect lands on AND highlights the target comment: it
       // drives the timeline container's scrollTop directly (jsdom has no
       // layout, so the scroll itself isn't observable here) and applies the
-      // brand highlight ring. Assert the user-facing highlight.
+      // brand background tint. Assert the user-facing highlight.
       await waitFor(() => {
         expect(
-          document.getElementById("comment-comment-2")?.querySelector(".ring-2"),
+          document.getElementById("comment-comment-2")?.querySelector(HIGHLIGHT_SELECTOR),
         ).not.toBeNull();
       });
     });
@@ -1331,7 +1353,7 @@ describe("IssueDetail (shared)", () => {
         document.getElementById("comment-comment-2"),
       ).toBeNull();
       // Nothing highlighted while the loading skeleton is up.
-      expect(document.querySelector(".ring-2")).toBeNull();
+      expect(document.querySelector(HIGHLIGHT_SELECTOR)).toBeNull();
 
       resolveIssue(mockIssue);
 
@@ -1342,7 +1364,7 @@ describe("IssueDetail (shared)", () => {
       });
       await waitFor(() => {
         expect(
-          document.getElementById("comment-comment-2")?.querySelector(".ring-2"),
+          document.getElementById("comment-comment-2")?.querySelector(HIGHLIGHT_SELECTOR),
         ).not.toBeNull();
       });
     });

@@ -33,6 +33,18 @@ function findAll(node: JsonNode, type: string, acc: JsonNode[] = []): JsonNode[]
   return acc;
 }
 
+// markdown-it escapes a bare `~` even though GFM only delimits strikethrough
+// with `~~`, so the stored form is `$100\~$120`. The contract that matters is
+// that the escape is lossless: re-parsing what we serialized must give the
+// literal text back and never produce math.
+function expectRoundTripsLiterals(target: Editor, source: string) {
+  const serialized = target.getMarkdown().trim();
+  expect(serialized).toBe(source.replace(/~/g, "\\~"));
+  target.commands.setContent(serialized, { contentType: "markdown" });
+  expect(target.getText()).toBe(source);
+  expect(findAll(target.getJSON() as JsonNode, "inlineMath")).toHaveLength(0);
+}
+
 function typeText(editor: Editor, text: string) {
   for (const ch of text) {
     const { from, to } = editor.state.selection;
@@ -59,7 +71,7 @@ describe("math editor extension", () => {
 
     expect(findAll(editor.getJSON() as JsonNode, "inlineMath")).toHaveLength(0);
     expect(editor.getText()).toBe(FINANCE_TEXT);
-    expect(editor.getMarkdown().trim()).toBe(FINANCE_TEXT);
+    expectRoundTripsLiterals(editor, FINANCE_TEXT);
   });
 
   it("parses single-dollar markdown as literal text", () => {
@@ -69,7 +81,7 @@ describe("math editor extension", () => {
 
     expect(findAll(editor.getJSON() as JsonNode, "inlineMath")).toHaveLength(0);
     expect(editor.getText()).toBe(FINANCE_TEXT);
-    expect(editor.getMarkdown().trim()).toBe(FINANCE_TEXT);
+    expectRoundTripsLiterals(editor, FINANCE_TEXT);
   });
 
   it("still parses explicit display math blocks", () => {

@@ -45,7 +45,7 @@ import { useT } from "../../i18n";
 import { CommentsFoldBar } from "./resolved-thread-bar";
 import { deriveThreadResolution } from "./thread-utils";
 
-const highlightedCommentBackgroundClass =
+export const highlightedCommentBackgroundClass =
   "bg-[color-mix(in_srgb,var(--card)_95%,var(--brand)_5%)]";
 const stickyHeaderFadeClass =
   "after:pointer-events-none after:absolute after:inset-x-0 after:top-full after:h-1 after:bg-[inherit] after:[mask-image:linear-gradient(to_bottom,#000,transparent)] after:[-webkit-mask-image:linear-gradient(to_bottom,#000,transparent)]";

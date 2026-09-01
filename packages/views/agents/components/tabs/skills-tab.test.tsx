@@ -88,9 +88,11 @@ describe("SkillsTab", () => {
     renderSkillsTab();
 
     // Top informational callout should still render; that's how we know
-    // the tab body itself rendered (not stuck in a loading state).
+    // the tab body itself rendered (not stuck in a loading state). Read
+    // the string from the locale instead of hardcoding it — the assertion
+    // is a sentinel for "the intro rendered", not a copy check.
     expect(
-      await screen.findByText(/Local runtime skills are always available/i),
+      await screen.findByText(enAgents.tab_body.skills.intro),
     ).toBeInTheDocument();
 
     // The removed section's heading and its trigger button must be gone.
