@@ -333,7 +333,12 @@ export const IssueStatusEntrySchema = z.object({
   name: z.string(),
   description: z.string().default(""),
   category: z.string(),
-  color: z.string().default(""),
+  // Neutral gray, matching what the server seeds for built-in statuses
+  // (issue_status.sql.go backlog/todo/cancelled) and the palette's muted entry
+  // (views/common/color-picker.tsx). An omitted color must degrade to the same
+  // gray, not to "no color at all" — that is what lets a pre-status-catalog
+  // server still render every built-in.
+  color: z.string().default("#6b7280"),
   is_system: z.boolean().default(false),
   position: z.number().default(0),
   archived_at: z.string().nullable().default(null),

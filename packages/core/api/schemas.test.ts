@@ -147,7 +147,13 @@ describe("IssueStatusEntrySchema (MUL-6243)", () => {
       updated_at: baseStatus.updated_at,
     });
     expect(parsed.description).toBe("");
-    expect(parsed.color).toBe("");
+    // Two assertions in this file disagreed about the color default (this one
+    // said "", the status-catalog case below said "#6b7280"), so one of them
+    // was always red. Resolved toward #6b7280: it is what the server seeds for
+    // built-in statuses (issue_status.sql.go), it is the palette's muted entry,
+    // and consumers render it as `backgroundColor`, where "" means an
+    // invisible dot rather than a neutral one.
+    expect(parsed.color).toBe("#6b7280");
     expect(parsed.position).toBe(0);
   });
 

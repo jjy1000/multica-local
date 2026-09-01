@@ -109,8 +109,15 @@ export function createAuthStore(options: AuthStoreOptions) {
     },
 
     refreshMe: async () => {
-      const user = await api.getMe();
-      set({ user, isLoading: false, status: "authenticated" });
+      try {
+        const user = await api.getMe();
+        set({ user, isLoading: false, status: "authenticated" });
+      } catch {
+        // Deliberately silent: a failed refresh keeps the working session and
+        // its token. Recovery belongs to AuthInitializer's retry ladder —
+        // dropping an authenticated user over a transient 500 or a dead
+        // network is the worse failure, and the onboarding caller awaits this.
+      }
     },
   }));
 }

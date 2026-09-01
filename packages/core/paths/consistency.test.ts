@@ -28,7 +28,7 @@ describe("paths.workspace() shape", () => {
         "myIssues",
         "runtimes",
         "skills",
-        "squads",
+        "mcp",
         "settings",
       ]),
     );
