@@ -50,47 +50,20 @@ import (
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
-// TestAutopilotTickFlagOffShortCircuits verifies that an autopilot
-// whose UUID is in the agent_self_optimization hidden set is skipped at
-// the admission gate when the catalog default is OFF. This is the
-// "flag = OFF → 100% bypass" invariant the Labs hard constraint
-// requires; the scheduler must NOT reach the issue-creation branch for
-// these autopilots.
-func TestAutopilotTickFlagOffShortCircuits(t *testing.T) {
-	if !experimentalFlagKeyKnown("agent_self_optimization") {
-		t.Skipf("catalog no longer declares agent_self_optimization; assertion obsolete")
-	}
-	hidden := experimentalHiddenAutopilotUUIDs(t, "agent_self_optimization")
-	if len(hidden) == 0 {
-		t.Fatalf("agent_self_optimization hidden autopilot set is empty")
-	}
-
-	svc := newTickTestService(t)
-	ap := db.Autopilot{
-		ID:          pgtypeUUID(t, hidden[0]),
-		WorkspaceID: pgtype.UUID{},
-		// Assignee must be Valid so the gate reaches the flag check
-		// rather than short-circuiting on the "no assignee" guard.
-		AssigneeID:  pgtypeUUID(t, uuid.New()),
-	}
-
-	reason, skip := svc.shouldSkipDispatch(context.Background(), ap)
-	if !skip {
-		t.Fatalf("flag-OFF autopilot must be skipped at the admission gate; reason=%q", reason)
-	}
-	// Skip reasons are matched by substring in dashboards; do not
-	// rewrite without coordinating with the failure-monitor alert rules.
-	if reason != "autopilot hidden by agent_self_optimization flag" {
-		t.Fatalf("unexpected skip reason for agent_self_optimization gate: %q", reason)
-	}
-}
+// TestAutopilotTickFlagOffShortCircuits was retired in 0.5.6: the
+// agent_self_optimization flag left the catalog and the per-flag hidden-set
+// gate was REMOVED from service/autopilot.go::shouldSkipDispatch (the two
+// self-opt autopilots are ordinary rows the user controls via `enabled`).
+// With the gate gone there is no producer for the "flag = OFF → 100% bypass"
+// invariant, and reviving the test against the gate-less path panics the
+// Queries-less unit fixture in resolveAutopilotLeader. The hidden-set loader
+// stays available for a future catalog flip (see the `_ =` reference in
+// shouldSkipDispatch).
 
 // TestAutopilotTickFlagOffConstitutionGate was retired in 0.3.57
 // alongside the constitution_agent lab (migration 165). The
 // corresponding flag-gate code in service/autopilot.go::shouldSkipDispatch
-// is gone, so this test has no producer to assert against. The
-// remaining agent_self_optimization gate above continues to pin the
-// short-circuit behaviour for the surviving Labs flag.
+// is gone, so this test has no producer to assert against.
 
 // TestAutopilotTickNonHiddenAutopilotNotAffectedByFlag ensures the
 // flag-gated hidden sets do not bleed into non-lab autopilots. A
@@ -241,34 +214,6 @@ func newTickTestService(t *testing.T) *AutopilotService {
 func pgtypeUUID(t *testing.T, id uuid.UUID) pgtype.UUID {
 	t.Helper()
 	return pgtype.UUID{Bytes: id, Valid: true}
-}
-
-// experimentalFlagKeyKnown reports whether the catalog still declares
-// the given flag. Lets the tests skip cleanly if a future migration
-// renames or removes the flag rather than failing noisily.
-func experimentalFlagKeyKnown(key string) bool {
-	for _, f := range experimental.AllFlagKeys() {
-		if f == key {
-			return true
-		}
-	}
-	return false
-}
-
-// experimentalHiddenAutopilotUUIDs returns the canonical set of
-// autopilot UUIDs the flag hides by default. Pulled from
-// internal/experimental/visibility.go via the public accessors.
-// (0.3.57: constitution_agent case removed alongside the lab
-// retirement in migration 165.)
-func experimentalHiddenAutopilotUUIDs(t *testing.T, key string) []uuid.UUID {
-	t.Helper()
-	switch key {
-	case "agent_self_optimization":
-		return experimental.AgentSelfOptimizationAutopilotIDs()
-	default:
-		t.Fatalf("unknown flag key %q", key)
-		return nil
-	}
 }
 
 // allCatalogFlags is an alias for experimental.AllFlagKeys kept local
