@@ -77,11 +77,16 @@ echo "==> Checking PostgreSQL..."
 bash scripts/ensure-postgres.sh "$ENV_FILE"
 
 # --------------------------------------------------------------------------
+# Steps 1-3 run with --force: turbo caches only successful runs, and it had
+# been serving a stale green for @multica/core#test while the suite was
+# failing (commit 692a77663). A gate that can answer from cache is not a
+# gate; these steps are the slow-but-honest form.
+# --------------------------------------------------------------------------
 # Step 1: TypeScript typecheck
 # --------------------------------------------------------------------------
 echo ""
-echo "==> [1/6] TypeScript typecheck..."
-pnpm typecheck || { EXIT_CODE=1; exit 1; }
+echo "==> [1/6] TypeScript typecheck (uncached)..."
+pnpm typecheck --force || { EXIT_CODE=1; exit 1; }
 
 # --------------------------------------------------------------------------
 # Step 2: Lint
@@ -89,15 +94,15 @@ pnpm typecheck || { EXIT_CODE=1; exit 1; }
 # This step was missing from the pipeline, which is how 30 lint errors sat on
 # main unnoticed (including the security guard for shell.openExternal).
 echo ""
-echo "==> [2/6] ESLint..."
-pnpm lint || { EXIT_CODE=1; exit 1; }
+echo "==> [2/6] ESLint (uncached)..."
+pnpm lint --force || { EXIT_CODE=1; exit 1; }
 
 # --------------------------------------------------------------------------
 # Step 3: TypeScript unit tests (Vitest)
 # --------------------------------------------------------------------------
 echo ""
-echo "==> [3/6] TypeScript unit tests..."
-pnpm test || { EXIT_CODE=1; exit 1; }
+echo "==> [3/6] TypeScript unit tests (uncached)..."
+pnpm test --force || { EXIT_CODE=1; exit 1; }
 
 # --------------------------------------------------------------------------
 # Step 4: Go tests

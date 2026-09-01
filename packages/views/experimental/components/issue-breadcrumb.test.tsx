@@ -74,7 +74,6 @@ function Wrapper({ nav, children }: { nav: NavStub; children: ReactNode }) {
 function renderBreadcrumb(search: string, props?: Record<string, unknown>) {
   const nav = makeNavAdapter(search);
   const view = render(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     <Wrapper nav={nav}><IssueBreadcrumb {...(props as any)} /></Wrapper>,
   );
   return { nav, ...view };

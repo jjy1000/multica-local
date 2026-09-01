@@ -53,7 +53,7 @@ function loadLayout(locale: string): ExperimentalMessages {
   // Dynamic require keeps the test compile-time agnostic of every locale file's
   // JSON shape; missing keys fail with a clear message rather than an
   // unresolved-import error.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const raw = require(`./${locale}/layout.json`) as ExperimentalMessages;
   return (raw.sidebar as ExperimentalMessages) ?? {};
 }

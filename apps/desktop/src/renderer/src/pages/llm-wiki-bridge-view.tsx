@@ -339,7 +339,6 @@ function TokenCard({ onChanged }: { onChanged: () => void }) {
 
   useEffect(() => {
     void loadTokenState();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const save = async (): Promise<void> => {
