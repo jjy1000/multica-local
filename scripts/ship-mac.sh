@@ -138,6 +138,65 @@ if [ "${RAW_COUNT:-0}" -lt 1 ]; then
 fi
 echo "    asar OK: $RAW_COUNT rawRequest occurrence(s)"
 
+# --- 5b. Prove the asar's DATA REGION is not corrupted -----------------------
+# The 0.5.94-ship-1 blocker: the asar's header (file table) was written fine
+# but every data entry sat ~5 bytes off — each file extracted as "missing its
+# first bytes + tail of its neighbour", so package.json failed JSON.parse and
+# Electron main exited(1) silently ~150ms after launch, with nothing on
+# stderr. grep gates pass on shifted bytes, so this needs a CONTENT check:
+# read two canaries straight out of the archive (dependency-free asar reader)
+# and byte-compare them against the build output. Run BEFORE install.
+step "5b/7 verify asar data region integrity (byte-compare canaries)"
+node - "$ASAR" "$DESKTOP" << 'NODE_EOF' || die "packaged asar is CORRUPT: extracted canaries differ from the build output (asar data-region offset — 0.5.94-ship-1 lesson). Re-run steps 4-5 with no concurrent heavy I/O."
+const fs = require("fs");
+const [asarPath, desktopDir] = process.argv.slice(2);
+const fd = fs.openSync(asarPath, "r");
+const sizeBuf = Buffer.alloc(16);
+fs.readSync(fd, sizeBuf, 0, 16, 0);
+const headerSize = sizeBuf.readUInt32LE(4);
+const jsonSize = sizeBuf.readUInt32LE(12);
+const jsonBuf = Buffer.alloc(jsonSize);
+fs.readSync(fd, jsonBuf, 0, jsonSize, 16);
+const table = JSON.parse(jsonBuf.toString("utf8"));
+const dataStart = 8 + headerSize;
+function extract(nodePath) {
+  let node = table;
+  for (const part of nodePath.split("/")) node = node.files[part];
+  const buf = Buffer.alloc(node.size);
+  fs.readSync(fd, buf, 0, node.size, dataStart + Number(node.offset));
+  return buf;
+}
+const canaries = [
+  // byte-compare: a real code file must be identical to the build output
+  ["out/main/index.js", "raw"],
+  // JSON-validate only: electron-builder REWRITES asar package.json (strips
+  // devDeps/scripts), so it legitimately differs from the source file; the
+  // corruption signature is invalid/truncated JSON, not a size delta
+  ["package.json", "json"],
+];
+for (const [asarFile, mode] of canaries) {
+  const packaged = extract(asarFile);
+  if (mode === "json") {
+    try {
+      JSON.parse(packaged.toString("utf8"));
+    } catch (err) {
+      console.error(`    canary FAIL: packaged ${asarFile} is not valid JSON (${packaged.length}B) — asar data region is offset/corrupt`);
+      fs.closeSync(fd);
+      process.exit(1);
+    }
+    continue;
+  }
+  const source = fs.readFileSync(`${desktopDir}/${asarFile}`);
+  if (!packaged.equals(source)) {
+    console.error(`    canary MISMATCH: ${asarFile} (${packaged.length}B packaged vs ${source.length}B source)`);
+    fs.closeSync(fd);
+    process.exit(1);
+  }
+}
+fs.closeSync(fd);
+console.log("    asar data region OK (main/index.js byte-identical, package.json valid)");
+NODE_EOF
+
 if [ "$BUILD_ONLY" = true ]; then
   step "--build-only: stopping before install. Built app: $BUILT_APP"
   echo "    To install manually: cp -R \"$BUILT_APP\" /Applications/ && bash \"$SIGN\" /Applications/Multica.app"
