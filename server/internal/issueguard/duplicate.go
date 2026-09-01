@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/issuestatus"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
@@ -59,12 +60,20 @@ func LockAndFindActiveDuplicate(
 	if allowDuplicate {
 		return db.Issue{}, false, nil
 	}
+	terminalStatusKeys, err := issuestatus.ExpandCategories(ctx, q, workspaceID, []string{
+		issuestatus.Done,
+		issuestatus.Cancelled,
+	})
+	if err != nil {
+		return db.Issue{}, false, err
+	}
 
 	duplicate, err := q.FindActiveDuplicateIssue(ctx, db.FindActiveDuplicateIssueParams{
-		WorkspaceID:     workspaceID,
-		ProjectID:       projectID,
-		ParentIssueID:   parentIssueID,
-		NormalizedTitle: normalizedTitle,
+		WorkspaceID:        workspaceID,
+		TerminalStatusKeys: terminalStatusKeys,
+		ProjectID:          projectID,
+		ParentIssueID:      parentIssueID,
+		NormalizedTitle:    normalizedTitle,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

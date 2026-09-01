@@ -800,3 +800,80 @@ func TestCustomStatusPayloadsAgreeAcrossRenderings(t *testing.T) {
 			fromHTTP.StatusCategory, fromEvent["status_category"])
 	}
 }
+
+// TestCustomTerminalStatusCountsAsTerminalInSQL covers the SQL-side consumers
+// the Go resolver cannot reach. Fork idiom: raw SQL fixtures instead of the
+// upstream dbfx builders (this fork does not carry that package). Terminal
+// categories are expanded once into concrete keys so custom done statuses
+// keep their behavior without a per-row issue_effective_status call.
+func TestCustomTerminalStatusCountsAsTerminalInSQL(t *testing.T) {
+	ctx := context.Background()
+	createTestCustomStatus(t, "gate_done_s", issuestatus.Done)
+
+	insertIssue := func(t *testing.T, title, status string) string {
+		t.Helper()
+		var id string
+		if err := testPool.QueryRow(ctx, `
+			INSERT INTO issue (workspace_id, title, status, priority, creator_type, creator_id, number)
+			VALUES ($1, $2, $3, 'medium', 'member', $4,
+			        COALESCE((SELECT MAX(number) FROM issue WHERE workspace_id = $1), 0) + 1)
+			RETURNING id
+		`, testWorkspaceID, title, status, testUserID).Scan(&id); err != nil {
+			t.Fatalf("create issue %q: %v", title, err)
+		}
+		t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, id) })
+		return id
+	}
+
+	terminalStatusKeys, err := testHandler.terminalIssueStatusKeys(ctx, parseUUID(testWorkspaceID))
+	if err != nil {
+		t.Fatalf("terminalIssueStatusKeys: %v", err)
+	}
+
+	t.Run("open listing excludes a custom done status", func(t *testing.T) {
+		customDone := insertIssue(t, "sql open custom done", "gate_done_s")
+		open := insertIssue(t, "sql open plain", "todo")
+		rows, err := testHandler.Queries.ListOpenIssues(ctx, db.ListOpenIssuesParams{
+			WorkspaceID:        parseUUID(testWorkspaceID),
+			TerminalStatusKeys: terminalStatusKeys,
+		})
+		if err != nil {
+			t.Fatalf("ListOpenIssues: %v", err)
+		}
+		sawCustomDone, sawOpen := false, false
+		for _, row := range rows {
+			sawCustomDone = sawCustomDone || row.ID.String() == customDone
+			sawOpen = sawOpen || row.ID.String() == open
+		}
+		if sawCustomDone || !sawOpen {
+			t.Fatalf("open listing customDone/open = %v/%v, want false/true", sawCustomDone, sawOpen)
+		}
+	})
+
+	t.Run("child progress counts it as done", func(t *testing.T) {
+		parent := insertIssue(t, "sql child progress parent", "in_progress")
+		customDone := insertIssue(t, "sql child custom done", "gate_done_s")
+		open := insertIssue(t, "sql child plain", "todo")
+		if _, err := testPool.Exec(ctx, `UPDATE issue SET parent_issue_id = $1 WHERE id = ANY($2::uuid[])`,
+			parent, []string{customDone, open}); err != nil {
+			t.Fatalf("attach children: %v", err)
+		}
+		rows, err := testHandler.Queries.ChildIssueProgress(ctx, db.ChildIssueProgressParams{
+			WorkspaceID:        parseUUID(testWorkspaceID),
+			TerminalStatusKeys: terminalStatusKeys,
+		})
+		if err != nil {
+			t.Fatalf("ChildIssueProgress: %v", err)
+		}
+		for _, row := range rows {
+			if row.ParentIssueID.String() == parent {
+				if row.Total != 2 || row.Done != 1 {
+					t.Errorf("child progress = %d done / %d total, want 1/2 (the custom done status must count)",
+						row.Done, row.Total)
+				}
+				return
+			}
+		}
+		t.Error("no progress row for the parent issue")
+	})
+}
