@@ -201,6 +201,7 @@ function CommentInput({ issueId, onSubmit, onAccepted }: CommentInputProps) {
           disabled={isEmpty}
           loading={submitting}
           tooltip={`${t(($) => $.comment.send_tooltip)} · ${formatShortcut(modKey, enterKey)}`}
+          ariaLabel={t(($) => $.comment.send_tooltip)}
         />
       </div>
       {isDragOver && <FileDropOverlay />}

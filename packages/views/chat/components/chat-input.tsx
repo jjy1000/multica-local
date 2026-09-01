@@ -408,7 +408,9 @@ export function ChatInput({
             running={isRunning}
             onStop={onStop}
             tooltip={`${t(($) => $.input.send_tooltip)} · ${formatShortcut(modKey, enterKey)}`}
+            ariaLabel={t(($) => $.input.send_tooltip)}
             stopTooltip={t(($) => $.input.stop_tooltip)}
+            stopAriaLabel={t(($) => $.input.stop_tooltip)}
           />
         </div>
         {uploadEnabled && isDragOver && <FileDropOverlay />}
