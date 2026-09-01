@@ -30,7 +30,8 @@
       "cancel": "キャンセル",
       "save": "保存",
       "saving": "保存中…",
-      "save_failed": "ステータスを保存できませんでした。"
+      "save_failed": "ステータスを保存できませんでした。",
+      "created": "ステータスを作成しました。API と CLI では {{key}} として参照されます。"
     },
     "archive_dialog": {
       "title": "このステータスをアーカイブしますか？",

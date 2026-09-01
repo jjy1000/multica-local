@@ -2,12 +2,18 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/issuestatus"
+	"github.com/multica-ai/multica/server/internal/service"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/featureflag"
 )
@@ -305,3 +311,492 @@ func TestCreateIssueStatusIsGatedOnRollout(t *testing.T) {
 
 // TestIssueWriteStoresCanonicalStatusKey guards the 500 found in review:
 // resolution is case- and whitespace-insensitive, so writing the caller's raw
+
+// ── MUL-6749: derived status keys from non-Latin display names ──────────
+//
+// Port of upstream d6ecf4bc8's handler tests, adapted to this fork's test
+// idioms: raw httptest recorders instead of testutil.Call, and every API
+// create opens the fork-local MUL-6243 rollout gate first (upstream has no
+// gate; here a closed flag 403s before any key logic runs).
+
+// createStatusThroughAPI posts to CreateIssueStatus with the rollout gate open
+// and decodes the response body as IssueStatusResponse.
+func createStatusThroughAPI(t *testing.T, body map[string]any) (*httptest.ResponseRecorder, IssueStatusResponse) {
+	t.Helper()
+	withCustomIssueStatusesFlag(t, testHandler, true)
+	var created IssueStatusResponse
+	rec := httptest.NewRecorder()
+	testHandler.CreateIssueStatus(rec, newRequest(http.MethodPost, "/api/issue-statuses", body))
+	json.Unmarshal(rec.Body.Bytes(), &created)
+	return rec, created
+}
+
+// TestCreateIssueStatusAcceptsANonLatinName is the regression for MUL-6749.
+// A display name written entirely in a non-Latin script has no characters in
+// the key alphabet, so key derivation used to fail the create outright — and
+// the settings form has no field for an explicit key, which left no way to
+// create the status at all.
+func TestCreateIssueStatusAcceptsANonLatinName(t *testing.T) {
+	seedTestCatalog(t)
+
+	create := func(t *testing.T, name, category string) IssueStatusResponse {
+		t.Helper()
+		rec, created := createStatusThroughAPI(t, map[string]any{
+			"name": name, "category": category, "color": "#123456",
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+		}
+		t.Cleanup(func() {
+			testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, parseUUID(created.ID))
+		})
+		return created
+	}
+
+	first := create(t, "客户确认", issuestatus.InReview)
+	if first.Key != "in_review_2" {
+		t.Errorf("derived key = %q, want %q", first.Key, "in_review_2")
+	}
+	if first.Name != "客户确认" {
+		t.Errorf("display name = %q, want it stored verbatim", first.Name)
+	}
+
+	// A second one in the same category takes the next ordinal instead of
+	// colliding with the first.
+	second := create(t, "供应商确认", issuestatus.InReview)
+	if second.Key != "in_review_3" {
+		t.Errorf("second derived key = %q, want %q", second.Key, "in_review_3")
+	}
+
+	// A name that CAN be slugged is untouched by the fallback.
+	english := create(t, "Human Review Zh", issuestatus.InReview)
+	if english.Key != "human_review_zh" {
+		t.Errorf("sluggable name derived %q, want %q", english.Key, "human_review_zh")
+	}
+}
+
+// TestCreateIssueStatusDisambiguatesCollidingSlugs covers the sharper half of
+// MUL-6749. The bug report's suggested workaround was to mix ASCII into the
+// display name, but the non-ASCII part is dropped, so two DIFFERENT names
+// collapse onto one key — and the second create used to fail with a conflict
+// that blamed a display name nobody had taken.
+func TestCreateIssueStatusDisambiguatesCollidingSlugs(t *testing.T) {
+	seedTestCatalog(t)
+
+	create := func(t *testing.T, name string) IssueStatusResponse {
+		t.Helper()
+		rec, created := createStatusThroughAPI(t, map[string]any{
+			"name": name, "category": issuestatus.Todo, "color": "#123456",
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+		}
+		t.Cleanup(func() {
+			testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, parseUUID(created.ID))
+		})
+		return created
+	}
+
+	if got := create(t, "待客户 Zzreview").Key; got != "zzreview" {
+		t.Fatalf("first key = %q, want %q", got, "zzreview")
+	}
+	if got := create(t, "待供应商 Zzreview").Key; got != "zzreview_2" {
+		t.Errorf("colliding key = %q, want %q", got, "zzreview_2")
+	}
+}
+
+// TestDerivedKeyAvoidsAnArchivedKey pins the storage constraint that makes the
+// "taken" set wider than the visible catalog: idx_issue_status_workspace_key is
+// NOT partial, so an archived status still owns its key and handing it out
+// again would fail on insert.
+func TestDerivedKeyAvoidsAnArchivedKey(t *testing.T) {
+	entry := createTestCustomStatus(t, "zzarchived", issuestatus.Todo)
+	if _, err := testHandler.Queries.ArchiveIssueStatusEntry(context.Background(), db.ArchiveIssueStatusEntryParams{
+		ID:          entry.ID,
+		WorkspaceID: parseUUID(testWorkspaceID),
+	}); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+
+	rec, created := createStatusThroughAPI(t, map[string]any{
+		"name": "Zzarchived", "category": issuestatus.Todo, "color": "#123456",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, parseUUID(created.ID))
+	})
+
+	if created.Key == "zzarchived" {
+		t.Fatal("derivation reused an archived status's key")
+	}
+	if created.Key != "zzarchived_2" {
+		t.Errorf("derived key = %q, want %q", created.Key, "zzarchived_2")
+	}
+}
+
+// TestUnknownStatusErrorNamesCustomStatuses covers the other half of what makes
+// a derived key usable: on its own `in_review_2` says nothing, so the error a
+// caller gets after writing a bad status has to carry the display name or there
+// is no way to find the status they were told to use. (MUL-6749)
+func TestUnknownStatusErrorNamesCustomStatuses(t *testing.T) {
+	seedTestCatalog(t)
+	entry, err := testHandler.Queries.CreateIssueStatusEntry(context.Background(), db.CreateIssueStatusEntryParams{
+		WorkspaceID: parseUUID(testWorkspaceID),
+		Key:         "in_review_9",
+		Name:        "客户确认",
+		Description: "",
+		Category:    issuestatus.InReview,
+		Color:       "#123456",
+	})
+	if err != nil {
+		t.Fatalf("create custom status: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, entry.ID)
+	})
+
+	rec := httptest.NewRecorder()
+	testHandler.CreateIssue(rec, newRequest(http.MethodPost, "/api/issues", map[string]any{
+		"title":  "unknown status error body",
+		"status": "not_a_status",
+	}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "in_review_9 (客户确认)") {
+		t.Errorf("error body does not pair the key with its name: %s", body)
+	}
+	// Built-ins stay bare — clients localize those from the key, so echoing the
+	// seeded English name would be the one string a Chinese workspace ignores.
+	if strings.Contains(body, "todo (Todo)") {
+		t.Errorf("built-in statuses should be listed as bare keys: %s", body)
+	}
+}
+
+// TestIssueResponseCarriesCustomStatusName pins the field an agent reads an
+// issue through. `status` alone is a bare handle, and a derived key carries no
+// meaning, so the display name travels beside it. (MUL-6749)
+func TestIssueResponseCarriesCustomStatusName(t *testing.T) {
+	seedTestCatalog(t)
+	entry, err := testHandler.Queries.CreateIssueStatusEntry(context.Background(), db.CreateIssueStatusEntryParams{
+		WorkspaceID: parseUUID(testWorkspaceID),
+		Key:         "in_review_8",
+		Name:        "客户确认",
+		Description: "",
+		Category:    issuestatus.InReview,
+		Color:       "#123456",
+	})
+	if err != nil {
+		t.Fatalf("create custom status: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, entry.ID)
+	})
+
+	var custom IssueResponse
+	rec := httptest.NewRecorder()
+	testHandler.CreateIssue(rec, newRequest(http.MethodPost, "/api/issues", map[string]any{
+		"title": "custom status name", "status": "in_review_8",
+	}))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &custom); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, parseUUID(custom.ID))
+	})
+	if custom.StatusName != "客户确认" {
+		t.Errorf("status_name = %q, want %q", custom.StatusName, "客户确认")
+	}
+	if custom.StatusCategory != issuestatus.InReview {
+		t.Errorf("status_category = %q, want %q", custom.StatusCategory, issuestatus.InReview)
+	}
+
+	// A built-in carries no name: every client renders those from the key
+	// through i18n, so the seeded English one would be noise at best.
+	var builtIn IssueResponse
+	rec = httptest.NewRecorder()
+	testHandler.CreateIssue(rec, newRequest(http.MethodPost, "/api/issues", map[string]any{
+		"title": "built-in status name", "status": issuestatus.Todo,
+	}))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &builtIn); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, parseUUID(builtIn.ID))
+	})
+	if builtIn.StatusName != "" {
+		t.Errorf("built-in status_name = %q, want it empty", builtIn.StatusName)
+	}
+}
+
+// TestExplicitKeyCreateAlsoTakesTheCatalogLock closes the half-open race found
+// in review of MUL-6749. Derivation reads the catalog and then inserts; if a
+// create that supplies its OWN key were allowed to skip the lock, it could land
+// on the key the derive just chose in exactly that gap. The derive would then
+// fail on the unique index and return 409 to a settings form that has no key
+// field — the same dead end this issue exists to remove.
+//
+// The assertion is that an explicit-key create PARKS while the lock is held.
+// Before the fix it completed immediately.
+func TestExplicitKeyCreateAlsoTakesTheCatalogLock(t *testing.T) {
+	seedTestCatalog(t)
+	ctx := context.Background()
+
+	tx, err := testPool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text || ':issue_status', 0))`,
+		parseUUID(testWorkspaceID)); err != nil {
+		t.Fatalf("take exclusive lock: %v", err)
+	}
+
+	// The rollout gate must be flipped on the test goroutine — the helper
+	// registers t.Cleanup, which is not goroutine-safe.
+	withCustomIssueStatusesFlag(t, testHandler, true)
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		rec := httptest.NewRecorder()
+		testHandler.CreateIssueStatus(rec, newRequest(http.MethodPost, "/api/issue-statuses", map[string]any{
+			"name": "Zzlockprobe", "key": "zzlockprobe", "category": issuestatus.Todo, "color": "#123456",
+		}))
+		done <- rec
+	}()
+
+	select {
+	case rec := <-done:
+		t.Fatalf("an explicit-key create completed (%d) while the catalog lock was held; "+
+			"it can still insert between a derived create's catalog read and its insert", rec.Code)
+	case <-time.After(400 * time.Millisecond):
+		// Parked on the lock, which is the point.
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("release lock: %v", err)
+	}
+
+	select {
+	case rec := <-done:
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("explicit-key create after the lock released: %d %s", rec.Code, rec.Body.String())
+		}
+		var created IssueStatusResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		t.Cleanup(func() {
+			testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, parseUUID(created.ID))
+		})
+	case <-time.After(10 * time.Second):
+		t.Fatal("explicit-key create never completed after the lock released")
+	}
+}
+
+// TestConcurrentDerivedCreatesNeverConflict is the behavioral half of the same
+// fix: whatever else is writing the catalog, a create that supplied no key must
+// never come back 409. A caller who typed a key CAN legitimately be told it is
+// taken; a caller who typed only a display name has nothing to correct.
+//
+// Every result carries WHICH kind of writer produced it. Counting successes
+// without that lets an explicit writer's 201 stand in for a derived writer's
+// 409 and passes on exactly the regression it exists to catch.
+//
+// This is a probabilistic net, not a proof: the window it hunts for is the few
+// microseconds between a derive's catalog read and its insert, and in-process
+// it does not reliably open. TestExplicitKeyCreateAlsoTakesTheCatalogLock is
+// the deterministic guard on the lock itself — this one guards the OUTCOME, so
+// that any future path which lets a keyless create conflict shows up here even
+// if the lock is still nominally taken. Do not delete one for the other.
+func TestConcurrentDerivedCreatesNeverConflict(t *testing.T) {
+	seedTestCatalog(t)
+
+	const derivedWriters = 6
+	const rounds = 4
+	type result struct {
+		derived bool
+		label   string
+		code    int
+		key     string
+		body    string
+	}
+
+	// Every derived name must be ALL non-ASCII, or it slugs to something and
+	// never reaches the fallback the test is about: "客户确认0-1" keeps its ASCII
+	// digits and derives `0_1`, which contends with nothing. Uniqueness comes
+	// from a distinct base per writer and a repeated character per round, so the
+	// names stay collision-free without smuggling in a digit.
+	bases := []string{"客户确认", "供应商确认", "财务确认", "法务确认", "安全确认", "运营确认"}
+	if len(bases) != derivedWriters {
+		t.Fatalf("need one non-ASCII base per derived writer, got %d for %d", len(bases), derivedWriters)
+	}
+
+	withCustomIssueStatusesFlag(t, testHandler, true)
+	for round := range rounds {
+		t.Run(fmt.Sprintf("round-%d", round), func(t *testing.T) {
+			results := make(chan result, derivedWriters+2)
+			start := make(chan struct{})
+			var wg sync.WaitGroup
+
+			post := func(derived bool, label string, body map[string]any) {
+				defer wg.Done()
+				<-start
+				rec := httptest.NewRecorder()
+				testHandler.CreateIssueStatus(rec, newRequest(http.MethodPost, "/api/issue-statuses", body))
+				var created IssueStatusResponse
+				json.Unmarshal(rec.Body.Bytes(), &created)
+				results <- result{derived, label, rec.Code, created.Key, rec.Body.String()}
+			}
+
+			// Admins naming a status in a non-Latin script, all in one category,
+			// so every one of them derives from the same base.
+			for i := range derivedWriters {
+				name := bases[i] + strings.Repeat("确", round+1)
+				wg.Add(1)
+				go post(true, name, map[string]any{
+					"name": name, "category": issuestatus.Blocked, "color": "#123456",
+				})
+			}
+			// Explicit writers aiming straight at the ordinals the derives want.
+			for _, key := range []string{"blocked_2", "blocked_3"} {
+				wg.Add(1)
+				go post(false, key, map[string]any{
+					"name": fmt.Sprintf("Zz %s %d", key, round), "key": key,
+					"category": issuestatus.Blocked, "color": "#123456",
+				})
+			}
+
+			close(start)
+			wg.Wait()
+			close(results)
+
+			t.Cleanup(func() {
+				testPool.Exec(context.Background(),
+					`DELETE FROM issue_status WHERE workspace_id = $1 AND category = 'blocked' AND is_system = FALSE`,
+					parseUUID(testWorkspaceID))
+			})
+
+			seen := map[string]bool{}
+			derivedSucceeded := 0
+			for r := range results {
+				switch {
+				case r.derived && r.code != http.StatusCreated:
+					// The regression this test exists for: a writer with no key
+					// field to correct was told to correct one.
+					t.Errorf("derived create %q returned %d, want 201 — a create with no key must never conflict: %s",
+						r.label, r.code, r.body)
+					continue
+				case !r.derived && r.code != http.StatusCreated && r.code != http.StatusConflict:
+					t.Errorf("explicit create %q returned %d, want 201 or 409: %s", r.label, r.code, r.body)
+					continue
+				case r.code == http.StatusConflict:
+					// Only reachable for an explicit writer, by the branch above.
+					if !strings.Contains(r.body, "already exists") {
+						t.Errorf("unexpected 409 body for %q: %s", r.label, r.body)
+					}
+					continue
+				}
+				if seen[r.key] {
+					t.Errorf("two statuses were created with the same key %q", r.key)
+				}
+				seen[r.key] = true
+				if issuestatus.IsBuiltIn(r.key) {
+					t.Errorf("a custom status shadowed the built-in key %q", r.key)
+				}
+				if r.derived {
+					// Pins the PREMISE: a derived name that slugs to anything at
+					// all takes the slug path and contends with nothing, which
+					// would leave this test green while exercising nothing.
+					if !strings.HasPrefix(r.key, issuestatus.Blocked+"_") {
+						t.Errorf("derived create %q produced key %q; the name must slug to nothing "+
+							"so it lands on the <category>_<n> fallback these writers contend for",
+							r.label, r.key)
+					}
+					derivedSucceeded++
+				}
+			}
+			if derivedSucceeded != derivedWriters {
+				t.Errorf("%d of %d DERIVED creates succeeded", derivedSucceeded, derivedWriters)
+			}
+		})
+	}
+}
+
+// TestCustomStatusPayloadsAgreeAcrossRenderings pins the contract
+// TestIssueToMap_KeysMatchIssueResponse cannot reach with a built-in fixture:
+// an issue on a CUSTOM status must describe itself identically whether it
+// arrives over HTTP or on a background event. A field present in one and blank
+// in the other reads back undefined depending on which entry point produced
+// the issue. (MUL-6749)
+func TestCustomStatusPayloadsAgreeAcrossRenderings(t *testing.T) {
+	ctx := context.Background()
+	seedTestCatalog(t)
+	entry, err := testHandler.Queries.CreateIssueStatusEntry(ctx, db.CreateIssueStatusEntryParams{
+		WorkspaceID: parseUUID(testWorkspaceID),
+		Key:         "in_review_7",
+		Name:        "客户确认",
+		Description: "",
+		Category:    issuestatus.InReview,
+		Color:       "#123456",
+	})
+	if err != nil {
+		t.Fatalf("create custom status: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, entry.ID)
+	})
+
+	var fromHTTP IssueResponse
+	rec := httptest.NewRecorder()
+	testHandler.CreateIssue(rec, newRequest(http.MethodPost, "/api/issues", map[string]any{
+		"title": "payload parity", "status": "in_review_7",
+	}))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &fromHTTP); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, parseUUID(fromHTTP.ID))
+	})
+
+	issue, err := testHandler.Queries.GetIssue(ctx, parseUUID(fromHTTP.ID))
+	if err != nil {
+		t.Fatalf("reload issue: %v", err)
+	}
+	fromEvent := service.IssueToMapResolved(ctx, testHandler.Queries, issue, "MUL")
+
+	for field, want := range map[string]string{
+		"status":          "in_review_7",
+		"status_category": issuestatus.InReview,
+		"status_name":     "客户确认",
+	} {
+		got, ok := fromEvent[field].(string)
+		if !ok {
+			t.Errorf("event payload is missing %q; clients treat it as a complete issue", field)
+			continue
+		}
+		if got != want {
+			t.Errorf("event %s = %q, want %q", field, got, want)
+		}
+	}
+	if fromHTTP.StatusName != fromEvent["status_name"] {
+		t.Errorf("status_name differs by entry point: HTTP %q, event %q",
+			fromHTTP.StatusName, fromEvent["status_name"])
+	}
+	if fromHTTP.StatusCategory != fromEvent["status_category"] {
+		t.Errorf("status_category differs by entry point: HTTP %q, event %q",
+			fromHTTP.StatusCategory, fromEvent["status_category"])
+	}
+}

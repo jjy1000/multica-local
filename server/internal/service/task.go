@@ -2760,7 +2760,7 @@ func (s *TaskService) broadcastIssueUpdated(ctx context.Context, issue db.Issue,
 		ActorType:   "system",
 		ActorID:     "",
 		Payload: map[string]any{
-			"issue":          IssueToMapWithCategory(ctx, s.Queries, issue, prefix),
+			"issue":          IssueToMapResolved(ctx, s.Queries, issue, prefix),
 			"status_changed": prevStatus != issue.Status,
 			"prev_status":    prevStatus,
 		},
@@ -2885,7 +2885,12 @@ func issueToMap(issue db.Issue, issuePrefix string) map[string]any {
 		// its own category, so this resolves with no catalog lookup. Empty for
 		// a custom status, which consumers resolve via the catalog. (MUL-6243)
 		"status_category": builtInStatusCategory(issue.Status),
-		"priority":        issue.Priority,
+		// Mirrors handler.IssueResponse.StatusName. A built-in carries no name
+		// — clients localize those from the key — and a CUSTOM one is filled in
+		// by IssueToMapResolved, which has the catalog. Emitted unconditionally
+		// so this rendering cannot lose a key the HTTP one carries. (MUL-6749)
+		"status_name":      "",
+		"priority":         issue.Priority,
 		"assignee_type":   util.TextToPtr(issue.AssigneeType),
 		"assignee_id":     util.UUIDToPtr(issue.AssigneeID),
 		"creator_type":    issue.CreatorType,
@@ -2911,18 +2916,24 @@ func builtInStatusCategory(status string) string {
 // IssueToMap is the exported alias of issueToMap so cross-package callers
 // (channel engine, autopilot) can build the same payload shape. Built-in
 // statuses have a category built into the key — custom ones resolve through
-// IssueToMapWithCategory at the call site. (MUL-6243)
+// IssueToMapResolved at the call site. (MUL-6243)
 func IssueToMap(issue db.Issue, issuePrefix string) map[string]any {
 	return issueToMap(issue, issuePrefix)
 }
 
-// IssueToMapWithCategory is IssueToMap with an AUTHORITATIVE status_category,
-// resolved through the catalog so a custom status is not emitted with a blank
-// one. Background events go through here; clients treat this payload as a
-// complete issue and bucket it by category. (MUL-6243)
-func IssueToMapWithCategory(ctx context.Context, q issuestatus.Querier, issue db.Issue, issuePrefix string) map[string]any {
+// IssueToMapResolved is IssueToMap with an AUTHORITATIVE status_category and
+// status_name, both resolved through the catalog so a custom status is not
+// emitted with blanks. Background events go through here; clients treat this
+// payload as a complete issue and bucket it by category. (MUL-6243)
+//
+// Both fields come from ONE catalog read. Resolving them separately would
+// double the query on every event carrying a custom status, and the HTTP
+// rendering already shares a single read through its Resolver. (MUL-6749)
+func IssueToMapResolved(ctx context.Context, q issuestatus.Querier, issue db.Issue, issuePrefix string) map[string]any {
 	m := issueToMap(issue, issuePrefix)
-	m["status_category"] = issuestatus.Effective(ctx, q, issue.WorkspaceID, issue.Status)
+	category, name := issuestatus.EffectiveAndName(ctx, q, issue.WorkspaceID, issue.Status)
+	m["status_category"] = category
+	m["status_name"] = name
 	return m
 }
 

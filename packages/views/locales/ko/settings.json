@@ -30,7 +30,8 @@
       "cancel": "취소",
       "save": "저장",
       "saving": "저장 중…",
-      "save_failed": "상태를 저장하지 못했습니다."
+      "save_failed": "상태를 저장하지 못했습니다.",
+      "created": "상태를 만들었습니다. API와 CLI에서는 {{key}}로 참조합니다."
     },
     "archive_dialog": {
       "title": "이 상태를 보관할까요?",

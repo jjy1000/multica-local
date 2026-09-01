@@ -30,7 +30,8 @@
       "cancel": "取消",
       "save": "保存",
       "saving": "保存中…",
-      "save_failed": "状态保存失败。"
+      "save_failed": "状态保存失败。",
+      "created": "状态已创建。API 和 CLI 中通过 {{key}} 引用。"
     },
     "archive_dialog": {
       "title": "归档这个状态？",
