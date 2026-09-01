@@ -147,6 +147,23 @@ func jwtSecretBootError(jwtSecret, appEnv string) error {
 	return auth.ValidateJWTSecret(jwtSecret)
 }
 
+// newMainHTTPServer builds the public HTTP server with the production timeout
+// defaults. These values are load-bearing safety settings, not cosmetic tuning,
+// so they live in one helper that main() and the config regression test share.
+//
+// Bound header reads to stop Slowloris; IdleTimeout is looser than the
+// metrics/profiling servers' 30s for keep-alive-heavy CLI and daemon clients.
+// ReadTimeout and WriteTimeout are deliberately left zero so WebSocket upgrades
+// (/ws, /api/daemon/ws) on this listener aren't killed mid-connection.
+func newMainHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+}
+
 func main() {
 	// 0.3.18 Labs safety: wrap main in a recover sentinel that writes
 	// a blacklist entry before re-panicking. The panic context can
@@ -427,10 +444,7 @@ func main() {
 		HeartbeatScheduler: heartbeatScheduler,
 	})
 
-	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: r,
-	}
+	srv := newMainHTTPServer(":"+port, r)
 	profilingServer := profiling.NewServer()
 
 	// Start background workers.
