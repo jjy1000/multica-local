@@ -282,11 +282,17 @@ func TestIsKnownThinkingValue(t *testing.T) {
 // layer call this; if it gets default-model wrong, any agent without an
 // explicit model set would have its thinking_level dropped silently.
 
+// The three tests below reset the package-global thinking cache
+// (resetThinkingCacheForTests). That reset is mutex-guarded per call but not
+// atomic across a test's reset→put→get sequence, so two parallel siblings
+// interleaving their windows flake — observed as TestThinkingCacheKeyDistinct
+// going red under full-suite load. They must stay in the sequential wave: no
+// t.Parallel here, in this test, in TestValidateThinkingLevel_ExplicitModel,
+// or in TestThinkingCacheKeyDistinct.
 func TestValidateThinkingLevel_EmptyModelResolvesToDefault(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell-script fake binary requires a POSIX shell")
 	}
-	t.Parallel()
 
 	// We need a `claude` whose --help advertises the full superset
 	// (low/medium/high/xhigh/max) so per-model projection actually has
@@ -341,7 +347,8 @@ func TestValidateThinkingLevel_ExplicitModel(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell-script fake binary requires a POSIX shell")
 	}
-	t.Parallel()
+	// No t.Parallel — see the cache-reset note above
+	// TestValidateThinkingLevel_EmptyModelResolvesToDefault.
 	fakeClaude := writeFakeClaudeHelpBinary(t)
 	resetThinkingCacheForTests()
 	defer resetThinkingCacheForTests()
@@ -454,7 +461,8 @@ func writeFakeClaudeHelpBinary(t *testing.T) string {
 // ── Cache key invalidation ───────────────────────────────────────────
 
 func TestThinkingCacheKeyDistinct(t *testing.T) {
-	t.Parallel()
+	// No t.Parallel — see the cache-reset note above
+	// TestValidateThinkingLevel_EmptyModelResolvesToDefault.
 	resetThinkingCacheForTests()
 	defer resetThinkingCacheForTests()
 
