@@ -325,9 +325,10 @@ function ClaudePanel({ ctx, labSource, labViewHref }: { ctx: LabContext; labSour
   // jumps to the lab view pre-scoped via ?issue=&run= — independent of
   // the existing "View in lab" affordance so existing UX is preserved.
   const latestForRunLink = latestTask(ctx);
-  const latestRunHref = latestForRunLink
-    ? labRunHref(labSource, ctx.issue.id, latestForRunLink.id)
-    : undefined;
+  const latestRunHref =
+    latestForRunLink && ctx.issue?.id
+      ? labRunHref(labSource, ctx.issue.id, latestForRunLink.id)
+      : undefined;
   const runLink = latestRunHref ? (
     <LabRunLink
       flagKey={labSource}
