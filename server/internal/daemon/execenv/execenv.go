@@ -190,8 +190,15 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 
 	envRoot := filepath.Join(params.WorkspacesRoot, params.WorkspaceID, shortID(params.TaskID))
 
-	// Remove existing env if present (defensive — task IDs are unique).
+	// Remove existing env if present (defensive — task IDs are unique), but
+	// never one we cannot prove is ours to take: a shortID collision with
+	// another task's marked root, or a mispointed WorkspacesRoot landing on
+	// user content, must fail the task rather than delete what it found
+	// (MUL-6870).
 	if _, err := os.Stat(envRoot); err == nil {
+		if err := CheckEnvRootResettable(params.WorkspacesRoot, envRoot, params.WorkspaceID, params.TaskID); err != nil {
+			return nil, err
+		}
 		if err := os.RemoveAll(envRoot); err != nil {
 			return nil, fmt.Errorf("execenv: remove existing env: %w", err)
 		}
@@ -212,6 +219,12 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, fmt.Errorf("execenv: create directory %s: %w", dir, err)
 		}
+	}
+
+	// Record ownership before any task content so a crash mid-Prepare still
+	// leaves an identifiable root for the GC loop (MUL-6870).
+	if err := WriteEnvRootOwner(envRoot, params.WorkspaceID, params.TaskID); err != nil {
+		return nil, fmt.Errorf("execenv: write task owner: %w", err)
 	}
 
 	env := &Environment{

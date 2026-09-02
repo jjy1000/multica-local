@@ -40,11 +40,21 @@ func newGCTestDaemon(t *testing.T, handler http.Handler) *Daemon {
 	return d
 }
 
-// createTaskDir creates a task directory with optional GC metadata.
+// createTaskDir creates a task directory with optional GC metadata. The
+// owner marker mirrors what production Prepare writes before any task
+// content (MUL-6870): fixture names double as the marker's task identity,
+// which validTaskRootSegment accepts exactly.
 func createTaskDir(t *testing.T, root, wsID, dirName string, meta *execenv.GCMeta) string {
 	t.Helper()
 	taskDir := filepath.Join(root, wsID, dirName)
 	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := json.Marshal(execenv.EnvRootOwner{WorkspaceID: wsID, TaskID: dirName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, ".task_owner"), owner, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if meta != nil {
@@ -264,15 +274,256 @@ func TestCleanTaskDir_RemovesDirectory(t *testing.T) {
 	t.Parallel()
 	d := newGCTestDaemon(t, http.NewServeMux())
 	taskDir := createTaskDir(t, d.cfg.WorkspacesRoot, "ws1", "doomed", nil)
+	if err := os.WriteFile(filepath.Join(taskDir, "payload"), []byte(strings.Repeat("x", 64)), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := os.Stat(taskDir); err != nil {
 		t.Fatal("task dir should exist before cleanup")
 	}
 
-	d.cleanTaskDir(taskDir)
+	if bytes, removed := d.cleanTaskDir(taskDir); !removed || bytes < 64 {
+		t.Fatalf("reclaimed bytes = %d removed = %v, want at least payload size and removal", bytes, removed)
+	}
 
 	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
 		t.Fatal("task dir should be removed after cleanup")
+	}
+}
+
+func TestRunGC_SharedRootPreservesForeignDirectories(t *testing.T) {
+	t.Parallel()
+
+	d := newGCTestDaemon(t, http.NewServeMux())
+	d.cfg.GCOrphanTTL = 0
+	projectDir := filepath.Join(d.cfg.WorkspacesRoot, "analyze-serenity-event-study-20260827")
+	dataDir := filepath.Join(projectDir, "data")
+	database := filepath.Join(dataDir, "research.sqlite")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(database, []byte("do not delete"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	d.runGC(context.Background())
+
+	if got, err := os.ReadFile(database); err != nil || string(got) != "do not delete" {
+		t.Fatalf("GC mutated non-Multica data under a shared root: data=%q err=%v", got, err)
+	}
+}
+
+// The shared-root regression above only exercises the paths runGC happens to
+// pick for its fixtures. Pin every mutating action the workspace sweep can
+// take on an unowned directory: full cleanup, orphan removal and pattern
+// artifact cleanup must all refuse, and nothing may be counted as reclaimed.
+func TestGcWorkspace_RefusesEveryMutationWithoutOwner(t *testing.T) {
+	t.Parallel()
+
+	issueID := "99999999-9999-9999-9999-999999999999"
+	mux := http.NewServeMux()
+	mux.HandleFunc(fmt.Sprintf("/api/daemon/issues/%s/gc-check", issueID), func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":     "in_progress",
+			"updated_at": time.Now(),
+		})
+	})
+
+	d := newGCTestDaemon(t, mux)
+	d.cfg.GCOrphanTTL = 0
+
+	// done-issue meta: would clean whole dir; no-meta + TTL 0: would orphan;
+	// old completed meta on a live issue: would sweep artifacts.
+	fixtures := []struct {
+		name string
+		meta *execenv.GCMeta
+	}{
+		{"owned-shape-clean", &execenv.GCMeta{Kind: execenv.GCKindIssue, IssueID: issueID, WorkspaceID: "ws1", CompletedAt: time.Now().Add(-24 * time.Hour)}},
+		{"owned-shape-orphan", nil},
+		{"owned-shape-artifacts", &execenv.GCMeta{Kind: execenv.GCKindIssue, IssueID: issueID, WorkspaceID: "ws1", CompletedAt: time.Now().Add(-48 * time.Hour)}},
+	}
+	for _, tc := range fixtures {
+		// Human-named dirs that no .task_owner marker vouches for — the
+		// mispointed-WorkspacesRoot shape the ownership gate exists for.
+		taskDir := filepath.Join(d.cfg.WorkspacesRoot, "ws1", tc.name)
+		if err := os.MkdirAll(taskDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if tc.meta != nil {
+			data, _ := json.Marshal(tc.meta)
+			if err := os.WriteFile(filepath.Join(taskDir, ".gc_meta.json"), data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		artifactDir := filepath.Join(taskDir, d.cfg.GCArtifactPatterns[0])
+		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(artifactDir, "payload"), []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(taskDir, "research.sqlite"), []byte("do not delete"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stats := &gcStats{byPattern: map[string]int{}}
+	d.gcWorkspace(context.Background(), filepath.Join(d.cfg.WorkspacesRoot, "ws1"), stats)
+
+	if stats.cleaned != 0 || stats.orphaned != 0 || stats.artifactDirs != 0 || stats.artifactRemoved != 0 || stats.bytesReclaimed != 0 {
+		t.Fatalf("unowned mutations were counted: cleaned=%d orphaned=%d artifactDirs=%d artifactRemoved=%d bytes=%d",
+			stats.cleaned, stats.orphaned, stats.artifactDirs, stats.artifactRemoved, stats.bytesReclaimed)
+	}
+	for _, tc := range fixtures {
+		for _, path := range []string{
+			filepath.Join(d.cfg.WorkspacesRoot, "ws1", tc.name, "research.sqlite"),
+			filepath.Join(d.cfg.WorkspacesRoot, "ws1", tc.name, d.cfg.GCArtifactPatterns[0], "payload"),
+		} {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("unowned content was mutated: %s: %v", path, err)
+			}
+		}
+	}
+}
+
+func TestCleanTaskDir_RefusesOwnerPathMismatch(t *testing.T) {
+	t.Parallel()
+
+	d := newGCTestDaemon(t, http.NewServeMux())
+	taskDir := filepath.Join(d.cfg.WorkspacesRoot, "source-repository", "data")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := json.Marshal(execenv.EnvRootOwner{WorkspaceID: "workspace-id", TaskID: "task-id"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, ".task_owner"), owner, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	survivor := filepath.Join(taskDir, "research.sqlite")
+	if err := os.WriteFile(survivor, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if bytes, removed := d.cleanTaskDir(taskDir); removed || bytes != 0 {
+		t.Fatalf("cleanTaskDir removed owner/path mismatch: removed=%v bytes=%d", removed, bytes)
+	}
+	if _, err := os.Stat(survivor); err != nil {
+		t.Fatalf("owner/path mismatch data was not preserved: %v", err)
+	}
+}
+
+func TestCleanTaskDir_AcceptsLegacyOwnerWithGCWorkspaceIdentity(t *testing.T) {
+	t.Parallel()
+
+	d := newGCTestDaemon(t, http.NewServeMux())
+	taskDir := filepath.Join(d.cfg.WorkspacesRoot, "ws1", "task1")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, ".task_owner"), []byte("task1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := json.Marshal(execenv.GCMeta{Kind: execenv.GCKindIssue, WorkspaceID: "ws1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, ".gc_meta.json"), meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, "payload"), []byte("owned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, removed := d.cleanTaskDir(taskDir); !removed {
+		t.Fatal("legacy task owner with matching GC workspace identity was not removed")
+	}
+	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+		t.Fatalf("legacy owned task directory still exists: %v", err)
+	}
+}
+
+// Directories prepared before the fork began writing .task_owner carry only
+// .gc_meta.json. A valid completion record that vouches for the directory's
+// position under WorkspacesRoot — including a daemon-shaped task segment —
+// is ownership proof for that stock, or every pre-port directory would be
+// retained forever.
+func TestCleanTaskDir_AcceptsPreMarkerGCMetaStock(t *testing.T) {
+	t.Parallel()
+
+	d := newGCTestDaemon(t, http.NewServeMux())
+	// shortID-shaped dir name, as PredictRootDir has always created.
+	taskDir := filepath.Join(d.cfg.WorkspacesRoot, "ws1", "0123abcd")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := json.Marshal(execenv.GCMeta{Kind: execenv.GCKindIssue, IssueID: "11111111-1111-1111-1111-111111111111", WorkspaceID: "ws1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, ".gc_meta.json"), meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, removed := d.cleanTaskDir(taskDir); !removed {
+		t.Fatal("pre-marker directory with valid GC meta was not removed")
+	}
+	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+		t.Fatalf("pre-marker owned task directory still exists: %v", err)
+	}
+}
+
+// A meta-only proof requires the task segment to look daemon-generated. A
+// human-named directory carrying a stray .gc_meta.json is retained.
+func TestCleanTaskDir_RefusesHumanNamedDirWithStrayMeta(t *testing.T) {
+	t.Parallel()
+
+	d := newGCTestDaemon(t, http.NewServeMux())
+	taskDir := filepath.Join(d.cfg.WorkspacesRoot, "ws1", "my-research-notes")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	meta, err := json.Marshal(execenv.GCMeta{Kind: execenv.GCKindIssue, WorkspaceID: "ws1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, ".gc_meta.json"), meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	survivor := filepath.Join(taskDir, "notes.md")
+	if err := os.WriteFile(survivor, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, removed := d.cleanTaskDir(taskDir); removed {
+		t.Fatal("human-named directory with stray GC meta was removed")
+	}
+	if _, err := os.Stat(survivor); err != nil {
+		t.Fatalf("stray-meta content was not preserved: %v", err)
+	}
+}
+
+// Neither marker nor meta: the directory proves nothing, so even the orphan
+// path must refuse regardless of age.
+func TestCleanTaskDir_RefusesUnownedNoMetaDirectory(t *testing.T) {
+	t.Parallel()
+
+	d := newGCTestDaemon(t, http.NewServeMux())
+	taskDir := filepath.Join(d.cfg.WorkspacesRoot, "ws1", "ab12cd34")
+	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(taskDir, "payload"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, removed := d.cleanTaskDir(taskDir); removed {
+		t.Fatal("unowned no-meta directory was removed")
+	}
+	if _, err := os.Stat(filepath.Join(taskDir, "payload")); err != nil {
+		t.Fatalf("unowned content was not preserved: %v", err)
 	}
 }
 
