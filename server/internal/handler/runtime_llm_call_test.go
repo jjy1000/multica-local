@@ -40,6 +40,31 @@ func signLoopbackJWT(t *testing.T) string {
 // Tests must NOT rely on a real claude / codex / cursor-agent binary —
 // we deliberately avoid pulling model providers into the unit-test
 // dependency tree.
+// clearProviderPathOverrides empties every MULTICA_<PROVIDER>_PATH variable
+// pickProviderCLI consults before falling back to LookPath, so a test that
+// controls PATH controls provider discovery even when the shell sourced the
+// developer .env (which exports MULTICA_CODEX_PATH etc.).
+// Keep the list in sync with pickProviderCLI's overrides table.
+func clearProviderPathOverrides(t *testing.T) {
+	t.Helper()
+	for _, env := range []string{
+		"MULTICA_CLAUDE_PATH",
+		"MULTICA_CODEX_PATH",
+		"MULTICA_OPENCODE_PATH",
+		"MULTICA_OPENCLAW_PATH",
+		"MULTICA_HERMES_PATH",
+		"MULTICA_PI_PATH",
+		"MULTICA_CURSOR_PATH",
+		"MULTICA_COPILOT_PATH",
+		"MULTICA_KIMI_PATH",
+		"MULTICA_KIRO_PATH",
+		"MULTICA_CODEBUDDY_PATH",
+		"MULTICA_AGY_PATH",
+	} {
+		t.Setenv(env, "")
+	}
+}
+
 func stubProvider(t *testing.T, response, capturePath string) func() {
 	t.Helper()
 	dir := t.TempDir()
@@ -132,10 +157,16 @@ func TestLLMCallHandler(t *testing.T) {
 		// Force PATH to an empty dir so LookPath fails for every known
 		// provider. Use a non-existent path that still parses so the
 		// "directory" check doesn't fall back to system PATH via shell.
+		//
+		// A developer shell that sourced .env carries MULTICA_*_PATH
+		// overrides, which pickProviderCLI consults BEFORE LookPath —
+		// clear them so the PATH isolation actually isolates
+		// (pickProviderCLI treats an empty value as unset).
 		emptyDir := t.TempDir()
 		prev := os.Getenv("PATH")
 		t.Setenv("PATH", emptyDir)
 		t.Cleanup(func() { _ = os.Setenv("PATH", prev) })
+		clearProviderPathOverrides(t)
 		w := send("127.0.0.1:55555", map[string]string{
 			"Authorization": "Bearer " + signLoopbackJWT(t),
 		}, map[string]string{"prompt": "hello"})
@@ -151,6 +182,9 @@ func TestLLMCallHandler(t *testing.T) {
 		capturePath := filepath.Join(t.TempDir(), "stdin.txt")
 		restore := stubProvider(t, "PYTHIA-OK", capturePath)
 		t.Cleanup(restore)
+		// The stub is discovered through LookPath; a sourced .env must not
+		// reroute pickProviderCLI to a real binary via its overrides.
+		clearProviderPathOverrides(t)
 
 		w := send("127.0.0.1:55555", map[string]string{
 			"Authorization":  "Bearer " + signLoopbackJWT(t),
