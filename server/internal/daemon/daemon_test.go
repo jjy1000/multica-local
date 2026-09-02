@@ -2404,6 +2404,16 @@ func TestIdleWatchdogTickInterval_NeverPollsFasterThanThirtySecondsInProduction(
 // in-flight-tool budget defaults to the idle budget in both directions, and
 // MULTICA_AGENT_TOOL_WATCHDOG still wins when set explicitly.
 func TestLoadConfig_ToolWatchdogDerivedFromIdle(t *testing.T) {
+	// LoadConfig refuses to build a config when no agent CLI is on PATH.
+	// Developer machines always have one; a CI runner has none — stub a fake
+	// `claude` so this test pins the watchdog derivation, not host CLI
+	// availability.
+	cliDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cliDir, "claude"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", cliDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
 	cfg, err := LoadConfig(Overrides{
 		ServerURL:      "http://localhost:8080",
 		WorkspacesRoot: t.TempDir(),
