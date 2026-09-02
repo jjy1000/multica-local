@@ -42,10 +42,27 @@ ALTER TABLE inbox_item DROP CONSTRAINT inbox_item_recipient_type_check;
 ALTER TABLE inbox_item ADD CONSTRAINT inbox_item_recipient_type_check
     CHECK (recipient_type IN ('member', 'agent', 'squad'));
 
-ALTER TABLE agent_task_queue DROP CONSTRAINT agent_task_queue_accountable_matches_originator;
-ALTER TABLE agent_task_queue ADD CONSTRAINT agent_task_queue_accountable_matches_originator
-    CHECK (
-        (originator_user_id IS NULL)
-        OR (accountable_user_id IS NULL)
-        OR (accountable_user_id = originator_user_id)
-    );
+-- 2026-09-02 fresh-install fix: this file's agent_task_queue block ran
+-- BEFORE the columns it references exist (originator_user_id /
+-- accountable_user_id are first created by 240), so on an empty database
+-- the plain DROP raised 42704 and every fresh install / empty-restore
+-- died here. Existing databases recorded this version long ago and skip
+-- it (schema_migrations tracks version only, no checksum), so editing in
+-- place is invisible to them. The relaxed CHECK itself now lands in 288,
+-- which runs after 240 on fresh databases; the gated block below keeps
+-- this file's statement of intent true for any lineage that somehow has
+-- the columns at this point.
+ALTER TABLE agent_task_queue DROP CONSTRAINT IF EXISTS agent_task_queue_accountable_matches_originator;
+DO $$
+BEGIN
+    IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_task_queue'
+          AND column_name IN ('originator_user_id', 'accountable_user_id')) = 2 THEN
+        ALTER TABLE agent_task_queue ADD CONSTRAINT agent_task_queue_accountable_matches_originator
+            CHECK (
+                (originator_user_id IS NULL)
+                OR (accountable_user_id IS NULL)
+                OR (accountable_user_id = originator_user_id)
+            );
+    END IF;
+END $$;
