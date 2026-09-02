@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'epic/**']
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -223,6 +224,13 @@ jobs:
     # backend job so installer regressions surface independently, and
     # exercised on macOS too because the installer targets macOS/Homebrew
     # and `tar` / `sed` / `mktemp` differ between BSD and GNU userlands.
+    #
+    # Fork: this private repo pays 10x for macOS runner minutes, so the
+    # matrix only runs where it earns its cost — PRs to main and pushes to
+    # main. Iteration pushes to epic/** branches get docs-sync, frontend
+    # and backend (backend includes the empty-database migrate smoke), and
+    # can always request the full matrix via workflow_dispatch.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
