@@ -37,6 +37,7 @@ import { statSync } from "node:fs";
 import {
   appendFileSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
@@ -1057,6 +1058,10 @@ export async function runMigrationFlow(opts: {
   // 1. Detect Docker volume
   const hasDocker = await checkDockerPgdata();
   if (!hasDocker) {
+    // The sentinel lives in ~/.multica, which a first-run machine (or a
+    // bare CI runner) may not have yet — writeFileSync would ENOENT on
+    // the missing parent directory and turn a benign skip into a crash.
+    mkdirSync(dirname(MIGRATION_SENTINEL), { recursive: true });
     writeFileSync(MIGRATION_SENTINEL, `skipped-no-docker at ${new Date().toISOString()}`);
     return { skipped: true, reason: "no-docker-volume" };
   }
@@ -1071,6 +1076,7 @@ export async function runMigrationFlow(opts: {
   // for the cleanup paths below.
   let createdInProgress = false;
   try {
+    mkdirSync(dirname(SENTINEL_IN_PROGRESS), { recursive: true });
     const fd = openSync(SENTINEL_IN_PROGRESS, "wx", 0o600);
     writeFileSync(fd, `started-at=${new Date().toISOString()}\n`);
     closeSync(fd);
