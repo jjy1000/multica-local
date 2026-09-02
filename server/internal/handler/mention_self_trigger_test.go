@@ -15,7 +15,9 @@ import (
 func enqueueMentionedAgentTasksForTest(t *testing.T, ctx context.Context, issue db.Issue, comment db.Comment, parentComment *db.Comment, authorType, authorID string) {
 	t.Helper()
 	triggers, _ := testHandler.computeMentionedAgentCommentTriggers(ctx, issue, comment.Content, parentComment, authorType, authorID, commentTriggerComputeOptions{})
-	testHandler.enqueueCommentAgentTriggers(ctx, issue, comment.ID, triggers, authorType, authorID)
+	// The live creation path passes "" as the originator (the CreateComment
+	// handler does not plumb a separate one yet); mirror that here.
+	testHandler.enqueueCommentAgentTriggers(ctx, issue, comment.ID, triggers, authorType, authorID, "")
 }
 
 // selfMentionFixture wires the seeded "Handler Test Agent" as J plus two

@@ -3028,7 +3028,7 @@ func (h *Handler) reconcileCommentsOnCompletion(ctx context.Context, task *db.Ag
 		// The first qualifying comment enqueues the follow-up task; later ones
 		// find it AlreadyPending and merge in, so all undelivered comments end
 		// up covered by a single bounded run.
-		h.enqueueCommentAgentTriggers(ctx, issue, c.ID, scoped, actorType, actorID)
+		h.enqueueCommentAgentTriggers(ctx, issue, c.ID, scoped, actorType, actorID, originatorUserID)
 		scheduled++
 	}
 	if scheduled > 0 {

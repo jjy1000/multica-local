@@ -1403,7 +1403,7 @@ func (h *Handler) triggerTasksForComment(ctx context.Context, issue db.Issue, co
 		OriginatorUserID: originatorUserID,
 	})
 	triggers = filterSuppressedCommentAgentTriggers(triggers, suppressAgentIDs)
-	enqueued := h.enqueueCommentAgentTriggers(ctx, issue, comment.ID, triggers, actorType, actorID)
+	enqueued := h.enqueueCommentAgentTriggers(ctx, issue, comment.ID, triggers, actorType, actorID, originatorUserID)
 	return commentTriggerOutcomes(targets, enqueued)
 }
 
@@ -1457,7 +1457,7 @@ type commentEnqueueResult struct {
 // mention target that resolved to the agent, so coalescing a run never drops a
 // named target's outcome. queued / coalesced / deferred are success-shaped (the
 // run was handled, no duplicate task); only a real enqueue failure is blocked.
-func (h *Handler) enqueueCommentAgentTriggers(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, triggers []commentAgentTrigger, actorType, actorID string) map[string]commentEnqueueResult {
+func (h *Handler) enqueueCommentAgentTriggers(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, triggers []commentAgentTrigger, actorType, actorID, originatorUserID string) map[string]commentEnqueueResult {
 	results := make(map[string]commentEnqueueResult, len(triggers))
 	record := func(trigger commentAgentTrigger, status DispatchStatus, reason DispatchReasonCode) {
 		execSquadID := ""
@@ -1499,7 +1499,7 @@ func (h *Handler) enqueueCommentAgentTriggers(ctx context.Context, issue db.Issu
 				continue
 			}
 		}
-		if err := h.enqueueSingleCommentTrigger(ctx, issue, triggerCommentID, trigger, actorType, actorID); err != nil {
+		if err := h.enqueueSingleCommentTrigger(ctx, issue, triggerCommentID, trigger, actorType, actorID, originatorUserID); err != nil {
 			record(trigger, DispatchBlocked, commentEnqueueFailureReason(err))
 			continue
 		}
@@ -1576,20 +1576,30 @@ func commentEnqueueFailureReason(err error) DispatchReasonCode {
 // / conversation) is handled here; explicit mentions never reach this function
 // for the assignee branch because the squad/isMember gating runs above. MUL-4195
 // fallbacks to mergeCommentIntoPendingTask live in the caller, not here.
-func (h *Handler) enqueueSingleCommentTrigger(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, trigger commentAgentTrigger, actorType, actorID string) error {
+func (h *Handler) enqueueSingleCommentTrigger(ctx context.Context, issue db.Issue, triggerCommentID pgtype.UUID, trigger commentAgentTrigger, actorType, actorID, originatorUserID string) error {
+	// The originator stamped on the enqueued task is the top-of-chain HUMAN
+	// user id: for member actors that is the actor itself; for agent actors
+	// it is what the caller resolved from the triggering comment's chain —
+	// empty meaning unresolvable, which parses to NULL (MUL-4525 §2's "for
+	// agent actors it's empty"). Writing the raw actorID for an agent actor
+	// would put an agent id into a user-id column: silently accepted on
+	// databases that predate the 240 foreign key, an enqueue failure on
+	// those that have it.
+	originator := parseUUID(actorID)
+	if actorType != "member" && strings.TrimSpace(originatorUserID) != "" {
+		originator = parseUUID(originatorUserID)
+	} else if actorType != "member" {
+		originator = pgtype.UUID{}
+	}
 	switch trigger.Source {
 	case commentTriggerSourceIssueAssignee:
 		if trigger.Squad != nil {
 			// 0.5.22: thread originatorUserID so the same-(issue, agent)
 			// merge path can re-stamp to the most-recent triggering user.
-			// For members the originator is the actor; for agent
-			// actors it's empty (the triggering comment's task already
+			// For members the originator is the actor; for agent actors
+			// it's empty (the triggering comment's task already
 			// carries the chain root via X-Task-ID resolver).
-			originator := actorID
-			if originatorID := parseUUID(actorID); !originatorID.Valid && actorType == "member" {
-				originator = actorID
-			}
-			if _, err := h.TaskService.EnqueueTaskForSquadLeaderWithOriginator(ctx, issue, trigger.Agent.ID, trigger.Squad.ID, parseUUID(originator), triggerCommentID); err != nil {
+			if _, err := h.TaskService.EnqueueTaskForSquadLeaderWithOriginator(ctx, issue, trigger.Agent.ID, trigger.Squad.ID, originator, triggerCommentID); err != nil {
 				slog.Warn("enqueue squad leader task failed",
 					"issue_id", uuidToString(issue.ID),
 					"squad_id", uuidToString(trigger.Squad.ID),
@@ -1599,14 +1609,12 @@ func (h *Handler) enqueueSingleCommentTrigger(ctx context.Context, issue db.Issu
 			}
 			return nil
 		}
-		originator := parseUUID(actorID)
 		if _, err := h.TaskService.EnqueueTaskForIssueWithOriginator(ctx, issue, originator, triggerCommentID); err != nil {
 			slog.Warn("enqueue agent task on comment failed", "issue_id", uuidToString(issue.ID), "error", err)
 			return err
 		}
 		return nil
 	case commentTriggerSourceMentionSquadLeader:
-		originator := parseUUID(actorID)
 		if _, err := h.TaskService.EnqueueTaskForSquadLeaderWithOriginator(ctx, issue, trigger.Agent.ID, trigger.Squad.ID, originator, triggerCommentID); err != nil {
 			slog.Warn("enqueue squad leader mention task failed",
 				"issue_id", uuidToString(issue.ID),
@@ -1616,7 +1624,6 @@ func (h *Handler) enqueueSingleCommentTrigger(ctx context.Context, issue db.Issu
 		}
 		return nil
 	case commentTriggerSourceMentionAgent:
-		originator := parseUUID(actorID)
 		if _, err := h.TaskService.EnqueueTaskForMentionWithOriginator(ctx, issue, trigger.Agent.ID, originator, triggerCommentID); err != nil {
 			slog.Warn("enqueue mention agent task failed",
 				"issue_id", uuidToString(issue.ID),
@@ -2755,8 +2762,13 @@ func (h *Handler) retriggerCancelledTaskSurvivors(ctx context.Context, issue db.
 		}
 		actorType := comment.AuthorType
 		actorID := uuidToString(comment.AuthorID)
+		originatorUserID := actorID
+		if actorType != "member" {
+			originatorUserID = uuidToString(h.TaskService.ResolveOriginatorFromTriggerComment(ctx, comment.ID))
+		}
 		triggers, _ := h.computeCommentAgentTriggers(ctx, issue, comment.Content, parentComment, actorType, actorID, commentTriggerComputeOptions{
 			ExcludeTriggerCommentID: comment.ID,
+			OriginatorUserID:        originatorUserID,
 		})
 		targets := targetsByComment[uuidToString(comment.ID)]
 		scoped := make([]commentAgentTrigger, 0, len(targets))
@@ -2766,7 +2778,7 @@ func (h *Handler) retriggerCancelledTaskSurvivors(ctx context.Context, issue db.
 			}
 		}
 		if len(scoped) > 0 {
-			h.enqueueCommentAgentTriggers(ctx, issue, comment.ID, scoped, actorType, actorID)
+			h.enqueueCommentAgentTriggers(ctx, issue, comment.ID, scoped, actorType, actorID, originatorUserID)
 		}
 	}
 }
