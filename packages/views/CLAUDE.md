@@ -40,6 +40,38 @@ Every HTTP/SSE call from a Labs surface must use `api.rawRequest(path, init)`
 renderer origin and silently fails in the desktop app (no proxy, token-mode
 auth). See root `CLAUDE.md` → "Experimental tab network calls (0.3.30)".
 
+## Lab run result rendering (0.5.97 — one shared renderer, two distinct affordances)
+
+A lab run's structured deliverables
+(`LabTaskBrief.result_attachments` / `result_predictions` / `result_code_blocks`)
+have exactly ONE renderer: `experimental/components/lab-task-result-view.tsx`
+(`LabTaskResultView` + `labTaskHasStructuredDeliverables`). Every surface that
+shows a run's result — the desktop claude-lab PlanTimeline rows, the desktop
+LatestResultPanel 实验结果 panel, and the issue-side `LabDeliverableSummary`
+card — renders through it. Do NOT re-embed per-surface attachment/prediction/
+code strips (0.5.97 deleted the desktop-local copies for exactly this reason).
+
+- `interactive-chart` envelopes render as real recharts via
+  `experimental/components/interactive-chart-envelope.tsx`. Never route them
+  into a generic code/JSON dump path again (that was a long-standing TODO the
+  0.5.97 cycle closed).
+- Agent payloads are untrusted: any sink rendering attachment markup/URLs goes
+  through `experimental/components/lab-attachment-sanitize.ts`
+  (`safeSvgMarkup` / `safeImageSrc` / `safeHrefUrl`). The legacy `html` kind
+  degrades to a download link (server allowlist dropped it in 0.3.42).
+- Affordance contract on the issue-side summary card
+  (`lab-deliverable-summary.tsx`): 查看结果渲染 expands the card IN PLACE
+  (toggle only for terminal runs WITH structured deliverables — expanding an
+  in-flight run renders a void, a summary-only run would duplicate the clamped
+  summary) vs 在实验室查看完整记录 = the run-scoped `LabRunLink` deep link
+  (`?issue=&run=`). Do NOT re-add unscoped "open in lab" links — the two
+  duplicate same-page jumps were the defect this contract replaced.
+
+Lint traps hit while writing these components: views enforces
+`i18next/no-literal-string` (desktop does not — literals brought over from a
+desktop page must be keyed) and `noUncheckedIndexedAccess` (regex match groups
+need `m?.[1]`, not `m[1]` guarded only by the match test).
+
 ## i18n selector rule (crashes the app if violated)
 
 Selectors MUST be arrow expressions: `t(($) => $.foo.bar)` ✓.
