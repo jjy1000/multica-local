@@ -30,6 +30,7 @@ import type {
 } from "@multica/core/types/api";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { ArtifactRenderer, type Artifact } from "./artifact-renderer";
+import { InteractiveChartEnvelope } from "./interactive-chart-envelope";
 import { AppLink } from "../../navigation";
 import { labSourceRouteSuffix } from "../../issues/components/issue-labs-section";
 import { LabRunLink, labRunHref } from "./lab-run-link";
@@ -103,9 +104,11 @@ function latestTaskWithOutput(ctx: LabContext): LabTaskBrief | null {
 
 // Map a lab attachment `kind` (lab taxonomy) onto the generic Artifact `type`
 // the shared ArtifactRenderer understands. URL-less SVG is valid as an iframe
-// srcDoc, so it renders as html. interactive-chart carries {schema, data}
-// which the generic chart renderer does not parse, so it degrades to a code
-// dump rather than a misleading "invalid chart" message.
+// srcDoc, so it renders as html. `interactive-chart` is NOT mapped here —
+// TaskOutput renders those envelopes directly via the shared
+// InteractiveChartEnvelope (real recharts); anything reaching this function
+// with that kind (envelope missing its data payload) falls through to the
+// generic file/download fallback.
 function attachmentToArtifact(a: LabAttachment): Artifact | null {
   const base = { id: a.name || a.kind, title: a.name || a.kind, created_at: "" };
 
@@ -124,15 +127,6 @@ function attachmentToArtifact(a: LabAttachment): Artifact | null {
     }
     case "html":
       return { ...base, type: "html", data: a.data, url: a.url };
-    case "interactive-chart":
-      // TODO: interactive-chart carries {schema, data}, not the generic
-      // {chart_type, labels, datasets} the ArtifactRenderer chart expects —
-      // parse it into a real chart/table here in a follow-up (M2+).
-      return {
-        ...base,
-        type: "code",
-        data: typeof a.data === "string" ? a.data : JSON.stringify(a.data ?? {}, null, 2),
-      };
     case "md":
     case "txt":
     case "log":
@@ -244,7 +238,14 @@ function CodeBlockList({
 
 function TaskOutput({ task, labViewHref }: { task: LabTaskBrief; labViewHref?: string }) {
   const { t } = useT("experimental");
-  const attachments = (task.result_attachments ?? [])
+  const allAttachments = task.result_attachments ?? [];
+  // interactive-chart envelopes render as real charts (shared renderer);
+  // everything else goes through the generic Artifact mapping.
+  const chartAttachments = allAttachments.filter(
+    (a) => a.kind === "interactive-chart" && a.data,
+  );
+  const attachments = allAttachments
+    .filter((a) => !(a.kind === "interactive-chart" && a.data))
     .map(attachmentToArtifact)
     .filter((a): a is Artifact => a != null);
   const predictions = task.result_predictions ?? [];
@@ -260,6 +261,38 @@ function TaskOutput({ task, labViewHref }: { task: LabTaskBrief; labViewHref?: s
           <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">
             {task.result_summary}
           </p>
+        </div>
+      )}
+
+      {chartAttachments.length > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-medium text-muted-foreground">
+            {t(($) => $.lab_output_panel.attachments_label)}
+          </p>
+          {chartAttachments.map((a, i) => (
+            <figure
+              key={`${a.name ?? "chart"}-${i}`}
+              className="overflow-hidden rounded-lg border border-border"
+            >
+              <InteractiveChartEnvelope data={a.data} />
+              {a.name ? (
+                <figcaption className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">
+                  {a.name}
+                </figcaption>
+              ) : null}
+              {labViewHref && (
+                <div className="flex justify-end border-t border-border bg-muted/30 px-2 py-1">
+                  <AppLink
+                    href={labViewHref}
+                    className="text-[10px] text-muted-foreground hover:text-foreground"
+                    aria-label={t(($) => $.lab_output_panel.view_in_lab)}
+                  >
+                    {t(($) => $.lab_output_panel.view_in_lab)} →
+                  </AppLink>
+                </div>
+              )}
+            </figure>
+          ))}
         </div>
       )}
 

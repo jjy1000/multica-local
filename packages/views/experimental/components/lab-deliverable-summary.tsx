@@ -1,21 +1,34 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ExternalLink, FlaskConical } from "lucide-react";
+import { ChartLine, ChevronUp, FlaskConical } from "lucide-react";
 import { api, parseWithFallback } from "@multica/core/api";
 import { EMPTY_LAB_CONTEXT, LabContextSchema } from "@multica/core/api/schemas";
 import type { LabContext, LabTaskBrief } from "@multica/core/types/api";
-import { AppLink } from "../../navigation";
-import { labSourceRouteSuffix } from "../../issues/components/issue-labs-section";
+import {
+  LabTaskResultView,
+  labTaskHasStructuredDeliverables,
+} from "./lab-task-result-view";
 import { LabRunLink } from "./lab-run-link";
 import { useT } from "../../i18n";
 
 // Timeline summary card for labs that declare
-// `hides_deliverable_in_issue_timeline` (currently claude_science_lab): the
-// full report lives in the lab workbench view, so the timeline gets one
-// condensed card ("task done + one-line summary + jump to lab") instead of
-// the raw agent deliverable. Shares LabOutputPanel's query key so a page
-// rendering both surfaces issues exactly one context request.
+// `hides_deliverable_in_issue_timeline` (currently claude_science_lab):
+// the full report lives in the lab workbench view, so the timeline gets
+// one condensed card ("task done + one-line summary + two affordances")
+// instead of the raw agent deliverable. The two affordances have distinct
+// jobs (0.5.97 UX split, supersedes the old open-in-lab + run-link pair
+// that both jumped to the same page):
+//
+//   - 查看结果渲染  → expands THIS card in place and renders the run's
+//     structured deliverables (charts / predictions / code) via the
+//     shared LabTaskResultView. No navigation.
+//   - 在实验室查看完整记录 → the LabRunLink deep link
+//     (/experimental/<lab>?issue=&run=) into the lab panel's run history.
+//
+// Shares LabOutputPanel's query key so a page rendering both surfaces
+// issues exactly one context request.
 
 const POLL_INTERVAL_MS = 5_000;
 const IDLE_INTERVAL_MS = 60_000;
@@ -41,7 +54,7 @@ export function LabDeliverableSummary({
   labSource: string;
 }) {
   const { t } = useT("experimental");
-  const suffix = labSourceRouteSuffix(labSource);
+  const [resultOpen, setResultOpen] = useState(false);
 
   const query = useQuery({
     queryKey: ["lab-output-panel", wsId, issueId, labSource],
@@ -74,16 +87,6 @@ export function LabDeliverableSummary({
   const ctx = query.data?.ctx ?? EMPTY_LAB_CONTEXT;
   const latest = latestTask(ctx);
 
-  const openLink = suffix ? (
-    <AppLink
-      href={`/experimental/${suffix}?issue=${encodeURIComponent(issueId)}`}
-      className="inline-flex items-center gap-1 text-caption text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
-    >
-      <ExternalLink className="size-3" />
-      {t(($) => $.lab_output_panel.open_in_lab)}
-    </AppLink>
-  ) : null;
-
   if (!latest) {
     return (
       <div
@@ -97,13 +100,15 @@ export function LabDeliverableSummary({
           </span>
           <span className="text-muted-foreground">{t(($) => $.lab_output_panel.empty)}</span>
         </div>
-        {openLink}
+        <LabRunLink flagKey={labSource} issueId={issueId} />
       </div>
     );
   }
 
   const status = latest.status;
   const isQueued = status === "queued" || status === "deferred";
+  const isTerminal = TERMINAL_TASK_STATUSES.has(status);
+  const hasDeliverables = labTaskHasStructuredDeliverables(latest);
 
   let statusText: string;
   let statusTone: string;
@@ -135,17 +140,46 @@ export function LabDeliverableSummary({
           {t(($) => $.lab_output_panel.summary_card_title)}
         </span>
         <span className={`text-[10px] font-medium ${statusTone}`}>{statusText}</span>
+        {ctx.lab_seq > 0 && (
+          <span className="text-[10px] text-muted-foreground">
+            {t(($) => $.lab_output_panel.run_count, { runs: String(ctx.lab_seq) })}
+          </span>
+        )}
       </div>
       {latest.result_summary && (
         <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
           {latest.result_summary}
         </p>
       )}
+      {/* In-place result rendering (no navigation) — only for terminal runs
+          with structured deliverables; expanding an in-flight run would just
+          render a spinner-shaped void. */}
+      {isTerminal && hasDeliverables && resultOpen && (
+        <div className="max-h-96 overflow-y-auto rounded-md border border-border/60 bg-background/60 p-2.5">
+          <LabTaskResultView task={latest} />
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-end gap-3">
-        {openLink}
-        {/* 0.5.81 (ICP-3): deep-link to the lab view pre-scoped to this
-            specific run via ?issue=&run=. Renders alongside the existing
-            "Open in lab" link, not in place of it. */}
+        {isTerminal && hasDeliverables && (
+          <button
+            type="button"
+            onClick={() => setResultOpen((v) => !v)}
+            aria-expanded={resultOpen}
+            data-testid="lab-deliverable-result-toggle"
+            className="inline-flex items-center gap-1 text-caption text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
+          >
+            {resultOpen ? (
+              <ChevronUp className="size-3" aria-hidden />
+            ) : (
+              <ChartLine className="size-3" aria-hidden />
+            )}
+            {resultOpen
+              ? t(($) => $.lab_output_panel.hide_result_render)
+              : t(($) => $.lab_output_panel.view_result_render)}
+          </button>
+        )}
+        {/* Deep link to the lab panel's run history, pre-scoped to this
+            specific run via ?issue=&run= (0.5.81 ICP-3 contract). */}
         <LabRunLink flagKey={labSource} issueId={issueId} runId={latest.id} />
       </div>
     </div>

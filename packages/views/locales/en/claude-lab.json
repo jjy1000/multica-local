@@ -71,5 +71,6 @@
   "plan_timeline_status_deferred": "Deferred",
   "lab_chat_send_hint": "{{count}}/{{max}} · ⌘↩ to send",
   "run_research_button": "Run research now",
-  "dispatch_manually_hint": "Manually dispatch a research run"
+  "dispatch_manually_hint": "Manually dispatch a research run",
+  "latest_result_header": "Experiment result"
 }

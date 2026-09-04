@@ -11,6 +11,19 @@ export { IssueBreadcrumb, type IssueBreadcrumbProps } from "./issue-breadcrumb";
 export { LabRunLink, labRunHref, type LabRunLinkProps } from "./lab-run-link";
 export { useDeepLinkRun, type UseDeepLinkRunResult } from "./use-deep-link-run";
 export {
+  InteractiveChartEnvelope,
+  type ChartEnvelope,
+} from "./interactive-chart-envelope";
+export {
+  LabTaskResultView,
+  labTaskHasStructuredDeliverables,
+} from "./lab-task-result-view";
+export {
+  safeSvgMarkup,
+  safeImageSrc,
+  safeHrefUrl,
+} from "./lab-attachment-sanitize";
+export {
   SwarmTopologyGraph,
   type SwarmRole,
   type SwarmTopologyGraphProps,

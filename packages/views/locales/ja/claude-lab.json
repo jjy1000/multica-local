@@ -71,5 +71,6 @@
   "plan_timeline_status_deferred": "延期",
   "lab_chat_send_hint": "{{count}}/{{max}} · ⌘↩ 送信",
   "run_research_button": "今すぐ研究",
-  "dispatch_manually_hint": "研究を手動でディスパッチ"
+  "dispatch_manually_hint": "研究を手動でディスパッチ",
+  "latest_result_header": "実験結果"
 }

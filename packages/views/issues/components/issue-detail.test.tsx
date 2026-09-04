@@ -606,7 +606,7 @@ describe("IssueDetail (shared)", () => {
     expect(screen.getByText("I can help with this")).toBeInTheDocument();
   });
 
-  it("renders a lab summary card with a jump link when the lab hides its deliverable", async () => {
+  it("renders a lab summary card with a run-scoped jump link when the lab hides its deliverable", async () => {
     mockApiObj.getIssue.mockResolvedValue({
       ...mockIssue,
       lab_source: "claude_science_lab",
@@ -653,12 +653,110 @@ describe("IssueDetail (shared)", () => {
     const card = await screen.findByTestId("lab-deliverable-summary");
     expect(card).toHaveTextContent("研究已完成，见实验室报告。");
 
-    // Since 0.5.81 the card carries two affordances: the plain open-in-lab
-    // jump plus a run-scoped one. Assert the jump by href.
+    // 0.5.97 UX split: the card's only navigation affordance is the
+    // run-scoped deep link into the lab panel's run history (?issue=&run=).
+    // The old unscoped open-in-lab link is gone — the two duplicate jumps
+    // are now one deep link + (below) the in-place render toggle.
     const hrefs = within(card)
       .getAllByRole("link")
       .map((link) => link.getAttribute("href"));
-    expect(hrefs).toContain("/experimental/claude-lab?issue=issue-1");
+    expect(hrefs).toEqual(["/experimental/claude-lab?issue=issue-1&run=task-1"]);
+
+    // Summary-only run: no structured deliverables, so no render toggle.
+    expect(
+      within(card).queryByTestId("lab-deliverable-result-toggle"),
+    ).not.toBeInTheDocument();
+  });
+
+  // 0.5.97 UX split, second half: a terminal run WITH structured
+  // deliverables gains the in-place 查看结果渲染 toggle — expanding
+  // renders charts / predictions via the shared LabTaskResultView
+  // without navigating anywhere. The run-scoped deep link stays.
+  it("expands the run's structured deliverables in place via the render toggle", async () => {
+    mockApiObj.getIssue.mockResolvedValue({
+      ...mockIssue,
+      lab_source: "claude_science_lab",
+    });
+    mockApiObj.listExperimentalFlags.mockResolvedValue([
+      {
+        key: "claude_science_lab",
+        enabled: true,
+        default_enabled: false,
+        title: { en: "Claude Research Lab", zh: "Claude 科研实验室" },
+        description: { en: "", zh: "" },
+        hides_deliverable_in_issue_timeline: true,
+      },
+    ]);
+    mockApiObj.rawRequest.mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: async () => ({
+        issue: {
+          id: "issue-1",
+          workspace_id: "ws-1",
+          title: "Lab issue",
+          status: "in_progress",
+          lab_source: "claude_science_lab",
+          created_at: "2026-01-18T00:00:00Z",
+          updated_at: "2026-01-18T00:00:00Z",
+        },
+        tasks: [
+          {
+            id: "task-2",
+            status: "completed",
+            result_summary: "实验完成，附训练负荷曲线。",
+            result_attachments: [
+              {
+                kind: "interactive-chart",
+                name: "训练负荷曲线",
+                data: {
+                  schema: {
+                    type: "line",
+                    x: { field: "week" },
+                    y: { field: "load" },
+                  },
+                  data: [
+                    { week: "W1", load: 30 },
+                    { week: "W2", load: 45 },
+                    { week: "W3", load: 52 },
+                  ],
+                },
+              },
+            ],
+            result_predictions: [
+              { round: 1, scenario: "基线达标", probability: 0.72 },
+            ],
+            created_at: "2026-01-18T00:00:00Z",
+          },
+        ],
+        comments: [],
+        lab_seq: 1,
+        server_time: "2026-01-18T00:00:00Z",
+      }),
+    });
+
+    renderIssueDetail();
+
+    const card = await screen.findByTestId("lab-deliverable-summary");
+
+    // Toggle renders only for terminal runs with structured deliverables.
+    const toggle = within(card).getByTestId("lab-deliverable-result-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    // Collapsed: the chart is not in the DOM yet.
+    expect(within(card).queryByText("训练负荷曲线")).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    // Expanded in place: chart figcaption + prediction row render inside
+    // the same card — no navigation happened (still one link, the
+    // run-scoped deep link).
+    expect(within(card).getByText("训练负荷曲线")).toBeInTheDocument();
+    expect(within(card).getByText(/基线达标/)).toBeInTheDocument();
+    expect(
+      within(card).getAllByRole("link").map((l) => l.getAttribute("href")),
+    ).toEqual(["/experimental/claude-lab?issue=issue-1&run=task-2"]);
   });
 
   // 0.5.x: LeaderAgent fallback rendering. The catalog stamps

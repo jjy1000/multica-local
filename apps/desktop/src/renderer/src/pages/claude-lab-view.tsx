@@ -12,9 +12,13 @@
 //
 // Chat (formerly a sixth tab) was removed in 0.3.36 — conversations
 // live on the workspace-level ChatWindow side panel keyed by
-// `chat_input_task_id` (MUL-4351). The Plan tab now exposes an
-// "open chat" jump button on every row so users can still reach
-// the conversation context for a specific lab issue in one click.
+// `chat_input_task_id` (MUL-4351); the row title still jumps to the
+// issue detail page where that conversation is mounted. The 0.5.97
+// cycle removed the per-row "open chat" button (redundant with the
+// title jump) and made selection result-first: picking an issue in the
+// Plan tab mounts the workbench whose LatestResultPanel renders the
+// experiment's newest structured result (charts / predictions / code)
+// above the full run history.
 //
 // Hard rules:
 //
@@ -48,24 +52,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
   ArrowRight,
   FlaskConical,
   Loader2,
   Lock,
-  MessageSquare,
   Play,
   Sparkles,
 } from "lucide-react";
@@ -73,7 +63,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { useT } from "@multica/views/i18n";
 import { ForecastStreamView, LabChatPanel, labChatPanelPropsFromContext } from "@multica/views/experimental";
-import { useDeepLinkRun } from "@multica/views/experimental/components";
+import {
+  LabTaskResultView,
+  useDeepLinkRun,
+} from "@multica/views/experimental/components";
 import { getCurrentSlug, getCurrentWsId } from "@multica/core/platform";
 import { paths } from "@multica/core/paths";
 import { useNavigation } from "@multica/views/navigation";
@@ -313,6 +306,10 @@ function LabWorkbenchSection({
           wsId={wsId}
           selectedIssueId={selectedIssueId}
         />
+        <LatestResultPanel
+          wsId={wsId}
+          selectedIssueId={selectedIssueId}
+        />
         <PlanTimeline
           wsId={wsId}
           selectedIssueId={selectedIssueId}
@@ -491,6 +488,126 @@ function IssueContextBar({
   );
 }
 
+// LatestResultPanel (0.5.97)
+//
+// Result-first card for the selected issue: renders the newest run that
+// actually produced output (charts / predictions / code / summary) above
+// the PlanTimeline history. This is what makes Plan-tab selection an
+// "open the experiment" action — clicking 选中 mounts the workbench with
+// the experiment's rendered result at the top, instead of making the
+// user scroll a timeline to find it. Rendered deliverables go through
+// the shared LabTaskResultView (same renderer as the issue-side summary
+// card), with a taller chart canvas since the workbench has the room.
+function LatestResultPanel({
+  wsId,
+  selectedIssueId,
+}: {
+  wsId: string;
+  selectedIssueId: string;
+}) {
+  const { t } = useT("claude-lab");
+  const ctx = useLabWorkbenchContext(wsId, selectedIssueId);
+  if (!ctx.data) return null;
+  const tasks = [...ctx.data.tasks].sort((a, b) =>
+    a.created_at < b.created_at ? 1 : -1,
+  );
+  if (tasks.length === 0) return null;
+
+  // Newest run with real output — an in-flight newest run must not hide
+  // the previous result (same contract as LabOutputPanel's ClaudePanel).
+  const outputTask =
+    tasks.find(
+      (task) =>
+        task.result_summary ||
+        (task.result_attachments?.length ?? 0) > 0 ||
+        (task.result_predictions?.length ?? 0) > 0 ||
+        (task.result_code_blocks?.length ?? 0) > 0,
+    ) ?? null;
+  if (!outputTask) return null;
+
+  const newest = tasks[0];
+  const newestInFlight =
+    newest.id !== outputTask.id &&
+    newest.status !== "completed" &&
+    newest.status !== "failed" &&
+    newest.status !== "cancelled";
+
+  // Run seq counts terminal runs DESC (same numbering as PlanTimeline).
+  const terminal = tasks.filter(
+    (task) =>
+      task.status === "completed" ||
+      task.status === "failed" ||
+      task.status === "cancelled",
+  );
+  const terminalIdx = terminal.findIndex((task) => task.id === outputTask.id);
+  const seq = terminalIdx >= 0 ? terminal.length - terminalIdx : 0;
+
+  const renderStatus = () => {
+    switch (outputTask.status) {
+      case "queued":
+        return t(($) => $.plan_timeline_status_queued);
+      case "dispatched":
+        return t(($) => $.plan_timeline_status_dispatched);
+      case "running":
+        return t(($) => $.plan_timeline_status_running);
+      case "preparing":
+        return t(($) => $.plan_timeline_status_preparing);
+      case "waiting_local_directory":
+        return t(($) => $.plan_timeline_status_waiting_local_directory);
+      case "completed":
+        return t(($) => $.plan_timeline_status_completed);
+      case "failed":
+        return t(($) => $.plan_timeline_status_failed);
+      case "cancelled":
+        return t(($) => $.plan_timeline_status_cancelled);
+      case "deferred":
+        return t(($) => $.plan_timeline_status_deferred);
+      default:
+        return outputTask.status;
+    }
+  };
+
+  return (
+    <section
+      aria-label={t(($) => $.latest_result_header)}
+      data-testid="claude-lab-latest-result"
+      className="mb-3 rounded-xl border border-primary/25 bg-card p-4"
+    >
+      <header className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <Sparkles className="size-3.5 text-primary" aria-hidden />
+        <span className="font-medium text-foreground">
+          {t(($) => $.latest_result_header)}
+        </span>
+        {seq > 0 ? (
+          <span className="font-mono text-[10px]">
+            {t(($) => $.plan_timeline_run_label, { seq })}
+          </span>
+        ) : null}
+        <span
+          className={
+            "rounded px-1.5 py-0.5 text-[10px] font-medium " +
+            statusBadgeClass(outputTask.status)
+          }
+        >
+          {renderStatus()}
+        </span>
+        {outputTask.duration_ms !== null ? (
+          <span className="text-[10px]">
+            {t(($) => $.plan_timeline_run_duration)}: {formatMs(outputTask.duration_ms)}
+          </span>
+        ) : null}
+        {newestInFlight ? (
+          <span className="ml-auto inline-flex items-center gap-1 text-[10px]">
+            <Loader2 className="size-3 animate-spin" aria-hidden />
+            {t(($) => $.plan_timeline_status_running)}
+          </span>
+        ) : null}
+      </header>
+      <LabTaskResultView task={outputTask} chartHeightClass="h-64" />
+    </section>
+  );
+}
+
 // PlanTimeline (0.3.40)
 //
 // Renders agent_task_queue rows for the selected issue as a
@@ -627,258 +744,15 @@ function PlanTimeline({
             {task.trigger_summary}
           </div>
         ) : null}
-        {renderResultBody(task)}
+        {/* 0.5.97: the structured result body (charts / predictions /
+            code / summary) is rendered by the shared LabTaskResultView —
+            the same renderer the issue-side summary card and the
+            latest-result panel use, so every surface draws a run's
+            deliverables identically. */}
+        <LabTaskResultView task={task} />
       </li>
     );
   };
-
-  // renderResultBody — 0.3.40 v2: render the structured deliverables
-  // emitted by the agent at task completion. Order matters:
-  // attachments first (highest information density — chart wins the
-  // user's eye), then predictions (mini bar), then code blocks
-  // (collapsible snippets), and finally the textual summary as a
-  // footer. When the agent doesn't emit any structured keys
-  // (older runs pre-dating the convention), this falls back to the
-  // previous result_summary / error / "no summary" branch.
-  function renderResultBody(task: (typeof tasks)[number]) {
-    const atts = task.result_attachments ?? [];
-    const preds = task.result_predictions ?? [];
-    const codes = task.result_code_blocks ?? [];
-    const hasStructured = atts.length > 0 || preds.length > 0 || codes.length > 0;
-    if (!hasStructured) {
-      if (task.result_summary) {
-        return <p className="text-[12px] text-foreground">{task.result_summary}</p>;
-      }
-      if (task.error) {
-        return (
-          <p className="text-[12px] text-destructive">
-            {task.error.slice(0, 200)}
-          </p>
-        );
-      }
-      return (
-        <p className="text-[12px] italic text-muted-foreground">
-          {t(($) => $.plan_timeline_run_no_summary)}
-        </p>
-      );
-    }
-    return (
-      <div className="flex flex-col gap-2">
-        {atts.length > 0 ? (
-          <AttachmentStrip attachments={atts} />
-        ) : null}
-        {preds.length > 0 ? <PredictionsStrip predictions={preds} /> : null}
-        {codes.length > 0 ? <CodeStrip blocks={codes} /> : null}
-        {task.result_summary ? (
-          <p className="text-[12px] text-muted-foreground">
-            {task.result_summary}
-          </p>
-        ) : null}
-      </div>
-    );
-  }
-
-  // AttachmentStrip renders one row of attachment cards. Each card
-  // dispatches on `kind` — `interactive-chart` uses Recharts, `png`
-  // uses <img>, `svg` inlines the markup, text-y kinds render inline.
-  // The Recharts import lives at the bottom of the file (common
-  // LazyChart import path) so the bundle doesn't pay for chart code
-  // on every view.
-  //
-  // 0.3.42 XSS hardening:
-  //   - SVG kind: use `safeSvgMarkup()` to drop <script>, event
-  //     handlers, and javascript: URLs from agent-controlled markup
-  //     before it reaches dangerouslySetInnerHTML. The server-side
-  //     allowlist (`allowedAttachmentKinds` in lab.go) drops unknown
-  //     kinds; this is defense-in-depth.
-  //   - PNG/JPG/WEBP: scheme-allowlist the URL field. `javascript:`,
-  //     `data:text/html`, `vbscript:` are all rejected. data: URLs
-  //     are only accepted with image/* mime prefixes we whitelist.
-  //   - `html` kind REMOVED: agent-controlled HTML can't be safely
-  //     rendered (iframe srcDoc with sandbox="" still exfiltrates via
-  //     <form action>, <img src>). Legacy rows carrying `html` still
-  //     fall through to the download-link fallback below.
-  function AttachmentStrip({
-    attachments,
-  }: {
-    attachments: NonNullable<(typeof tasks)[number]["result_attachments"]>;
-  }) {
-    return (
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {attachments.map((a, i) => (
-          <AttachmentCard key={i} attachment={a} />
-        ))}
-      </div>
-    );
-  }
-
-  function AttachmentCard({
-    attachment,
-  }: {
-    attachment: NonNullable<(typeof tasks)[number]["result_attachments"]>[number];
-  }) {
-    const kind = attachment.kind;
-    if (kind === "interactive-chart" && attachment.data) {
-      return (
-        <figure className="overflow-hidden rounded-md border border-border bg-background/40">
-          <InteractiveChartEnvelope data={attachment.data as ChartEnvelope} />
-          {attachment.name ? (
-            <figcaption className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">
-              {attachment.name}
-            </figcaption>
-          ) : null}
-        </figure>
-      );
-    }
-    if (kind === "svg" && typeof attachment.data === "string") {
-      return (
-        <figure className="overflow-hidden rounded-md border border-border bg-background/40">
-          <div
-            className="max-h-72 overflow-auto"
-            dangerouslySetInnerHTML={{ __html: safeSvgMarkup(attachment.data) }}
-          />
-          {attachment.name ? (
-            <figcaption className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">
-              {attachment.name}
-            </figcaption>
-          ) : null}
-        </figure>
-      );
-    }
-    if (kind === "png" || kind === "jpg" || kind === "jpeg" || kind === "webp" || kind === "gif") {
-      const safeSrc = safeImageSrc(attachment);
-      return (
-        <figure className="overflow-hidden rounded-md border border-border bg-background/40">
-          {safeSrc ? (
-            <img
-              src={safeSrc}
-              alt={attachment.name ?? ""}
-              className="block max-h-72 w-full object-contain"
-            />
-          ) : (
-            <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
-              (no source)
-            </div>
-          )}
-          {attachment.name ? (
-            <figcaption className="border-t border-border px-2 py-1 text-[10px] text-muted-foreground">
-              {attachment.name}
-            </figcaption>
-          ) : null}
-        </figure>
-      );
-    }
-    // Text-y kinds — render inline so the timeline stays scannable.
-    if (
-      (kind === "md" || kind === "csv" || kind === "json" || kind === "txt" || kind === "log") &&
-      typeof attachment.data === "string"
-    ) {
-      return (
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border bg-muted/30 p-2 font-mono text-[11px]">
-          {attachment.data.slice(0, 2000)}
-        </pre>
-      );
-    }
-    // `html` kind: dropped from server-side allowlist in 0.3.42.
-    // Legacy rows carrying it fall through to the download-link
-    // fallback rather than rendering interactive content.
-    const safeDownloadHref = attachment.url ? safeHrefUrl(attachment.url) : null;
-    return (
-      <div className="rounded-md border border-border bg-background/40 p-2 text-[11px] text-muted-foreground">
-        <span className="font-mono">{attachment.kind ?? "attachment"}</span>
-        {attachment.name ? <span className="ml-2">{attachment.name}</span> : null}
-        {safeDownloadHref ? (
-          <a
-            href={safeDownloadHref}
-            className="ml-2 underline"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            download
-          </a>
-        ) : null}
-      </div>
-    );
-  }
-
-  // PredictionsStrip — compact bar chart of the agent's
-  // probabilistic predictions across rounds. Mirrors the existing
-  // ForecastProbabilityChart shape but bound to one task's
-  // inline predictions rather than the SSE stream.
-  function PredictionsStrip({
-    predictions,
-  }: {
-    predictions: NonNullable<(typeof tasks)[number]["result_predictions"]>;
-  }) {
-    const W = 480;
-    const H = 80;
-    const padX = 8;
-    const padY = 8;
-    const data = predictions.slice(0, 20);
-    if (data.length === 0) return null;
-    const xs = data.map(
-      (_, i) => padX + (i * (W - padX * 2)) / Math.max(1, data.length - 1),
-    );
-    const ys = data.map((p) =>
-      padY + (1 - Math.max(0, Math.min(1, p.probability))) * (H - padY * 2),
-    );
-    const points = xs.map((x, i) => `${x.toFixed(1)},${ys[i].toFixed(1)}`).join(" ");
-    return (
-      <div className="rounded-md border border-border bg-background/40 p-2">
-        <div className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-          {t(($) => $.plan_timeline_predictions_header, {
-            count: predictions.length,
-          })}
-        </div>
-        <svg viewBox={`0 0 ${W} ${H}`} className="h-20 w-full" role="img">
-          <polyline
-            points={points}
-            fill="none"
-            stroke="var(--primary)"
-            strokeWidth={1.5}
-          />
-          {xs.map((x, i) => (
-            <circle key={i} cx={x} cy={ys[i]} r={2} fill="var(--primary)" />
-          ))}
-        </svg>
-      </div>
-    );
-  }
-
-  // CodeStrip — collapsible fenced code snippets. We render every
-  // block inline (no collapse) to keep the workbench scannable;
-  // long files (>50 lines) get a max-height + scroll fallback.
-  function CodeStrip({
-    blocks,
-  }: {
-    blocks: NonNullable<(typeof tasks)[number]["result_code_blocks"]>;
-  }) {
-    return (
-      <div className="flex flex-col gap-2">
-        {blocks.map((b, i) => (
-          <div
-            key={i}
-            className="overflow-hidden rounded-md border border-border bg-muted/20"
-          >
-            <div className="flex items-center gap-2 border-b border-border bg-background/40 px-2 py-1 text-[10px] text-muted-foreground">
-              <span className="rounded bg-secondary px-1.5 py-0.5 font-mono">
-                {b.language || "txt"}
-              </span>
-              {b.filename ? <span>{b.filename}</span> : null}
-            </div>
-            <pre
-              className={
-                "overflow-auto whitespace-pre-wrap break-all p-2 font-mono text-[11px] " +
-                (b.code.split("\n").length > 50 ? "max-h-72" : "")
-              }
-            >
-              {b.code}
-            </pre>
-          </div>
-        ))}
-      </div>
-    );
-  }
 
   return (
     <section className="rounded-xl border border-border bg-card p-3">
@@ -901,104 +775,6 @@ function PlanTimeline({
       </ul>
     </section>
   );
-}
-
-// InteractiveChartEnvelope — 0.3.40 v2.
-//
-// Render an `interactive-chart` attachment directly from its inline
-// `data` field. Mirrors the InteractiveChartCard in
-// experimental-artifact-view but takes the chart envelope as a prop
-// rather than fetching it from /api/experimental/claude-science-
-// runtime/artifacts/{id} — the workbench receives the envelope
-// pre-parsed via /lab-context.
-//
-// We inline the chart renderer here (rather than exporting the one
-// from experimental-artifact-view) because the latter is keyed on
-// `artifactId` and reads via rawRequest. Sharing the renderer would
-// require refactoring that component to support both flows; v2
-// keeps the two surfaces independent.
-function InteractiveChartEnvelope({ data }: { data: ChartEnvelope }) {
-  // 0.3.42 PR-7: recharts is now a top-level named import (see
-  // the file head). The previous `require("recharts")` worked
-  // but triggered webpack `require.context` warnings and needed
-  // an `eslint-disable`. Top-level import is the canonical path.
-  const schema = data?.schema;
-  const points = Array.isArray(data?.data) ? data.data : [];
-  if (!schema || points.length === 0) {
-    return (
-      <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
-        (empty chart)
-      </div>
-    );
-  }
-  const W = 320;
-  const H = 160;
-  const chart = (() => {
-    if (schema.type === "line") {
-      return (
-        <LineChart data={points} width={W} height={H}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={schema.x.field} tick={{ fontSize: 10 }} />
-          <YAxis tick={{ fontSize: 10 }} />
-          <Tooltip />
-          <Line
-            type="monotone"
-            dataKey={schema.y.field}
-            stroke="var(--primary)"
-            dot={false}
-          />
-        </LineChart>
-      );
-    }
-    if (schema.type === "bar") {
-      return (
-        <BarChart data={points} width={W} height={H}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={schema.x.field} tick={{ fontSize: 10 }} />
-          <YAxis tick={{ fontSize: 10 }} />
-          <Tooltip />
-          <Bar dataKey={schema.y.field} fill="var(--primary)" />
-        </BarChart>
-      );
-    }
-    if (schema.type === "scatter") {
-      return (
-        <ScatterChart width={W} height={H}>
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-          <XAxis dataKey={schema.x.field} tick={{ fontSize: 10 }} />
-          <YAxis dataKey={schema.y.field} tick={{ fontSize: 10 }} />
-          <Tooltip />
-          <Scatter data={points} fill="var(--primary)" />
-        </ScatterChart>
-      );
-    }
-    return null;
-  })();
-  if (!chart) {
-    return (
-      <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
-        (unsupported chart type: {schema.type})
-      </div>
-    );
-  }
-  return (
-    <div className="h-44 w-full p-2">
-      <ResponsiveContainer width="100%" height="100%">
-        {chart}
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-interface ChartEnvelope {
-  schema?: {
-    type: "line" | "bar" | "scatter" | "heatmap";
-    x: { field: string; label?: string };
-    y: { field: string; label?: string };
-    color?: { field: string; label?: string };
-    bins?: number;
-  };
-  data?: unknown[];
 }
 
 function statusBadgeClass(status: string): string {
@@ -1380,7 +1156,6 @@ function PlanTab({
                   ? t(($) => $.selected)
                   : t(($) => $.select_issue)}
               </button>
-              <OpenChatButton issueId={it.id} />
             </div>
             {it.description ? (
               <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">
@@ -1933,263 +1708,3 @@ function EmptyHint({ title, body }: { title: string; body: string }) {
   );
 }
 
-// OpenChatButton (0.3.36)
-//
-// Jumps the user from a Plan-tab issue row to that issue's detail
-// page, where the workspace-level ChatWindow side panel is already
-// mounted. The chat stream itself is keyed by `chat_input_task_id`
-// (MUL-4351) and bound to the issue, so conversations stay attached
-// to the issue across the workspace — no per-lab chat duplication.
-//
-// The button stays inert when the active workspace slug is missing
-// (e.g. before the user has picked a workspace) so the click does
-// not push a half-formed path that would 404.
-function OpenChatButton({ issueId }: { issueId: string }) {
-  const { t } = useT("claude-lab");
-  const { push } = useNavigation();
-  const slug = getCurrentSlug();
-  const onClick = () => {
-    if (!slug) return;
-    push(paths.workspace(slug).issueDetail(issueId));
-  };
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!slug}
-      title={slug ? t(($) => $.open_chat_button) : t(($) => $.no_workspace)}
-      aria-label={t(($) => $.open_chat_button)}
-      className={
-        "inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs " +
-        (slug ? "hover:bg-muted" : "cursor-not-allowed opacity-60")
-      }
-    >
-      <MessageSquare className="size-3" aria-hidden />
-      {t(($) => $.open_chat_button)}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 0.3.42 XSS hardening helpers — defense-in-depth for the agent-emitted
-// attachment payloads. The server-side `allowedAttachmentKinds` allowlist
-// already drops unknown kinds; these helpers add a second layer in case
-// any new sink ever forgets the check.
-// ---------------------------------------------------------------------------
-
-// DANGEROUS_TAGS — stripped from agent SVG before dangerouslySetInnerHTML.
-// `<script>` is the obvious one; `<foreignObject>` can embed HTML that
-// contains scripts; the rest can carry event-handler attributes.
-const DANGEROUS_SVG_TAGS = [
-  "script",
-  "foreignobject",
-  "iframe",
-  "object",
-  "embed",
-  "form",
-  "input",
-  "button",
-  "textarea",
-  "select",
-  "link",
-  "meta",
-  "base",
-  "style",
-];
-
-// DANGEROUS_ATTR_PREFIXES — drop any attribute starting with `on` (event
-// handlers) and the rare ones that can run JS (`xlink:href` with
-// javascript: scheme is filtered by safeHrefUrl; we strip it here too).
-const DANGEROUS_ATTR_PATTERN = /\son[a-z]+\s*=/i;
-
-// safeSvgMarkup strips script-like tags and event-handler attributes
-// from an agent-supplied SVG string before inlining it via
-// dangerouslySetInnerHTML. The input is treated as opaque markup; we
-// don't try to be a real XML parser — for hostile input that's
-// unsafe, but the matching is on the substring level which is
-// sufficient to block the obvious vectors the agent emits.
-//
-// The server-side allowlist already drops unknown `kind` values, so
-// a malicious agent can't reach this sink with kind="html" — but
-// any agent that emits `<svg><script>...</script></svg>` while
-// following the SKILL.md contract still gets the script stripped.
-function safeSvgMarkup(raw: string): string {
-  if (!raw) return "";
-  let out = raw;
-  for (const tag of DANGEROUS_SVG_TAGS) {
-    // Match open or self-closing forms. Case-insensitive.
-    const reOpen = new RegExp(`<${tag}\\b[^>]*>`, "gi");
-    const reClose = new RegExp(`</${tag}\\s*>`, "gi");
-    const reSelf = new RegExp(`<${tag}\\b[^>]*/>`, "gi");
-    out = out.replace(reOpen, "").replace(reClose, "").replace(reSelf, "");
-  }
-  // Strip event handler attributes from any remaining tag.
-  out = out.replace(DANGEROUS_ATTR_PATTERN, " data-blocked=");
-  // Drop javascript:/vbscript:/data:text/html href values. The href
-  // matcher is intentionally narrow — agent SVG that uses real
-  // relative hrefs is preserved.
-  out = out.replace(
-    /\s(href|xlink:href)\s*=\s*("|')\s*(javascript|vbscript|data\s*:\s*text\/html|data\s*:\s*application\/javascript|data\s*:\s*image\/svg)[^"']*\2/gi,
-    ' $1="#"',
-  );
-  // DOMParser pass — element / attribute walk. The renderer ships
-  // with DOMParser in every Electron build. jsdom provides it for
-  // tests. Fallback (older runtimes): keep the regex-cleaned string.
-  if (typeof DOMParser !== "undefined") {
-    try {
-      const doc = new DOMParser().parseFromString(out, "image/svg+xml");
-      if (doc.getElementsByTagName("parsererror").length === 0) {
-        walkAndSanitizeSvg(doc.documentElement);
-        out = new XMLSerializer().serializeToString(doc.documentElement);
-      }
-    } catch {
-      // Parser failure — fall back to the regex-cleaned string.
-    }
-  }
-  return out;
-}
-
-// ALLOWED_HREF_SCHEMES — explicit list of schemes that are safe to
-// leave on href / xlink:href / src after sanitization. data:image/*
-// is permitted ONLY on `<image>` elements (per the SVG 2 spec the
-// browser rasterizes the image and runs no script context); every
-// other data: variant is rejected. javascript: / vbscript: /
-// protocol-relative (`//evil.com`) / data:text/html /
-// data:image/svg+xml all reject.
-const ALLOWED_HREF_SCHEMES = new Set(["http:", "https:", "mailto:"]);
-
-// resolveHrefScheme returns the parsed scheme (lowercased, with colon)
-// for any href / src value, or null when the value is unsafe.
-// Protocol-relative URLs (`//evil.com/x`) explicitly reject — the
-// browser resolves them against the page origin (localhost on dev,
-// file:// in packaged builds), so a successful GET leaks the user's
-// IP / User-Agent / Referer.
-function resolveHrefScheme(value: string): string | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const lower = trimmed.toLowerCase();
-  if (lower.startsWith("javascript:") || lower.startsWith("vbscript:")) {
-    return null;
-  }
-  if (lower.startsWith("//")) {
-    return null;
-  }
-  if (lower.startsWith("data:")) {
-    const m = /^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,/i.exec(trimmed);
-    return m ? `data:${m[1].toLowerCase()}` : null;
-  }
-  // Parse with URL constructor. We anchor against a placeholder
-  // origin so relative paths parse cleanly; only the protocol
-  // matters here.
-  try {
-    const parsed = new URL(trimmed, "http://__workbench_placeholder__/");
-    return parsed.protocol;
-  } catch {
-    return "relative:";
-  }
-}
-
-// walkAndSanitizeSvg recursively strips dangerous elements /
-// attributes from a parsed SVG document tree. Element removal uses
-// parentNode.removeChild so the element AND its subtree are gone
-// (not just hidden — hidden elements still execute onload in some
-// engines).
-function walkAndSanitizeSvg(node: Element): void {
-  // Snapshot children — removing during iteration corrupts the live
-  // HTMLCollection / NodeList.
-  const children = Array.from(node.children);
-  for (const child of children) {
-    if (DANGEROUS_SVG_TAGS.includes(child.tagName.toLowerCase())) {
-      child.parentNode?.removeChild(child);
-      continue;
-    }
-    for (const attr of Array.from(child.attributes)) {
-      const name = attr.name.toLowerCase();
-      if (name !== "href" && name !== "xlink:href" && name !== "src") {
-        continue;
-      }
-      const scheme = resolveHrefScheme(attr.value);
-      if (scheme === null) {
-        child.removeAttribute(attr.name);
-        continue;
-      }
-      // data: is only allowed on <image> elements (rasterized).
-      if (scheme.startsWith("data:") && child.tagName.toLowerCase() !== "image") {
-        child.removeAttribute(attr.name);
-        continue;
-      }
-      // http / https / mailto must hit the explicit allowlist.
-      if (
-        scheme !== "relative:" &&
-        !scheme.startsWith("data:") &&
-        !ALLOWED_HREF_SCHEMES.has(scheme)
-      ) {
-        child.removeAttribute(attr.name);
-      }
-    }
-    walkAndSanitizeSvg(child);
-  }
-}
-
-// ALLOWED_IMAGE_MIMES — mime allowlist for data: URL fallback. We
-// never build a data: URL with image/svg+xml (browsers execute scripts
-// in SVG-in-img contexts inconsistently); use the inline <svg> sink
-// for SVGs.
-const ALLOWED_IMAGE_MIMES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
-]);
-
-// safeImageSrc builds the <img src> for an attachment, returning null
-// when the source can't be safely rendered. The scheme-allowlist is
-// the strict gate; the data: URL fallback is only used when no
-// `attachment.url` is set AND the agent-supplied mime is in the
-// allowlist above.
-function safeImageSrc(attachment: {
-  url?: string;
-  mime?: string;
-  data?: unknown;
-}): string | null {
-  if (attachment.url) {
-    return safeHrefUrl(attachment.url);
-  }
-  if (typeof attachment.data === "string") {
-    const mime = (attachment.mime ?? "").toLowerCase();
-    if (!ALLOWED_IMAGE_MIMES.has(mime)) {
-      return null;
-    }
-    return `data:${mime};base64,${attachment.data}`;
-  }
-  return null;
-}
-
-// safeHrefUrl — scheme allowlist for arbitrary href / src values. The
-// renderer falls back to this when the agent provided a URL but no
-// kind-specific validation exists (download links). Returns null when
-// the URL is unsafe or unparseable.
-//
-// 0.3.43: the previous implementation accepted any string starting
-// with "/" — that included "//evil.com/x" (protocol-relative URLs).
-// The browser resolves protocol-relative URLs against the page origin
-// (localhost on dev, file:// in packaged builds), so a successful GET
-// to attacker.example leaks the user's IP / User-Agent / Referer.
-// The fix routes through resolveHrefScheme which explicitly rejects
-// "//" prefixes.
-function safeHrefUrl(raw: string): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  const scheme = resolveHrefScheme(trimmed);
-  if (scheme === null) return null;
-  if (scheme.startsWith("data:")) {
-    // resolveHrefScheme only returns data:image/* (other data: variants
-    // were rejected upstream). For href values we still double-check.
-    const m = /^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,/i.exec(trimmed);
-    return m ? trimmed : null;
-  }
-  if (scheme === "relative:") return trimmed;
-  if (ALLOWED_HREF_SCHEMES.has(scheme)) return trimmed;
-  return null;
-}
