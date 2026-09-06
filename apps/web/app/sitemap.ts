@@ -22,11 +22,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "weekly",
       priority: 0.6,
     },
-    {
-      url: `${baseUrl}/contact-sales`,
-      lastModified: new Date("2026-05-21"),
-      changeFrequency: "monthly",
-      priority: 0.7,
-    },
   ];
 }
