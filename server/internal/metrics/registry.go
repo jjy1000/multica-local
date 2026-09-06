@@ -12,12 +12,11 @@ import (
 )
 
 type RegistryOptions struct {
-	Pool        *pgxpool.Pool
-	ReplicaPool *pgxpool.Pool
-	Realtime    *realtime.Metrics
-	DaemonWS    *daemonws.Metrics
-	Version     string
-	Commit      string
+	Pool     *pgxpool.Pool
+	Realtime *realtime.Metrics
+	DaemonWS *daemonws.Metrics
+	Version  string
+	Commit   string
 
 	// BusinessSampler, when non-nil, opts the registry into the
 	// scrape-time SQL sampler from PR4 (MUL-2947). It is intentionally
@@ -28,10 +27,9 @@ type RegistryOptions struct {
 }
 
 type Registry struct {
-	Gatherer    prometheus.Gatherer
-	HTTP        *HTTPMetrics
-	Business    *BusinessMetrics
-	DBRouting   *DBRoutingMetrics
+	Gatherer prometheus.Gatherer
+	HTTP     *HTTPMetrics
+	Business *BusinessMetrics
 	// Sampler is non-nil only when RegistryOptions.BusinessSampler was
 	// supplied with a valid Pool. Exposed so the cmd/server entrypoint
 	// can plumb the same instance into health checks if it ever wants to.
@@ -57,7 +55,7 @@ func NewRegistry(opts RegistryOptions) *Registry {
 	reg.MustRegister(businessMetrics.Collectors()...)
 
 	if opts.Pool != nil {
-		reg.MustRegister(NewDBCollector(opts.Pool, opts.ReplicaPool))
+		reg.MustRegister(NewDBCollector(opts.Pool))
 	}
 	if opts.Realtime != nil {
 		reg.MustRegister(NewRealtimeCollector(opts.Realtime))
@@ -66,20 +64,16 @@ func NewRegistry(opts RegistryOptions) *Registry {
 		reg.MustRegister(NewDaemonWSCollector(opts.DaemonWS))
 	}
 
-	dbRoutingMetrics := NewDBRoutingMetrics()
-	reg.MustRegister(dbRoutingMetrics.Collectors()...)
-
 	sampler := NewBusinessSamplerCollector(opts.BusinessSampler)
 	if sampler != nil {
 		reg.MustRegister(sampler.Collectors()...)
 	}
 
 	return &Registry{
-		Gatherer:  reg,
-		HTTP:      httpMetrics,
-		Business:  businessMetrics,
-		DBRouting: dbRoutingMetrics,
-		Sampler:   sampler,
+		Gatherer: reg,
+		HTTP:     httpMetrics,
+		Business: businessMetrics,
+		Sampler:  sampler,
 	}
 }
 
