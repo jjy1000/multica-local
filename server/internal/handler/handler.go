@@ -19,6 +19,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/dbreader"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/featureflagdispatch"
@@ -111,6 +112,7 @@ type RuntimeProfileRefreshNotifier interface {
 
 type Handler struct {
 	Queries              *db.Queries
+	ReadSelector         *dbreader.Selector
 	DB                   dbExecutor
 	TxStarter            txStarter
 	Hub                  *realtime.Hub
@@ -373,6 +375,7 @@ func New(queries *db.Queries, txStarter txStarter, hub *realtime.Hub, bus *event
 	taskSvc.CausalRecorder = causalgraph.New(queries)
 	return &Handler{
 		Queries:              queries,
+		ReadSelector:         dbreader.NewPrimaryOnly(queries),
 		DB:                   executor,
 		TxStarter:            txStarter,
 		Hub:                  hub,

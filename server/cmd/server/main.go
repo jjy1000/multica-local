@@ -16,6 +16,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/daemon/execenv"
 	"github.com/multica-ai/multica/server/internal/daemonws"
+	"github.com/multica-ai/multica/server/internal/dbreader"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/handler"
@@ -253,7 +254,24 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("connected to database")
-	logPoolConfig(pool)
+	logPoolConfig("primary", pool)
+
+	// The replica is an optional capacity optimization, never a startup
+	// dependency. Invalid configuration preserves primary-only behavior. New
+	// replica connections are validated as read-only by the pool configuration,
+	// while request-driven fallback and a passive circuit breaker handle runtime
+	// failures without background SQL.
+	var replicaPool *pgxpool.Pool
+	if replicaURL := strings.TrimSpace(os.Getenv("DATABASE_REPLICA_URL")); replicaURL != "" {
+		replicaPool, err = newReplicaDBPool(context.Background(), replicaURL, startupSettings.ConnectTimeout)
+		if err != nil {
+			slog.Warn("database replica configuration is invalid; using primary for reads", "error", err)
+			replicaPool = nil
+		} else {
+			defer replicaPool.Close()
+			logPoolConfig("replica", replicaPool)
+		}
+	}
 
 	bus := events.New()
 	hub := realtime.NewHub()
@@ -384,6 +402,7 @@ func main() {
 	var metricsServer *http.Server
 	var httpMetrics *obsmetrics.HTTPMetrics
 	var businessMetrics *obsmetrics.BusinessMetrics
+	var dbRoutingMetrics *obsmetrics.DBRoutingMetrics
 	var samplerPool *pgxpool.Pool
 	if metricsConfig.Enabled() {
 		// Build a dedicated tiny pool for the BusinessSamplerCollector
@@ -398,11 +417,12 @@ func main() {
 		}
 
 		metricsRegistry := obsmetrics.NewRegistry(obsmetrics.RegistryOptions{
-			Pool:     pool,
-			Realtime: realtime.M,
-			DaemonWS: daemonws.M,
-			Version:  version,
-			Commit:   commit,
+			Pool:        pool,
+			ReplicaPool: replicaPool,
+			Realtime:    realtime.M,
+			DaemonWS:    daemonws.M,
+			Version:     version,
+			Commit:      commit,
 			BusinessSampler: func() *obsmetrics.BusinessSamplerOptions {
 				if samplerPool == nil {
 					return nil
@@ -412,6 +432,7 @@ func main() {
 		})
 		httpMetrics = metricsRegistry.HTTP
 		businessMetrics = metricsRegistry.Business
+		dbRoutingMetrics = metricsRegistry.DBRouting
 		// Forward inbound daemon WS frames into the per-kind counter so
 		// dashboards can split heartbeat / unknown / invalid traffic.
 		if daemonHub != nil {
