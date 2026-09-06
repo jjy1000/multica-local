@@ -753,7 +753,6 @@ func buildProjectSearchQuery(phrase string, terms []string, includeClosed bool) 
 	query := fmt.Sprintf(`SELECT p.id, p.workspace_id, p.title, p.description, p.icon,
 		p.status, p.priority, p.lead_type, p.lead_id,
 		p.created_at, p.updated_at,
-		COUNT(*) OVER() AS total_count,
 		%s AS match_source
 	FROM project p
 	WHERE p.workspace_id = %s AND %s
@@ -839,7 +838,6 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 
 	type projectSearchRow struct {
 		project     db.Project
-		totalCount  int64
 		matchSource string
 	}
 
@@ -858,7 +856,6 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 			&row.project.LeadID,
 			&row.project.CreatedAt,
 			&row.project.UpdatedAt,
-			&row.totalCount,
 			&row.matchSource,
 		); err != nil {
 			slog.Warn("search projects scan failed", "error", err)
@@ -871,11 +868,6 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("search projects rows error", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to search projects")
 		return
-	}
-
-	var total int64
-	if len(results) > 0 {
-		total = results[0].totalCount
 	}
 
 	// Batch-fetch issue stats and resource counts
@@ -930,9 +922,7 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 		resp[i] = spr
 	}
 
-	w.Header().Set("X-Total-Count", strconv.FormatInt(total, 10))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"projects": resp,
-		"total":    total,
 	})
 }

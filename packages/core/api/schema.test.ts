@@ -349,6 +349,36 @@ describe("ApiClient schema fallback", () => {
     });
   });
 
+  describe("searchIssues / searchProjects", () => {
+    it("falls back to empty results when the issues response is malformed", async () => {
+      stubFetchJson({ issues: "not-an-array", total: 0 });
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.searchIssues({ q: "bug" });
+      expect(res).toEqual({ issues: [] });
+    });
+
+    it("accepts a searchIssues response without an exact total", async () => {
+      stubFetchJson({ issues: [] });
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.searchIssues({ q: "bug" });
+      expect(res).toEqual({ issues: [] });
+    });
+
+    it("falls back to empty projects when the projects response is malformed", async () => {
+      stubFetchJson({ projects: "not-an-array", total: 0 });
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.searchProjects({ q: "roadmap" });
+      expect(res).toEqual({ projects: [] });
+    });
+
+    it("accepts a searchProjects response without an exact total", async () => {
+      stubFetchJson({ projects: [] });
+      const client = new ApiClient("https://api.example.test");
+      const res = await client.searchProjects({ q: "roadmap" });
+      expect(res).toEqual({ projects: [] });
+    });
+  });
+
   describe("createAgentFromTemplate", () => {
     it("falls back to an empty agent when the response is malformed", async () => {
       // The agent was created server-side even though the client can't
