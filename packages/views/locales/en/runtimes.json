@@ -167,10 +167,6 @@
     "not_found_title": "Runtime not found",
     "not_found_hint": "It may have been deleted or you may not have access."
   },
-  "running_one": "{{count}} running",
-  "running_other": "{{count}} running",
-  "queued_one": "{{count}} queued",
-  "queued_other": "{{count}} queued",
   "connect": {
     "title": "Add a computer",
     "description": "Run these two commands on the computer you want to add. We'll detect it the moment the daemon comes online.",

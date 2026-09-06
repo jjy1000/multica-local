@@ -157,8 +157,6 @@
     "not_found_title": "ランタイムが見つかりません",
     "not_found_hint": "削除されたか、アクセス権がない可能性があります。"
   },
-  "running_other": "実行中 {{count}} 件",
-  "queued_other": "キュー待ち {{count}} 件",
   "connect": {
     "title": "コンピュータを追加",
     "description": "追加したいコンピュータで、この 2 つのコマンドを実行してください。デーモンがオンラインになった瞬間に検出します。",

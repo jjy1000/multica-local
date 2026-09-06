@@ -61,6 +61,7 @@ import { useExperimentalFlags } from "@multica/core/experimental";
 import { STATUS_CONFIG } from "@multica/core/issues/config";
 import { formatDateOnly } from "@multica/core/issues/date";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
+import { sessionStorageAdapter } from "@multica/core/platform";
 import { toast } from "sonner";
 import { StatusIcon, PriorityIcon, StatusPicker, PriorityPicker, StagePicker, StartDatePicker, DueDatePicker, AssigneePicker, LabelPicker, LabPicker } from ".";
 import { maxSiblingStage } from "./pickers/stage-picker";
@@ -1616,9 +1617,9 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     const flagKey = `multica_cmdF_warned:${id}`;
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "f" || !(e.metaKey || e.ctrlKey)) return;
-      if (sessionStorage.getItem(flagKey)) return;
+      if (sessionStorageAdapter.getItem(flagKey)) return;
       e.preventDefault();
-      sessionStorage.setItem(flagKey, "1");
+      sessionStorageAdapter.setItem(flagKey, "1");
       toast.message(t(($) => $.detail.cmdf_toast_title), {
         description: t(($) => $.detail.cmdf_toast_description),
       });

@@ -167,10 +167,6 @@
     "not_found_title": "런타임을 찾을 수 없습니다",
     "not_found_hint": "삭제되었거나 접근 권한이 없을 수 있습니다."
   },
-  "running_one": "실행 중 {{count}}개",
-  "running_other": "실행 중 {{count}}개",
-  "queued_one": "대기 중 {{count}}개",
-  "queued_other": "대기 중 {{count}}개",
   "connect": {
     "title": "컴퓨터 추가",
     "description": "추가하려는 컴퓨터에서 아래 두 명령을 실행하세요. 데몬이 온라인이 되는 순간 감지합니다.",

@@ -19,6 +19,7 @@ import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 
 import { createPortal } from "react-dom";
 import { Maximize2 } from "lucide-react";
 import { useT } from "../i18n";
+import { sessionStorageAdapter } from "@multica/core/platform";
 
 type MermaidAPI = typeof import("mermaid").default;
 
@@ -134,7 +135,7 @@ function hashChart(chart: string): string {
 function readCachedLayout(chart: string): MermaidLayout | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(
+    const raw = sessionStorageAdapter.getItem(
       MERMAID_LAYOUT_CACHE_PREFIX + hashChart(chart),
     );
     if (!raw) return null;
@@ -157,7 +158,7 @@ function writeCachedLayout(chart: string, layout: MermaidLayout): void {
   if (typeof window === "undefined") return;
   if (!layout.width || !layout.height) return;
   try {
-    window.sessionStorage.setItem(
+    sessionStorageAdapter.setItem(
       MERMAID_LAYOUT_CACHE_PREFIX + hashChart(chart),
       JSON.stringify({ width: layout.width, height: layout.height }),
     );

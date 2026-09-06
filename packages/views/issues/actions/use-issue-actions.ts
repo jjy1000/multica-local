@@ -11,6 +11,7 @@ import { useWorkspacePaths } from "@multica/core/paths";
 import { useModalStore } from "@multica/core/modals";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { useExperimentalFlags } from "@multica/core/experimental";
+import { sessionStorageAdapter } from "@multica/core/platform";
 import { pinListOptions, useCreatePin, useDeletePin } from "@multica/core/pins";
 import { copyText } from "@multica/ui/lib/clipboard";
 import { useNavigation } from "../../navigation";
@@ -113,7 +114,7 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
               // the update mutation resolves. Key shape matches
               // lab-output-panel.tsx.
               try {
-                window.sessionStorage.setItem(
+                sessionStorageAdapter.setItem(
                   `pythia-triggered-${wsId}-${issueId}`,
                   String(Date.now()),
                 );

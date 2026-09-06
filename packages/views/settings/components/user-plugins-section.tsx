@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Pencil, Plus, Puzzle, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@multica/ui/components/ui/card";
+import { defaultStorage } from "@multica/core/platform";
 import { Label } from "@multica/ui/components/ui/label";
 import { Switch } from "@multica/ui/components/ui/switch";
 import { Button } from "@multica/ui/components/ui/button";
@@ -52,7 +53,7 @@ const SKILLS_ACK_PREFIX = "multica.plugin_skills_ack.";
 
 function isSkillsAcked(slug: string): boolean {
   try {
-    return window.localStorage.getItem(SKILLS_ACK_PREFIX + slug) === "1";
+    return defaultStorage.getItem(SKILLS_ACK_PREFIX + slug) === "1";
   } catch {
     return false;
   }
@@ -60,7 +61,7 @@ function isSkillsAcked(slug: string): boolean {
 
 function markSkillsAcked(slug: string): void {
   try {
-    window.localStorage.setItem(SKILLS_ACK_PREFIX + slug, "1");
+    defaultStorage.setItem(SKILLS_ACK_PREFIX + slug, "1");
   } catch {
     // Best-effort: a blocked storage must not block enabling the plugin.
   }
