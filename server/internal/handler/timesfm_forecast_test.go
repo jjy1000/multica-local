@@ -443,6 +443,15 @@ func TestInstallTimesfm_SeedsVisibilityAndIdempotent(t *testing.T) {
 	ctx := context.Background()
 	userID, workspaceID := installCodeCanvasFresh(t, ctx, "timesfm-install")
 	cleanupVisibilityRows(t, workspaceID)
+	// H1 (audit 2026-09-06): purge pre-existing lock rows from prior
+	// crashed runs so the post-install count is exactly 1. Without this,
+	// a leftover `experimental_source='timesfm'` row from a previous test
+	// run inflates lockCount to 2 and breaks the assertion. (The deeper
+	// workspace-scoped fix is tracked separately; this is the minimal
+	// patch per CLAUDE.md Known Stability "TestInstallTimesfm".)
+	if _, err := testPool.Exec(ctx, `DELETE FROM experimental_resource_lock WHERE experimental_source = 'timesfm'`); err != nil {
+		t.Fatalf("pre-test lock cleanup: %v", err)
+	}
 	t.Cleanup(func() {
 		testPool.Exec(ctx, `DELETE FROM experimental_resource_lock WHERE experimental_source = 'timesfm'`)
 	})

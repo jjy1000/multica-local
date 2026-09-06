@@ -167,6 +167,88 @@ func TestFailTask_AlreadyFinalized(t *testing.T) {
 	}
 }
 
+// H3 (audit 2026-09-06): pre-terminal statuses (dispatched|queued) must
+// surface as an error from CompleteTask/FailTask so the daemon retries
+// instead of silently dropping the terminal side effects
+// (captureTaskCompleted, Recorder.RecordTaskOutcome, RefreshForIssue —
+// Active Contract #9 silent bypass). Before the fix these returned the
+// existing row as a successful no-op.
+func TestCompleteTask_PreTerminalReturnsError(t *testing.T) {
+	taskID := testUUID(1)
+	agentID := testUUID(2)
+
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{"dispatched row rejects complete", "dispatched"},
+		{"queued row rejects complete", "queued"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockDBTX{task: db.AgentTaskQueue{
+				ID:      taskID,
+				AgentID: agentID,
+				Status:  tt.status,
+			}}
+			svc := &TaskService{
+				Queries: db.New(mock),
+				Bus:     events.New(),
+			}
+
+			got, err := svc.CompleteTask(context.Background(), taskID, nil, "", "")
+			if err == nil {
+				t.Fatalf("expected error for pre-terminal status %q, got nil (returned %+v)", tt.status, got)
+			}
+			if got != nil {
+				t.Errorf("expected nil task on error, got %+v", got)
+			}
+			if !strings.Contains(err.Error(), tt.status) {
+				t.Errorf("error should mention status %q: %v", tt.status, err)
+			}
+		})
+	}
+}
+
+func TestFailTask_PreTerminalReturnsError(t *testing.T) {
+	taskID := testUUID(1)
+	agentID := testUUID(2)
+
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{"dispatched row rejects fail", "dispatched"},
+		{"queued row rejects fail", "queued"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &mockDBTX{task: db.AgentTaskQueue{
+				ID:      taskID,
+				AgentID: agentID,
+				Status:  tt.status,
+			}}
+			svc := &TaskService{
+				Queries: db.New(mock),
+				Bus:     events.New(),
+			}
+
+			got, err := svc.FailTask(context.Background(), taskID, "agent crashed", "", "", "")
+			if err == nil {
+				t.Fatalf("expected error for pre-terminal status %q, got nil (returned %+v)", tt.status, got)
+			}
+			if got != nil {
+				t.Errorf("expected nil task on error, got %+v", got)
+			}
+			if !strings.Contains(err.Error(), tt.status) {
+				t.Errorf("error should mention status %q: %v", tt.status, err)
+			}
+		})
+	}
+}
+
 func TestTaskFailureClassifiers(t *testing.T) {
 	cases := []struct {
 		reason       string

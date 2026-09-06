@@ -1479,6 +1479,30 @@ func (s *TaskService) MarkTaskWaitingLocalDirectory(ctx context.Context, taskID 
 	return &task, nil
 }
 
+// classifyFinalizeNoRows handles UPDATE-WHERE-status='running' returning no
+// rows in CompleteTask/FailTask (audit 2026-09-06 H3).
+//
+// Terminal states (completed|failed|cancelled) are idempotent — parallel
+// agents may legitimately race on the same row, and CancelTask treats
+// already-finalized rows the same way (existing convention).
+//
+// Pre-terminal states (dispatched|queued) are INVALID: the row has not
+// actually started running yet, so the agent's complete/fail call is
+// malformed (race between enqueue and complete — the daemon must retry
+// after the row enters 'running'). Silently 200-ing these cases masked
+// the agent's terminal transition and skipped RecordTaskOutcome /
+// RefreshForIssue (Active Contract #9 silent bypass).
+func classifyFinalizeNoRows(existing db.AgentTaskQueue, action string) (*db.AgentTaskQueue, error) {
+	switch existing.Status {
+	case "completed", "failed", "cancelled":
+		return &existing, nil
+	case "dispatched", "queued":
+		return nil, fmt.Errorf("%s: task in status %q cannot be finalized (still pre-terminal)", action, existing.Status)
+	default:
+		return nil, fmt.Errorf("%s: task in unknown status %q", action, existing.Status)
+	}
+}
+
 // CompleteTask marks a task as completed.
 // Issue status is NOT changed here — the agent manages it via the CLI.
 //
@@ -1527,14 +1551,29 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 		// cancelled, or failed by the time this call runs. The UPDATE
 		// … WHERE status = 'running' returns no rows in that case.
 		// Treat it as an idempotent success — same pattern as CancelTask.
+		//
+		// H3 (audit 2026-09-06): branch on existing.Status. Pre-terminal
+		// states (dispatched|queued) are invalid — the agent's terminal call
+		// races with the row's enqueue; surface as an error so the caller
+		// retries instead of silently dropping the terminal side effects.
 		if existing, lookupErr := s.Queries.GetAgentTask(ctx, taskID); lookupErr == nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				slog.Info("complete task: already finalized",
-					"task_id", util.UUIDToString(taskID),
-					"current_status", existing.Status,
-					"agent_id", util.UUIDToString(existing.AgentID),
-				)
-				return &existing, nil
+				if task, classifyErr := classifyFinalizeNoRows(existing, "complete task"); classifyErr == nil {
+					slog.Info("complete task: already finalized",
+						"task_id", util.UUIDToString(taskID),
+						"current_status", existing.Status,
+						"agent_id", util.UUIDToString(existing.AgentID),
+					)
+					return task, nil
+				} else {
+					slog.Warn("complete task: invalid state for finalize",
+						"task_id", util.UUIDToString(taskID),
+						"current_status", existing.Status,
+						"agent_id", util.UUIDToString(existing.AgentID),
+						"error", classifyErr,
+					)
+					return nil, classifyErr
+				}
 			}
 			slog.Warn("complete task failed",
 				"task_id", util.UUIDToString(taskID),
@@ -1784,14 +1823,28 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 		}
 		return nil
 	}); err != nil {
+		// H3 (audit 2026-09-06): mirror CompleteTask — pre-terminal
+		// statuses (dispatched|queued) surface as errors so the caller
+		// retries instead of silently dropping captureTaskFailed +
+		// Active Contract #9 side effects.
 		if existing, lookupErr := s.Queries.GetAgentTask(ctx, taskID); lookupErr == nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				slog.Info("fail task: already finalized",
-					"task_id", util.UUIDToString(taskID),
-					"current_status", existing.Status,
-					"agent_id", util.UUIDToString(existing.AgentID),
-				)
-				return &existing, nil
+				if task, classifyErr := classifyFinalizeNoRows(existing, "fail task"); classifyErr == nil {
+					slog.Info("fail task: already finalized",
+						"task_id", util.UUIDToString(taskID),
+						"current_status", existing.Status,
+						"agent_id", util.UUIDToString(existing.AgentID),
+					)
+					return task, nil
+				} else {
+					slog.Warn("fail task: invalid state for finalize",
+						"task_id", util.UUIDToString(taskID),
+						"current_status", existing.Status,
+						"agent_id", util.UUIDToString(existing.AgentID),
+						"error", classifyErr,
+					)
+					return nil, classifyErr
+				}
 			}
 			slog.Warn("fail task failed",
 				"task_id", util.UUIDToString(taskID),

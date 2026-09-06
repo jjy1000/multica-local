@@ -25,32 +25,42 @@ func TestSetAndPopPanicFlagContext(t *testing.T) {
 	}
 }
 
-func TestWithPanicFlagContextClearsOnReturn(t *testing.T) {
+func TestWithPanicFlagContextRetainsOnReturn(t *testing.T) {
 	defer PopPanicFlagContext()
 
-	func() {
-		WithPanicFlagContext("claude_science_lab", "install", func() {
-			key, _, ok := PopPanicFlagContext()
-			if !ok || key != "claude_science_lab" {
-				t.Fatalf("inside WithPanicFlagContext: got (%q, ok=%v), want claude_science_lab/true", key, ok)
-			}
-		})
-	}()
-	// After the closure returns, the slot must be cleared so a
-	// later panic on a different code path is NOT attributed to
-	// claude_science.
-	_, _, ok := PopPanicFlagContext()
-	if ok {
-		t.Error("WithPanicFlagContext should clear the slot on return")
+	WithPanicFlagContext("claude_science_lab", "install", func() {
+		// Intentionally do NOT PopPanicFlagContext here — Pop is
+		// destructive and would consume the slot we're testing.
+		// The previous test popped + asserted inside fn, then popped
+		// again outside and asserted the second Pop returned !ok.
+		// Under the H2 contract the slot is retained on return, so
+		// a single Pop after the closure must see the same value.
+	})
+	// H2 (audit 2026-09-06): the slot is intentionally NOT cleared on
+	// return. The slot is overwritten by the next SetPanicFlagContext
+	// call regardless, so a stale slot on a success-path return is
+	// harmless. The previous test asserted a clear-on-return; that
+	// contract was the LIFO-defer bug the audit fixed.
+	key, ctx, ok := PopPanicFlagContext()
+	if !ok || key != "claude_science_lab" || ctx != "install" {
+		t.Errorf("slot must be retained on return so the outer recover() sentinel can attribute it; got (%q, %q, ok=%v), want claude_science_lab/install/true", key, ctx, ok)
 	}
 }
 
-func TestWithPanicFlagContextClearsOnPanic(t *testing.T) {
+func TestWithPanicFlagContextRetainsOnPanic(t *testing.T) {
 	defer PopPanicFlagContext()
 	defer func() {
 		_ = recover() // swallow the deliberate panic
-		if _, _, ok := PopPanicFlagContext(); ok {
-			t.Error("slot must be cleared even when fn panics")
+		// H2 (audit 2026-09-06): the slot MUST be retained past a
+		// panic so the outer recover() sentinel in cmd/server/main.go
+		// (which runs AFTER the package-level defer unwinds) can read
+		// it for blacklist attribution. The previous test pinned the
+		// LIFO-defer bug — clearing the slot in a defer would run
+		// BEFORE the outer recover() and silently empty the
+		// attribution slot.
+		key, ctx, ok := PopPanicFlagContext()
+		if !ok || key != "pythia_oracle" || ctx != "brief" {
+			t.Errorf("slot must be retained past panic for sentinel attribution; got (%q, %q, ok=%v), want pythia_oracle/brief/true", key, ctx, ok)
 		}
 	}()
 

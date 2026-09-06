@@ -56,9 +56,16 @@ func PopPanicFlagContext() (flagKey, context string, ok bool) {
 	return entry.flagKey, entry.context, true
 }
 
-// WithPanicFlagContext runs fn under a flag context. The context is
-// cleared after fn returns (success OR panic) so unrelated goroutines
-// that panic later do not inherit a stale context.
+// WithPanicFlagContext runs fn under a flag context. The slot is left
+// set during fn execution so a panic within fn can be attributed by
+// the outer recover() sentinel in cmd/server/main.go. The sentinel
+// owns the clear via PopPanicFlagContext — slot-clearing in a defer
+// would run BEFORE the outer recover() (LIFO defer ordering) and
+// silently empty the attribution. The slot is overwritten by the
+// next SetPanicFlagContext call regardless, so a stale slot on
+// success-path return is harmless: unrelated goroutines that panic
+// later inherit the latest caller's context (acceptable per package
+// comment on panicFlagContext).
 //
 // Usage:
 //
@@ -67,6 +74,5 @@ func PopPanicFlagContext() (flagKey, context string, ok bool) {
 //	})
 func WithPanicFlagContext(flagKey, context string, fn func()) {
 	SetPanicFlagContext(flagKey, context)
-	defer panicFlagContext.Store(nil)
 	fn()
 }
