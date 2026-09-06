@@ -434,8 +434,17 @@ function serializeEnvFile(env: ServerEnv): string {
  * pg_ctl / daemon CLI) from an explicit allowlist. H9 (audit 2026-09-06).
  * Re-exported from apps/desktop/src/main/util/spawn-env.ts so daemon-
  * manager.ts can import the same helper.
+ *
+ * H9 (audit 2026-09-06, ship-0.5.98 regression): must be `import {
+ * pickEnvForSpawn } from "./util/spawn-env"; export { pickEnvForSpawn }`
+ * — a bare `export { x } from "..."` is a RE-EXPORT only and does NOT
+ * bind the name into this module's scope. The 3 call sites in this file
+ * (runMigrate env, startServer env, probeMulticaPg psql env) threw
+ * `ReferenceError: pickEnvForSpawn is not defined` at runtime, which
+ * broke every waitForPg loop → cold-start verify timeout. Critical fix.
  */
-export { pickEnvForSpawn } from "./util/spawn-env";
+import { pickEnvForSpawn } from "./util/spawn-env";
+export { pickEnvForSpawn };
 
 function randomHex(bytes: number): string {
   return randomBytes(bytes).toString("hex");
