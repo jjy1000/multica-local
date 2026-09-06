@@ -74,6 +74,36 @@ function useCmdWCloseTab() {
   }, []);
 }
 
+/**
+ * Wire Cmd/Ctrl+1..9 to browser-style tab selection.
+ *
+ * - 1..8 select that exact one-based position in the current workspace's tab
+ *   group. Missing positions (no tab at that index) deliberately no-op.
+ * - 9 always selects the final tab, regardless of how many tabs exist, so the
+ *   chord works in a multi-window layout with more than nine tabs and matches
+ *   Chrome / Firefox / Safari semantics.
+ *
+ * The handler no-ops when a window-overlay is open (invite / new-workspace /
+ * onboarding) because those flows own the viewport. The chord is delivered
+ * to the main window regardless of which window or renderer control had focus
+ * (see before-input-event in apps/desktop/src/main/index.ts).
+ */
+function useCmdNumberTabSelect() {
+  useEffect(() => {
+    return window.desktopAPI.onSelectTabShortcut((key) => {
+      if (useWindowOverlayStore.getState().overlay) return;
+      const store = useTabStore.getState();
+      const slug = store.activeWorkspaceSlug;
+      if (!slug) return;
+      const group = store.byWorkspace[slug];
+      if (!group) return;
+      const tab = key === 9 ? group.tabs.at(-1) : group.tabs[key - 1];
+      if (!tab) return;
+      store.setActiveTab(tab.id);
+    });
+  }, []);
+}
+
 function AppContent() {
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
@@ -404,6 +434,7 @@ export default function App() {
   const systemLocale = window.desktopAPI.systemLocale;
   const runtimeConfigResult = window.desktopAPI.runtimeConfig;
   useCmdWCloseTab();
+  useCmdNumberTabSelect();
 
   // Flush a freeze/crash breadcrumb the main process parked from a previous
   // session. A true hang or process death can't report itself when it happens

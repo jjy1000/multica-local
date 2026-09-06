@@ -3,6 +3,7 @@ import type { RuntimeConfigResult } from "../shared/runtime-config";
 import type { NavigationGesture } from "../shared/navigation-gestures";
 import type { RendererRouteContextInput } from "../shared/renderer-route-context";
 import type { FreezeBreadcrumb } from "../shared/freeze-breadcrumb";
+import type { TabSelectionShortcutKey } from "../shared/main-renderer-messages";
 
 interface DesktopAPI {
   /** App version + normalized OS, captured synchronously at preload time. */
@@ -87,6 +88,12 @@ interface DesktopAPI {
   /** Listen for Cmd/Ctrl+W tab-close requests from the main process.
    *  Returns an unsubscribe function. */
   onCloseActiveTab: (callback: () => void) => () => void;
+  /** Listen for Cmd/Ctrl+1..9 tab-selection requests from the main process.
+   *  Renderer selects the one-based tab position (9 = last tab). Returns
+   *  an unsubscribe function. */
+  onSelectTabShortcut: (
+    callback: (key: TabSelectionShortcutKey) => void,
+  ) => () => void;
   /** Ask the main process to close the window. */
   closeWindow: () => void;
 }

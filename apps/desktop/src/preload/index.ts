@@ -11,6 +11,11 @@ import {
   NAVIGATION_GESTURE_CHANNEL,
   type NavigationGesture,
 } from "../shared/navigation-gestures";
+import {
+  parseTabSelectionShortcutKey,
+  TAB_SELECTION_SHORTCUT_CHANNEL,
+  type TabSelectionShortcutKey,
+} from "../shared/main-renderer-messages";
 
 // Synchronously fetch app metadata from main at preload time so the renderer
 // can pass it into CoreProvider during the initial render — the alternative
@@ -188,6 +193,21 @@ const desktopAPI = {
     ipcRenderer.on("tab:close-active", handler);
     return () => {
       ipcRenderer.removeListener("tab:close-active", handler);
+    };
+  },
+  /** Listen for Cmd/Ctrl+1..9 tab-selection requests from the main
+   *  process. The renderer should select the requested one-based tab
+   *  position (with 9 meaning "last tab"). Returns an unsubscribe fn. */
+  onSelectTabShortcut: (
+    callback: (key: TabSelectionShortcutKey) => void,
+  ) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      const key = parseTabSelectionShortcutKey(payload);
+      if (key !== null) callback(key);
+    };
+    ipcRenderer.on(TAB_SELECTION_SHORTCUT_CHANNEL, handler);
+    return () => {
+      ipcRenderer.removeListener(TAB_SELECTION_SHORTCUT_CHANNEL, handler);
     };
   },
   /** Ask the main process to close the window (used after closing the last tab). */
