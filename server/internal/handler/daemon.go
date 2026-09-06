@@ -2835,6 +2835,16 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 					if updated, ierr := h.Queries.GetIssue(r.Context(), task.IssueID); ierr == nil {
 						h.notifyParentOfChildDone(r.Context(), issueRow, updated)
 					}
+					// H5 (audit 2026-09-06): this daemon path mutates
+					// issue.status directly without going through the HTTP
+					// UpdateIssue handler, so the RefreshForIssue call the
+					// handler makes at L3386 is bypassed. Active Contract
+					// #9 silent bypass — same root cause as the
+					// BatchUpdateIssues / github advanceIssueToDone /
+					// notifyParentOfChildDone gaps.
+					if h.CausalRecorder != nil {
+						h.CausalRecorder.RefreshForIssue(r.Context(), task.IssueID)
+					}
 				}
 			}
 		}

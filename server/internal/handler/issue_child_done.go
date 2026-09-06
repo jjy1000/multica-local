@@ -204,6 +204,15 @@ func (h *Handler) notifyParentOfChildDone(ctx context.Context, prev, issue db.Is
 		return
 	}
 
+	// H7 (audit 2026-09-06): this server-side CreateComment bypasses the
+	// HTTP CreateComment handler, so RefreshForIssue (handler/comment.go
+	// L1356) never fires. Active Contract #9 silent bypass — the parent's
+	// causal graph went stale on every child-done wake. Mirror the
+	// handler's call here, post-write, nil-safe / flag-gated inside.
+	if h.CausalRecorder != nil {
+		h.CausalRecorder.RefreshForIssue(ctx, parent.ID)
+	}
+
 	h.publish(protocol.EventCommentCreated, uuidToString(parent.WorkspaceID), "system", "", map[string]any{
 		"comment":             commentToResponse(comment, nil, nil),
 		"issue_title":         parent.Title,

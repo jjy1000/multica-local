@@ -2811,7 +2811,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Warn("create issue failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to create issue: "+err.Error())
+		writeInternalError(w, "create issue", err)
 		return
 	}
 
@@ -3304,7 +3304,7 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.Warn("update issue failed", append(logger.RequestAttrs(r), "error", err, "issue_id", id, "workspace_id", workspaceID)...)
-		writeError(w, http.StatusInternalServerError, "failed to update issue: "+err.Error())
+		writeInternalError(w, "update issue", err)
 		return
 	}
 
@@ -4342,6 +4342,15 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			}
 			slog.Warn("batch update issue failed", "issue_id", issueID, "error", err)
 			continue
+		}
+
+		// H4 (audit 2026-09-06): mirror UpdateIssue's RefreshForIssue call
+		// (L3385-3387) — a batch PATCH flipping lab_source / status / title
+		// on N issues used to silently bypass Active Contract #9, letting
+		// the 30-day stale TTL flip volatile action/outcome/decision nodes
+		// to status='stale'. nil-safe / flag-gated inside the recorder.
+		if h.CausalRecorder != nil {
+			h.CausalRecorder.RefreshForIssue(r.Context(), issue.ID)
 		}
 
 		prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)

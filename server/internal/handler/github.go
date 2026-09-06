@@ -1426,6 +1426,15 @@ func (h *Handler) advanceIssueToDone(ctx context.Context, issue db.Issue, worksp
 	// 0.5.22 MUL-4063: actor identity is no longer threaded through.
 	h.notifyParentOfChildDone(ctx, issue, updated)
 
+	// H6 (audit 2026-09-06): direct UpdateIssueStatus bypasses the HTTP
+	// UpdateIssue handler, so RefreshForIssue never fires. Active Contract
+	// #9 silent bypass — the PR-merged path is one of the dominant
+	// completion routes and was previously dropping the causal-graph
+	// freshness touch.
+	if h.CausalRecorder != nil {
+		h.CausalRecorder.RefreshForIssue(ctx, updated.ID)
+	}
+
 	prefix := h.getIssuePrefix(ctx, issue.WorkspaceID)
 	resp := issueToResponse(updated, prefix)
 	h.fillStatusCategory(ctx, updated.WorkspaceID, &resp)
