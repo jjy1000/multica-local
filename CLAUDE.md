@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **TL;DR**: **localized single-user fork** of Multica (no telemetry, no OAuth, no cloud, username-only login — see **Localized Fork** below). Memory: `~/.claude/projects/-Users-jiangjianyan-jjy-multica-exploration-dev/memory/`. Backup: `.omc/backups/<date>/<release>-ship/` (auto per `ship-mac`). Single-command ship: `bash scripts/ship-mac.sh --yes`. Sub-domain guides table below; cross-cutting product/ship/desktop rules in this file.
+> **TL;DR**: **localized single-user fork** of Multica (no telemetry, no OAuth, no cloud, username-only login — see **Localized Fork** below). Memory: `~/.claude/projects/-Users-jiangjianyan-jjy-multica-exploration-dev/memory/`. Backup: `.omc/backups/<date>/<release>-ship/` (auto per `ship-mac`). Single-command ship: `bash scripts/ship-mac.sh --yes`. Sub-domain guides table below; cross-cutting product/ship/desktop rules in this file. First-time readers: start with the fork notice in [`README.md`](README.md) ("This checkout is a localized single-user fork of multica-ai/multica ... governed by CLAUDE.md"), then re-read this file's **Localized Fork** section before any product decision.
 >
-> **Current release: 0.5.97** (2026-09-04, shipped `909402eb3`; `/Applications/Multica.app` = 0.5.97, cold-start ~6s; **lab result rendering overhaul** — TS-only, no migrations / no Go changes; shared `LabTaskResultView` + `interactive-chart-envelope` + `lab-attachment-sanitize`; 9 new i18n keys; gates typecheck/lint/views vitest green). Notes: [`.omc/release-notes-0.5.97.md`](.omc/release-notes-0.5.97.md), ship log: [`.omc/0.5.97-ship-2026-09-04.md`](.omc/0.5.97-ship-2026-09-04.md). Prior: 0.5.96 (upstream sync + audit-fix batch; **CI runs on the fork for the first time**), 0.5.95 (upstream value-port batch), 0.5.94 (tech-debt audit fix batch incl. MUL-6749). Full per-release history: `.omc/release-notes-<ver>.md` + `.omc/<ver>-ship-<date>.md`.
+> **Current release: 0.5.101** (2026-09-06, shipped `4d8619af2`; `/Applications/Multica.app` = 0.5.101, cold-start ~4s; **upstream port batch — 2 of 3 PRs shipped** — MUL-7050 perf search remove counts + MUL-7016 B.4 read-replica foundation (selector.go + db_routing.go + handler.ReadSelector; main-process wiring deferred pending dbstartup backport). PR-3 (MUL-7008, 34 files / +736 LOC, agent-undersold scope) deferred to 0.5.101.1). Notes: [`.omc/release-notes-0.5.101.md`](.omc/release-notes-0.5.101.md), ship log: [`.omc/0.5.101-ship-2026-09-06.md`](.omc/0.5.101-ship-2026-09-06.md). Prior: 0.5.100 (3 MULs ported + ship-chain verify fatal landed), 0.5.97 (lab result rendering overhaul). Full per-release history: `.omc/release-notes-<ver>.md` + `.omc/<ver>-ship-<date>.md`.
 >
 > **Gate-integrity reset (2026-09-01, no version bump).** `pnpm typecheck`, `pnpm lint`, and `pnpm test` are GREEN at HEAD, so **any red test from here is a regression**, not background noise. The "N failures = pre-existing baseline" convention is RETIRED. If a suite must be parked, skip it explicitly with a comment naming the gate — never by leaving it red. Current parked: 33 (`inbox-page.test.tsx` + 2 marker tests in `description-preview.test.ts`; MUL-6632 decision gate still open).
 
@@ -285,14 +285,56 @@ make check
 
 Do NOT claim verification passed unless you ran it. If you skip (docs-only or asked not to), say so.
 
-**Ship gate (mandatory)** — before any release commit, BOTH must be green:
+**Ship gate (mandatory before every release)** — all three must be green:
 
-- `pnpm typecheck` (full turbo pipeline) — catches TS breakage
-- `cd server && go test -count=1 ./internal/... ./pkg/agent/...` — catches Go breakage
+- `pnpm typecheck` (full turbo pipeline) — catches TS breakage.
+- `cd server && go test -count=1 ./internal/... ./pkg/agent/...` — catches Go breakage.
+- `bash scripts/ship-mac.sh --yes` runs snapshot → bundle-cli → build → package → nested-binary signing → **cold-start verify (FATAL since 0.5.100)**. Step 7 now refuses to ship when any of these fail: (a) the verify script is missing, (b) the verify script exits non-zero, (c) no server PID is bound on `:8090` after the script reports PASS, (d) `/health` does not return `{"status":"ok"}` after the script reports PASS. The (c) + (d) checks are the belt-and-suspenders layer that catches the bug class where the verify script exits 0 incorrectly (e.g., 0.5.98 ReferenceError in `pickEnvForSpawn` shipped a broken app because the verify path was bypassable — fixed in 0.5.99 + hardened in 0.5.100). If any check fails, `die` aborts the ship before `/Applications/Multica.app` is overwritten. If you skip the ship chain (docs-only change or asked not to), say so explicitly.
 
-0.5.15 lesson: only `pnpm typecheck` was run; broken `#6199` cherry-pick broke `TestBuildMetaSkillContentIssueBodyFormatting` 4/4 subtests in the legacy verbose brief path (default in production) — caught only by post-ship code-reviewer, not the gate. Future batches must run both checks.
+0.5.15 lesson: only `pnpm typecheck` was run; broken `#6199` cherry-pick broke `TestBuildMetaSkillContentIssueBodyFormatting` 4/4 subtests in the legacy verbose brief path (default in production) — caught only by post-ship code-reviewer, not the gate. Future batches must run both typecheck + go test + the cold-start verify.
 
 **Silent-skip trap (0.5.79 lesson)**: with `DATABASE_URL` unset, DB-backed tests SKIP silently — suite "passes" in ~15s having run nothing. Export first: `export $(grep -E '^DATABASE_URL=' .env | xargs)` and confirm the runner printed its DB-set marker before trusting a suspiciously fast green run. `scripts/check.sh` hard-fails on that precondition.
+
+## Upstream Port Workflow
+
+Fork and upstream `multica-ai/multica` share **zero commits** (`git merge-base HEAD upstream/main` returns empty). All "ports" are manual diff transplants; `git cherry-pick` is unusable. The workflow below catches the failure modes surfaced during 0.5.100 / 0.5.101.
+
+**1. Pre-flight import audit (mandatory before any Go source edit):**
+
+```bash
+# Identify any fork-absent packages the target file imports
+git grep -l 'import.*pkgname' HEAD -- 'server/**' | xargs -I {} echo {}
+# Cross-check against existing directories
+ls server/internal/<pkgname> 2>&1
+```
+
+If a file imports a package whose directory does not exist, **fork is broken before your PR**. Do not wholesale-swap that file. Either back-port the missing package or do surgical edits that don't introduce the import.
+
+**2. Three parallel deep-dive research agents (mandatory for batches ≥3 MULs):** launch three agents in parallel — (a) perf/security batch, (b) UX batch, (c) untouched / new candidates. Each agent must:
+
+- Run `git show <sha>` per upstream commit to read the actual diff
+- Find fork equivalents via `grep` / `ls` (NOT assume — many are renamed or absent)
+- Verify "fork-absent infra" claims by greping the actual caller chain, not by assuming "dormant"
+- Output a structured port plan per MUL: files touched, complexity (LOW/MED/HIGH), strategy (port-as-is / surgical-port / adapt / skip), LOC delta estimate, localization conflicts, test portability, ordering constraints
+- Highlight reversals of any pre-port coarse evaluation
+
+**3. AskUserQuestion for ship scope (after deep-dive):** aggregate findings into a decision table, then lock scope via `AskUserQuestion`. Critical decisions: which PRs to ship now vs defer; SKIP vs port-only for dormant paths; split vs single-commit for HIGH-LOC batches; chunk strategy for translator/clone batches.
+
+**4. Per-file diff sanity gate (the 0.5.36 wholesale-adoption trap):**
+
+```bash
+git show <upstream-sha> --stat | head -60
+git diff --stat HEAD -- <file>
+# fork-side per-file diff must be ≤ 5× upstream's per-file stat
+```
+
+Wholesale adoption (`git checkout --theirs`) silently destroys fork-localization (no telemetry, no OAuth, etc.). Per CLAUDE.md "Surgical Changes" + 0.5.36 lesson, never wholesale-swap.
+
+**5. Verification (every commit, per ship gate above):** `pnpm typecheck --filter <pkg>` + `cd server && go test -count=1 -run <changed-test> ./...`. Full `pnpm test` + `cd server && go test ./internal/... ./pkg/agent/...` before any ship. The 0.5.100 belt-and-suspenders cold-start verify catches real boot regressions.
+
+**6. Document divergences in commit messages:** every fork-vs-upstream gap (function absent, file renamed, test infra missing, import broken) gets an explicit bullet in the commit body. Future sessions reading `git log -p` see WHY each was skipped, not just THAT it was.
+
+**Localization conflict scan (mandatory before any port):** grep upstream diff for these tokens — `posthog` / `PostHog` (telemetry), `electron-updater` / `autoUpdate` (auto-update), `SendCode` / `VerifyCode` / `GoogleLogin` (OAuth), `CloudFront` (cloud), `workspace_invitation` (invitations), `billing` / `subscription`, `contact-sales`. Hits → classify as "strip" / "port sans X" / "OK as-is".
 
 ## Commits and Releases
 
@@ -395,9 +437,17 @@ Real failure modes that took non-trivial debugging. NOT obvious from reading the
 
 - **`vendor/openscience-bin/openscience` native binary missing — DECLARED inline-only.** `apps/desktop/vendor/openscience-bin/` does not exist; `bundle-cli.mjs` references a binary that has to be drop-shipped externally. Impact limited because `claude_science_lab` is `inline` RuntimeKind → routes through Multica runtime bridge. Standalone subprocess path officially out of scope (bundle-cli logs informational note instead of warning).
 
+- **`cmd/server` build broken (pre-existing, MUL-6502 dependency):** `server/cmd/server/dbstats.go` imports `server/internal/dbstartup` (MUL-6502 startup-recovery package, 805 LOC + 19 files including docker/entrypoint.sh + helm templates) but the package directory does not exist in fork. `cmd/server` was unbuildable BEFORE 0.5.101 (not a regression). 0.5.101's B.4 wiring changes for `cmd/server/main.go` + `metrics/db.go` + `metrics/registry.go` were reverted in `3eb81bd42` because wholesale `dbstats.go` would have introduced `dbstartup` as a new failure. Do not touch `cmd/server/dbstats.go` until `dbstartup` is back-ported — `go build ./cmd/server/...` will fail. The desktop app ships fine; only the CLI server build is broken.
+
 ## Memory Index (cross-session)
 
 Memory lives in `~/.claude/projects/-Users-jiangjianyan-jjy-multica-exploration-dev/memory/` (re-pointed 2026-09-02 from `multica-main` slug). Full index in `MEMORY.md` (one line per memory, descriptive title). **Read before editing any subsystem with a known-regression surface.** These files are outside this repo (per-user, cross-session context) — `git` lookups at repo root will not find them.
+
+Most recent lessons worth re-reading before any upstream port or ship:
+
+- `0.5.99-h9-import-fix-...md` — `export { x } from "..."` re-export pattern is NOT a local bind; bare re-export in audit-fixed code caused 0.5.98 ReferenceError that bypassed the verify gate.
+- `0.5.100-upstream-port-batch-with-ship-chain-verify-fatal-...md` — ship-chain verify must be FATAL (now is); belt-and-suspenders post-verify checks; `CodexResumeOverflowError` / `annotateHermesProviderUnconfigured` / `keyboard-shortcuts-tab.tsx` are fork-absent.
+- `0.5.101-upstream-port-batch-with-deep-dive-reversal-lessons-...md` — 3 parallel deep-dive research agents catch scope miscounts (MUL-7008 was 3× undersold); wholesale-swap trap on partial pre-ported files; `dbstartup` is fork-missing; partial pre-ports can include broken imports.
 
 ## Domain Reminders
 

@@ -1,165 +1,462 @@
-# AGENTS.md
+# CLAUDE.md
 
-This file provides guidance to Qoder (qoder.com) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> **Single source of truth**: the root [`CLAUDE.md`](CLAUDE.md) is the authoritative rules file; this file is a synced digest of it. When the two disagree, `CLAUDE.md` wins — fix the drift here. **Guarded sections** — toolchain versions, package boundaries, verification commands, and the Critical Constraints tokens (localized fork prohibitions, state management, backend UUID rules, Pythia source-of-truth, experimental network calls, migration/config immutability, i18n selectors) — are enforced by `scripts/check-agents-docs-sync.mjs`, which runs in CI (`docs-sync` job) and in the `githooks/pre-push` hook. **Unguarded sections** (Quick Reference, Architecture, Sub-domain Guides, Testing Strategy, Dependency Management prose) are not machine-checked — verify them against `CLAUDE.md` before relying on them.
+> **TL;DR**: **localized single-user fork** of Multica (no telemetry, no OAuth, no cloud, username-only login — see **Localized Fork** below). Memory: `~/.claude/projects/-Users-jiangjianyan-jjy-multica-exploration-dev/memory/`. Backup: `.omc/backups/<date>/<release>-ship/` (auto per `ship-mac`). Single-command ship: `bash scripts/ship-mac.sh --yes`. Sub-domain guides table below; cross-cutting product/ship/desktop rules in this file. First-time readers: start with the fork notice in [`README.md`](README.md) ("This checkout is a localized single-user fork of multica-ai/multica ... governed by CLAUDE.md"), then re-read this file's **Localized Fork** section before any product decision.
+>
+> **Current release: 0.5.101** (2026-09-06, shipped `4d8619af2`; `/Applications/Multica.app` = 0.5.101, cold-start ~4s; **upstream port batch — 2 of 3 PRs shipped** — MUL-7050 perf search remove counts + MUL-7016 B.4 read-replica foundation (selector.go + db_routing.go + handler.ReadSelector; main-process wiring deferred pending dbstartup backport). PR-3 (MUL-7008, 34 files / +736 LOC, agent-undersold scope) deferred to 0.5.101.1). Notes: [`.omc/release-notes-0.5.101.md`](.omc/release-notes-0.5.101.md), ship log: [`.omc/0.5.101-ship-2026-09-06.md`](.omc/0.5.101-ship-2026-09-06.md). Prior: 0.5.100 (3 MULs ported + ship-chain verify fatal landed), 0.5.97 (lab result rendering overhaul). Full per-release history: `.omc/release-notes-<ver>.md` + `.omc/<ver>-ship-<date>.md`.
+>
+> **Gate-integrity reset (2026-09-01, no version bump).** `pnpm typecheck`, `pnpm lint`, and `pnpm test` are GREEN at HEAD, so **any red test from here is a regression**, not background noise. The "N failures = pre-existing baseline" convention is RETIRED. If a suite must be parked, skip it explicitly with a comment naming the gate — never by leaving it red. Current parked: 33 (`inbox-page.test.tsx` + 2 marker tests in `description-preview.test.ts`; MUL-6632 decision gate still open).
 
-> **Current release: 0.5.97** (2026-09-04, shipped at `909402eb3`; `/Applications/Multica.app` = 0.5.97, cold-start PASS ~6s; release notes [`.omc/release-notes-0.5.97.md`](.omc/release-notes-0.5.97.md), ship log [`.omc/0.5.97-ship-2026-09-04.md`](.omc/0.5.97-ship-2026-09-04.md); **lab result rendering overhaul — TS-only (no migrations / no Go changes)**: Claude Science-style result-first split across two surfaces — ① desktop lab workbench: redundant 打开对话 row button removed (row title already jumps to the conversation; `open_chat_button` string kept for lab-chat-panel) and the new **LatestResultPanel 实验结果** surface renders the newest run with structured output above the Plan timeline (testid `claude-lab-latest-result`); ② issue-side 科研实验室结果 card: the two duplicate same-page jumps became two distinct jobs — **查看结果渲染** expands the card in place rendering that run's structured deliverables (terminal+structured runs only, testid `lab-deliverable-result-toggle`) vs the run-scoped **在实验室查看完整记录** LabRunLink deep link (`?issue=&run=`); unscoped 在实验室打开 link + `open_in_lab` string retired; ③ rendering unified into shared `packages/views/experimental/components/` — `lab-task-result-view.tsx` (LabTaskResultView + labTaskHasStructuredDeliverables; desktop timeline rows / LatestResultPanel / issue card all share it), `interactive-chart-envelope.tsx` (fixes LabOutputPanel's long-standing TODO: interactive-chart attachments degraded to a JSON code dump, now real recharts line/bar/scatter with defensive envelope parsing), `lab-attachment-sanitize.ts` (safeSvgMarkup/safeImageSrc/safeHrefUrl moved from the desktop page so the issue side enforces the identical XSS policy; views `noUncheckedIndexedAccess` requires `?.[1]` on regex match groups); ④ i18n: 9 new `lab_output_panel` keys + `claude-lab.latest_result_header` across zh-Hans/en/ja/ko (4-locale parity verified); views lint `i18next/no-literal-string` is stricter than desktop — literals brought over raw must go through i18n. Gates: typecheck 6/6, lint 8/8, views vitest 1832 passed/33 skipped (MUL-6632 parked). Ship: 0.5.96 rollback copy moved to `~/.multica/backups/` per standing preference.) Previous release **0.5.96** (2026-09-02, shipped at `0b3026577`; `/Applications/Multica.app` = 0.5.96, cold-start PASS ~6s; release notes [`.omc/release-notes-0.5.96.md`](.omc/release-notes-0.5.96.md); **upstream sync + audit-fix batch** — ledgers [`.omc/upstream-sync-2026-09-02.md`](.omc/upstream-sync-2026-09-02.md) + [`.omc/audit-fix-2026-09-02.md`](.omc/audit-fix-2026-09-02.md): MUL-6870 GC ownership proof (data-loss class — every GC mutation must prove daemon ownership: `.task_owner` markers from Prepare + fail-closed reset check + `.gc_meta.json` legacy bridge for stock dirs; dirs with neither are retained forever), MUL-6921 co-authored-by toggle honored on existing checkouts (hook re-reads the daemon-published state file at commit time), MUL-6896 en squad strings only (zh-Hans voice protected); audit P0 trio — migration 167 fresh-install safe (agent_task_queue block gated on column existence) + **288** landing the relaxed accountable CHECK, **CI runs on the fork for the first time** (epic/** pushes + workflow_dispatch, installer matrix gated to PR/main; run 1 caught 8 fresh-schema failures the live-DB gates hid, incl. the real **originator FK bug**: comment triggers wrote agent ids into `originator_user_id`, **mig 289** NULLs 153 dangling rows + adds the two declared FKs), TestLLMCallHandler env isolation, TestLoadConfig CLI stub, pg-bootstrap sentinel `mkdirSync`.) Previous release **0.5.95** (2026-09-01, shipped at `a624d510d`; release notes [`.omc/release-notes-0.5.95.md`](.omc/release-notes-0.5.95.md); **upstream value-port batch** — full port/skip ledger [`.omc/upstream-sync-2026-09-01.md`](.omc/upstream-sync-2026-09-01.md): MUL-6878 terminal-status predicates once per request (mig **287**, plus the fork-missing MUL-4059 search comment-subquery workspace scoping), MUL-6835 in full (shared `priority-label.ts`; issue activity + search + inbox), locale-aware date/number formatting on fork surfaces, MUL-6737 (idle watchdog 30min→2h, tool budget derives from it, 5m tick cap), MUL-6783 (main-listener header/idle timeouts), MUL-6872 (inline-image blob-URL re-entry cache), MUL-6838 (squad surface i18n), MUL-6850 core (onboarding status label). Deliberately unported families need fork-absent upstream subsystems — see the sync doc.) Previous release **0.5.94** (2026-09-01, shipped at `02509d0e1`; `/Applications/Multica.app` = 0.5.94, cold-start PASS; ship log [`.omc/0.5.94-ship-2026-09-01.md`](.omc/0.5.94-ship-2026-09-01.md), release notes [`.omc/release-notes-0.5.94.md`](.omc/release-notes-0.5.94.md); audit fix batch — details in the **0.5.94 cycle** segment below; ship-1 failed cold-start on a **corrupt asar data region** (every entry offset ~5B, package.json unparseable, Electron main silent exit(1) at ~150ms), now gated by **ship step 5b/7 asar content canaries** — lessons: never run heavy pushes concurrently with packaging; migrate needs the bundled Postgres alive (0.5.92 lesson bit again); codesign-seal/Integrity/spctl red herrings do NOT block ad-hoc non-quarantined launches). **0.5.93 (2026-08-31) — MCP 管理 promoted to a first-class configure nav page (commits `d6601de08` + bump `b1ec61ff2`; same-day user feedback after 0.5.92)**: sidebar 配置 group = 运行时 / Skills / **MCP** / 设置 (`NAV_PAGE_REGISTRY` key `mcp` + `paths.mcp` + web `[workspaceSlug]/mcp` + desktop `path: "mcp"`); `mcp-sync-tab.tsx` moved to `packages/views/mcp/` (strings stay in settings.json `mcp_sync.*`), settings `?tab=mcp-sync` registration removed (move, not copy). Verified: typecheck 6/6; installed-asar — desktop route ×1 / nav registry ×2 / locale labels ×16 / settings tab ×0. **Gate-integrity reset (2026-09-01, no version bump)**: the "views N failures = pre-existing baseline" convention is RETIRED — typecheck / lint / `pnpm test` are green at HEAD (views 1823 passed, 33 skipped), so **any red is now a regression**. Measured at start: lint red (desktop 22 + views 8), views 48 failing — docs said 42, and the +6 was an `app-sidebar.test.tsx` regression **0.5.93 shipped with** (mock lacked the new `mcp` path key; its gates were typecheck + asar greps only); Go was genuinely green. Three real defects the red baseline had hidden: composer send/stop buttons had **no accessible name** (`ariaLabel`/`stopAriaLabel` never passed since upstream `4a9c9f330`); `ClaudePanel` dereferenced `ctx.issue.id` unguarded → a partial lab context **white-screens the whole issue page**; 3 × `shell.openExternal` bypassed `openExternalSafely`. Also cleared: `vendor/` excluded from desktop lint (bundle-cli re-copies it), `unist-util-visit`/`recharts` declared in their own packages, 12 duplicate lazy `require()`s removed (an untyped `require` was masking a TS error — a `FileHandle` is not a valid `spawn` stdio entry, so server stdout now passes `logFd.fd`), lab-output-panel's 10 hardcoded strings → `lab_output_panel.*` ×4 locales. `scripts/check.sh` gained the **lint step it never had** + a hard `DATABASE_URL` fail before the Go suite. **Parked, not fixed (MUL-6632 still open)**: `inbox-page.test.tsx` 31 + 2 `description-preview` channel-marker tests. **0.5.92 (2026-08-31) — MCP sync mirror + usage metric (commits `3e4241501` WIP-align + `bffb023e8` + bump `e93d53c9b`)**: the in-server `mcpsync` worker (boot + 60s tick) mirrors `~/.claude.json::mcpServers` into `mcp_sync_server` (migration 285) with **mcpServers-subtree canonical-hash change detection** (the file churns every Claude Code startup — mtime/whole-file detection would thrash); missing/malformed source keeps the last good mirror and records the error. Read-only contract: **no edit/delete route exists** — synced servers cannot be deleted from Multica; source removals flip rows to `removed` and stop merging. Claim-time merge (claude provider only, `mcpsync.MergeForClaim`): synced set overlays beneath the agent's manual `mcp_config`, **manual wins on collision**; `--strict-mcp-config` makes the merged set the agent's exact tool surface. `GET/POST /api/mcp-sync[/refresh]` returns env/header values masked server-side (`********`). Usage: daemon counts `mcp__`-prefixed tool_use events → `agent_task_queue.mcp_calls` (via the /usage channel, captured on blocked runs too) → usage page 5th KPI via `GET /api/dashboard/mcp-calls/daily` (completed_at-anchored, no hourly-rollup column). Verified: typecheck 6/6; FULL `go test -p 1 ./...` 30 pkgs 0 FAIL with DB genuinely up; live smoke 15 servers mirrored; installed-app worker self-started and re-synced. **Ops lesson**: ship WITH the app running — killing it stops the bundled Postgres.app (:5432) and ship step-2 migrate fails; a gate run with the DB down silently skips DB-backed packages (handler "ok" in ~1s is hollow, ~25s is real). **Unported upstream ledger**: MUL-6632 inbox redesign family (SKIP-DIVERGENCE decision gate unchanged — the sole remaining entry; MUL-6749 was ported in the 0.5.94 cycle, MUL-6835 closed with the inbox priority-label fix, `109b67790` resolved-by-divergence via `ec06e1eff`).  **Upstream sync 2026-09-01 (shipped in 0.5.95)**: ported from upstream `d6ecf4bc8..61ea48fd2` (51 commits triaged by value) — MUL-6878 terminal-status predicates resolve once per request (mig **287**; also carried the fork-missing **MUL-4059** search comment-subquery workspace scoping), MUL-6835 in full (shared `priority-label.ts`; issue activity + search + inbox), locale-aware date/number formatting on fork surfaces, MUL-6737 (idle watchdog 30min→2h, tool budget derives from it, 5m tick cap), MUL-6783 (main-listener header/idle timeouts), MUL-6872 (inline-image blob-URL re-entry cache), MUL-6838 (squad surface i18n), MUL-6850 core (onboarding status label). Full port/skip ledger with reasons: [`.omc/upstream-sync-2026-09-01.md`](.omc/upstream-sync-2026-09-01.md). Deliberately unported families (need fork-absent upstream subsystems — desktop daemon recovery/localization, pending-work hub, prior-env-root reuse, local-worktree mode, delegated-failure-recovery service, chat stick/transcript base, pi/codex provider fixes): see the sync doc. Fork localization laws held: zh-Hans voice not overwritten (30bb3747f skipped), Agent/Squad badges stay untranslated (glossary). Residual: route-switch with menu open still unmounts the singleton (upstream-accepted); origin re-pointed 2026-09-01 to the private `jjy1000/multica-exploration-dev` mirror (24 branches pushed; 322 stale snapshot tags rejected by GitHub fsck, left local). **Upstream sync 2026-09-02 (shipped in 0.5.96)**: ported from upstream `61ea48fd2..2e2974510` (5 commits triaged by value) — **MUL-6870 GC ownership proof** (`8dd14eed0`; the fork carried the SAME data-loss pattern: any second-level dir under WorkspacesRoot with no .gc_meta.json past the orphan TTL was removed without proving Multica created it, so a mispointed workspaces_root got real user content deleted; port adds the minimal `execenv/root_identity.go` `.task_owner` substrate the fork never had — Prepare writes the marker before any task content and refuses to reset a root it cannot prove is its own (shortID collisions, mispointed roots — upstream keeps this in its claim subsystem, which the fork does not run), GC gates every mutating action (clean / orphan / artifacts) on `gcTaskDirOwner` and re-proves immediately before RemoveAll; **legacy bridge**: pre-marker dirs prove ownership via valid daemon-written `.gc_meta.json` + path-shape match (task segment must look like shortID hex or a UUID — human-named dirs always refused), dirs with neither marker nor meta are retained forever and need manual cleanup), **MUL-6921 Co-authored-by toggle reaches existing checkouts** (`e56194cbc`; the hook froze the decision at checkout time and outlives the checkout, so toggle-off never reached repos already on disk — the hook now re-reads `.multica_co_authored_by` at commit time (missing state file keeps the trailer = hook-presence semantics), the daemon is the only publisher and reconciles daemon-installed hooks — legacy unconditional scripts rewritten to the gated script when enabled, deleted when disabled, user hooks never touched — across bare caches AND isolated checkouts (env roots attributed by the MUL-6870 owner records) on every settings refresh; fork's 30s sync tick already re-reads tracked settings every tick, so upstream's server-side wake-hint leg stays skipped), and MUL-6896 en-only (2 squad source strings: squads receive *issues*, the leader delegates *sub-issues*). Skipped: MUL-6790 property-filter operators (fork-absent subsystem), MUL-6542 mobile markdown layout, MUL-6896 zh/ja/ko/docs glossary sweep (fork zh-Hans voice law — the fork never adopted the MUL-5703 entity/run split, applying it piecemeal would be self-inconsistent). Full port/skip ledger: [`.omc/upstream-sync-2026-09-02.md`](.omc/upstream-sync-2026-09-02.md). Gates: typecheck 6/6, lint 8/8, views locale 88/88, Go full `-p 1 -count=1` 36 pkgs 0 FAIL. **Audit-fix cycle 2026-09-02 (same day, 8 commits `625646948`..`34811224f`, shipped in 0.5.96)**: an external audit's three P0s were verified real and fixed — migration 167 made fresh-install safe (in-place edit is checksum-free-safe; DROP IF EXISTS alone was NOT enough, the ADD needed the column gate) with new mig **288** landing the relaxed accountable CHECK on every lineage (live DB was already relaxed; 236 strict-violations mean never re-stricten); TestLLMCallHandler env isolation (gate verdicts must state the export method — check.sh sources the WHOLE .env); ci.yml now triggers on epic/** pushes (installer matrix gated to PRs/main, macOS 10x billing). The CI first run then caught what local gates never could (they run against the incrementally-upgraded live DB): the comment-trigger enqueue wrote AGENT ids into originator_user_id — silent for months because 240's ADD COLUMN IF NOT EXISTS skipped the FK clauses on out-of-band columns; live carried 153 garbage rows. Fixed in code (switch uses the caller-resolved originator; agent→top-of-chain human, ""→NULL as MUL-4525 §2 always documented) + new mig **289** (null dangling refs + add both FKs on old lineages; applied to live, 0 dangling after). Also: TestLoadConfig CLI stub, pg-bootstrap sentinel mkdir (first-run ENOENT crash), memory path re-pointed to the live store. Full ledger: [`.omc/audit-fix-2026-09-02.md`](.omc/audit-fix-2026-09-02.md). CI run 33606890412 GREEN (backend incl. empty-DB migrate smoke + frontend + docs-sync). **CI flake discovered post-ship (0.5.96 day, two false reds)**: the docs-only `b0f6bbd1b` run 33608082929 had FAILED on a frontend **5s vitest timeout at `issue-detail.test.tsx:552`** (CI-runner slowness; identical content green in 33606890412) — missed because only the prior commit's run was watched; the 0.5.96 push run 33610251863 attempt 1 hit the same flake, `gh run rerun --failed` → attempt 2 GREEN (backend/docs-sync/changes ✓, installer correctly gated-skip). **Follow-up: raise the testTimeout on that heavy test file** — it false-reds under the any-red-is-a-regression law. **0.5.94 cycle (2026-09-01 audit + fix batch)**: MUL-6749 ported from upstream `d6ecf4bc8` — `DeriveKey` category+ordinal fallback (`客户确认` → `in_review_2`), colliding-slug disambiguation, exclusive catalog lock on EVERY create, `status_name` end-to-end (HTTP + events + core schema `.catch(undefined)`), unknown-status 400 lists `key (Name)`, settings toast names the minted key, CLI `--help` says KEY; 8 DB-backed tests green. MUL-6835 closed (inbox `priority_changed` localized). `TestThinkingCacheKeyDistinct` order-flake fixed (three cache-resetting tests left the parallel wave). `check.sh` steps 1-3 uncached (`--force`). `TestAutopilotTickFlagOffShortCircuits` retired (0.5.6 removed its gate). Still open: CompleteTask dispatched no-op (WS4), Timesfm global-lock-count tests (table has no workspace column — structural), mythos reaper race window, ClaimTask causal-brief e2e + concurrency coverage. Previous chain: **0.5.91** (2026-08-31) — issue context-menu singleton refactor (freeze fix, upstream `ba108978a` port); **0.5.90** (2026-08-30) — OpenMythos enhancer-only outer loop (sole retired, coda-strategy delivery, `IssueOpenMythosIcon`, full rebrand); **0.5.89** — labs conversational plugin management (five `multica lab` verbs + briefing), mig 284 teardown ledger + reclaim, skills_visibility lab_scoped + daemonless-install stubs, `.trash/` 30-day GC; **0.5.88** — labs delegation loop `multica lab delegate --parent`; **0.5.87** — mythos async-engine unification; **0.5.86** — interaction-model law, assignee-lock gate, lab report writeback (mig 282), swarm consolidation (mig 283); **0.5.85** — causal graph P1 read-side. **Next cycle (0.5.94+)**: OpenMythos deepening (embedding-based convergence via pgvector + adaptive early-exit, sub-issue `hidden_at` mig **286** + archive, self-opt deep wiring, fixed-roster + skill-adapter reuse) + WS4 delegation UX + WS5 causal memory + MCP sync per-agent opt-out toggle / project-scope sources; remaining ledger: CompleteTask dispatched no-op, TestInstallTimesfm workspace scoping, mythos reaper boot race, DB-backed ClaimTaskByRuntime integration tests. **Gate-integrity**: final gates must be uncached, sequential `go test ./...` with `DATABASE_URL` exported, **and run with runtime-verification servers STOPPED** (their tickers share the DB) **and with the packaged app RUNNING** (it owns the bundled Postgres.app on :5432 — a DB-down gate run silently skips DB-backed packages: handler "ok" in ~1s is hollow, ~25s is real); runtime verification servers take `PORT=8091` (OrbStack squats :3000/:8080, packaged server :8090, pprof :6060). Packaged-app ops facts: the app bundles Postgres.app (`~/Library/Application Support/Multica/pg`+`pgdata`, owns :5432); the cold-start verifier reads expected version from the PRIMARY checkout (use `EXPECTED_VER=` pre-merge); OrbStack `pocketbase` restart policy `no`; pre-update snapshot keeps ONE `.app` rollback copy (full bundle + `pg_dump`) and `ship-mac` step 6b writes the repo-level `.omc/backups/<TS>/<ver>-ship/`; **user preference: after every ship, move the fresh `/Applications/Multica.app.*.bak` into `~/.multica/backups/` — /Applications keeps only the official build**. **0.5.80's nav law stands**: every navigation path into `/experimental/*` MUST arm the workspace-singleton release-suppression token. Open decision gate unchanged: upstream inbox architecture (MUL-6632) — until decided, inbox-family upstream commits stay SKIP-DIVERGENCE. Historical release notes archived at `.omc/_legacy/release-notes-archive.md` (0.5.12→0.5.41); 0.5.43–0.5.93 notes at `.omc/release-notes-0.5.{43..93}.md`; load-bearing contracts live in root [`CLAUDE.md`](CLAUDE.md) Known Stability Surfaces / Active Contracts / Fork-Applicable HIGH Vuln Contracts.
+## Sub-domain Guides (read the nearby file when working in a sub-domain)
 
-## Quick Reference
+Each large sub-domain has a co-located `CLAUDE.md`. When your work is scoped to one, that nearby file is sufficient. This root file is navigation + cross-cutting rules.
+
+| Working in | Read first |
+| --- | --- |
+| `server/` (Go backend, handlers, migrations, experimental catalog) | [`server/CLAUDE.md`](server/CLAUDE.md) |
+| `packages/` (`core` / `ui` / `views` shared FE) | [`packages/CLAUDE.md`](packages/CLAUDE.md) |
+| `packages/views/` (shared business pages/components) | [`packages/views/CLAUDE.md`](packages/views/CLAUDE.md) |
+| `apps/desktop/` (Electron app, packaging, self-contained backend) | [`apps/desktop/CLAUDE.md`](apps/desktop/CLAUDE.md) |
+| `apps/mobile/` (Expo / React Native) | [`apps/mobile/CLAUDE.md`](apps/mobile/CLAUDE.md) |
+| `apps/web/` (Next.js App Router, platform wiring) | [`apps/web/CLAUDE.md`](apps/web/CLAUDE.md) |
+
+Each guide directory also carries an auto-synced `AGENTS.md` mirror. Co-located `CLAUDE.md` is source of truth; parity enforced by `scripts/check-agents-docs-sync.mjs`.
+
+## Commands
+
+> **Single-command release**: `bash scripts/ship-mac.sh --yes` runs snapshot → bundle-cli → build → package → nested-binary signing → cold-start verify. `--build-only` stops before `/Applications` overwrite. Full ship chain is in the script; this file is not a duplicate.
 
 ```bash
-make dev              # One-command bootstrap: auto-setup env, deps, DB, start everything
-make start            # Start backend + frontend (requires prior setup)
-make check            # Full verification: typecheck → unit → Go tests → E2E
-make check-fast       # Fast affected TS checks only (typecheck + unit + lint), no DB/Go/E2E
-make test             # Go tests only (server/)
-make server           # Run Go backend only
-make stop             # Stop app processes
-make clean            # Remove build caches
+# Single Go test (from server/)
+cd server && go test -run TestName -count1-1 -timeout 60s ./internal/handler/
 
-pnpm typecheck        # TypeScript typecheck (Turborepo)
-pnpm test             # Vitest unit tests (Turborepo)
-pnpm lint             # ESLint (Turborepo)
-pnpm dev:web          # Next.js dev server
-pnpm dev:desktop      # Electron dev
-
-# Single Go test
-cd server && go test -run TestName -count=1 -timeout 60s ./internal/handler/
-
-# Single Vitest test
+# Single Vitest test (from repo root)
 pnpm test path/to/file.test.ts
 
-# After SQL changes
-cd server && sqlc generate
-
-# Verified ship (7 steps: build→migrate→bundle→sign→backup→install→cold-start)
-bash scripts/ship-mac.sh --yes
-
-# Packaged-app check (dev .env PORT=8080; the packaged app's server listens on :8090)
-bash ~/.multica/scripts/verify-desktop-cold-start.sh
+# Docs-sync check (run after any root CLAUDE.md edit, before commit)
+node scripts/check-agents-docs-sync.mjs
 ```
 
-## Architecture
+### Before packaging (fork-specific, NOT in CONTRIBUTING.md)
 
-Multica is an AI-native task management platform. Agents are first-class assignees that own issues, comment, and change status.
-
-```
-server/                  Go backend (Chi router, sqlc, gorilla/websocket)
-├── cmd/server/          HTTP + WebSocket server
-├── cmd/multica/         CLI binary
-├── cmd/migrate/         Forward/back SQL migrations
-├── internal/handler/    HTTP handlers
-├── internal/service/    Business logic
-├── internal/daemon/     Agent daemon runtime
-├── internal/experimental/ Labs flag platform
-└── migrations/          SQL migration files
-
-apps/web/               Next.js App Router (frontend)
-apps/desktop/           Electron desktop app (primary target)
-apps/mobile/            Expo / React Native iOS app
-apps/docs/              Nextra documentation site
-
-packages/core/          Headless business logic, API client, React Query hooks, Zustand stores
-packages/ui/            Atomic UI components (shadcn/Base UI)
-packages/views/         Shared business pages/components for web + desktop
-packages/tsconfig/      Shared TypeScript config
+```bash
+bash ~/.multica/scripts/pre-update-snapshot.sh   # 1. mandatory; exit 1 blocks packaging
+cd server && go run ./cmd/migrate up             # 2. apply pending migrations BEFORE bundle-cli
 ```
 
-**Dependency direction:** `views → core + ui`; `core` and `ui` are independent. Shared packages export raw `.ts`/`.tsx` compiled by consuming apps.
+### Version source (fork-specific)
 
-## Toolchain
+`git describe --tags` returns `pre-update-...-g<sha>` (existing tags are snapshot markers, not release tags). `bundle-cli.mjs` falls back to `apps/desktop/package.json` → `version`. **`apps/desktop/package.json` is the canonical version source. Bump only that file.**
 
-| Tool | Version | Pin location |
-|------|---------|--------------|
-| Node | 22.x | `.nvmrc`, CI |
-| pnpm | 10.28.2 | `package.json` `packageManager` |
-| Go | 1.26.1 | `server/go.mod`, CI |
+## Localized Fork
+
+This is a **fully localized, single-user fork** of Multica. Primary target: macOS desktop app.
+
+- **No telemetry**: `analytics.NewFromEnv()` always returns `NoopClient{}`. Frontend analytics functions are no-ops. `server/internal/analytics/posthog.go` deleted.
+- **No auto-update**: CLI update command stubbed. Daemon does not start `autoUpdateLoop`. Desktop `updater.ts` is no-op. `electron-builder.yml` has no `publish:` block. `electron-updater` dependency removed.
+- **No Google OAuth / email verification**: `SendCode`, `VerifyCode`, `GoogleLogin` all 410 Gone. Only `UsernameLogin` (`POST /auth/login {"name":"..."}`) works.
+- **No cloud features**: billing, cloud runtime, CloudFront, contact sales, cloud PAT, invitations, workspace members — all deleted.
+- **No external support UI**: HelpLauncher, JoinDiscordCard, Discord icon, FeedbackModal — all deleted.
+
+Do **not** re-add any of the above.
+
+- **Username-only login upserts a new user on every login.** `POST /auth/login` creates a new user row when the name is unseen. Workspace membership is bound to the creator user_id; any username change across restarts yields a fresh user with zero workspaces. Do NOT "fix" by auto-binding (let typo grant ownership). See `.omc/incidents/2026-06-27-username-only-login-loses-workspaces.md`.
+
+- **i18next selector block-body incident (2026-07-14).** Block-body selectors `t(($) => { const v = $.foo; return v; })` return a plain string instead of the proxy; i18next's `keysFromSelector` reads `[PATH_KEY]` off the return, `path` becomes `undefined`, and `if (path.length > 1 && nsSeparator)` throws `TypeError`. The error escapes React's render pass, unmounts the surrounding tree, and (because the offending selector was inside `AppSidebar`) blanked the entire desktop window. Fix: selectors must be arrow expressions, e.g. `t(($) => $.sidebar[item.labelKey])`. Three layers of protection: (1) comment block in `packages/views/i18n/use-t.ts`; (2) `no-restricted-syntax` rule in `packages/views/eslint.config.mjs`; (3) `AppSidebar` wrapped in `error-boundary` with "Sidebar failed to render / Retry" fallback.
+
+## Retired Features (do NOT re-add)
+
+- **`constitution_agent` lab** (retired 0.3.57, migration 165). Removed the `宪法智能体` agent, 3 autopilots, 4 visibility rows, bundled skill. If upstream re-adds, do NOT cherry-pick back.
+- **`agent_self_optimization` + `agent_creation_studio` experiment flags** (promoted 0.5.5/0.5.5.1; catalog entries deleted 0.5.6). Runtimes live as product-level resources — self-opt via `service/agent_self_optimization/*` controlled by the weekly `[自进化]` autopilot row's `status`; the studio as an issue-bound lab (`lab_source='agent_creation_studio'`, leader `agent_creation_expert`) entered via LabPicker. Do NOT re-add catalog entries, Labs-tab toggles, or `flagEnabled(...)` gates for these keys — a re-added gate on a removed key resolves `false` forever and silently kills the feature. Rationale: `.omc/0.5.6-ship-2026-08-02.md`.
+- **Username-only login user-creation side effects** (see Localized Fork above).
+- **Inline lab workspace panel on issue detail** (removed 0.3.38). `LabWorkspacePanel`, `pickLabInlineView`, `IssueDetailProps.renderLabInline`, `*Inline` view wrappers (`ClaudeLabInline`/`PythiaInline`/`MythosInline`/`LLMWikiBridgeInline`) all gone. Lab surfaces reachable ONLY via `/experimental/<suffix>` from sidebar or `<IssueLabsSection>` "open panel" link.
+
+## Conventions
+
+The source of truth for code naming, i18n glossary, and Chinese product voice is:
+
+- `apps/docs/content/docs/developers/conventions.mdx`
+- `apps/docs/content/docs/developers/conventions.zh.mdx`
+
+Read it before editing translations in `packages/views/locales/`, naming routes/packages/files/DB columns/types, or writing Chinese UI/docs copy.
+
+## Project Shape
+
+Multica is an AI-native task management platform for small teams, with agents as first-class assignees that can own issues, comment, and change status.
+
+- `server/` — Go backend (Chi router, sqlc, gorilla/websocket). Three entrypoints: `cmd/server` (HTTP + WS), `cmd/multica` (CLI), `cmd/migrate` (forward/back SQL).
+- `apps/web/` — Next.js App Router. `apps/desktop/` — Electron desktop (primary). `apps/mobile/` — Expo React Native. `apps/docs/` — Nextra docs.
+- `packages/core/` — headless business logic, API client, React Query hooks, Zustand stores.
+- `packages/ui/` — atomic UI components only. `packages/views/` — shared business pages/components for web+desktop.
+- Shared packages export raw `.ts`/`.tsx`, compiled by consumers. Dependency direction: `views -> core + ui`; `core` and `ui` must stay independent.
+
+### Data Flow (60-second mental model)
+
+```
+  Renderer (desktop/web)  ─HTTP+WS─▶  server/internal/handler → service/* → sqlc → Postgres+pgvector  ─WS push─▶  Renderer
+                                                                                                            ▲
+  Local Daemon (server/cmd/multica + apps/desktop daemon-manager.ts) ─spawns─▶  Claude Code / Codex / copilot / openclaw / ...
+```
+
+Lifecycle of an assigned task: **PATCH `issue.assignee_*`** → server `assignDefaultLabAgent` (if lab-bound) → daemon claim on `agent_task_queue` → daemon `LoadAgentSkillsForClaim` injects builtin + workspace skills → subprocess spawns agent CLI → progress over WS → renderer patches Query cache via `["agent-task-snapshot"]` invalidation. Labs add a parallel path via `issue.lab_source`.
+
+## State Rules
+
+Server state and client state stay separate.
+
+- **TanStack Query** owns server state: issues, users, workspaces, inbox, agents, members, anything fetched from API.
+- **Zustand** owns client state: selected workspace, filters, drafts, modals, tab layout, navigation history.
+- Shared Zustand stores live in `packages/core/`, never in `packages/views/` or apps.
+- React Context is for platform plumbing only (`WorkspaceIdProvider`, `NavigationProvider`).
+- Only auth/workspace stores may call `api.*` directly. Other server interaction belongs in queries/mutations.
+- Workspace-scoped query keys must include `wsId`.
+- Mutations are optimistic by default: patch locally, send request, roll back on failure, invalidate on settle.
+- WebSocket events invalidate or patch Query cache; never write directly to Zustand stores.
+- Persist durable preferences/drafts/layout. Do NOT persist server data or ephemeral UI state.
+- Zustand selectors must return stable references.
+- Hooks that need workspace context should accept `wsId`; do not call `useWorkspaceId()` internally unless guaranteed under the provider.
+
+## Package Boundaries
+
+- `packages/core/`: no `react-dom`, `localStorage` (use `StorageAdapter`), `process.env`, or UI libraries.
+- `packages/ui/`: no `@multica/core` imports and no business logic.
+- `packages/views/`: no `next/*`, `react-router-dom`, no stores. Use `NavigationAdapter`, `useNavigation()`, `<AppLink>`.
+- `apps/web/platform/`: only place for Next.js navigation/platform APIs.
+- `apps/desktop/src/renderer/src/platform/`: only place for `react-router-dom` wiring.
+- Every workspace under `apps/` and `packages/` declares directly imported external packages in its own `package.json`.
+- Shared deps use `catalog:` from `pnpm-workspace.yaml`; `apps/mobile/` pins Expo/React Native directly.
+
+Full state model + testing rules: [`packages/CLAUDE.md`](packages/CLAUDE.md).
+
+## Sharing Rules
+
+1. Next.js, Electron, router APIs stay in the app/platform layer.
+2. Headless logic → `packages/core/`.
+3. Shared UI/business views → `packages/views/`.
+4. Shared primitives → `packages/ui/`.
+
+Mobile is independent: imports only types + pure functions from `@multica/core` (`import type`), owns its UI/state/hooks/providers/i18n/React/build/release.
+
+## Toolchain Baseline (do NOT bump casually)
+
+| Tool | Version | Source |
+| --- | --- | --- |
+| Node | 22.x | CI workflows |
+| pnpm | 10.28.2 | `package.json` (`packageManager`) |
+| Go | 1.26.1 | CI workflows |
 | TypeScript | ^5.9.3 | `pnpm-workspace.yaml` catalog |
 | React | 19.2.3 | `pnpm-workspace.yaml` catalog |
-| PostgreSQL | 17 with pgvector | Docker / bundled Postgres.app |
+| PostgreSQL | 17 with pgvector | `pgvector/pgvector:pg17` (CI service) |
 
-## Sub-domain Guides
+`apps/mobile/` pins Expo/React Native directly; excluded from root turbo pipelines.
 
-When working in a sub-domain, read its co-located guide first:
+## Authentication
 
-| Directory | Guide |
-|-----------|-------|
-| `server/` | `server/CLAUDE.md` |
-| `packages/` | `packages/CLAUDE.md` |
-| `packages/views/` | `packages/views/CLAUDE.md` |
-| `apps/desktop/` | `apps/desktop/CLAUDE.md` |
-| `apps/mobile/` | `apps/mobile/CLAUDE.md` |
-| `apps/web/` | `apps/web/CLAUDE.md` |
+Username-only. `POST /auth/login` accepts `{"name":"alice"}` — first call creates the user (email = `name + "@local"`), returns a JWT. No email verification, no Google OAuth, no password. Login pages: `apps/desktop/src/renderer/src/pages/login.tsx` + `apps/web/app/(auth)/login/page.tsx`. Both call `useAuthStore.getState().loginWithUsername(name)`.
 
-Each guide directory also carries an auto-synced `AGENTS.md` mirror (same content, discoverable by agent platforms that load `AGENTS.md`). The co-located `CLAUDE.md` is the source of truth; parity is enforced by `scripts/check-agents-docs-sync.mjs`.
+## API Compatibility
 
-Root `CLAUDE.md` has complete rules for desktop packaging, labs platform, ship chain, and cross-cutting constraints.
+Frontend code must survive backend response drift, especially in installed desktop builds. zod schemas + `parseWithFallback` for every endpoint consumed by UI logic, explicit `=== true` boolean checks, `default` branch on server-driven enums. Full contract: [`packages/CLAUDE.md`](packages/CLAUDE.md) §API compatibility.
 
-## Critical Constraints
+## Backend UUID Rules
 
-### This is a localized single-user fork
+In `server/internal/handler/`, know where a UUID came from before using it in write queries: path params via loaders (`loadIssueForUser`, `loadSkillForUser`, `loadAgentForUser`, `requireDaemonRuntimeAccess`), pure UUID inputs via `parseUUIDOrBadRequest`, trusted round-trips via `parseUUID`, outside handlers via `util.ParseUUID`. Full table: `server/CLAUDE.md` §UUID rules.
 
-Do NOT re-add: telemetry, auto-update, Google OAuth/email verification, cloud features, external support UI (Discord/HelpLauncher/Feedback). Only `POST /auth/login {"name":"..."}` (username-only) works.
+## Coding Rules
 
-### Package boundaries
+- TypeScript strict mode on; keep types explicit.
+- Go follows standard conventions: `gofmt`, `go vet`, checked errors.
+- Code comments must be English.
+- Prefer existing patterns/components over new parallel abstractions.
+- Avoid broad refactors unless required by the task.
+- For internal, non-boundary code: no compatibility layers, fallback paths, dual writes, legacy adapters, temporary shims unless explicitly requested.
+- If a flow or API is being replaced and the product is not live, prefer removing the old path instead of preserving both.
+- New global pre-workspace routes: single word (`/login`, `/inbox`) or `/{noun}/{verb}` (`/workspaces/new`). No hyphenated root routes.
+- Reserved slugs: `server/internal/handler/reserved_slugs.json`. Edit it, run `pnpm generate:reserved-slugs`, commit the generated `packages/core/paths/reserved-slugs.ts`.
+- When changing CLI commands/flags, API fields, or product behavior documented by built-in skills under `server/internal/service/builtin_skills/*`, update the relevant `SKILL.md` and `references/*-source-map.md` in the same PR.
 
-- `packages/core/`: No `react-dom`, no `localStorage` (use `StorageAdapter`), no `process.env`, no UI libs
-- `packages/ui/`: No `@multica/core` imports, no business logic
-- `packages/views/`: No `next/*`, no `react-router-dom`, no stores — use `NavigationAdapter`/`useNavigation()`/`<AppLink>`
-- Every workspace under `apps/` and `packages/` must declare external deps in its own `package.json`
-- Shared deps use `catalog:` from `pnpm-workspace.yaml`
+## Web/Desktop Features
 
-### State management
+When adding a shared page/feature for web + desktop:
 
-- **TanStack Query** = server state (issues, users, workspaces, agents)
-- **Zustand** = client state (filters, drafts, modals, layout)
-- WebSocket events invalidate Query cache; never write to Zustand stores directly
-- Mutations are optimistic by default
+1. Page/component in `packages/views/<domain>/`.
+2. Platform wiring in both `apps/web/app/` and desktop router (unless desktop flow is a transition overlay).
+3. Use `useNavigation().push()` or `<AppLink>` in shared code.
+4. Use shared guards/providers (`DashboardGuard` from `packages/views/layout/`).
+5. Platform-only UI in app or via props/slots.
+6. Hooks needing workspace context accept `wsId`.
 
-### Backend UUID rules
+CSS shared from `packages/ui/styles/` — use semantic tokens (`bg-background`, `text-muted-foreground`), never hardcoded Tailwind colors.
 
-In `server/internal/handler/`: resource path params → resolve through loaders; pure UUID inputs → `parseUUIDOrBadRequest`; trusted round-trips → `parseUUID` (panics on invalid).
+When reviewing/auditing UI code (a11y, UX, visual design), invoke `web-design-guidelines` skill.
 
-### Desktop primary considerations
+## Mobile Rules
 
-- Pythia source-of-truth: `apps/desktop/vendor/pythia-src/engine/` (NOT `resources/pythia/engine/`)
-- All experimental tab network calls must use `api.rawRequest()`, never bare `fetch()`
-- Migrations are forward-only (never drop tables/columns)
-- Config fields are append-only (no deletions/renames)
+Read `apps/mobile/CLAUDE.md` before touching. Mandatory pre-flight, import limits, parity rules, tech stack, UI rules, data helpers, realtime, release flow.
 
-### i18n
+- Mobile shares only `@multica/core` types and pure functions.
+- Match web/desktop semantics: counts, permissions, enums/transitions, identity.
+- May differ in UI/interaction when phone context requires.
 
-Selectors MUST be arrow expressions: `t(($) => $.foo.bar)` ✓ — block body `t(($) => { return $.foo; })` ✗ (crashes the app). ESLint enforces this.
+## UI Rules
 
-## Testing Strategy
+- Prefer shadcn/Base UI components. Add with `pnpm ui:add <component>` from repo root.
+- Design tokens + semantic classes; no hardcoded colors.
+- No extra local state unless design requires.
+- Handle overflow, long text, scrolling, alignment, spacing deliberately.
+- If a component is identical between web and desktop, it belongs in a shared package.
 
-| Layer | Location | Runner |
-|-------|----------|--------|
-| Shared logic/stores/hooks | `packages/core/*.test.ts` | Vitest |
-| Shared UI/pages | `packages/views/*.test.tsx` | Vitest |
-| Platform wiring | `apps/web/*.test.tsx`, `apps/desktop/` | Vitest |
-| End-to-end flows | `e2e/*.spec.ts` | Playwright |
-| Backend | `server/**/*_test.go` | `go test` |
+## Desktop Rules
 
-Go tests run with `-p 1` (serialized packages) because DB-backed packages share one `DATABASE_URL`.
+> Full desktop lifecycle, routing, packaging, data-safety: [`apps/desktop/CLAUDE.md`](apps/desktop/CLAUDE.md).
 
-**Gotcha**: DB-backed Go tests **silently skip** when `DATABASE_URL` is unset — a suspiciously fast green run means nothing ran. Export it first: `export $(grep -E '^DATABASE_URL=' .env | xargs)` (then confirm the runner prints your DB-set marker before trusting results).
+**P0 data-safety contract** (2026-07-02 incident destroyed 69 user tables when a Docker pgdata was migrated by the bundled `migrate` binary; do NOT remove either layer, do NOT make `backend` optional without re-reading `memory/multica-0.3.0-standalone-2026-07-02.md`):
 
-## Verification Sequence
+> `runMigrate(profile, env, backend?)` REFUSES `backend === "external"`.
+> The call site in `ensureServerUp` ALSO skips for defense in depth.
+> Any new caller that invokes `runMigrate` must pass `backend` explicitly.
 
-Iterate with the narrowest useful check, then broaden:
+**P1.8 sentinel atomicity**: `runMigrationFlow` creates `~/.multica/.pg-migrating-v1` with `O_EXCL` BEFORE destructive `pg_restore`, renames to `~/.multica/.pg-migrated-v1` on success. SIGKILL between restore-success and rename leaves the in-progress file; next launch refuses auto-retry. **Do NOT write the final sentinel before the operation succeeds.**
 
-1. `pnpm typecheck` — fast type check
-2. `pnpm test` — TS unit tests
-3. `make test` — Go tests (requires DB)
-4. `make check` — full pipeline including E2E
+**Desktop runtime config**: `~/.multica/desktop.json`:
+```json
+{"apiUrl": "http://localhost:8090", "wsUrl": "ws://localhost:8090/ws", "appUrl": "http://localhost:3000"}
+```
+Per-profile server env (`.env`) at `~/.multica/profiles/<name>/.env`.
 
-`make check-fast` runs affected TS checks only (no DB/servers/Go/E2E) — ideal for iterating on frontend changes.
+**BrowserWindow off-screen guard.** Electron 39 on macOS restores stale bounds from system window-state cache; if bounds fall outside every connected display's workArea the window is invisible. `apps/desktop/src/main/index.ts` clamps bounds in `ensureWindowOnscreen()` — called synchronously after `new BrowserWindow(...)`, on `ready-to-show`, and on every `move`/`resize`/`display-removed`.
 
-## Dependency Management
+**Pythia engine source-of-truth is `apps/desktop/vendor/pythia-src/engine/`, NOT `apps/desktop/resources/pythia/engine/`.** `bundle-cli` (`apps/desktop/scripts/bundle-cli.mjs:281-283`) wipes `resources/pythia/` and re-copies from `vendor/pythia-src/` on every run. Edits directly under `resources/pythia/engine/*.py` are silently overwritten at bundle time. Edit the vendor copy, then `pnpm --filter @multica/desktop bundle-cli`. (Bit 0.3.21 Pythia i18n pass — three rounds of Edit to `resources/pythia/engine/*.py` all looked successful until re-bundle reverted every change.)
 
-- Package manager: pnpm with `node-linker=isolated` (`.npmrc` — do NOT switch to hoisted; breaks electron-builder)
-- Monorepo orchestration: Turborepo (`turbo.json`)
-- Workspace layout: `pnpm-workspace.yaml` (apps/*, packages/*)
-- Shared version catalog in `pnpm-workspace.yaml` — bump versions there, not per-package
+## Data Safety & Version Upgrades
+
+DMG install **only replaces `/Applications/Multica.app`**. All user data lives in independent paths:
+
+| Data | Path |
+|------|------|
+| PostgreSQL | Docker volume `multica_pgdata` |
+| Config / tokens | `~/.multica/profiles/<name>/config.json` |
+| Server env | `~/.multica/profiles/<name>/.env` |
+| Workspace files | `~/multica_workspaces_<profile>/` |
+| KB vaults | `~/Documents/` |
+| Desktop config | `~/.multica/desktop.json` |
+
+Rules:
+
+- **Migrations are forward-only**: never drop a table or column. Schema changes must be additive.
+- **Config fields are append-only**: don't delete/rename existing keys in `config.json` or `.env`. New fields have defaults.
+- **Pre-update snapshot** mandatory before DMG rebuild (script `~/.multica/scripts/pre-update-snapshot.sh`).
+- **Verify data integrity** after upgrade: `docker exec multica-postgres-1 psql -U multica -d multica -c "SELECT COUNT(*) FROM workspace"` should return expected count.
+
+## Testing
+
+AAA pattern. Tests follow the code:
+
+| What | Location |
+| --- | --- |
+| Shared business logic, stores, queries, hooks | `packages/core/*.test.ts` |
+| Shared UI components, pages, forms, modals | `packages/views/*.test.tsx` |
+| Platform wiring (cookies, redirects, search params) | `apps/web/*.test.tsx` or `apps/desktop/` |
+| E2E flows | `e2e/*.spec.ts` |
+| Backend | `server/` Go tests |
+
+Rules:
+
+- Never test shared component behavior in an app test file.
+- `packages/views/` tests must not mock `next/*` or `react-router-dom`.
+- Mock `@multica/core` stores with Zustand callable-store shape (`selectorFn` + `getState`).
+- Mock `@multica/core/api` for API calls.
+- E2E uses `TestApiClient` for setup/teardown.
+- Prefer writing the failing test in the correct package before implementation when change is behavioral.
+
+## Verification
+
+```bash
+pnpm typecheck                  # full turbo pipeline
+pnpm lint
+pnpm test
+make check-fast                 # affected TS typecheck + unit + lint; no DB/Go/E2E
+make test
+cd server && go test -count=1 -timeout 600s ./internal/... ./pkg/agent/...   # mandatory after any cherry-pick or Go source edit
+pnpm exec playwright test
+make check
+```
+
+Do NOT claim verification passed unless you ran it. If you skip (docs-only or asked not to), say so.
+
+**Ship gate (mandatory before every release)** — all three must be green:
+
+- `pnpm typecheck` (full turbo pipeline) — catches TS breakage.
+- `cd server && go test -count=1 ./internal/... ./pkg/agent/...` — catches Go breakage.
+- `bash scripts/ship-mac.sh --yes` runs snapshot → bundle-cli → build → package → nested-binary signing → **cold-start verify (FATAL since 0.5.100)**. Step 7 now refuses to ship when any of these fail: (a) the verify script is missing, (b) the verify script exits non-zero, (c) no server PID is bound on `:8090` after the script reports PASS, (d) `/health` does not return `{"status":"ok"}` after the script reports PASS. The (c) + (d) checks are the belt-and-suspenders layer that catches the bug class where the verify script exits 0 incorrectly (e.g., 0.5.98 ReferenceError in `pickEnvForSpawn` shipped a broken app because the verify path was bypassable — fixed in 0.5.99 + hardened in 0.5.100). If any check fails, `die` aborts the ship before `/Applications/Multica.app` is overwritten. If you skip the ship chain (docs-only change or asked not to), say so explicitly.
+
+0.5.15 lesson: only `pnpm typecheck` was run; broken `#6199` cherry-pick broke `TestBuildMetaSkillContentIssueBodyFormatting` 4/4 subtests in the legacy verbose brief path (default in production) — caught only by post-ship code-reviewer, not the gate. Future batches must run both typecheck + go test + the cold-start verify.
+
+**Silent-skip trap (0.5.79 lesson)**: with `DATABASE_URL` unset, DB-backed tests SKIP silently — suite "passes" in ~15s having run nothing. Export first: `export $(grep -E '^DATABASE_URL=' .env | xargs)` and confirm the runner printed its DB-set marker before trusting a suspiciously fast green run. `scripts/check.sh` hard-fails on that precondition.
+
+## Upstream Port Workflow
+
+Fork and upstream `multica-ai/multica` share **zero commits** (`git merge-base HEAD upstream/main` returns empty). All "ports" are manual diff transplants; `git cherry-pick` is unusable. The workflow below catches the failure modes surfaced during 0.5.100 / 0.5.101.
+
+**1. Pre-flight import audit (mandatory before any Go source edit):**
+
+```bash
+# Identify any fork-absent packages the target file imports
+git grep -l 'import.*pkgname' HEAD -- 'server/**' | xargs -I {} echo {}
+# Cross-check against existing directories
+ls server/internal/<pkgname> 2>&1
+```
+
+If a file imports a package whose directory does not exist, **fork is broken before your PR**. Do not wholesale-swap that file. Either back-port the missing package or do surgical edits that don't introduce the import.
+
+**2. Three parallel deep-dive research agents (mandatory for batches ≥3 MULs):** launch three agents in parallel — (a) perf/security batch, (b) UX batch, (c) untouched / new candidates. Each agent must:
+
+- Run `git show <sha>` per upstream commit to read the actual diff
+- Find fork equivalents via `grep` / `ls` (NOT assume — many are renamed or absent)
+- Verify "fork-absent infra" claims by greping the actual caller chain, not by assuming "dormant"
+- Output a structured port plan per MUL: files touched, complexity (LOW/MED/HIGH), strategy (port-as-is / surgical-port / adapt / skip), LOC delta estimate, localization conflicts, test portability, ordering constraints
+- Highlight reversals of any pre-port coarse evaluation
+
+**3. AskUserQuestion for ship scope (after deep-dive):** aggregate findings into a decision table, then lock scope via `AskUserQuestion`. Critical decisions: which PRs to ship now vs defer; SKIP vs port-only for dormant paths; split vs single-commit for HIGH-LOC batches; chunk strategy for translator/clone batches.
+
+**4. Per-file diff sanity gate (the 0.5.36 wholesale-adoption trap):**
+
+```bash
+git show <upstream-sha> --stat | head -60
+git diff --stat HEAD -- <file>
+# fork-side per-file diff must be ≤ 5× upstream's per-file stat
+```
+
+Wholesale adoption (`git checkout --theirs`) silently destroys fork-localization (no telemetry, no OAuth, etc.). Per CLAUDE.md "Surgical Changes" + 0.5.36 lesson, never wholesale-swap.
+
+**5. Verification (every commit, per ship gate above):** `pnpm typecheck --filter <pkg>` + `cd server && go test -count=1 -run <changed-test> ./...`. Full `pnpm test` + `cd server && go test ./internal/... ./pkg/agent/...` before any ship. The 0.5.100 belt-and-suspenders cold-start verify catches real boot regressions.
+
+**6. Document divergences in commit messages:** every fork-vs-upstream gap (function absent, file renamed, test infra missing, import broken) gets an explicit bullet in the commit body. Future sessions reading `git log -p` see WHY each was skipped, not just THAT it was.
+
+**Localization conflict scan (mandatory before any port):** grep upstream diff for these tokens — `posthog` / `PostHog` (telemetry), `electron-updater` / `autoUpdate` (auto-update), `SendCode` / `VerifyCode` / `GoogleLogin` (OAuth), `CloudFront` (cloud), `workspace_invitation` (invitations), `billing` / `subscription`, `contact-sales`. Hits → classify as "strip" / "port sans X" / "OK as-is".
+
+## Commits and Releases
+
+- Atomic commits with conventional prefixes: `feat(scope)`, `fix(scope)`, `refactor(scope)`, `docs`, `test(scope)`, `chore(scope)`.
+- Tags `pre-update-*` are snapshot markers, not release tags; `git describe` never yields a release version. For local releases, bump `apps/desktop/package.json` `version` and document in `.omc/release-notes-<ver>.md`.
+- **DMG creation hangs on create-dmg 1.2.3** (`electron-builder --mac` produces no `.dmg` on this fork). Use `pnpm exec electron-builder --mac --dir` to produce `dist/mac-arm64/Multica.app` directly and ship that. Every 0.3.x release ships via `--dir`.
+- **`pnpm build` does NOT run electron-builder** — asar replacement is silent if skipped. Verify with `grep -c rawRequest apps/desktop/dist/mac-arm64/Multica.app/Contents/Resources/app.asar` after each build.
+- Bump patch by default unless user specifies a version.
+
+### Cherry-pick verification (0.5.36 lesson)
+
+After ANY agent-assisted cherry-pick, compare each resolved file's diff size against upstream's per-file stat:
+
+```bash
+git show <upstream-commit> --stat | head -60
+git diff --stat HEAD
+```
+
+Files whose diff is 5-50x larger than upstream's = wholesale adoption (`git checkout --theirs` replaced fork's file with upstream's ENTIRE current file). Fix: revert that file to the pre-cherry-pick commit (`git checkout <base> -- <file>` — NOT `HEAD`), re-apply only semantic change.
+
+Pre-existing test bisect: prove a failing test predates a port with `git worktree add /tmp/wt-check <base-commit>` + symlinked `node_modules`.
+
+## Labs Platform
+
+Full architecture spec lives in `server/CLAUDE.md` and `.omc/labs-runtime-lifecycle-map.md` (refreshed 2026-08-21 for 0.5.46 canonical state). Core invariants:
+
+- **Flag = off MUST completely bypass experimental code.** No new imports, no module init in legacy path. View toggles use `{flagEnabled ? <NewCode /> : null}`.
+- **Users cannot create flags.** Catalog is developer-only at `server/internal/experimental/catalog.go`. Labs UI only renders what server returns.
+- **Labs tab is the only entry point.** No nav bar, no CLI shortcuts, no `api.*` callers outside `labs-tab.tsx`.
+- **Not a plugin system.** Simple toggle pattern, not dynamic load.
+- **No reserved workspace for new labs.** Lab resources isolated by `experimental_resource_lock` + visibility table.
+- **Manifest → catalog → registry → IPC dispatcher → proxy mount → sidebar.** Single chain — no per-flag hardcodes.
+- **RuntimeKind enum**: `none` / `inline` / `subprocess` / `headless`. `ManagerFactory` dispatches per flag key.
+- **User plugin layer** (`user_*` keys, 0.3.60): merged at boot via `RegisterUserPlugins()` + `MergeUserPlugins()`. Built-in flags always win on key collision.
+
+When adding a new experiment: 1) manifest in `apps/desktop/resources/experiments/<flagKey>/manifest.json`; 2) append to `Catalog` in `server/internal/experimental/catalog.go`; 3) migration if needed + visibility seeds; 4) install handler if `installable: true`; 5) route + view if dedicated surface (network calls via `api.rawRequest`, never bare `fetch`); 6) builtin skill if agents invoke; 7) `bundle-cli` + `electron-vite build` + `electron-builder --dir`.
+
+**Lab ↔ Assignee Mutex (narrowed 2026-07-28 audit):** applies to `mythos_swarm` (sole mode) ONLY. Every other lab (built-in or `user_*`): manual assignee is legal; on `lab_source` flip without explicit assignee, server auto-rewrites to lab leader (Active Contract #2).
+
+**Network calls from Labs tabs MUST go through `api.rawRequest`** (`packages/core/api/client.ts`). Never `fetch("/api/experimental/...")` — fails in desktop (renderer origin `file://`, not bundled backend `:8090`; no Bearer = 401). Converted: claude-lab, forecast-stream, mythos, llm-wiki-bridge, experimental-artifact, pythia-report. Exception: `use-pythia-sse.ts` (loopback engine URL, no baseUrl prefix).
+
+**Lab auto-dispatch opt-out** (per-catalog): `experimental.Flag.AutoDispatch *bool` — nil/true = unchanged; false = leader-rewrite still applies (so IssueLabsSection + workbench header show the right agent) but enqueue gate short-circuits; user must explicitly trigger via lab workbench "Run research" button. Today: `pythia_oracle` + `timesfm` (records-only) and `causal_graph` (auxiliary) are opt-out. `multica lab delegate` fails fast naming AutoDispatch=false + frozen labs.
+
+## Active Contracts
+
+Load-bearing cross-cutting patterns. Honour these when adding/refactoring lab-class surfaces.
+
+1. **5s polling fallback for lab-class query keys without WS push.** Pattern: `refetchInterval: (query) => isLive(query.state.data) ? 5_000 : idleMs`. Three idle modes: WS covers + no idle (autopilot), no WS + tab-cross (30_000), no WS + very low frequency (60_000). Canonical: `agentTaskSnapshotOptions` (`packages/core/agents/queries.ts:36`).
+
+2. **Lab leader rewrite on `lab_source` flip (4-case contract).** `server/internal/handler/issue.go::shouldRewriteAssigneeForLabLeader` + `assignDefaultLabAgentOnUpdate`:
+   - lab_source untouched → noop
+   - lab_source → no-leader lab (mythos_swarm) → noop
+   - lab_source → leader lab, already leader → noop
+   - lab_source → leader lab, missing/non-agent/different agent → **rewrite to leader**
+
+   `BatchUpdateIssues` honours same contract (post-state compute = previous row + batch fields). Tests: `TestUpdateIssueLabSource*` in `server/internal/handler/issue_lab_dispatch_test.go`.
+
+3. **chi route order — literal slug BEFORE `{param}`.** When adding `/sessions/<key>` that competes with existing `{param}` route, register literal first. Symptom if violated: handler returns 400 "sessionID is not a UUID" for the literal key. Comment the order rationale inline.
+
+4. **`lab_managed` DTO marker.** When `experimental_resource_visibility` row exists for a flag, ALL agents/squads owned by that flag are hidden from regular selection surfaces (assignee picker, project lead, quick-create, squad member, filter chips, subscribers). Server stamps `lab_managed?: boolean` on `Agent`/`Squad` DTOs; renderer gates on `lab_managed: false`. NOT a column — derived from visibility rows.
+
+5. **Swarm Topology contracts (0.5.21).** When `issue.lab_source='swarm_topology'`: orchestrator authors N≤6 role-agents + M skills + 1 coordinator squad on bootstrap; 5-phase machine (`research`/`design`/`implement`/`review`/`done`); phase advance gated by `count(completed) == total`; any role failed fails run fast; teardown via 6h `swarm_gc` tick. Lock to coordinator (no manual override, `lab_mode='enhancer'` rejected); human interrupt via comment `@<swarm_coordinator>` (zero new IPC).
+
+6. **Lab auto-dispatch opt-out (per-catalog).** See Labs Platform above.
+
+7. **Workflow file-overlap graph (batch parallelization).** When 2+ PRs in a batch touch same file (typical: 4 locale files), naive parallel agents race-edit. Phase 1 (parallel) = PRs with pairwise disjoint files; Phase 2 (parallel, depends on 1) = disjoint from each other and from Phase 1; Phase 3 (sequential, depends on 1) = PRs sharing files with Phase 1; Phase 4 (verifier) = `pnpm typecheck` + `go test` + 4-locale parity + per-PR regression pin count. Each executor prompt MUST include "VERIFY FIRST: ..." before edit.
+
+8. **Causal-graph trust ladder + proposer laws.** Tier A (native task hooks) > B (Semantica decision mirrors) > C (Pythia closure) > D (LLM proposals). Tier D ALWAYS lands `status='suggested'` at confidence ≤ 0.5, invisible to subgraph/path until human confirms. **Reject is a tombstone, never delete** (mig 280): proposers re-derive, so hard-deleted rejection re-proposes nightly. Probe `FindCausalEdgeBetween` (ANY status) BEFORE INSERT. New `Source` constant ⇒ add to `experimental.AllSources` same commit (Claim validates the slice, missing entry fails every install).
+
+9. **Causal-graph P0 audit standing laws + callsite contracts (0.5.84).**
+   - **`FLAG_ROUTE_SUFFIX` row required for every new lab flag key** in `packages/views/issues/components/issue-labs-section.tsx:30-55`. Missing row silently no-ops. Pinned by full-mapping assertion in `issue-labs-section.test.tsx`.
+   - **Every proposer endpoint (REST + internal service) needs the server-side never-nag probe** before INSERT.
+   - **TouchCausalNode hot-path refresh.** Every code path mutating issue/comment/task MUST `Recorder.RefreshForIssue(ctx, issueID)` post-success. Legitimate hook points: `UpdateIssue` (L3228), `CreateComment` (L1351), `enqueueIssueTask`/`enqueueMentionTask` (after `RecordTaskAction`), `CompleteTask` (after `RecordTaskOutcome`). Wrapper is fail-soft + flag-gated.
+
+## Known Stability Surfaces
+
+Real failure modes that took non-trivial debugging. NOT obvious from reading the code.
+
+- **Server vs daemon write to DIFFERENT profile dirs.** Desktop main process runs two profiles for one app: daemon = `desktop-<host>` (`desktop-localhost-8090`), server = `<host>` (`localhost-8090`). Both under `~/.multica/profiles/`. **Server log is at `~/.multica/profiles/<profile>/server.log`, NOT `~/.multica/server.log`.** When diagnosing ship-post behavior, check mtime of every `profiles/*/server.log` and read the newest.
+
+- **Workspace singleton lifecycle vs pre-workspace routes (0.5.80).** Navigating within a tab from workspace route into `/experimental/*` unmounts `WorkspaceRouteLayout` without a successor — its cleanup releases the workspace singleton, unmounting AppSidebar + WindowToolbar + ModalRegistry + SearchCommand (fullscreen takeover). Guard: every navigation path into `/experimental/*` MUST call `suppressNextWorkspaceRelease()` BEFORE dispatching. Arm sites in both navigation adapters, `tryRouteToPinnedNewTab`, and `multica:navigate` handler. **If you add a new way to navigate into `/experimental/*`, arm there too.**
+
+- **Bundled Postgres does not auto-start for headless ship runs.** `ship-mac.sh` step 2/7 (`go run ./cmd/migrate up`) dials `.env` DATABASE_URL directly. ECONNREFUSED on 5432 → start PG manually: `pg_ctl -D ~/Library/Application\ Support/Multica/pgdata -l ~/Library/Application\ Support/Multica/pg/17.4/pg.log start`.
+
+- **Daemon does not auto-start on GUI relaunch when already logged in.** Renderer `useEffect` `[user]`-dep does not "change" on existing-user session → IPC never fires → `agent_task_queue` rows pile up as `queued`. 0.3.33 fix: `tryAutoStartFromMain()` at tail of `bootstrapCli()` + `maybeRecoverDaemon()` in `daemon-manager.ts:1114/1035` + App.tsx `[user]`-dep guard + `setTargetApiUrl` ordering. Defense-in-depth: `~/.multica/scripts/multica-daemon-watchdog.sh` (60s poll). Re-read memory `0.2.97-daemon-autostart-regression.md` before editing App.tsx/daemon-manager.ts/watchdog.
+
+- **Spawning multica daemon from Bash harness kills daemon on exit.** macOS bash doesn't support `setsid`; `nohup ... &` is fragile outside interactive shell. Only reliable detach on macOS is zsh's `&!` (or launchd). Use `~/.multica/scripts/multica-spawn-daemon.zsh` for any manual daemon launch.
+
+- **Codesign nested binaries after electron-builder --dir (0.3.62/0.5.18, mandatory).** `electron-builder --dir` only signs the top-level `.app` bundle; macOS 27 Gatekeeper kills `app.asar.unpacked/resources/bin/{multica,server,migrate}` with SIGKILL (`exit 137`). Symptom: GUI Helper processes up but `multica --help` → 137, daemon.log `signal: 'SIGKILL'`, server never binds `:8090`. Fix: `bash scripts/desktop-sign-nested-binaries.sh /Applications/Multica.app` (signs app + 3 nested binaries, asserts `multica --help` exits 0). Wired into ship chain step 5a. Skip → 137 on next launch.
+
+- **`pnpm exec electron-builder --mac --dir` from repo root walks `.claude/worktrees/`.** Sweeps stale exploration worktrees with absolute symlinks (renamed dir, ENOENT). From `apps/desktop/` it's correctly scoped. Also blocks packaging cwd — `cd apps/desktop || exit 1` is mandatory.
+
+- **DMG creation hangs on create-dmg 1.2.3.** `electron-builder --mac` produces no `.dmg` on this fork. Use `--dir` path (see Commits and Releases). Manual asar repack fallback documented in ship chain if `--dir` deadlocks (`app-builder-bin@5.0.0-alpha.12`).
+
+- **Pre-existing flaky test `TestQuickCreateIssueParentTrustBoundary`.** Reads `testRuntimeID` row status='online' to pass gate; other tests flip same shared row to 'offline' with `t.Cleanup` restore — race fires when restore lands AFTER this test reads. Diagnostic: targeted run PASS; full `internal/handler/...` run FAIL. Always baseline-verify before attributing failure to a new batch (`git diff --stat HEAD~N..HEAD -- <test-file>`).
+
+- **`pnpm typecheck` does NOT run Go tests.** Ship gate MUST include `go test -count=1`. 0.5.15 broke `TestBuildMetaSkillContentIssueBodyFormatting` 4/4 subtests in default verbose brief path; only post-ship code-reviewer caught it. Run both checks before declaring ready-to-ship.
+
+- **No red-baseline rule (2026-09-01).** `pnpm typecheck`, `pnpm lint`, `pnpm test` are GREEN at HEAD. Any red test from here is a regression, not background noise. Do NOT reintroduce "N failures = pre-existing baseline" note. If a suite must be parked, skip with comment naming the gate and what still passed — never by leaving it red. Current parked: 33 (MUL-6632 inbox family).
+
+- **`vendor/openscience-bin/openscience` native binary missing — DECLARED inline-only.** `apps/desktop/vendor/openscience-bin/` does not exist; `bundle-cli.mjs` references a binary that has to be drop-shipped externally. Impact limited because `claude_science_lab` is `inline` RuntimeKind → routes through Multica runtime bridge. Standalone subprocess path officially out of scope (bundle-cli logs informational note instead of warning).
+
+- **`cmd/server` build broken (pre-existing, MUL-6502 dependency):** `server/cmd/server/dbstats.go` imports `server/internal/dbstartup` (MUL-6502 startup-recovery package, 805 LOC + 19 files including docker/entrypoint.sh + helm templates) but the package directory does not exist in fork. `cmd/server` was unbuildable BEFORE 0.5.101 (not a regression). 0.5.101's B.4 wiring changes for `cmd/server/main.go` + `metrics/db.go` + `metrics/registry.go` were reverted in `3eb81bd42` because wholesale `dbstats.go` would have introduced `dbstartup` as a new failure. Do not touch `cmd/server/dbstats.go` until `dbstartup` is back-ported — `go build ./cmd/server/...` will fail. The desktop app ships fine; only the CLI server build is broken.
+
+## Memory Index (cross-session)
+
+Memory lives in `~/.claude/projects/-Users-jiangjianyan-jjy-multica-exploration-dev/memory/` (re-pointed 2026-09-02 from `multica-main` slug). Full index in `MEMORY.md` (one line per memory, descriptive title). **Read before editing any subsystem with a known-regression surface.** These files are outside this repo (per-user, cross-session context) — `git` lookups at repo root will not find them.
+
+Most recent lessons worth re-reading before any upstream port or ship:
+
+- `0.5.99-h9-import-fix-...md` — `export { x } from "..."` re-export pattern is NOT a local bind; bare re-export in audit-fixed code caused 0.5.98 ReferenceError that bypassed the verify gate.
+- `0.5.100-upstream-port-batch-with-ship-chain-verify-fatal-...md` — ship-chain verify must be FATAL (now is); belt-and-suspenders post-verify checks; `CodexResumeOverflowError` / `annotateHermesProviderUnconfigured` / `keyboard-shortcuts-tab.tsx` are fork-absent.
+- `0.5.101-upstream-port-batch-with-deep-dive-reversal-lessons-...md` — 3 parallel deep-dive research agents catch scope miscounts (MUL-7008 was 3× undersold); wholesale-swap trap on partial pre-ported files; `dbstartup` is fork-missing; partial pre-ports can include broken imports.
+
+## Domain Reminders
+
+- All queries filter by `workspace_id`; membership gates access; `X-Workspace-ID` selects workspace.
+- Issue assignees are polymorphic: `assignee_type` + `assignee_id` reference member or agent.
+- **Mythos swarm has 5 agents**: `mythos_prelude` (leader) + `mythos_loop_coder`/`mythos_loop_researcher`/`mythos_loop_analyst` + `mythos_coda`. `mythosAgents` array in `install_mythos.go` and `RosterCard` in `mythos-view.tsx` must stay in sync. Hidden from regular agent/squad pickers via `experimental_resource_visibility` rows seeded by `upsertMythosVisibility` in `install_mythos.go` (idempotent `ON CONFLICT DO NOTHING`).
+- **Mythos supervise goroutine lifecycle**: `Service.Run` launches per-run supervise goroutine for enhancer-mode runs. Writes `mythos_run.supervision_state` every 30s tick, self-terminates at 24h max. Daemon bootstrap calls `ResumeSupervision` for every workspace to recover orphaned goroutines. Flag-off cancels all in-flight supervises via `Service.Stop()`.
+- **Issue `lab_source`** (nullable TEXT, mig 155) + **`lab_mode`** (nullable TEXT, mig 157, CHECK `'sole'|'enhancer'`). NULL for non-lab issues. `lab_mode` meaningful only for `mythos_swarm`. New lab with per-issue mode semantics must extend CHECK + mutex gate in all three layers (UI/Server/Batch) + tests.
+- **Explicit-column-list queries in `queries/issue.sql`**: `ListIssues`, `ListOpenIssues`, `CreateIssue`, `CreateIssueWithOrigin` enumerate columns manually. When adding a new column to `issue`, update ALL of these + Row structs + Scan/args calls. Other queries use `SELECT *` / `RETURNING *`.
+- **User plugin flag keys** carry `user_` prefix. `GET /api/experimental-flags` returns user plugins with `is_user_plugin: true`. `user_plugin.slug` / `flag_key` UNIQUE at column level (mig 166) → partial unique indexes `WHERE status != 'deleted'` (mig 168) so soft-deleted slug can be re-created. All `user_plugin.sql` queries already filter `status != 'deleted'`. Slug immutable after creation.
+- **Squad-as-subscriber / squad-as-recipient schema (mig 167, 0.3.61)** extended `issue_subscriber.user_type` + `inbox_item.recipient_type` CHECK to allow `'squad'`, relaxed `agent_task_queue_accountable_matches_originator` (only equal-required when both set). Handler layer: `subscriber_listeners.go` skips `*issue.AssigneeType == "squad"` in `issue:created`/`issue:updated` assignee-subscription; `notification_listeners.go::notifyDirect` early-returns on `recipientType == "squad"`. Squads still receive task dispatch via queue path.
+- **agent_creation_studio vs plugin-shell-view.tsx — distinct surfaces.** Studio = product-level issue-bound lab (`issue.lab_source='agent_creation_studio'`, leader `agent_creation_expert` authors rows via `multica-creating-agents`); dedicated `/experimental/agent-creation-studio` route + `AgentCreationStudioView` deleted 0.5.4. Plugin shell = route `/experimental/plugin/:pluginSlug` for `user_*` lab plugins with manifest-driven tabs.
