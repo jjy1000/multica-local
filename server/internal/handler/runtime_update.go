@@ -237,7 +237,9 @@ func (h *Handler) InitiateUpdate(w http.ResponseWriter, r *http.Request) {
 
 	update, err := h.UpdateStore.Create(r.Context(), uuidToString(rt.ID), req.TargetVersion)
 	if err != nil {
-		writeError(w, http.StatusConflict, err.Error())
+		// H8/M11 (audit 2026-09-06): err.Error() leaked pgx / store internals.
+		slog.Warn("runtime update create failed", "runtime_id", rt.ID, "target_version", req.TargetVersion, "error", err)
+		writeError(w, http.StatusConflict, "runtime update create failed (see server logs)")
 		return
 	}
 

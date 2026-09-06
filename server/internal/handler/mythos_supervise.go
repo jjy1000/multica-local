@@ -24,9 +24,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
+	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -57,7 +57,7 @@ type MythosSuperviseStateResponse struct {
 // the function itself does not double-check.
 func (h *Handler) GetMythosSuperviseState(w http.ResponseWriter, r *http.Request) {
 	runIDStr := chi.URLParam(r, "runID")
-	runID, err := utilParseUUID(runIDStr)
+	runID, err := util.ParseUUID(runIDStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid run id")
 		return
@@ -118,7 +118,7 @@ func (h *Handler) GetMythosSuperviseState(w http.ResponseWriter, r *http.Request
 // the running ticker; the next 30s tick will fire as usual.
 func (h *Handler) PostMythosSuperviseTick(w http.ResponseWriter, r *http.Request) {
 	runIDStr := chi.URLParam(r, "runID")
-	runID, err := utilParseUUID(runIDStr)
+	runID, err := util.ParseUUID(runIDStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid run id")
 		return
@@ -181,13 +181,13 @@ func (h *Handler) PostMythosSuperviseTick(w http.ResponseWriter, r *http.Request
 // friendly empty state instead of erroring.
 func (h *Handler) GetMythosRunsByIssue(w http.ResponseWriter, r *http.Request) {
 	issueIDStr := chi.URLParam(r, "issueID")
-	issueID, err := utilParseUUID(issueIDStr)
+	issueID, err := util.ParseUUID(issueIDStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid issue id")
 		return
 	}
 	workspaceIDStr := r.URL.Query().Get("workspace_id")
-	workspaceID, err := utilParseUUID(workspaceIDStr)
+	workspaceID, err := util.ParseUUID(workspaceIDStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid workspace_id")
 		return
@@ -243,17 +243,6 @@ type MythosRunSummary struct {
 	CompletedAt     string          `json:"completed_at,omitempty"`
 	FinalIssueID    string          `json:"final_issue_id,omitempty"`
 	CodaConclusions json.RawMessage `json:"coda_conclusions,omitempty"`
-}
-
-// utilParseUUID is a tiny shim so this file does not have to import
-// the util package just for one function. Mirrors util.ParseUUID's
-// "trusted" semantics (panics on invalid bytes via uuid.Parse).
-func utilParseUUID(s string) (pgtype.UUID, error) {
-	id, err := uuid.Parse(s)
-	if err != nil {
-		return pgtype.UUID{}, err
-	}
-	return pgtype.UUID{Bytes: id, Valid: true}, nil
 }
 
 // mythosService returns the Mythos service stored on the Handler, or

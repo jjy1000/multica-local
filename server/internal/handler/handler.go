@@ -435,6 +435,24 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// writeInternalError is the secure variant for 500s: it logs the full
+// error (with the caller's action label) and returns a generic body
+// that does NOT leak pgx/sqlc/schema internals (constraint names, table
+// identifiers, etc.) to the client. Audit 2026-09-06 H8 closed the
+// pattern of "<action>: "+err.Error() that 13 sites in swarm_run.go +
+// 2 in issue.go had been using.
+//
+// Usage:
+//
+//	if err != nil {
+//	    writeInternalError(w, "create swarm run", err)
+//	    return
+//	}
+func writeInternalError(w http.ResponseWriter, action string, err error) {
+	slog.Warn(action+" failed", "error", err)
+	writeError(w, http.StatusInternalServerError, action+" failed (internal error)")
+}
+
 // Thin wrappers around util functions.
 //
 // parseUUID is intentionally the panicking variant: any handler call site

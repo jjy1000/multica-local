@@ -33,7 +33,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/service/mythos"
@@ -260,12 +259,14 @@ func (h *Handler) RunMythosSwarm(w http.ResponseWriter, r *http.Request) {
 
 	var rootUUID pgtype.UUID
 	if req.RootIssueID != "" {
-		parsed, perr := uuid.Parse(req.RootIssueID)
-		if perr != nil {
-			writeError(w, http.StatusBadRequest, "invalid root_issue_id")
+		// H11 (audit 2026-09-06): user-supplied UUID input must go through
+		// parseUUIDOrBadRequest (Backend UUID rules). The old
+		// `uuid.Parse(req.RootIssueID)` here bypassed the loader contract.
+		if id, ok := parseUUIDOrBadRequest(w, req.RootIssueID, "root_issue_id"); !ok {
 			return
+		} else {
+			rootUUID = id
 		}
-		rootUUID = pgtype.UUID{Bytes: parsed, Valid: true}
 	}
 
 	// 0.5.90 OpenMythos mode contract: the outer loop only runs

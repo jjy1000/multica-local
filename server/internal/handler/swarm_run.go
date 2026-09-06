@@ -172,7 +172,7 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		writeError(w, http.StatusInternalServerError, "create swarm run: "+err.Error())
+		writeInternalError(w, "create swarm run", err)
 		return
 	}
 
@@ -186,7 +186,7 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("swarm run rollback failed after claim error",
 				"run_id", run.ID.String(), "err", delErr.Error())
 		}
-		writeError(w, http.StatusInternalServerError, "claim lock: "+err.Error())
+		writeInternalError(w, "claim lock", err)
 		return
 	}
 
@@ -223,7 +223,7 @@ func (h *Handler) PostSwarmRun(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("swarm run rollback failed after StartOrchestrator error",
 				"run_id", run.ID.String(), "err", delErr.Error())
 		}
-		writeError(w, http.StatusInternalServerError, "start orchestrator: "+err.Error())
+		writeInternalError(w, "start orchestrator", err)
 		return
 	}
 
@@ -252,17 +252,17 @@ func (h *Handler) GetSwarmRunState(w http.ResponseWriter, r *http.Request) {
 
 	roles, err := h.Queries.ListSwarmRolesByRun(r.Context(), runUUID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "list roles: "+err.Error())
+		writeInternalError(w, "list roles", err)
 		return
 	}
 	activeCount, err := h.Queries.CountActiveRolesByRun(r.Context(), runUUID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "count active: "+err.Error())
+		writeInternalError(w, "count active roles", err)
 		return
 	}
 	completedCount, err := h.Queries.CountCompletedRolesByRun(r.Context(), runUUID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "count completed: "+err.Error())
+		writeInternalError(w, "count completed roles", err)
 		return
 	}
 
@@ -353,7 +353,7 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 		Kind:       req.Kind,
 		Payload:    payload,
 	}); err != nil {
-		writeError(w, http.StatusInternalServerError, "create interrupt: "+err.Error())
+		writeInternalError(w, "create interrupt", err)
 		return
 	}
 
@@ -375,7 +375,7 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 			ID:     runUUID,
 			Status: string(swarmsvc.StatusAborted),
 		}); err != nil {
-			writeError(w, http.StatusInternalServerError, "set aborted: "+err.Error())
+			writeInternalError(w, "set aborted", err)
 			return
 		}
 		applied = true
@@ -392,7 +392,7 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 			ID:       runUUID,
 			IsPaused: true,
 		}); err != nil {
-			writeError(w, http.StatusInternalServerError, "set paused: "+err.Error())
+			writeInternalError(w, "set paused", err)
 			return
 		}
 		applied = true
@@ -401,7 +401,7 @@ func (h *Handler) PostSwarmInterrupt(w http.ResponseWriter, r *http.Request) {
 			ID:       runUUID,
 			IsPaused: false,
 		}); err != nil {
-			writeError(w, http.StatusInternalServerError, "set resumed: "+err.Error())
+			writeInternalError(w, "set resumed", err)
 			return
 		}
 		applied = true
@@ -443,7 +443,7 @@ func (h *Handler) GetSwarmRunsByIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	roles, err := h.Queries.ListSwarmRolesByRun(r.Context(), run.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "list roles: "+err.Error())
+		writeInternalError(w, "list roles", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, h.swarmRunToResponse(run, roles))
@@ -498,7 +498,7 @@ func (h *Handler) GetSwarmRunsByWorkspace(w http.ResponseWriter, r *http.Request
 		Limit:       limit,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "list swarm runs: "+err.Error())
+		writeInternalError(w, "list swarm runs", err)
 		return
 	}
 
