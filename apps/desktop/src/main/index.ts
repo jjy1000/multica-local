@@ -31,6 +31,7 @@ import {
 } from "./experimental-safety";
 import { installContextMenu } from "./context-menu";
 import { handleAppShortcut } from "./keyboard-shortcuts";
+import { TAB_SELECTION_SHORTCUT_CHANNEL } from "../shared/main-renderer-messages";
 import { installNavigationGestures } from "./navigation-gestures";
 import { createRendererWebPreferences } from "./renderer-web-preferences";
 import { writeRendererConsoleLine } from "./renderer-log";
@@ -311,6 +312,21 @@ function createWindow(): void {
     if (result === "close-tab") {
       event.preventDefault();
       window.webContents.send("tab:close-active");
+    } else if (
+      typeof result === "object" &&
+      result !== null &&
+      "action" in result &&
+      result.action === "select-tab"
+    ) {
+      event.preventDefault();
+      // Forward the requested 1..9 position to the renderer. Mirrors the
+      // close-tab path above (direct webContents.send); the renderer side
+      // is reached via the TAB_SELECTION_SHORTCUT_CHANNEL hook installed
+      // by useTabSelectionShortcut in App.tsx. Sending directly here
+      // matches the fork's existing tab:close-active precedent rather than
+      // introducing a dispatchToMainRenderer helper from upstream that
+      // this fork does not use.
+      window.webContents.send(TAB_SELECTION_SHORTCUT_CHANNEL, result.key);
     } else if (result) {
       event.preventDefault();
     }

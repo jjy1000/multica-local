@@ -14,7 +14,9 @@ function makeWc(initialLevel = 0) {
 
 function key(
   k: string,
-  mods: Partial<Pick<ShortcutInput, "control" | "meta" | "shift" | "alt">> = {},
+  mods: Partial<
+    Pick<ShortcutInput, "control" | "meta" | "shift" | "alt" | "isAutoRepeat">
+  > = {},
 ): ShortcutInput {
   return {
     type: "keyDown",
@@ -184,5 +186,70 @@ describe("handleAppShortcut — close tab (Cmd/Ctrl+W)", () => {
   it("does not trigger on Ctrl+Shift+W (reserved for close-window)", () => {
     const wc = makeWc();
     expect(handleAppShortcut(key("W", { control: true, shift: true }), wc, "linux")).toBe(false);
+  });
+});
+
+describe("handleAppShortcut — direct tab selection (Cmd/Ctrl+1..9)", () => {
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9] as const)(
+    "maps Cmd+%i on macOS",
+    (shortcutKey) => {
+      const wc = makeWc();
+      expect(
+        handleAppShortcut(
+          key(String(shortcutKey), { meta: true }),
+          wc,
+          "darwin",
+        ),
+      ).toEqual({ action: "select-tab", key: shortcutKey });
+      expect(wc.setZoomLevel).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["linux", "win32"] as const)(
+    "maps Ctrl+1..9 on %s",
+    (platform) => {
+      const wc = makeWc();
+      for (let shortcutKey = 1; shortcutKey <= 9; shortcutKey += 1) {
+        expect(
+          handleAppShortcut(
+            key(String(shortcutKey), { control: true }),
+            wc,
+            platform,
+          ),
+        ).toEqual({ action: "select-tab", key: shortcutKey });
+      }
+    },
+  );
+
+  it("does not capture a missing primary modifier or the wrong platform modifier", () => {
+    const wc = makeWc();
+    expect(handleAppShortcut(key("1"), wc, "darwin")).toBe(false);
+    expect(
+      handleAppShortcut(key("1", { control: true }), wc, "darwin"),
+    ).toBe(false);
+    expect(
+      handleAppShortcut(key("1", { meta: true }), wc, "win32"),
+    ).toBe(false);
+  });
+
+  it("accepts Shift (layout produces logical 1..9) while blocking Alt", () => {
+    const wc = makeWc();
+    expect(
+      handleAppShortcut(key("1", { meta: true, shift: true }), wc, "darwin"),
+    ).toEqual({ action: "select-tab", key: 1 });
+    expect(
+      handleAppShortcut(key("1", { meta: true, alt: true }), wc, "darwin"),
+    ).toBe(false);
+  });
+
+  it("swallows the auto-repeat without repeatedly changing MRU", () => {
+    const wc = makeWc();
+    expect(
+      handleAppShortcut(
+        key("3", { meta: true, isAutoRepeat: true }),
+        wc,
+        "darwin",
+      ),
+    ).toBe(true);
   });
 });
