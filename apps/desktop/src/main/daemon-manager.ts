@@ -1,5 +1,6 @@
 import { app, ipcMain, BrowserWindow, shell } from "electron";
 import { execFile } from "child_process";
+import { pickEnvForSpawn } from "./util/spawn-env";
 import {
   readFile,
   writeFile,
@@ -915,7 +916,7 @@ function profileArgs(active: ActiveProfile): string[] {
 // applied by fix-path in main/index.ts — as a top-level const it would
 // snapshot process.env at import time, before that block runs.
 function desktopSpawnEnv(): NodeJS.ProcessEnv {
-  return { ...process.env, MULTICA_LAUNCHED_BY: "desktop" };
+  return pickEnvForSpawn({ MULTICA_LAUNCHED_BY: "desktop" });
 }
 
 // Single-flight guard for startDaemon. Without it, two near-simultaneous

@@ -429,6 +429,14 @@ function serializeEnvFile(env: ServerEnv): string {
   ].join("\n");
 }
 
+/**
+ * Build the env passed to a spawned child process (migrate / server /
+ * pg_ctl / daemon CLI) from an explicit allowlist. H9 (audit 2026-09-06).
+ * Re-exported from apps/desktop/src/main/util/spawn-env.ts so daemon-
+ * manager.ts can import the same helper.
+ */
+export { pickEnvForSpawn } from "./util/spawn-env";
+
 function randomHex(bytes: number): string {
   return randomBytes(bytes).toString("hex");
 }
@@ -475,7 +483,7 @@ export async function runMigrate(
       ["up"],
       {
         cwd: profileDir(profile),
-        env: { ...process.env, ...env, MULTICA_RESOURCES_DIR: resolveResourcePath() },
+        env: pickEnvForSpawn({ ...env, MULTICA_RESOURCES_DIR: resolveResourcePath() }),
         timeout: 60_000,
       },
       (err, stdout, stderr) => {
@@ -546,7 +554,7 @@ async function startServer(profile: string, port: number): Promise<void> {
   });
   const child = spawn(bin, [], {
     cwd: profileDir(profile),
-    env: { ...process.env, ...envWithResources },
+    env: pickEnvForSpawn(envWithResources),
     stdio: ["ignore", logFd.fd, logFd.fd],
     detached: false,
   });
@@ -933,7 +941,7 @@ export async function probeMulticaPg(): Promise<boolean> {
             "THEN 't' ELSE 'f' END",
         ],
         {
-          env: { ...process.env, PGPASSWORD: "multica" },
+          env: pickEnvForSpawn({ PGPASSWORD: "multica" }),
           encoding: "utf-8",
           timeout: 5_000,
         },
