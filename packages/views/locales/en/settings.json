@@ -188,6 +188,8 @@
       "title": "Fixed system shortcuts",
       "description": "Window and accessibility shortcuts stay fixed so they remain reliable. Zoom and tab controls apply to the desktop app.",
       "close_tab": "Close active tab",
+      "select_tab_1_to_8": "Select tab 1–8",
+      "select_last_tab": "Select last tab",
       "zoom_in": "Zoom in",
       "zoom_out": "Zoom out",
       "reset_zoom": "Reset zoom",
