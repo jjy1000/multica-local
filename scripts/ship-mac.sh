@@ -243,16 +243,38 @@ else
   echo "    SKIP_BACKUP=true: skipping local backup (emergency override)"
 fi
 
-# --- 7. Cold-start verification (three-check + row parity) -------------------
-step "7/7 cold-start verification"
+# --- 7. Cold-start verification (FATAL — 0.5.99 lesson) ---------------------
+# Belt-and-suspenders: the verify script must run AND succeed. After it
+# returns 0, we independently re-confirm a server PID is bound on :8090
+# and /health responds "ok". This catches two failure modes:
+#   (1) verify script bug that exits 0 on a real failure (0.5.98: server
+#       ReferenceError caused :8090 to never bind, but the install was
+#       treated as "successful" because verify was non-fatal at the
+#       outer level — the new die-on-missing + post-verify sanity here
+#       close that gap).
+#   (2) verify script missing entirely — refuse to ship silently.
+# Why this is in ship-mac.sh (not just the verify script): the verify
+# script is in $HOME/.multica/scripts/, outside the fork repo. Any bug
+# there escapes our test surface; the post-verify checks below live in
+# the repo and are reviewed in this script's diff.
+step "7/7 cold-start verification (FATAL — belt-and-suspenders)"
 pkill -f "multica daemon" 2>/dev/null || true
 pkill -f "Multica.app/Contents/MacOS/Multica" 2>/dev/null || true
 sleep 1
 open "$INSTALLED_APP"
-if [ -f "$COLD_START" ]; then
-  bash "$COLD_START" || die "cold-start verification FAILED — inspect ~/.multica/profiles/<profile>/server.log"
-else
-  echo "    (verify-desktop-cold-start.sh not found — verify manually: ports 5432/8090 listening, /health ok, row parity)"
-fi
+[ -f "$COLD_START" ] \
+  || die "verify-desktop-cold-start.sh not found at $COLD_START — refusing to ship without cold-start verification (0.5.99 lesson)"
+bash "$COLD_START" \
+  || die "cold-start verification FAILED — inspect ~/.multica/profiles/<profile>/server.log"
+
+# Independent post-verify sanity checks. Even if the verify script reports
+# PASS, re-check the two conditions that define "the app actually works".
+SERVER_PID=$(lsof -nP -iTCP:8090 -sTCP:LISTEN -t 2>/dev/null | head -1 || true)
+[ -n "$SERVER_PID" ] \
+  || die "cold-start verify returned 0 but no server PID is bound on :8090 — verify script bug, refusing to ship"
+HEALTH=$(curl -s --max-time 3 http://localhost:8090/health 2>/dev/null || echo "")
+echo "$HEALTH" | grep -q '"status":"ok"' \
+  || die "cold-start verify returned 0 but /health is not ok: $HEALTH — refusing to ship"
+echo "[verify] Belt-and-suspenders sanity OK: server PID $SERVER_PID on :8090, /health=ok"
 
 step "ship complete: $INSTALLED_APP"
