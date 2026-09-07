@@ -10,7 +10,7 @@
 // instead of in post-ship verification.
 
 import { describe, it, expect, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { I18nProvider } from "@multica/core/i18n/react";
@@ -48,6 +48,7 @@ vi.mock("./lab-last-result-chip", () => ({
 }));
 
 const mockFlags = vi.hoisted(() => ({ value: [] as Array<unknown> }));
+const mockSnapshot = vi.hoisted(() => ({ value: [] as Array<unknown> }));
 
 vi.mock("@multica/core/experimental", () => ({
   useExperimentalFlags: () => ({ data: mockFlags.value }),
@@ -56,7 +57,7 @@ vi.mock("@multica/core/experimental", () => ({
 vi.mock("@multica/core/agents", () => ({
   agentTaskSnapshotOptions: (wsId: string) => ({
     queryKey: ["test-agent-task-snapshot", wsId],
-    queryFn: () => [],
+    queryFn: () => mockSnapshot.value,
   }),
 }));
 
@@ -137,6 +138,61 @@ describe("IssueLabsSection → LabProgressCard wiring", () => {
       labSource: "timesfm",
       flagEnabled: false,
     });
+  });
+});
+
+// ── 0.5.103: panel-link honesty + running-task terminate pin ─────────────
+//
+// 0.5.102 finding: a pythia-bound issue whose flag was ON still rendered
+// the "lab not enabled" fallback box, because the open-panel link was
+// gated on `hides_deliverable_in_issue_timeline` (false for pythia BY
+// DESIGN — its deliverable posts to the issue timeline). Readers could
+// not tell whether the run had started. These tests pin:
+//   enabled lab + known route → open-panel link, NO disabled box
+//   running snapshot task     → terminate control next to the indicator
+describe("IssueLabsSection → panel link honesty", () => {
+  it("shows the open-panel link (not the disabled box) for an enabled lab with a route", () => {
+    mockFlags.value = [makeFlag("pythia_oracle", true)];
+    mockSnapshot.value = [];
+    const { container } = render(
+      <IssueLabsSection issueId="issue-1" labSource="pythia_oracle" />,
+      { wrapper: SectionWrapper },
+    );
+    const links = Array.from(container.querySelectorAll("a")).map((a) =>
+      a.getAttribute("href"),
+    );
+    expect(links).toContain("/experimental/pythia?issue=issue-1");
+    expect(container.textContent).not.toContain("Lab not enabled");
+  });
+
+  it("renders the terminate control while a lab task is running", async () => {
+    mockFlags.value = [makeFlag("pythia_oracle", true)];
+    mockSnapshot.value = [
+      { id: "task-9", issue_id: "issue-1", status: "running" },
+    ];
+    const { container } = render(
+      <IssueLabsSection issueId="issue-1" labSource="pythia_oracle" />,
+      { wrapper: SectionWrapper },
+    );
+    // The snapshot query resolves async — the control appears once `live`
+    // recomputes from the fetched tasks.
+    await waitFor(() => {
+      expect(
+        container.querySelector('button[aria-label="Stop the running task"]'),
+      ).not.toBeNull();
+    });
+  });
+
+  it("keeps the disabled box for a genuinely disabled flag", () => {
+    mockFlags.value = [makeFlag("pythia_oracle", false)];
+    mockSnapshot.value = [];
+    const { container } = render(
+      <IssueLabsSection issueId="issue-1" labSource="pythia_oracle" />,
+      { wrapper: SectionWrapper },
+    );
+    // en no_flag_title — shown ONLY when the flag is actually off (0.5.103:
+    // an enabled pythia bound to the issue used to show this misleading box).
+    expect(container.textContent).toContain("Labs are off");
   });
 });
 

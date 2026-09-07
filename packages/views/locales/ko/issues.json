@@ -558,6 +558,7 @@
     "open_panel": "랩 패널 열기",
     "running_indicator": "실행 중",
     "running_tooltip": "랩 에이전트가 이 이슈에서 작업 중입니다",
+    "terminate_running": "실행 중인 작업 중지",
     "queued_indicator": "대기 중",
     "queued_tooltip": "랩 에이전트 대기열에 있음 — 워커가 비면 시작합니다",
     "failed_indicator": "실패",

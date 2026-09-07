@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronRight, ExternalLink, Loader2, ThumbsDown } from "lucide-react";
+import { toast } from "sonner";
+import { ChevronRight, ExternalLink, Loader2, Square, ThumbsDown } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { useExperimentalFlags } from "@multica/core/experimental";
@@ -14,6 +15,7 @@ import { LabOutputPanel } from "../../experimental/components/lab-output-panel";
 import { LabProgressCard } from "./lab-progress-card";
 import { LabLastResultChip } from "./lab-last-result-chip";
 import { LabBadge } from "./lab-badge";
+import { TerminateTaskConfirmDialog } from "./terminate-task-confirm-dialog";
 import { useT } from "../../i18n";
 
 // Hard-coded mapping from experimental flag key to its experimental
@@ -255,15 +257,13 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
 
   const suffix = labSourceRouteSuffix(labSource);
   const labEnabled = (flags ?? []).some((f) => f.key === labSource && f.enabled);
-  // 0.3.51: the catalog's `hides_deliverable_in_issue_timeline` field
-  // is the single source-of-truth for "does this lab ship a
-  // workspace-scoped workbench view?". The 0.3.49.1 ship wired this
-  // lookup; the 0.3.50 ship replaced the historical VIEW_LAB_SOURCES
-  // const entirely, so this is now the only place the field is read.
-  const hidesDeliverable = (flags ?? []).some(
-    (f) => f.key === labSource && f.hides_deliverable_in_issue_timeline === true,
-  );
-  const hasWorkspaceView = hidesDeliverable;
+  // 0.5.103: the "open panel" link is gated on `suffix && labEnabled` only.
+  // The historical `hides_deliverable_in_issue_timeline` lookup (0.3.51)
+  // stood in for "ships a workspace view", but the field actually means
+  // "the deliverable posts to the issue timeline" — false for pythia_oracle
+  // BY DESIGN, which suppressed the panel link for pythia-bound issues and
+  // dropped the section into the "lab not enabled" fallback copy while the
+  // flag was on. Route membership is the honest signal.
 
   // 0.3.54: track the full live lifecycle, not just running/queued.
   // Background agent_task rows surface in the renderer through
@@ -296,6 +296,31 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
     }
     return { running, queued, failed, cancelled };
   }, [snapshot, issueId]);
+
+  // 0.5.103: surface a stop control next to the running indicator. Before
+  // this the only terminate affordance lived in the execution log, which
+  // readers of the labs section (e.g. a multi-round Pythia run) never find —
+  // the run looks unstoppable until it finishes on its own. Same API the
+  // execution log uses; cancelling the agent task aborts its in-flight
+  // forecast request, whose round loop listens on the request context.
+  const [confirmTerminate, setConfirmTerminate] = useState(false);
+  const [terminating, setTerminating] = useState(false);
+  const runningTaskId = useMemo(
+    () =>
+      snapshot.find((task) => task.issue_id === issueId && task.status === "running")?.id ?? null,
+    [snapshot, issueId],
+  );
+  const terminateTask = useMutation({
+    mutationFn: (taskId: string) => api.cancelTask(issueId, taskId),
+    onSuccess: () => {
+      setConfirmTerminate(false);
+      setTerminating(false);
+    },
+    onError: (e) => {
+      setTerminating(false);
+      toast.error(e instanceof Error ? e.message : t(($) => $.execution_log.cancel_failed));
+    },
+  });
 
   const indicator = live.running
     ? {
@@ -367,6 +392,23 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
             <span className="truncate text-caption text-foreground/90">
               {flagTitle ?? labSource}
             </span>
+            <div className="flex shrink-0 items-center gap-1">
+            {live.running && runningTaskId && (
+              <button
+                type="button"
+                disabled={terminating}
+                aria-label={t(($) => $.lab_section.terminate_running)}
+                title={t(($) => $.lab_section.terminate_running)}
+                onClick={() => setConfirmTerminate(true)}
+                className="flex items-center justify-center rounded p-1 text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {terminating ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <Square className="size-3" />
+                )}
+              </button>
+            )}
             {indicator && (
               <span
                 className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300"
@@ -380,6 +422,7 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
                 {indicator.label}
               </span>
             )}
+            </div>
             {/* Swarm run status pill (0.5.22). Renders only when the
                 issue is bound to a swarm_topology run AND the run
                 exists. 0.5.60 (audit hole #6): once the lookup has
@@ -458,7 +501,7 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
             />
           )}
 
-          {suffix && labEnabled && (hasWorkspaceView || labSource.startsWith("user_")) ? (
+          {suffix && labEnabled ? (
             // 0.3.35: include ?issue=<id> so the lab panel opens
             // pre-scoped to this issue (ClaudeLabView / PythiaView /
             // MythosView all read the search param). Without it the
@@ -468,12 +511,16 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
             // 0.5.81: user plugins (user_*) never set
             // hides_deliverable_in_issue_timeline (plugin_scanner.go
             // leaves it false — sandbox runs are not issue-bound), so
-            // hasWorkspaceView was false forever and this "open lab
-            // panel" affordance was suppressed for every plugin issue:
-            // created from a task, yet no way back into its surface.
-            // The plugin shell exists and is usable (run / artifacts /
-            // chat) even though it can't issue-scope artifacts yet, so
-            // let user plugins through.
+            // gating on that field suppressed this link for every
+            // plugin issue AND for built-ins like pythia_oracle whose
+            // deliverable posts to the issue timeline (hides_deliverable
+            // = false by design). The route map above only contains
+            // flags that ship a real workspace-scoped view, so
+            // `suffix && labEnabled` is the honest gate: an enabled lab
+            // with a known route always gets its way back into the
+            // panel. (0.5.103: pythia-bound issues showed the
+            // "lab not enabled" fallback copy while the flag was ON —
+            // the direct cause of the "did it even start?" confusion.)
             <AppLink
               href={`/experimental/${suffix}?issue=${encodeURIComponent(issueId)}`}
               className="inline-flex items-center gap-1 text-caption text-purple-600 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 transition-colors"
@@ -481,14 +528,28 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
               <ExternalLink className="size-3" />
               {t(($) => $.lab_section.open_panel)}
             </AppLink>
-          ) : (
+          ) : !labEnabled ? (
+            // Only claim "not enabled" when the flag actually is. An
+            // enabled lab with no route suffix is a developer error
+            // pinned by the FLAG_ROUTE_SUFFIX mapping test (Active
+            // Contract #9) — render nothing rather than a lie.
             <div className="rounded-md border border-dashed border-border/60 px-2 py-1.5 text-[11px] text-muted-foreground">
               <p className="font-medium text-foreground/80">
                 {t(($) => $.lab_section.no_flag_title)}
               </p>
               <p className="mt-0.5 leading-snug">{t(($) => $.lab_section.no_flag_hint)}</p>
             </div>
-          )}
+          ) : null}
+          <TerminateTaskConfirmDialog
+            open={confirmTerminate}
+            onOpenChange={setConfirmTerminate}
+            onConfirm={() => {
+              if (!runningTaskId) return;
+              setTerminating(true);
+              terminateTask.mutate(runningTaskId);
+            }}
+            showRunningNote
+          />
           </motion.div>
         )}
       </AnimatePresence>

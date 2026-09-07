@@ -540,6 +540,7 @@
     "open_panel": "ラボパネルを開く",
     "running_indicator": "実行中",
     "running_tooltip": "ラボエージェントがこのイシューで作業中です",
+    "terminate_running": "実行中のタスクを停止",
     "queued_indicator": "キュー待ち",
     "queued_tooltip": "ラボエージェントのキューにあります — ワーカーが空けば開始します",
     "failed_indicator": "失敗",

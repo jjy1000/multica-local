@@ -564,6 +564,7 @@
     "open_panel": "Open labs panel",
     "running_indicator": "Running",
     "running_tooltip": "An experimental agent is currently working on this issue",
+    "terminate_running": "Stop the running task",
     "queued_indicator": "Queued",
     "queued_tooltip": "Queued for an experimental agent — will start when a worker is free",
     "failed_indicator": "Failed",

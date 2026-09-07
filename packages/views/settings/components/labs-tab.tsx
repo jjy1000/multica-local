@@ -57,6 +57,17 @@ async function loadBrokenFlags(): Promise<BrokenFlagEntry[]> {
   }
 }
 
+// 0.5.103: platform notification that a lab flag just turned ON. The
+// desktop renderer listens (pythia-engine-autostart.tsx) to bring the
+// Pythia engine subprocess up immediately — issue-dispatched agent runs
+// need the engine registered without waiting for a lab panel mount or an
+// app relaunch. The web build has no listener and ignores the event.
+// Guarded for non-window environments so the module stays SSR-safe.
+function notifyFlagEnabled(key: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("multica:lab-flag-enabled", { detail: { key } }));
+}
+
 async function clearBrokenFlag(flagKey: string): Promise<boolean> {
   const api =
     typeof window !== "undefined"
@@ -222,6 +233,7 @@ export function LabsTab() {
     // of the UI sees the change without a manual refresh.
     try {
       await updateFlag.mutateAsync({ key: flagKey, enabled: true });
+      notifyFlagEnabled(flagKey);
     } catch {
       // pref write failure is non-fatal: the blacklist is gone, the
       // user can re-toggle in a moment. Don't fail the whole restore.
@@ -447,6 +459,10 @@ export function LabsTab() {
                               { description: data.install_error },
                             );
                           }
+                          // 0.5.103: subprocess labs (pythia_oracle) need
+                          // their engine up for issue-dispatched runs, not
+                          // just panel visits — see the desktop listener.
+                          if (next) notifyFlagEnabled(flag.key);
                         },
                       },
                     )

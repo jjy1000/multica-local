@@ -545,6 +545,7 @@
     "open_panel": "打开实验室面板",
     "running_indicator": "运行中",
     "running_tooltip": "实验智能体正在处理这个 issue",
+    "terminate_running": "终止运行中的任务",
     "queued_indicator": "排队中",
     "queued_tooltip": "已排队等待实验智能体 — 资源空闲即启动",
     "failed_indicator": "本轮失败",

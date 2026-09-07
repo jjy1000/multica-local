@@ -49,6 +49,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -698,7 +699,11 @@ func syntheticIssueForecast(
 		IssueID:         ifc.IssueID,
 		Scenario:        ifc.Title,
 		Narrative:       scenarioContextFor(ifc),
-		Probability:     0.42 + float64(round)*0.07,
+		// Clamp at 0.97: the band-widening formula crosses 1.0 at round ≥ 9
+		// (0.42 + 9*0.07 = 1.05), which the renderer then displays as
+		// "105%" — an impossible probability that screams fake data even
+		// to readers who missed the source note. (0.5.103)
+		Probability:     math.Min(0.97, 0.42+float64(round)*0.07),
 		Confidence:      0.55,
 		Horizon:         "week",
 		Persona:         "strategist",
