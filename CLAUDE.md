@@ -374,7 +374,7 @@ When adding a new experiment: 1) manifest in `apps/desktop/resources/experiments
 
 **Lab ↔ Assignee Mutex (narrowed 2026-07-28 audit):** applies to `mythos_swarm` (sole mode) ONLY. Every other lab (built-in or `user_*`): manual assignee is legal; on `lab_source` flip without explicit assignee, server auto-rewrites to lab leader (Active Contract #2).
 
-**Network calls from Labs tabs MUST go through `api.rawRequest`** (`packages/core/api/client.ts`). Never `fetch("/api/experimental/...")` — fails in desktop (renderer origin `file://`, not bundled backend `:8090`; no Bearer = 401). Converted: claude-lab, forecast-stream, mythos, llm-wiki-bridge, experimental-artifact, pythia-report. Exception: `use-pythia-sse.ts` (loopback engine URL, no baseUrl prefix).
+**Network calls from Labs tabs MUST go through `api.rawRequest`** (`packages/core/api/client.ts`). Never bare `fetch()` (e.g. `fetch("/api/experimental/...")`) — fails in desktop (renderer origin `file://`, not bundled backend `:8090`; no Bearer = 401). Converted: claude-lab, forecast-stream, mythos, llm-wiki-bridge, experimental-artifact, pythia-report. Exception: `use-pythia-sse.ts` (loopback engine URL, no baseUrl prefix).
 
 **Lab auto-dispatch opt-out** (per-catalog): `experimental.Flag.AutoDispatch *bool` — nil/true = unchanged; false = leader-rewrite still applies (so IssueLabsSection + workbench header show the right agent) but enqueue gate short-circuits; user must explicitly trigger via lab workbench "Run research" button. Today: `pythia_oracle` + `timesfm` (records-only) and `causal_graph` (auxiliary) are opt-out. `multica lab delegate` fails fast naming AutoDispatch=false + frozen labs.
 
