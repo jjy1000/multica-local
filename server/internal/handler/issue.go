@@ -1065,6 +1065,36 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 		involvesUserFilter = id
 	}
 
+	// MUL-6409 (fork completion): multi-value + category filters mirroring
+	// ListGroupedIssues below. The bucketed board cache fans out one
+	// listIssues request per status category and renders the returned
+	// `total` as the column badge — every filter the renderer can narrow
+	// by must parse HERE, or the badge keeps counting the unfiltered
+	// workspace while the column body shows the filtered subset.
+	statusesFilter := splitCommaParam(r.URL.Query().Get("statuses"))
+	statusCategoriesFilter := splitCommaParam(r.URL.Query().Get("status_categories"))
+	if len(statusCategoriesFilter) == 0 {
+		statusCategoriesFilter = splitCommaParam(r.URL.Query().Get("status_category"))
+	}
+	assigneeFilters, ok := parseActorFilterList(w, r.URL.Query().Get("assignee_filters"), "assignee_filters")
+	if !ok {
+		return
+	}
+	includeNoAssignee := r.URL.Query().Get("include_no_assignee") == "true"
+	creatorFilters, ok := parseActorFilterList(w, r.URL.Query().Get("creator_filters"), "creator_filters")
+	if !ok {
+		return
+	}
+	projectIDs, ok := parseUUIDParamList(w, r.URL.Query().Get("project_ids"), "project_ids")
+	if !ok {
+		return
+	}
+	includeNoProject := r.URL.Query().Get("include_no_project") == "true"
+	labelIDs, ok := parseUUIDParamList(w, r.URL.Query().Get("label_ids"), "label_ids")
+	if !ok {
+		return
+	}
+
 	metadataFilter, ok := parseMetadataFilterParam(w, r.URL.Query().Get("metadata"))
 	if !ok {
 		return
@@ -1266,6 +1296,64 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
           AND a.owner_id     = %[1]s::uuid
     ))
 )`, ref))
+	}
+
+	// Fragments below are copy-for-copy from ListGroupedIssues — keep both
+	// in lock-step when editing either.
+	if len(statusesFilter) > 0 {
+		where = append(where, fmt.Sprintf("i.status = ANY(%s::text[])", addArg(statusesFilter)))
+	}
+	if len(statusCategoriesFilter) > 0 {
+		// Expanded to keys so the (workspace_id, status) index still drives
+		// the scan. (MUL-6243)
+		keys, err := issuestatus.ExpandCategories(r.Context(), h.Queries, wsUUID, statusCategoriesFilter)
+		if err != nil {
+			slog.Warn("expand status categories failed", append(logger.RequestAttrs(r), "error", err)...)
+			writeError(w, http.StatusInternalServerError, "failed to resolve status categories")
+			return
+		}
+		where = append(where, fmt.Sprintf("i.status = ANY(%s::text[])", addArg(keys)))
+	}
+	if len(assigneeFilters) > 0 || includeNoAssignee {
+		ors := make([]string, 0, len(assigneeFilters)+1)
+		for _, filter := range assigneeFilters {
+			ors = append(ors, fmt.Sprintf(
+				"(i.assignee_type = %s::text AND i.assignee_id = %s::uuid)",
+				addArg(filter.actorType),
+				addArg(filter.actorID),
+			))
+		}
+		if includeNoAssignee {
+			ors = append(ors, "(i.assignee_type IS NULL AND i.assignee_id IS NULL)")
+		}
+		where = append(where, "("+strings.Join(ors, " OR ")+")")
+	}
+	if len(creatorFilters) > 0 {
+		ors := make([]string, 0, len(creatorFilters))
+		for _, filter := range creatorFilters {
+			ors = append(ors, fmt.Sprintf(
+				"(i.creator_type = %s::text AND i.creator_id = %s::uuid)",
+				addArg(filter.actorType),
+				addArg(filter.actorID),
+			))
+		}
+		where = append(where, "("+strings.Join(ors, " OR ")+")")
+	}
+	if len(projectIDs) > 0 || includeNoProject {
+		ors := make([]string, 0, 2)
+		if len(projectIDs) > 0 {
+			ors = append(ors, fmt.Sprintf("i.project_id = ANY(%s::uuid[])", addArg(projectIDs)))
+		}
+		if includeNoProject {
+			ors = append(ors, "i.project_id IS NULL")
+		}
+		where = append(where, "("+strings.Join(ors, " OR ")+")")
+	}
+	if len(labelIDs) > 0 {
+		where = append(where, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM issue_to_label itl WHERE itl.issue_id = i.id AND itl.label_id = ANY(%s::uuid[]))",
+			addArg(labelIDs),
+		))
 	}
 
 	whereSql := strings.Join(where, " AND ")

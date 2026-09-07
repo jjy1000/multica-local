@@ -73,14 +73,27 @@ export function useLoadMoreByStatus(
   status: IssueStatus,
   myIssues?: { scope: string; filter: MyIssuesFilter },
   sort?: IssueSortParam,
+  // The workspace board's pushed-down filter (IssuesPage's `boardFilter`).
+  // The bucketed cache row is keyed by this filter (see `listSorted`), so
+  // the count/load-more reads here and the `useQuery` that feeds the
+  // column cards must resolve to the SAME key — passing the filter to one
+  // and not the other splits the cache and the badge silently reads the
+  // stale `{}` row. Also spread into the load-more request so appended
+  // pages stay narrowed by the active board filter.
+  workspaceFilter?: MyIssuesFilter,
 ) {
   const qc = useQueryClient();
   const wsId = useWorkspaceId();
   const [isLoading, setIsLoading] = useState(false);
 
+  // `filter` is part of the cache identity so a project/priority/label
+  // change invalidates the bucketed cache and the per-column `total` read
+  // here lines up with the filter that the board column renders under. See
+  // `MyIssuesFilter`'s doc for the server-push rationale.
+  const effectiveFilter: MyIssuesFilter = myIssues?.filter ?? workspaceFilter ?? {};
   const activeKey = myIssues
     ? issueKeys.myListSorted(wsId, myIssues.scope, myIssues.filter, sort)
-    : issueKeys.listSorted(wsId, sort);
+    : issueKeys.listSorted(wsId, effectiveFilter, sort);
   const cache = qc.getQueryData<ListIssuesCache>(activeKey);
   const bucket = cache?.byStatus[statusCategoryOfKey(status)];
   const loaded = bucket?.issues.length ?? 0;
@@ -91,12 +104,17 @@ export function useLoadMoreByStatus(
     if (isLoading || !hasMore) return;
     setIsLoading(true);
     try {
+      // Same narrowing the first-page fan-out uses (`status_category`, not
+      // the literal `status` key) so a custom status bucketed under a
+      // category paginates the whole category bucket, not just the rows
+      // whose status equals the category key. Requires the server-side
+      // status_category support added with MUL-6409.
       const res = await api.listIssues({
-        status,
+        status_category: statusCategoryOfKey(status),
         limit: ISSUE_PAGE_SIZE,
         offset: loaded,
         ...sort,
-        ...myIssues?.filter,
+        ...effectiveFilter,
       });
       qc.setQueryData<ListIssuesCache>(activeKey, (old) => {
         if (!old) return old;
@@ -111,7 +129,7 @@ export function useLoadMoreByStatus(
     } finally {
       setIsLoading(false);
     }
-  }, [qc, activeKey, status, loaded, hasMore, isLoading, myIssues?.filter, sort]);
+  }, [qc, activeKey, status, loaded, hasMore, isLoading, effectiveFilter, sort]);
 
   return { loadMore, hasMore, isLoading, total };
 }

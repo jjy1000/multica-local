@@ -23,9 +23,13 @@ export const issueKeys = {
   all: (wsId: string) => ["issues", wsId] as const,
   /** PREFIX for invalidation — no sort. */
   list: (wsId: string) => [...issueKeys.all(wsId), "list"] as const,
-  /** FULL KEY for queryOptions — includes sort. */
-  listSorted: (wsId: string, sort?: IssueSortParam) =>
-    [...issueKeys.list(wsId), sort ?? {}] as const,
+  /** FULL KEY for queryOptions — includes sort AND the filter pushed down to
+   *  `listIssues`. The filter is part of the cache identity so changing the
+   *  project/priority/label/etc. selector invalidates the bucketed cache
+   *  instead of leaving a stale `bucket.total` from a previous filter set.
+   *  See `MyIssuesFilter`'s doc for why the filter is at the server. */
+  listSorted: (wsId: string, filter: MyIssuesFilter, sort?: IssueSortParam) =>
+    [...issueKeys.list(wsId), filter, sort ?? {}] as const,
   assigneeGroupsAll: (wsId: string) =>
     [...issueKeys.all(wsId), "assignee-groups"] as const,
   assigneeGroups: (wsId: string, filter: AssigneeGroupedIssuesFilter) =>
@@ -114,9 +118,49 @@ export const issueKeys = {
   tasks: (issueId: string) => [...issueKeys.tasksAll(), issueId] as const,
 };
 
-export type MyIssuesFilter = Pick<
-  ListIssuesParams,
-  "assignee_id" | "assignee_ids" | "creator_id" | "project_id" | "involves_user_id"
+/**
+ * Filter dimensions pushed to the per-category `listIssues` request.
+ *
+ * Why this is wider than the "My Issues" name implies: the bucketed board
+ * cache (workspace board + My-Issues board) needs every filter dimension the
+ * client-side `filterIssues` strips on top of the loaded array, so the server
+ * returns a `total` already narrowed by the same predicates the renderer
+ * applies. Without that, `bucket.total` would be the workspace-wide status
+ * total while the rendered cards are the filtered subset — exactly the
+ * count-≠-body mismatch the upstream `useIssueStatusBranches` server-facet
+ * design avoids (MUL-6409: filtered status heading showed 220 vs the 5 cards
+ * that matched). The fork's bucketed cache can't take the disjunctive-facet
+ * path, so we push the full filter down to `listIssues` instead, and let
+ * the per-category `total` carry the filtered count back.
+ *
+ * `agentRunningFilter` is intentionally absent — the `listIssues` endpoint
+ * has no "running only" param, so the client still strips those locally and
+ * `total` for that filter remains the workspace total. Acceptable: the chip
+ * is opt-in and workspace-rare.
+ */
+export type MyIssuesFilter = Partial<
+  Pick<
+    ListIssuesParams,
+    | "assignee_id"
+    | "assignee_ids"
+    | "assignee_filters"
+    | "include_no_assignee"
+    | "creator_id"
+    | "creator_filters"
+    | "project_id"
+    | "project_ids"
+    | "include_no_project"
+    | "label_ids"
+    | "priority"
+    | "statuses"
+    | "involves_user_id"
+    | "metadata"
+    | "date_field"
+    | "date_start"
+    | "date_end"
+    | "open_only"
+    | "exclude_lab"
+  >
 >;
 
 export type AssigneeGroupedIssuesFilter = Omit<
@@ -289,10 +333,10 @@ async function fetchAllMyAssigneeGroups(
  * Fetches the first page of each paginated status in parallel. Use
  * {@link useLoadMoreByStatus} to paginate a specific status into the cache.
  */
-export function issueListOptions(wsId: string, sort?: IssueSortParam) {
+export function issueListOptions(wsId: string, filter: MyIssuesFilter = {}, sort?: IssueSortParam) {
   return queryOptions({
-    queryKey: issueKeys.listSorted(wsId, sort),
-    queryFn: () => fetchFirstPages({}, sort),
+    queryKey: issueKeys.listSorted(wsId, filter, sort),
+    queryFn: () => fetchFirstPages(filter, sort),
     select: flattenIssueBuckets,
     placeholderData: keepPreviousData,
   });

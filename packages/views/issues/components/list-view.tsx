@@ -60,6 +60,7 @@ export function ListView({
   childProgressMap = EMPTY_PROGRESS_MAP,
   myIssuesScope,
   myIssuesFilter,
+  statusColumnFilter,
   projectId,
   onMoveIssue,
   sort,
@@ -69,6 +70,8 @@ export function ListView({
   childProgressMap?: Map<string, ChildProgress>;
   myIssuesScope?: string;
   myIssuesFilter?: MyIssuesFilter;
+  /** The workspace board's pushed-down filter — must match the page's `issueListOptions` filter (cache-key parity). */
+  statusColumnFilter?: MyIssuesFilter;
   projectId?: string;
   onMoveIssue?: (issueId: string, updates: DragMoveUpdates, onSettled?: () => void) => void;
   sort?: IssueSortParam;
@@ -332,6 +335,7 @@ export function ListView({
             issueMap={issueMapRef.current}
             childProgressMap={childProgressMap}
             myIssuesOpts={myIssuesOpts}
+            workspaceFilter={statusColumnFilter}
             projectId={projectId}
             dragEnabled={dragEnabled}
             isExpanded={isExpanded}
@@ -386,6 +390,7 @@ function StatusAccordionItem({
   issueMap,
   childProgressMap,
   myIssuesOpts,
+  workspaceFilter,
   projectId,
   dragEnabled,
   isExpanded,
@@ -397,6 +402,7 @@ function StatusAccordionItem({
   issueMap: Map<string, Issue>;
   childProgressMap: Map<string, ChildProgress>;
   myIssuesOpts?: { scope: string; filter: MyIssuesFilter };
+  workspaceFilter?: MyIssuesFilter;
   projectId?: string;
   dragEnabled: boolean;
   isExpanded: boolean;
@@ -411,6 +417,7 @@ function StatusAccordionItem({
     status,
     myIssuesOpts,
     sort,
+    workspaceFilter,
   );
 
   const issues = useMemo(

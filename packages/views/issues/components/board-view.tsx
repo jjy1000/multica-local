@@ -124,6 +124,7 @@ export function BoardView({
   childProgressMap = EMPTY_PROGRESS_MAP,
   myIssuesScope,
   myIssuesFilter,
+  statusColumnFilter,
   sort,
   projectId,
 }: {
@@ -138,6 +139,10 @@ export function BoardView({
   /** When set, per-status load-more targets the scoped cache instead of the workspace one. */
   myIssuesScope?: string;
   myIssuesFilter?: MyIssuesFilter;
+  /** The workspace board's pushed-down filter — must be the object the page
+   *  queried `issueListOptions` with, or the column reads a cache row
+   *  nobody wrote (badge falls back to 0/stale). */
+  statusColumnFilter?: MyIssuesFilter;
   /** Must match the sort the page queried with — embedded in the cache key. */
   sort?: IssueSortParam;
   /** When set, the per-column "+" pre-fills the project on the create form. */
@@ -446,6 +451,7 @@ export function BoardView({
                   issueMap={issueMapRef.current}
                   childProgressMap={childProgressMap}
                   myIssuesOpts={myIssuesOpts}
+                  workspaceFilter={statusColumnFilter}
                   sort={sort}
                   projectId={projectId}
                   sortLabel={sortLabel}
@@ -484,6 +490,7 @@ export function BoardView({
             <BoardHiddenColumnsPanel
               hiddenStatuses={hiddenStatuses}
               myIssuesOpts={myIssuesOpts}
+              workspaceFilter={statusColumnFilter}
               sort={sort}
             />
           )}
@@ -556,6 +563,7 @@ const PaginatedBoardColumn = memo(function PaginatedBoardColumn({
   issueMap,
   childProgressMap,
   myIssuesOpts,
+  workspaceFilter,
   sort,
   projectId,
   sortLabel,
@@ -565,6 +573,7 @@ const PaginatedBoardColumn = memo(function PaginatedBoardColumn({
   issueMap: Map<string, Issue>;
   childProgressMap?: Map<string, ChildProgress>;
   myIssuesOpts?: { scope: string; filter: MyIssuesFilter };
+  workspaceFilter?: MyIssuesFilter;
   sort?: IssueSortParam;
   projectId?: string;
   sortLabel?: string | null;
@@ -573,6 +582,7 @@ const PaginatedBoardColumn = memo(function PaginatedBoardColumn({
     group.status,
     myIssuesOpts,
     sort,
+    workspaceFilter,
   );
   return (
     <BoardColumn
@@ -602,23 +612,27 @@ const PaginatedBoardColumn = memo(function PaginatedBoardColumn({
 function BoardHiddenColumnRow({
   status,
   myIssuesOpts,
+  workspaceFilter,
   sort,
 }: {
   status: IssueStatus;
   myIssuesOpts?: { scope: string; filter: MyIssuesFilter };
+  workspaceFilter?: MyIssuesFilter;
   sort?: IssueSortParam;
 }) {
-  const { total } = useLoadMoreByStatus(status, myIssuesOpts, sort);
+  const { total } = useLoadMoreByStatus(status, myIssuesOpts, sort, workspaceFilter);
   return <HiddenColumnRow status={statusCategoryOfKey(status)} total={total} />;
 }
 
 function BoardHiddenColumnsPanel({
   hiddenStatuses,
   myIssuesOpts,
+  workspaceFilter,
   sort,
 }: {
   hiddenStatuses: IssueStatusCategory[];
   myIssuesOpts?: { scope: string; filter: MyIssuesFilter };
+  workspaceFilter?: MyIssuesFilter;
   sort?: IssueSortParam;
 }) {
   return (
@@ -629,6 +643,7 @@ function BoardHiddenColumnsPanel({
           key={status}
           status={status}
           myIssuesOpts={myIssuesOpts}
+          workspaceFilter={workspaceFilter}
           sort={sort}
         />
       )}

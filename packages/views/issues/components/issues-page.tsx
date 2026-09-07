@@ -13,7 +13,7 @@ import { ViewStoreProvider } from "@multica/core/issues/stores/view-store-contex
 import { filterIssues } from "../utils/filter";
 import { BOARD_STATUSES } from "@multica/core/issues/config";
 import { useWorkspaceId } from "@multica/core/hooks";
-import { issueAssigneeGroupsOptions, issueListOptions, childIssueProgressOptions, type AssigneeGroupedIssuesFilter } from "@multica/core/issues/queries";
+import { issueAssigneeGroupsOptions, issueListOptions, childIssueProgressOptions, type AssigneeGroupedIssuesFilter, type MyIssuesFilter } from "@multica/core/issues/queries";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { useIssueSelectionStore } from "@multica/core/issues/stores/selection-store";
@@ -116,9 +116,47 @@ export function IssuesPage() {
     return filter;
   }, [assigneeFilters, creatorFilters, includeNoAssignee, includeNoProject, labelFilters, priorityFilters, projectFilters, scope, statusFilters]);
 
+  // Pushed-down filter for the status-grouped board cache. Same shape as
+  // `assigneeGroupFilter` minus the assignee-type scope (those only apply to
+  // the grouped endpoint) and minus the explicit `statuses` list — the per-
+  // category `listIssues` request already pins `status_category=<category>`
+  // on each of the 7 parallel fan-out calls, so adding a `statuses=` here
+  // would only re-narrow what's already constrained per request. The server
+  // returns `total` for each category with the remaining filters applied,
+  // which `useLoadMoreByStatus` reads as the column's badge count, so the
+  // count matches the cards the column actually renders under the active
+  // project/priority/label/assignee/creator/date filter set. See
+  // `MyIssuesFilter`'s doc for the upstream-parity rationale (MUL-6409).
+  //
+  // Priority is sent only when exactly ONE value is selected — the simple
+  // `listIssues` endpoint takes `priority` (singular), while the grouped
+  // endpoint takes `priorities[]`. Multi-priority selection still strips
+  // client-side via `filterIssues` below, with the limitation that the
+  // badge count for that case stays at the unfiltered status total.
+  const boardFilter = useMemo<MyIssuesFilter>(
+    () => ({
+      ...(priorityFilters.length === 1 ? { priority: priorityFilters[0] } : {}),
+      assignee_filters: assigneeFilters,
+      include_no_assignee: includeNoAssignee,
+      creator_filters: creatorFilters,
+      project_ids: projectFilters,
+      include_no_project: includeNoProject,
+      label_ids: labelFilters,
+    }),
+    [
+      priorityFilters,
+      assigneeFilters,
+      includeNoAssignee,
+      creatorFilters,
+      projectFilters,
+      includeNoProject,
+      labelFilters,
+    ],
+  );
+
   const assigneeGroupsOptions = issueAssigneeGroupsOptions(wsId, assigneeGroupFilter, queryParams);
   const statusIssuesQuery = useQuery({
-    ...issueListOptions(wsId, queryParams),
+    ...issueListOptions(wsId, boardFilter, queryParams),
     enabled: !usesAssigneeBoard,
   });
   const assigneeGroupsQuery = useQuery({
@@ -271,6 +309,7 @@ export function IssuesPage() {
                 onMoveIssue={handleMoveIssue}
                 childProgressMap={childProgressMap}
                 sort={queryParams}
+                statusColumnFilter={boardFilter}
               />
             ) : viewMode === "swimlane" ? (
               <SwimLaneView
@@ -282,9 +321,17 @@ export function IssuesPage() {
                 onMoveIssue={handleMoveIssue}
                 childProgressMap={childProgressMap}
                 sort={queryParams}
+                statusColumnFilter={boardFilter}
               />
             ) : (
-              <ListView issues={issues} visibleStatuses={visibleStatuses} childProgressMap={childProgressMap} sort={queryParams} onMoveIssue={handleMoveIssue} />
+              <ListView
+                issues={issues}
+                visibleStatuses={visibleStatuses}
+                childProgressMap={childProgressMap}
+                sort={queryParams}
+                onMoveIssue={handleMoveIssue}
+                statusColumnFilter={boardFilter}
+              />
             )}
           </div>
         )}

@@ -18,6 +18,7 @@ import {
 import {
   issueKeys,
   type IssueSortParam,
+  type MyIssuesFilter,
 } from "./queries";
 import type {
   GroupedIssuesResponse,
@@ -86,7 +87,7 @@ describe("useLoadMoreByStatus", () => {
 
   it("targets the sorted cache key and forwards sort to the API", async () => {
     const sort: IssueSortParam = { sort_by: "priority", sort_direction: "desc" };
-    const activeKey = issueKeys.listSorted(WS_ID, sort);
+    const activeKey = issueKeys.listSorted(WS_ID, {}, sort);
     const seed: ListIssuesCache = {
       byStatus: {
         todo: { issues: [makeIssue(1)], total: 3 },
@@ -112,7 +113,7 @@ describe("useLoadMoreByStatus", () => {
     });
 
     expect(listIssues).toHaveBeenCalledWith({
-      status: "todo",
+      status_category: "todo",
       limit: 50,
       offset: 1,
       sort_by: "priority",
@@ -131,13 +132,13 @@ describe("useLoadMoreByStatus", () => {
   it("ignores a stale cache entry under a different sort", async () => {
     // Stale entry from a previous sort lingers (kept by gcTime / keepPreviousData).
     const staleSort: IssueSortParam = { sort_by: "priority", sort_direction: "desc" };
-    qc.setQueryData<ListIssuesCache>(issueKeys.listSorted(WS_ID, staleSort), {
+    qc.setQueryData<ListIssuesCache>(issueKeys.listSorted(WS_ID, {}, staleSort), {
       byStatus: { todo: { issues: [makeIssue(99)], total: 99 } },
     });
 
     // The active sort cache has its own bucket — load-more must target THIS one.
     const activeSort: IssueSortParam = { sort_by: "position", sort_direction: undefined };
-    const activeKey = issueKeys.listSorted(WS_ID, activeSort);
+    const activeKey = issueKeys.listSorted(WS_ID, {}, activeSort);
     qc.setQueryData<ListIssuesCache>(activeKey, {
       byStatus: { todo: { issues: [makeIssue(1)], total: 2 } },
     });
@@ -170,7 +171,7 @@ describe("useLoadMoreByStatus", () => {
     ]);
 
     // Stale cache is untouched.
-    const stale = qc.getQueryData<ListIssuesCache>(issueKeys.listSorted(WS_ID, staleSort));
+    const stale = qc.getQueryData<ListIssuesCache>(issueKeys.listSorted(WS_ID, {}, staleSort));
     expect(stale?.byStatus.todo?.issues.map((i) => i.id)).toEqual(["issue-99"]);
   });
 
@@ -197,7 +198,7 @@ describe("useLoadMoreByStatus", () => {
     });
 
     expect(listIssues).toHaveBeenCalledWith({
-      status: "in_progress",
+      status_category: "in_progress",
       limit: 50,
       offset: 1,
       sort_by: "title",
@@ -207,6 +208,105 @@ describe("useLoadMoreByStatus", () => {
 
     const updated = qc.getQueryData<ListIssuesCache>(activeKey);
     expect(updated?.byStatus.in_progress?.issues).toHaveLength(2);
+  });
+
+  it("targets a per-column cache entry scoped by the workspace filter (regression: count vs body parity)", async () => {
+    // Setup: a project filter was applied on the workspace board. The server
+    // returned `bucket.total = 0` for the in_progress category — every
+    // in_progress issue is in projects outside the filter. A naive cache key
+    // that doesn't include the filter would still surface the workspace-wide
+    // `total = 13` cached under the same status key, and the board column
+    // would render a "13" badge over an empty body (the count-≠-body bug
+    // this fix closes — MUL-6409 in upstream's `useIssueStatusBranches`,
+    // where the disjunctive-facet fold would otherwise headline the wrong
+    // category total).
+    const projectAOnly: MyIssuesFilter = { project_ids: ["project-a"] };
+    const filteredKey = issueKeys.listSorted(WS_ID, projectAOnly, undefined);
+    qc.setQueryData<ListIssuesCache>(filteredKey, {
+      byStatus: {
+        in_progress: { issues: [], total: 0 },
+      },
+    });
+
+    // A different (or absent) filter must NOT see this 0 — that bucket belongs
+    // to the project-a-only view. Without filter in the cache key, the next
+    // hook call would resolve to the same cache row and report 0 for a board
+    // that has no project filter at all.
+    const noFilter: MyIssuesFilter = {};
+    const unfilteredKey = issueKeys.listSorted(WS_ID, noFilter, undefined);
+    qc.setQueryData<ListIssuesCache>(unfilteredKey, {
+      byStatus: {
+        in_progress: { issues: [makeIssue(1, { status: "in_progress" })], total: 13 },
+      },
+    });
+
+    // Lock-in: filter changes produce a different cache key, so the hook
+    // can't accidentally read the workspace-wide count under a filtered view.
+    expect(filteredKey).not.toEqual(unfilteredKey);
+    expect(
+      qc.getQueryData<ListIssuesCache>(filteredKey)?.byStatus.in_progress?.total,
+    ).toBe(0);
+    expect(
+      qc.getQueryData<ListIssuesCache>(unfilteredKey)?.byStatus.in_progress?.total,
+    ).toBe(13);
+
+    // The hook reads the bucket under the key it computes from the
+    // (optional) `workspaceFilter` arg — board-view threads IssuesPage's
+    // `boardFilter` down through `statusColumnFilter`, so the count read
+    // and the `issueListOptions` write resolve to the SAME
+    // `listSorted({filter})` key:
+    //   workspace board → boardFilter → issueListOptions key
+    //   ↔ PaginatedBoardColumn → useLoadMoreByStatus(status, undefined, sort, boardFilter)
+    // The assertions above prove the key shape that closes the loop; the
+    // test below proves the hook actually targets it end-to-end.
+  });
+
+  it("workspace filter: load-more targets the filtered key and sends the filter to the API", async () => {
+    // Board cache-key parity: IssuesPage queries with `issueListOptions(wsId,
+    // boardFilter, sort)` and threads `boardFilter` down to
+    // `useLoadMoreByStatus` as `workspaceFilter`. Before the parity fix the
+    // hook read the `{}` row — the badge went stale/zero while the query
+    // wrote to the filtered key, and load-more requests went out unfiltered.
+    const boardFilter: MyIssuesFilter = { project_ids: ["project-a"], label_ids: ["label-9"] };
+    const sort: IssueSortParam = { sort_by: "position", sort_direction: undefined };
+    const filteredKey = issueKeys.listSorted(WS_ID, boardFilter, sort);
+    qc.setQueryData<ListIssuesCache>(filteredKey, {
+      byStatus: { todo: { issues: [makeIssue(1)], total: 2 } },
+    });
+
+    listIssues.mockResolvedValue({
+      issues: [makeIssue(2)],
+      total: 2,
+    });
+
+    const { result } = renderHook(
+      () => useLoadMoreByStatus("todo", undefined, sort, boardFilter),
+      { wrapper: createWrapper(qc) },
+    );
+
+    // total comes from the FILTERED key's bucket, not the `{}` row.
+    expect(result.current.total).toBe(2);
+    expect(result.current.hasMore).toBe(true);
+
+    await act(async () => {
+      await result.current.loadMore();
+    });
+
+    // The appended page is narrowed by the same filter (server-side push-down).
+    expect(listIssues).toHaveBeenCalledWith({
+      status_category: "todo",
+      limit: 50,
+      offset: 1,
+      sort_by: "position",
+      project_ids: ["project-a"],
+      label_ids: ["label-9"],
+    });
+
+    const updated = qc.getQueryData<ListIssuesCache>(filteredKey);
+    expect(updated?.byStatus.todo?.issues.map((i) => i.id)).toEqual([
+      "issue-1",
+      "issue-2",
+    ]);
   });
 
   it("works with no sort (matches the {} key used by sort-less callers)", async () => {
@@ -325,7 +425,7 @@ describe("useUpdateIssue — optimistic move keeps every bucketed board in sync"
   const sort: IssueSortParam = { sort_by: "position", sort_direction: undefined };
   const myScope = "assigned";
   const myFilter = { assignee_id: "user-1" };
-  const wsKey = issueKeys.listSorted(WS_ID, sort);
+  const wsKey = issueKeys.listSorted(WS_ID, {}, sort);
   // My-Issues AND the Project board both ride this myList cache; a move that
   // only patched the workspace cache snaps back on those boards.
   const myKey = issueKeys.myListSorted(WS_ID, myScope, myFilter, sort);
@@ -457,7 +557,7 @@ describe("useBatchUpdateIssues — optimistic patch covers filtered boards too",
   const sort: IssueSortParam = { sort_by: "position", sort_direction: undefined };
   const myScope = "assigned";
   const myFilter = { assignee_id: "user-1" };
-  const wsKey = issueKeys.listSorted(WS_ID, sort);
+  const wsKey = issueKeys.listSorted(WS_ID, {}, sort);
   const myKey = issueKeys.myListSorted(WS_ID, myScope, myFilter, sort);
 
   let qc: QueryClient;

@@ -455,6 +455,7 @@ export function SwimLaneView({
   childProgressMap = EMPTY_PROGRESS_MAP,
   myIssuesScope,
   myIssuesFilter,
+  statusColumnFilter,
   sort,
   projectId,
 }: {
@@ -479,6 +480,8 @@ export function SwimLaneView({
   childProgressMap?: Map<string, ChildProgress>;
   myIssuesScope?: string;
   myIssuesFilter?: MyIssuesFilter;
+  /** The workspace board's pushed-down filter — must match the page's `issueListOptions` filter (cache-key parity). */
+  statusColumnFilter?: MyIssuesFilter;
   /** Must match the sort the page queried with — embedded in the cache key. */
   sort?: IssueSortParam;
   /** Pre-fills `project_id` on the create form for the in-cell "+" button. */
@@ -1228,6 +1231,7 @@ export function SwimLaneView({
               sortedStatuses={sortedStatuses}
               gridStyle={gridStyle}
               myIssuesOpts={myIssuesOpts}
+              workspaceFilter={statusColumnFilter}
               sort={sort}
             />
           </div>
@@ -1526,11 +1530,13 @@ function SwimLaneLoadMoreRow({
   sortedStatuses,
   gridStyle,
   myIssuesOpts,
+  workspaceFilter,
   sort,
 }: {
   sortedStatuses: IssueStatus[];
   gridStyle: React.CSSProperties;
   myIssuesOpts?: { scope: string; filter: MyIssuesFilter };
+  workspaceFilter?: MyIssuesFilter;
   sort?: IssueSortParam;
 }) {
   return (
@@ -1540,6 +1546,7 @@ function SwimLaneLoadMoreRow({
           key={status}
           status={status}
           myIssuesOpts={myIssuesOpts}
+          workspaceFilter={workspaceFilter}
           sort={sort}
         />
       ))}
@@ -1550,13 +1557,15 @@ function SwimLaneLoadMoreRow({
 function SwimLaneLoadMoreCell({
   status,
   myIssuesOpts,
+  workspaceFilter,
   sort,
 }: {
   status: IssueStatus;
   myIssuesOpts?: { scope: string; filter: MyIssuesFilter };
+  workspaceFilter?: MyIssuesFilter;
   sort?: IssueSortParam;
 }) {
-  const { loadMore, hasMore, isLoading } = useLoadMoreByStatus(status, myIssuesOpts, sort);
+  const { loadMore, hasMore, isLoading } = useLoadMoreByStatus(status, myIssuesOpts, sort, workspaceFilter);
   if (!hasMore) return <div />;
   return <InfiniteScrollSentinel onVisible={loadMore} loading={isLoading} />;
 }

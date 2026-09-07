@@ -104,11 +104,23 @@ export interface ListIssuesParams {
   status_category?: IssueStatusCategory;
   /** Multi-value form of `status_category`. OR within the field. */
   status_categories?: IssueStatusCategory[];
+  /** Single-value priority filter — `listIssues` doesn't accept `priorities[]`
+   *  like the grouped endpoint does; multi-priority selection has to fall
+   *  back to client-side strip. See `MyIssuesFilter`'s doc. */
   priority?: IssuePriority;
+  /** Multi-value actor filter. Server applies OR within the field. The
+   *  single-`assignee_id` form remains for backward compat. */
+  assignee_filters?: IssueActorRef[];
+  include_no_assignee?: boolean;
   assignee_id?: string;
   assignee_ids?: string[];
   creator_id?: string;
+  creator_filters?: IssueActorRef[];
   project_id?: string;
+  /** Multi-value project filter — OR within the field. */
+  project_ids?: string[];
+  include_no_project?: boolean;
+  label_ids?: string[];
   /**
    * Widen the assignee filter to issues where the user is the *indirect*
    * assignee — assignee is one of the user's owned agents, or a squad that
