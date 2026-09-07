@@ -49,7 +49,16 @@ export function buildColumns(
 ): Record<string, string[]> {
   const cols: Record<string, string[]> = {};
   for (const group of groups) cols[group.id] = [];
+  // Defensive dedupe: `flattenIssueBuckets` already dedupes by id, but
+  // `groupedIssues` may also be assembled from `assigneeGroupsQuery` which
+  // concatenates per-group arrays without dedup. Without this filter, a
+  // single `issue:created` event with a corrupted cache produces N
+  // duplicate cards in the same column (one for each cached duplicate).
+  // Last-line guarantee: every id appears in at most one column.
+  const seen = new Set<string>();
   for (const issue of issues) {
+    if (seen.has(issue.id)) continue;
+    seen.add(issue.id);
     const gid = getIssueGroupId(issue, grouping);
     if (cols[gid]) cols[gid].push(issue.id);
   }

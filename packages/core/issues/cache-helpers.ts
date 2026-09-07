@@ -48,8 +48,16 @@ export function addIssueToBuckets(
   // `issueStatusCategory(issue) === null` to detect this before calling.
   const category = issueStatusCategory(issue);
   if (!category) return resp;
+  // Cross-bucket dedupe: if the issue already exists in ANY bucket, skip the
+  // add. The previous per-bucket-only check left a window where a stale cache
+  // (e.g., same id accidentally present in two buckets from a prior bug, or
+  // a different `category` resolution across multiple invocations) would let
+  // a single creation render N duplicate cards in the same column.
+  for (const status of Object.keys(resp.byStatus) as IssueStatusCategory[]) {
+    const bucket = resp.byStatus[status];
+    if (bucket?.issues.some((i: Issue) => i.id === issue.id)) return resp;
+  }
   const bucket = getBucket(resp, category);
-  if (bucket.issues.some((i: Issue) => i.id === issue.id)) return resp;
   return setBucket(resp, category, {
     issues: [...bucket.issues, issue],
     total: bucket.total + 1,

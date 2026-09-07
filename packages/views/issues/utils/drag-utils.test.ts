@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { Issue } from "@multica/core/types";
-import { insertIdByPosition } from "./drag-utils";
+import { buildColumns, insertIdByPosition } from "./drag-utils";
 
 function mk(id: string, position: number): Issue {
   return {
@@ -69,5 +69,24 @@ describe("insertIdByPosition", () => {
       "moved",
       "y",
     ]);
+  });
+});
+
+describe("buildColumns", () => {
+  it("emits each issue id at most once across all columns", () => {
+    // Regression for "create one issue, board shows N copies" (2026-09-07).
+    // `flattenIssueBuckets` already dedupes, but the input to `buildColumns`
+    // can also be assembled from `assigneeGroupsQuery` (which concatenates
+    // per-group arrays without dedup) or from upstream data sources that
+    // haven't been deduped. As the last-line guarantee before render, every
+    // id must land in at most one column regardless of input noise.
+    const a = mk("a", 1);
+    const groups = [
+      { id: "status:todo", title: "Todo", status: "todo" as const },
+      { id: "status:in_progress", title: "In Progress", status: "in_progress" as const },
+    ];
+    const cols = buildColumns([a, a, a, a, a], groups as any, "status");
+    expect(cols["status:todo"]).toEqual(["a"]);
+    expect(cols["status:in_progress"]).toEqual([]);
   });
 });

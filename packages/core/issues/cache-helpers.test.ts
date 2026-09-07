@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { Issue, IssueStatusCategory, ListIssuesCache } from "../types";
-import { insertByPosition, patchIssueInBuckets, patchNeedsInvalidation } from "./cache-helpers";
+import { addIssueToBuckets, insertByPosition, patchIssueInBuckets, patchNeedsInvalidation } from "./cache-helpers";
 import { statusCategoryOfKey, normalizeStatusPatch } from "./status-category";
 
 const WS_ID = "ws-1";
@@ -245,5 +245,37 @@ describe("patchIssueInBuckets — status_category follows status", () => {
     // A patch that does not touch status is passed through untouched.
     const untouched = { title: "renamed" };
     expect(normalizeStatusPatch(untouched)).toBe(untouched);
+  });
+});
+
+describe("addIssueToBuckets", () => {
+  it("appends the issue to its status bucket", () => {
+    const start = cache({ todo: { issues: [], total: 0 } });
+    const next = addIssueToBuckets(start, mk("a", "todo", 1));
+    expect(ids(next, "todo")).toEqual(["a"]);
+    expect(next.byStatus.todo?.total).toBe(1);
+  });
+
+  it("is a no-op when the issue already sits in the same bucket", () => {
+    const a = mk("a", "todo", 1);
+    const start = cache({ todo: { issues: [a], total: 1 } });
+    const next = addIssueToBuckets(start, a);
+    expect(next).toBe(start);
+  });
+
+  // Regression for "create one issue, board shows N copies" (2026-09-07).
+  // A corrupted cache can hand us the same id in two different buckets
+  // (e.g., a prior bug that didn't cross-bucket-dedupe). The next add must
+  // not produce a duplicate in the target bucket, regardless of which
+  // bucket the issue already lives in.
+  it("skips when the issue is already present in ANY bucket (cross-bucket dedupe)", () => {
+    const a = mk("a", "todo", 1);
+    const start = cache({
+      todo: { issues: [a], total: 1 },
+      in_progress: { issues: [], total: 0 },
+    });
+    const next = addIssueToBuckets(start, { ...a, status: "in_progress", status_category: "in_progress" });
+    expect(ids(next, "todo")).toEqual(["a"]);
+    expect(ids(next, "in_progress")).toEqual([]);
   });
 });

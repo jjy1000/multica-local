@@ -10,6 +10,7 @@ import {
   PROJECT_GANTT_MAX_ISSUES,
   PROJECT_GANTT_PAGE_LIMIT,
   childrenByParentsOptions,
+  flattenIssueBuckets,
   issueKeys,
   projectGanttIssuesOptions,
 } from "./queries";
@@ -213,5 +214,25 @@ describe("childrenByParentsOptions chunking", () => {
 
     expect(grouped.get("p-0")).toHaveLength(1);
     expect(grouped.get(lastId)).toHaveLength(1);
+  });
+});
+
+describe("flattenIssueBuckets", () => {
+  it("emits each issue exactly once when the same id appears in two buckets", () => {
+    // Regression for "create one issue, board shows N copies" (2026-09-07).
+    // A stale cache that slipped past `addIssueToBuckets`'s per-bucket
+    // dedupe could hand us the same id in two different status buckets. The
+    // flattener must dedupe across buckets so the board never renders the
+    // same row twice in the same column.
+    const issue = { ...makeIssue(1), status: "todo" as const };
+    const cache = {
+      byStatus: {
+        todo: { issues: [issue], total: 1 },
+        in_progress: { issues: [issue], total: 1 },
+      } as Record<string, { issues: typeof issue[]; total: number }>,
+    };
+    const flat = flattenIssueBuckets(cache as any);
+    expect(flat).toHaveLength(1);
+    expect(flat[0]?.id).toBe(issue.id);
   });
 });

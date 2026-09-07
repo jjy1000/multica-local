@@ -147,10 +147,23 @@ export const PAGINATED_CATEGORIES: readonly IssueStatusCategory[] = ALL_STATUSES
 
 /** Flatten a bucketed response to a single Issue[] for consumers that want the whole list. */
 export function flattenIssueBuckets(data: ListIssuesCache) {
-  const out = [];
+  // Defensive dedupe: a single issue id should appear at most once in the
+  // flat list. `addIssueToBuckets` already cross-bucket-dedupes (see
+  // cache-helpers.ts), but a stale cache that slipped past earlier dedupe
+  // checks (or a custom-status bucket that wasn't routed through the helper)
+  // could still hand us the same id twice — once in the right status bucket
+  // and once in another. Without this filter the board renders N duplicate
+  // cards in the same column.
+  const seen = new Set<string>();
+  const out: Issue[] = [];
   for (const status of PAGINATED_CATEGORIES) {
     const bucket = data.byStatus[status];
-    if (bucket) out.push(...bucket.issues);
+    if (!bucket) continue;
+    for (const issue of bucket.issues) {
+      if (seen.has(issue.id)) continue;
+      seen.add(issue.id);
+      out.push(issue);
+    }
   }
   return out;
 }
