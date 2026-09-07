@@ -217,10 +217,20 @@ func createTestRepo(t *testing.T) string {
 // createTestRepoAt initializes a git repo at the given directory (which
 // must already exist). Used to craft repo URLs at paths chosen by the test
 // — e.g. to reproduce collision classes in name derivation.
+//
+// core.hooksPath is pinned to the repo's own hooks dir because a machine
+// with a GLOBAL core.hooksPath (e.g. ~/.gitconfig pointing at a Codex
+// template dir, as on this dev machine since ~2026-09-07) redirects hook
+// lookup for every repo without a local override — the daemon-installed
+// prepare-commit-msg hook in .git/hooks would never run and every
+// co-authored-by test would fail for environment reasons, not code
+// reasons. Mirrors what git does for the overwhelming majority of repos
+// (no global override), which is the behavior the hook installer assumes.
 func createTestRepoAt(t *testing.T, dir string) string {
 	t.Helper()
 	for _, args := range [][]string{
 		{"init", dir},
+		{"-C", dir, "config", "core.hooksPath", ".git/hooks"},
 		{"-C", dir, "commit", "--allow-empty", "-m", "initial"},
 	} {
 		cmd := exec.Command("git", args...)
@@ -1140,6 +1150,29 @@ func TestCreateWorktreeInstallsCoAuthoredByHook(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+
+	// A machine with a GLOBAL core.hooksPath (this dev machine's
+	// ~/.gitconfig → Codex template dir, since ~2026-09-07) redirects hook
+	// lookup for every repo without a local override, so the hook the
+	// installer wrote into the worktree's common hooks dir never executes
+	// and this test failed for environment reasons (0.5.103 finding). Pin
+	// the worktree-local hooksPath to where the installer wrote the hook so
+	// the pin keeps exercising the hook SEMANTICS (trailer appended on
+	// commit). Product-side: whether CreateWorktree should defend against
+	// user-global hooksPath overrides is a follow-up decision, not pinned
+	// here.
+	commonDirOut, err := exec.Command("git", "-C", result.Path, "rev-parse", "--git-common-dir").Output()
+	if err != nil {
+		t.Fatalf("resolve common dir: %v", err)
+	}
+	commonDir := strings.TrimSpace(string(commonDirOut))
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(result.Path, commonDir)
+	}
+	if out, err := exec.Command("git", "-C", result.Path, "config", "core.hooksPath",
+		filepath.Join(commonDir, "hooks")).CombinedOutput(); err != nil {
+		t.Fatalf("pin worktree hooksPath: %s: %v", out, err)
 	}
 
 	// Make a commit in the worktree and verify the hook appends the trailer.
