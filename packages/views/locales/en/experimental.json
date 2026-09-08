@@ -96,7 +96,17 @@
     "reclaim_title": "Deleting reclaims {{count}} plugin resources:",
     "reclaim_reclaim_row": "Reclaim {{type}}: {{name}}",
     "reclaim_keep_row": "Keep {{type}}: {{name}} (not plugin-owned)",
-    "reclaim_more_rows": "…and {{count}} more"
+    "reclaim_more_rows": "…and {{count}} more",
+    "tab_artifacts": "Artifacts",
+    "tab_chat": "Chat",
+    "tab_settings": "Settings",
+    "run_ok": "Run completed · exit {{code}} · {{count}} artifact(s)",
+    "run_timeout": "Run timed out · exit {{code}}",
+    "run_failed": "Run failed · exit {{code}}",
+    "run_error": "Run failed: {{msg}}",
+    "run_title_active": "Run the plugin runtime",
+    "run_title_disabled": "Enable the plugin to run",
+    "settings_created_at": "Created"
   },
   "forecast_stream": {
     "title": "Live forecast",
@@ -120,8 +130,8 @@
     "desc_code_canvas": "Interactive canvas for prototyping, sketching code, and exploring agent-generated snippets in a side-by-side editor.",
     "desc_semantica": "Local subprocess bridging Semantica (knowledge graph + decision records) into Multica, with delegation and terminal-issue decision sync.",
     "desc_timesfm": "Local TimesFM 2.5 forecasting engine (offline torch runtime); quantile-band forecasts persist per issue.",
-    "desc_swarm_topology": "Self-organising multi-agent topology. A leader authors role-agents + skills + a coordinating squad, then walks a 5-phase machine (research → design → implement → review → done).",
-    "desc_plugin": "User-installed lab plugin. Manifest-driven tabs (chat / artifacts / table / iframe / code / settings) on top of a per-plugin inline runtime."
+    "desc_plugin": "User-installed lab plugin. Manifest-driven tabs (chat / artifacts / table / iframe / code / settings) on top of a per-plugin inline runtime.",
+    "desc_causal_graph": "Issue-level causal graph: how tasks, comments and agent actions connect, with trust tiers and subgraph views."
   },
   "code_canvas": {
     "crumb_labs": "Experimental",

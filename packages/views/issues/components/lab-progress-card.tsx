@@ -29,8 +29,9 @@
 //                        down from IssueLabsSection (no second snapshot
 //                        fetch).
 //
-//   swarm_topology / code_canvas render null — the existing pill + panel
-//   already cover them (the pill is being deprecated elsewhere; leave as-is).
+//   swarm_topology / code_canvas render null — code_canvas keeps its
+//   panel; swarm_topology was retired in 0.5.105 (audit H3) and legacy
+//   swarm-bound issues simply render no card.
 //
 // Auxiliary labs (causal_graph, llm_wiki_bridge, semantica) have no run
 // lifecycle — they render a single muted row and no click-through-run

@@ -38,10 +38,8 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   mythos_swarm: "mythos",
   llm_wiki_bridge: "llm-wiki",
   code_canvas: "code-canvas",
-  // 0.5.21: swarm topology — top-level task mode parallel to
-  // claude_science_lab. Per-issue swarm view (IssueLabsSection) +
-  // dedicated /experimental/swarm-topology view (sidebar entry).
-  swarm_topology: "swarm-topology",
+  // 0.5.105 (audit H3): the swarm_topology row was removed with the
+  // runtime retirement — legacy swarm-bound issues resolve no route.
   // 0.5.81: semantica issues had NO jump target at all — this map is
   // the single source of truth for the PropRow external-link icon,
   // the create-issue post-create redirect and the trailing timeline
@@ -115,11 +113,19 @@ export function AgentTrustCorrectButton({
       return res.json() as Promise<{ score: number }>;
     },
     onSuccess: (body) => {
-      setFeedback(`已纠正,当前信任分 ${body.score.toFixed(1)}(-0.5)`);
+      // 0.5.105 (audit M1): feedback copy was hardcoded Chinese in this
+      // shared component — now resolves through the issues locale.
+      setFeedback(
+        t(($) => $.lab_section.trust_correct_ok, { score: body.score.toFixed(1) }),
+      );
       setNote("");
     },
     onError: (e) => {
-      setFeedback(`纠正失败:${e instanceof Error ? e.message : String(e)}`);
+      setFeedback(
+        t(($) => $.lab_section.trust_correct_failed, {
+          msg: e instanceof Error ? e.message : String(e),
+        }),
+      );
     },
   });
 
@@ -138,7 +144,7 @@ export function AgentTrustCorrectButton({
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="备注:哪里错了(可选)"
+            placeholder={t(($) => $.lab_section.trust_correct_note_placeholder)}
             className="rounded-md border border-border bg-background px-2 py-1 text-caption text-foreground placeholder:text-muted-foreground"
           />
           <button
@@ -148,7 +154,7 @@ export function AgentTrustCorrectButton({
             className="inline-flex items-center justify-center gap-1 rounded-md border border-red-500/40 bg-red-500/10 px-2 py-1 text-caption font-medium text-red-700 hover:bg-red-500/20 disabled:opacity-50 dark:text-red-300"
           >
             <ThumbsDown className="size-3" aria-hidden />
-            扣分纠正(-0.5)
+            {t(($) => $.lab_section.trust_correct_submit)}
           </button>
           {feedback && <p className="text-[11px] text-foreground/80">{feedback}</p>}
         </div>
@@ -157,53 +163,10 @@ export function AgentTrustCorrectButton({
   );
 }
 
-// Swarm run status pill (0.5.22 FIX 2). Reads the issue-side swarm_run
-// reverse lookup (GET /api/issues/{id}/swarm-runs) and renders a compact
-// status pill next to the LabBadge when lab_source === "swarm_topology".
-// The endpoint returns a single object (UNIQUE on root_issue_id) or 404;
-// 404 (no run, or flag-off via RequireExperimentalFlag) maps to `null`
-// and hides the pill. Status/phase are raw server enum strings — the
-// same values the desktop swarm-topology view renders without i18n.
-interface SwarmRunStatus {
-  id: string;
-  status: string;
-  current_phase: string;
-}
-
-const SWARM_STATUS_TONES: Record<string, string> = {
-  preparing: "bg-slate-100 text-slate-700",
-  planning: "bg-blue-100 text-blue-700",
-  running: "bg-blue-200 text-blue-900",
-  monitoring: "bg-amber-100 text-amber-700",
-  completed: "bg-emerald-100 text-emerald-700",
-  aborted: "bg-slate-200 text-slate-700",
-  failed: "bg-red-100 text-red-700",
-};
-
-// 0.5.81: the pill carries ?issue=<id> so the swarm-topology view can
-// resume the bound run on arrival (swarm-topology-view fetchRunByIssue).
-// The previous bare href landed on the empty BootstrapForm even when a
-// run existed — the "click the result, nothing delivers" bug class.
-function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: string }) {
-  const tone = SWARM_STATUS_TONES[run.status] ?? "bg-slate-100 text-slate-700";
-  return (
-    <AppLink
-      href={`/experimental/swarm-topology?issue=${encodeURIComponent(issueId)}`}
-      className="shrink-0"
-      aria-label={`swarm run: ${run.status}`}
-    >
-      <span
-        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${tone}`}
-        data-swarm-status={run.status}
-      >
-        {run.status}
-        {run.current_phase ? (
-          <span className="opacity-70">· {run.current_phase}</span>
-        ) : null}
-      </span>
-    </AppLink>
-  );
-}
+// 0.5.105 (audit H3): the SwarmRunStatusPill (0.5.22) and its
+// /api/issues/{id}/swarm-runs reverse-lookup query were removed with
+// the swarm_topology runtime retirement — the endpoint no longer
+// exists, and legacy swarm-bound issues simply render no pill.
 
 /**
  * Sidebar "Labs" section for issues that were tagged with a lab source.
@@ -220,31 +183,6 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
   const wsId = useWorkspaceId();
   const { data: flags } = useExperimentalFlags();
   const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
-
-  // Swarm run status (0.5.22 FIX 2). Poll the issue-side reverse lookup
-  // so the pill tracks the orchestrator's live status/phase. Mode B
-  // refetch (Active Contract #1): 5s while a run is non-terminal, 30s
-  // once terminal or absent (404 → null).
-  const swarmRun = useQuery({
-    queryKey: ["swarm-run", issueId],
-    queryFn: async (): Promise<SwarmRunStatus | null> => {
-      const res = await api.rawRequest(
-        `/api/issues/${encodeURIComponent(issueId)}/swarm-runs`,
-      );
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`swarm run fetch failed: ${res.status}`);
-      return res.json();
-    },
-    enabled: labSource === "swarm_topology",
-    staleTime: 5_000,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      if (data && !["completed", "aborted", "failed"].includes(data.status)) {
-        return 5_000;
-      }
-      return 30_000;
-    },
-  });
 
   const [open, setOpen] = useState(true);
   const reduceMotion = useReducedMotion() ?? false;
@@ -423,27 +361,6 @@ function SwarmRunStatusPill({ run, issueId }: { run: SwarmRunStatus; issueId: st
               </span>
             )}
             </div>
-            {/* Swarm run status pill (0.5.22). Renders only when the
-                issue is bound to a swarm_topology run AND the run
-                exists. 0.5.60 (audit hole #6): once the lookup has
-                resolved to 404, render a muted "not started" pill
-                instead of nothing — with every run table empty on a
-                fresh install, silence read as "broken". */}
-            {swarmRun.data ? (
-              <SwarmRunStatusPill run={swarmRun.data} issueId={issueId} />
-            ) : swarmRun.isSuccess && !swarmRun.data ? (
-              <AppLink
-                href={`/experimental/swarm-topology?issue=${encodeURIComponent(issueId)}`}
-                className="shrink-0"
-              >
-                <span
-                  className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500"
-                  data-swarm-status="never_started"
-                >
-                  {t(($) => $.lab_section.swarm_never_started)}
-                </span>
-              </AppLink>
-            ) : null}
           </div>
 
           {/* 0.5.86: per-lab progress card. Generalizes the swarm-only

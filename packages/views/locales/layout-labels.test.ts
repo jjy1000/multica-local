@@ -14,8 +14,9 @@ import koLayout from "./ko/layout.json";
 //   - 0.5.90: the lab is branded OpenMythos (per-user decision,
 //     consistent with the upstream reference project name and the
 //     0.3.22 "OpenMythos Boost Badge" lab-badge label). The v1 suffix
-//     is retired in all 4 locales; swarm_topology keeps its plain
-//     frozen label.
+//     is retired in all 4 locales.
+//   - 0.5.105 (audit H3): swarm_topology was retired entirely — the
+//     sidebar key was removed from all 4 locales with the runtime.
 //
 // Both keys live in the `layout.sidebar` namespace (sidebar tooltip
 // labels); the catalog.go Title is rebranded in the same cycle — the
@@ -48,14 +49,6 @@ describe("layout labels — OpenMythos brand (0.5.90)", () => {
       expect(label, `missing sidebar.experimental_mythos in ${name}`).toBeDefined();
       expect(label, `${name}: unexpected mythos label`).toBe(EXPECTED[name]);
       expect(label, `${name}: v1 suffix must stay retired`).not.toMatch(/v1$/);
-    });
-
-    it(`${name}: experimental_swarm_topology does NOT carry the brand or "v1"`, () => {
-      const label = layout.sidebar.experimental_swarm_topology;
-      expect(label, `missing sidebar.experimental_swarm_topology in ${name}`).toBeDefined();
-      expect(typeof label, `${name}: experimental_swarm_topology must be a string`).toBe("string");
-      expect(label, `${name}: frozen lab must not borrow the OpenMythos brand`).not.toContain("OpenMythos");
-      expect(label, `${name}: swarm_topology must NOT carry v1 suffix`).not.toContain("v1");
     });
   }
 });

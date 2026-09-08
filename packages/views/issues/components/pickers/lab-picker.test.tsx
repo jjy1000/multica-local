@@ -110,28 +110,25 @@ describe("LabPicker", () => {
     });
   });
 
-  it("selecting swarm_topology clears the assignee BEFORE onUpdate (mutex set)", () => {
+  it("0.5.105: frozen swarm_topology (hide_from_issue_lab_picker) is not offered", () => {
+    // The catalog marks swarm_topology Frozen + HideFromIssueLabPicker
+    // (audit H3 retirement), so even an enabled flag never lands in the
+    // menu — binding to a lab with no runtime is unreachable from the UI.
     mockFlags.value = [
       ...mockFlags.value,
-      { key: "swarm_topology", title: { zh: "群集拓扑", en: "Swarm Topology" }, enabled: true },
+      {
+        key: "swarm_topology",
+        title: { zh: "群集拓扑", en: "Swarm Topology" },
+        enabled: true,
+        hide_from_issue_lab_picker: true,
+      },
     ];
-    const { onUpdate, onClearAssignee } = renderPicker();
+    renderPicker();
     const trigger = document.querySelector("button[aria-haspopup]")!;
     fireEvent.click(trigger);
-    // Items: None + claude_science_lab + pythia_oracle + swarm_topology.
+    // Items: None + claude_science_lab + pythia_oracle — swarm absent.
     const items = document.querySelectorAll("button[data-picker-item]");
-    fireEvent.click(items[3]!);
-    // Order matters: the picker must clear the assignee BEFORE sending the
-    // new lab_source, so the parent's single PATCH (if it batches) carries
-    // both fields and the server's mutex gate never fires for a
-    // user-initiated swap (Active Contract #5).
-    const clearOrder = onClearAssignee.mock.invocationCallOrder[0]!;
-    const updateOrder = onUpdate.mock.invocationCallOrder[0]!;
-    expect(clearOrder).toBeLessThan(updateOrder);
-    expect(onUpdate).toHaveBeenCalledWith({
-      lab_source: "swarm_topology",
-      lab_mode: "sole",
-    });
+    expect(items.length).toBe(3);
   });
 
   it("0.5.90: mythos binds enhancer-only and never clears the assignee", () => {

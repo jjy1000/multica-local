@@ -96,7 +96,17 @@
     "reclaim_title": "삭제 시 플러그인 리소스 {{count}}개를 회수합니다:",
     "reclaim_reclaim_row": "회수 {{type}}: {{name}}",
     "reclaim_keep_row": "유지 {{type}}: {{name}} (플러그인 소유 아님)",
-    "reclaim_more_rows": "…외 {{count}}개"
+    "reclaim_more_rows": "…외 {{count}}개",
+    "tab_artifacts": "산출물",
+    "tab_chat": "대화",
+    "tab_settings": "설정",
+    "run_ok": "실행 완료 · 종료 코드 {{code}} · 산출물 {{count}}",
+    "run_timeout": "실행 시간 초과 · 종료 코드 {{code}}",
+    "run_failed": "실행 실패 · 종료 코드 {{code}}",
+    "run_error": "실행 실패: {{msg}}",
+    "run_title_active": "플러그인 런타임 실행",
+    "run_title_disabled": "실행하려면 플러그인을 활성화하세요",
+    "settings_created_at": "생성 시각"
   },
   "forecast_stream": {
     "title": "실시간 예측",
@@ -120,8 +130,8 @@
     "desc_code_canvas": "프로토타이핑, 코드 스케치, 에이전트가 생성한 스니펫의 나란히 탐색을 위한 인터랙티브 캔버스.",
     "desc_semantica": "Semantica(지식 그래프 + 의사결정 레코드)를 Multica에 연결하는 로컬 서브프로세스. 위임 및 종결 이슈 의사결정 동기화 포함.",
     "desc_timesfm": "로컬 TimesFM 2.5 예측 엔진(오프라인 torch 런타임). 분위기 밴드 예측을 이슈별로 영속화.",
-    "desc_swarm_topology": "자기 조직화 멀티 에이전트 토폴로지. 리더가 역할 에이전트 + 스킬 + 조정 스쿼드를 생성하고, 5단계 머신(리서치 → 설계 → 구현 → 리뷰 → 완료)을 진행.",
-    "desc_plugin": "사용자 설치형 실험실 플러그인. 매니페스트 기반 탭(채팅 / 산출물 / 테이블 / iframe / 코드 / 설정)을 플러그인별 격리된 인라인 런타임에서 실행."
+    "desc_plugin": "사용자 설치형 실험실 플러그인. 매니페스트 기반 탭(채팅 / 산출물 / 테이블 / iframe / 코드 / 설정)을 플러그인별 격리된 인라인 런타임에서 실행.",
+    "desc_causal_graph": "이슈 단위 인과 그래프: 작업, 댓글, 에이전트 작업의 연결을 신뢰 등급 및 서브그래프 뷰로 표시합니다."
   },
   "code_canvas": {
     "crumb_labs": "실험 기능",

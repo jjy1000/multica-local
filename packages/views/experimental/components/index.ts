@@ -23,12 +23,8 @@ export {
   safeImageSrc,
   safeHrefUrl,
 } from "./lab-attachment-sanitize";
-export {
-  SwarmTopologyGraph,
-  type SwarmRole,
-  type SwarmTopologyGraphProps,
-} from "./swarm-topology-graph";
-export { SwarmInterruptBar, type SwarmInterruptBarProps } from "./swarm-interrupt-bar";
+// 0.5.105 (audit H3): SwarmTopologyGraph / SwarmInterruptBar removed
+// with the swarm_topology runtime retirement.
 export { SemanticaModeBanner, type SemanticaMode } from "./semantica-mode-banner";
 export { CausalMinimap, CAUSAL_NODE_TYPE_COLORS } from "./causal-minimap";
 export type { CausalPositionOverride, CausalViewportTransform } from "./causal-minimap";

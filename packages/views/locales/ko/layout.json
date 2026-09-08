@@ -63,7 +63,6 @@
     "experimental_llm_wiki_bridge": "LLM Wiki 브리지",
     "experimental_claude_science_lab": "Claude 연구실",
     "experimental_code_canvas": "코드 캔버스",
-    "experimental_swarm_topology": "스웜 토폴로지",
     "experimental_semantica": "Semantica 탐색기",
     "experimental_timesfm": "TimesFM 예측 랩",
     "error_fallback": "사이드바를 렌더링하지 못했습니다.",

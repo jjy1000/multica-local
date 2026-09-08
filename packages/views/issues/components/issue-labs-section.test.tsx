@@ -18,7 +18,7 @@ import type { NavigationAdapter } from "../../navigation";
 import { NavigationProvider } from "../../navigation";
 import enIssues from "../../locales/en/issues.json";
 
-import { IssueLabsSection, labSourceRouteSuffix } from "./issue-labs-section";
+import { FLAG_ROUTE_SUFFIX, IssueLabsSection, labSourceRouteSuffix } from "./issue-labs-section";
 
 // ── 0.5.86: LabProgressCard wiring pin ────────────────────────────────────
 //
@@ -202,10 +202,10 @@ describe("IssueLabsSection → panel link honesty", () => {
 //   mythos_swarm       → mythos
 //   llm_wiki_bridge    → llm-wiki
 //   code_canvas        → code-canvas
-//   swarm_topology     → swarm-topology
 //   semantica          → semantica-explorer
 //   timesfm            → timesfm-lab
 //   causal_graph       → causal-graph  (0.5.83 — the regression pin)
+//   (0.5.105: swarm_topology removed with the runtime retirement.)
 describe("labSourceRouteSuffix — FLAG_ROUTE_SUFFIX rows", () => {
   it("resolves every built-in lab flag to its /experimental/<suffix> view", () => {
     const expected: Array<[string, string]> = [
@@ -214,7 +214,6 @@ describe("labSourceRouteSuffix — FLAG_ROUTE_SUFFIX rows", () => {
       ["mythos_swarm", "mythos"],
       ["llm_wiki_bridge", "llm-wiki"],
       ["code_canvas", "code-canvas"],
-      ["swarm_topology", "swarm-topology"],
       ["semantica", "semantica-explorer"],
       ["timesfm", "timesfm-lab"],
       ["causal_graph", "causal-graph"],
@@ -222,6 +221,30 @@ describe("labSourceRouteSuffix — FLAG_ROUTE_SUFFIX rows", () => {
     for (const [flagKey, suffix] of expected) {
       expect(labSourceRouteSuffix(flagKey), flagKey).toBe(suffix);
     }
+  });
+
+  it("keeps the map at exactly the pinned row count (0.5.105 audit H2)", () => {
+    // The Go catalog cannot be imported into TS tests, so the two sides
+    // are pinned from opposite ends: TestCatalogFlagViewParity
+    // (server/internal/experimental/catalog_view_parity_test.go) fails
+    // when a flag is added to catalog.go, and THIS assertion fails when
+    // FLAG_ROUTE_SUFFIX changes. Either way the developer is forced to
+    // reconcile: catalog.go ↔ FLAG_ROUTE_SUFFIX (this file) ↔ web LABS
+    // (apps/web/.../experimental/page.tsx) ↔ desktop routes.tsx ↔
+    // manifest entry_points.sidebar. The historical silent-failure mode
+    // (0.5.81 semantica / 0.5.82 timesfm / 0.5.83 causal_graph) was a
+    // new catalog flag with no row here — this converts it to a loud
+    // test failure.
+    expect(Object.keys(FLAG_ROUTE_SUFFIX).sort()).toEqual([
+      "causal_graph",
+      "claude_science_lab",
+      "code_canvas",
+      "llm_wiki_bridge",
+      "mythos_swarm",
+      "pythia_oracle",
+      "semantica",
+      "timesfm",
+    ]);
   });
 
   it("returns undefined for unknown / retired flag keys (silent no-op trap)", () => {
@@ -232,6 +255,7 @@ describe("labSourceRouteSuffix — FLAG_ROUTE_SUFFIX rows", () => {
     expect(labSourceRouteSuffix("not_a_real_flag")).toBeUndefined();
     expect(labSourceRouteSuffix("constitution_agent")).toBeUndefined(); // retired 0.3.57
     expect(labSourceRouteSuffix("chat_pin_ui")).toBeUndefined(); // removed 0.3.68
+    expect(labSourceRouteSuffix("swarm_topology")).toBeUndefined(); // retired 0.5.105
   });
 
   it("returns undefined for null / empty / whitespace inputs", () => {

@@ -37,9 +37,8 @@ describe("labRunHref", () => {
     expect(labRunHref("mythos_swarm", "i1", "r1")).toBe(
       "/experimental/mythos?issue=i1&run=r1",
     );
-    expect(labRunHref("swarm_topology", "i1", null)).toBe(
-      "/experimental/swarm-topology?issue=i1",
-    );
+    // 0.5.105 (audit H3): swarm_topology resolves no route anymore —
+    // covered by the unknown-key assertions below.
     expect(labRunHref("code_canvas", "i1")).toBe(
       "/experimental/code-canvas?issue=i1",
     );

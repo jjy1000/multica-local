@@ -24,7 +24,6 @@ import {
   SquarePen,
   X,
   FlaskConical,
-  Network,
   Code2,
   Sparkles,
   TestTubes,
@@ -124,7 +123,7 @@ const configureNav = NAV_PAGE_REGISTRY.filter((page) => page.group === "configur
 //
 // Adding a new lab? Pick one lucide icon and append it here AND to
 // `LabBadge`'s switch statement; both must agree.
-// 0.5.74 PR 7: mythos_swarm icon → MessagesSquare to differentiate from swarm_topology's Network
+// 0.5.74 PR 7: mythos_swarm icon → MessagesSquare for a distinct glyph.
 const experimentalIconByKey: Record<string, typeof FlaskConical> = {
   claude_science_lab: TestTubes,
   pythia_oracle: Sparkles,
@@ -133,7 +132,7 @@ const experimentalIconByKey: Record<string, typeof FlaskConical> = {
   code_canvas: Code2,
   // (0.3.57: constitution_agent removed alongside the lab retirement.)
   chat_pin_ui: Pin,
-  swarm_topology: Network,
+  // 0.5.105 (audit H3): swarm_topology removed with the runtime retirement.
   semantica: Brain,
   // 0.5.91 wiring: enable the sidebar entry for both newly installable labs
   // so the icon registry does not fall back to FlaskConical.

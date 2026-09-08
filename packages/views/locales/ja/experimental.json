@@ -96,7 +96,17 @@
     "reclaim_title": "削除すると {{count}} 件のプラグインリソースを回収します：",
     "reclaim_reclaim_row": "回収 {{type}}：{{name}}",
     "reclaim_keep_row": "保持 {{type}}：{{name}}（プラグイン所有外）",
-    "reclaim_more_rows": "…ほか {{count}} 件"
+    "reclaim_more_rows": "…ほか {{count}} 件",
+    "tab_artifacts": "成果物",
+    "tab_chat": "チャット",
+    "tab_settings": "設定",
+    "run_ok": "実行完了 · 終了コード {{code}} · 生成物 {{count}}",
+    "run_timeout": "実行タイムアウト · 終了コード {{code}}",
+    "run_failed": "実行失敗 · 終了コード {{code}}",
+    "run_error": "実行失敗: {{msg}}",
+    "run_title_active": "プラグインランタイムを実行",
+    "run_title_disabled": "実行するにはプラグインを有効化してください",
+    "settings_created_at": "作成日時"
   },
   "forecast_stream": {
     "title": "ライブ予測",
@@ -120,8 +130,8 @@
     "desc_code_canvas": "プロトタイピング、コードのスケッチ、エージェント生成スニペットの並列閲覧のためのインタラクティブキャンバス。",
     "desc_semantica": "Semantica(ナレッジグラフ+意思決定レコード)を Multica に橋接ぐローカルサブプロセス。委譲と終了イシューの意思決定同期を含む。",
     "desc_timesfm": "ローカル TimesFM 2.5 予測エンジン(オフライン torch ランタイム)。分位数帯の予測をイシューごとに永続化。",
-    "desc_swarm_topology": "自己組織化マルチエージェントトポロジー。リーダーが役割エージェント + スキル + 調整スカッドを作成し、5 フェーズのマシン（リサーチ → 設計 → 実装 → レビュー → 完了）を進める。",
-    "desc_plugin": "ユーザーインストール型のラボプラグイン。マニフェスト駆動のタブ（チャット / 成果物 / テーブル / iframe / コード / 設定）を、プラグイン毎に分離されたインラインランタイム上で実行。"
+    "desc_plugin": "ユーザーインストール型のラボプラグイン。マニフェスト駆動のタブ（チャット / 成果物 / テーブル / iframe / コード / 設定）を、プラグイン毎に分離されたインラインランタイム上で実行。",
+    "desc_causal_graph": "Issue 単位の因果グラフ: タスク・コメント・エージェント操作の関連を信頼ティアとサブグラフで表示します。"
   },
   "code_canvas": {
     "crumb_labs": "実験機能",

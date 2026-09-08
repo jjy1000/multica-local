@@ -96,7 +96,17 @@
     "reclaim_title": "删除后将回收 {{count}} 项插件资源：",
     "reclaim_reclaim_row": "回收 {{type}}：{{name}}",
     "reclaim_keep_row": "保留 {{type}}：{{name}}（非插件所有）",
-    "reclaim_more_rows": "…以及另外 {{count}} 项"
+    "reclaim_more_rows": "…以及另外 {{count}} 项",
+    "tab_artifacts": "产物",
+    "tab_chat": "对话",
+    "tab_settings": "设置",
+    "run_ok": "运行完成 · 退出码 {{code}} · 产物 {{count}}",
+    "run_timeout": "运行超时 · 退出码 {{code}}",
+    "run_failed": "运行失败 · 退出码 {{code}}",
+    "run_error": "运行失败: {{msg}}",
+    "run_title_active": "运行插件运行时",
+    "run_title_disabled": "启用插件后可运行",
+    "settings_created_at": "创建时间"
   },
   "forecast_stream": {
     "title": "实时预测",
@@ -120,8 +130,8 @@
     "desc_code_canvas": "用于原型、草图代码、并排浏览智能体生成片段的交互画布。",
     "desc_semantica": "本地子进程,把 Semantica(知识图谱 + 决策记录)桥接到 Multica,含委托与终态 issue 决策同步。",
     "desc_timesfm": "本地 TimesFM 2.5 预测引擎(离线 torch 运行时),按 issue 持久化分位数区间预测结果。",
-    "desc_swarm_topology": "自组织多智能体拓扑。leader 创建角色 agents + skills + 协调 squad,运行 5 阶段机器（调研 → 设计 → 实现 → 评审 → 完成）。",
-    "desc_plugin": "用户安装的实验室插件。基于清单驱动的标签页（聊天 / 产物 / 表格 / iframe / 代码 / 设置），运行于按插件隔离的内联运行时。"
+    "desc_plugin": "用户安装的实验室插件。基于清单驱动的标签页（聊天 / 产物 / 表格 / iframe / 代码 / 设置），运行于按插件隔离的内联运行时。",
+    "desc_causal_graph": "Issue 级因果图：任务、评论与智能体动作如何关联，含信任分层与子图视图。"
   },
   "code_canvas": {
     "crumb_labs": "试验性功能",

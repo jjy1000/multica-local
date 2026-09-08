@@ -15,10 +15,14 @@ const REQUIRED_SIDEBAR_KEYS = [
   "experimental_claude_science_lab",
   "experimental_pythia",
   "experimental_mythos",
-  "experimental_swarm_topology",
   "experimental_llm_wiki_bridge",
   "experimental_code_canvas",
   "experimental_semantica",
+  // 0.5.105: the list previously pinned only 7 of 9 sidebar keys —
+  // timesfm + causal_graph were silently absent (audit low-pri finding).
+  // swarm_topology was removed with the runtime retirement.
+  "experimental_timesfm",
+  "experimental_causal_graph",
 ] as const;
 
 const REQUIRED_USER_PLUGIN_KEYS = [

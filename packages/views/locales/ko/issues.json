@@ -554,7 +554,6 @@
     "progress_pythia_rounds": "{{rounds}} 라운드",
     "progress_mythos_loop": "{{loop}}번째 협업",
     "section_title": "이 이슈에서 실행 중인 랩",
-    "swarm_never_started": "미시작",
     "open_panel": "랩 패널 열기",
     "running_indicator": "실행 중",
     "running_tooltip": "랩 에이전트가 이 이슈에서 작업 중입니다",
@@ -586,7 +585,11 @@
     "mythos_enhancer_subtask_progress": "하위 작업 {{done}}/{{total}}",
     "mythos_enhancer_latest_reflection": "최근 회고",
     "mythos_enhancer_latest_reflection_none": "회고 없음",
-    "mythos_enhancer_ticks": "tick {{count}} 회 · 최근 {{ms}}ms"
+    "mythos_enhancer_ticks": "tick {{count}} 회 · 최근 {{ms}}ms",
+    "trust_correct_ok": "수정됨 — 현재 신뢰 점수 {{score}}(-0.5)",
+    "trust_correct_failed": "수정 실패: {{msg}}",
+    "trust_correct_note_placeholder": "메모: 무엇이 잘못됐는지(선택)",
+    "trust_correct_submit": "점수 차감 수정(-0.5)"
   },
   "labels_panel": {
     "intro": "워크스페이스의 이슈를 분류할 라벨을 만들고 관리하세요.",

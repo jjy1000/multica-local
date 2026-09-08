@@ -541,7 +541,6 @@
     "progress_pythia_rounds": "{{rounds}} 轮推演",
     "progress_mythos_loop": "第 {{loop}} 轮协作",
     "section_title": "正在本 issue 上运行的实验室",
-    "swarm_never_started": "未启动",
     "open_panel": "打开实验室面板",
     "running_indicator": "运行中",
     "running_tooltip": "实验智能体正在处理这个 issue",
@@ -573,7 +572,11 @@
     "mythos_enhancer_subtask_progress": "子任务 {{done}}/{{total}}",
     "mythos_enhancer_latest_reflection": "最近反思",
     "mythos_enhancer_latest_reflection_none": "暂无反思内容",
-    "mythos_enhancer_ticks": "已 tick {{count}} 次 · 上次 {{ms}}ms"
+    "mythos_enhancer_ticks": "已 tick {{count}} 次 · 上次 {{ms}}ms",
+    "trust_correct_ok": "已纠正,当前信任分 {{score}}(-0.5)",
+    "trust_correct_failed": "纠正失败:{{msg}}",
+    "trust_correct_note_placeholder": "备注:哪里错了(可选)",
+    "trust_correct_submit": "扣分纠正(-0.5)"
   },
   "labels_panel": {
     "intro": "创建和管理标签，用于在工作区内分类 issue。",

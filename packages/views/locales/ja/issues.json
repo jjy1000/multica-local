@@ -536,7 +536,6 @@
     "progress_pythia_rounds": "{{rounds}} ラウンド",
     "progress_mythos_loop": "第 {{loop}} 周目",
     "section_title": "このイシューで稼働中のラボ",
-    "swarm_never_started": "未開始",
     "open_panel": "ラボパネルを開く",
     "running_indicator": "実行中",
     "running_tooltip": "ラボエージェントがこのイシューで作業中です",
@@ -568,7 +567,11 @@
     "mythos_enhancer_subtask_progress": "サブタスク {{done}}/{{total}}",
     "mythos_enhancer_latest_reflection": "最新の振り返り",
     "mythos_enhancer_latest_reflection_none": "振り返りなし",
-    "mythos_enhancer_ticks": "{{count}} 回 tick · 直近 {{ms}}ms"
+    "mythos_enhancer_ticks": "{{count}} 回 tick · 直近 {{ms}}ms",
+    "trust_correct_ok": "修正しました — 現在の信頼スコア {{score}}(-0.5)",
+    "trust_correct_failed": "修正に失敗しました: {{msg}}",
+    "trust_correct_note_placeholder": "メモ: 何が誤りか(任意)",
+    "trust_correct_submit": "減点修正(-0.5)"
   },
   "labels_panel": {
     "intro": "ワークスペース全体でイシューを分類するラベルを作成・管理します。",

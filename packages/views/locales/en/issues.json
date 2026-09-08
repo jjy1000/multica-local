@@ -560,7 +560,6 @@
     "progress_pythia_rounds": "{{rounds}} rounds",
     "progress_mythos_loop": "iteration {{loop}}",
     "section_title": "Labs running on this issue",
-    "swarm_never_started": "not started",
     "open_panel": "Open labs panel",
     "running_indicator": "Running",
     "running_tooltip": "An experimental agent is currently working on this issue",
@@ -592,7 +591,11 @@
     "mythos_enhancer_subtask_progress": "Sub-tasks {{done}}/{{total}}",
     "mythos_enhancer_latest_reflection": "Latest reflection",
     "mythos_enhancer_latest_reflection_none": "No reflection yet",
-    "mythos_enhancer_ticks": "{{count}} ticks · last {{ms}}ms"
+    "mythos_enhancer_ticks": "{{count}} ticks · last {{ms}}ms",
+    "trust_correct_ok": "Corrected — trust score is now {{score}} (-0.5)",
+    "trust_correct_failed": "Correction failed: {{msg}}",
+    "trust_correct_note_placeholder": "Note: what went wrong (optional)",
+    "trust_correct_submit": "Downvote correction (-0.5)"
   },
   "labels_panel": {
     "intro": "Create and manage labels to categorize issues across your workspace.",

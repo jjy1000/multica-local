@@ -62,27 +62,17 @@ interface PluginTabDef {
 }
 
 const DEFAULT_TABS: PluginTabDef[] = [
-  { key: "artifacts", kind: "artifacts", label: "产物" },
-  { key: "chat", kind: "chat", label: "对话" },
-  { key: "settings", kind: "settings", label: "设置" },
+  { key: "artifacts", kind: "artifacts" },
+  { key: "chat", kind: "chat" },
+  { key: "settings", kind: "settings" },
 ];
 
-const DEFAULT_TAB_LABELS: Record<string, string> = {
-  artifacts: "产物",
-  chat: "对话",
-  settings: "设置",
-};
-
-const TRIGGER_MODE_LABELS: Record<string, string> = {
-  auto: "自驱",
-  issue_select: "任务绑定",
-};
-
-const RUNTIME_KIND_LABELS: Record<string, string> = {
-  none: "无运行时",
-  inline: "内联",
-  subprocess: "子进程",
-};
+// 0.5.105 (audit M1): the default tab / trigger-mode / runtime-kind
+// labels used to be hardcoded Chinese in this shared (packages/views)
+// file — every locale rendered 中文. They now resolve through the
+// experimental locale at render time; manifest-authored tab labels
+// (user content) still win verbatim. The label resolution lives inside
+// PluginShellView where the `t` instance is in scope.
 
 /**
  * Poll `getCurrentWsId()` every 500 ms so the pre-workspace chat tab can
@@ -111,9 +101,6 @@ function parseTabs(manifest: Record<string, unknown> | undefined): PluginTabDef[
   return DEFAULT_TABS;
 }
 
-function tabLabel(tab: PluginTabDef): string {
-  return tab.label ?? DEFAULT_TAB_LABELS[tab.key] ?? tab.key;
-}
 
 export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
   const { t } = useT("experimental");
@@ -152,6 +139,14 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
 
   const tabs = parseTabs(plugin?.manifest);
 
+  const tabLabelText = (tab: PluginTabDef): string => {
+    if (tab.label) return tab.label;
+    if (tab.kind === "artifacts") return t(($) => $.user_plugins.tab_artifacts);
+    if (tab.kind === "chat") return t(($) => $.user_plugins.tab_chat);
+    if (tab.kind === "settings") return t(($) => $.user_plugins.tab_settings);
+    return tab.key;
+  };
+
   function handleToggle(next: boolean) {
     if (!plugin) return;
     updateFlag.mutate(
@@ -161,7 +156,7 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
           qc.invalidateQueries({ queryKey: ["user-plugins"] });
           qc.invalidateQueries({ queryKey: ["experimental-flags"] });
         },
-        onError: () => toast.error("切换失败"),
+        onError: () => toast.error(t(($) => $.user_plugins.toast.toggle_failed)),
       },
     );
   }
@@ -173,17 +168,26 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
       const res = await api.runUserPlugin(plugin.slug);
       if (res.status === "completed") {
         toast.success(
-          `运行完成 · 退出码 ${res.exit_code} · 产物 ${res.artifacts.length}`,
+          t(($) => $.user_plugins.run_ok, {
+            code: res.exit_code,
+            count: res.artifacts.length,
+          }),
         );
       } else {
         toast.error(
-          `运行${res.status === "timeout" ? "超时" : "失败"} · 退出码 ${res.exit_code}`,
+          res.status === "timeout"
+            ? t(($) => $.user_plugins.run_timeout, { code: res.exit_code })
+            : t(($) => $.user_plugins.run_failed, { code: res.exit_code }),
         );
       }
       // Re-render the ArtifactGallery with any files the run produced.
       qc.invalidateQueries({ queryKey: ["user-plugin-artifacts", plugin.slug] });
     } catch (err) {
-      toast.error(`运行失败: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(
+        t(($) => $.user_plugins.run_error, {
+          msg: err instanceof Error ? err.message : String(err),
+        }),
+      );
     } finally {
       setRunning(false);
     }
@@ -194,12 +198,18 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
     setDeleting(true);
     try {
       await api.deleteUserPlugin(plugin.slug);
-      toast.success("插件已删除");
+      toast.success(
+        t(($) => $.user_plugins.toast.delete_success, { count: res.reclaim.length }),
+      );
       setDeleteOpen(false);
       qc.invalidateQueries({ queryKey: ["user-plugins"] });
       qc.invalidateQueries({ queryKey: ["experimental-flags"] });
     } catch (err) {
-      toast.error(`删除失败: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(
+        t(($) => $.user_plugins.toast.delete_failed, {
+          msg: err instanceof Error ? err.message : String(err),
+        }),
+      );
     } finally {
       setDeleting(false);
     }
@@ -279,7 +289,9 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
                   : "border border-muted-foreground/30 bg-muted text-muted-foreground"
               }`}
             >
-              {isActive ? "启用" : "停用"}
+              {isActive
+                ? t(($) => $.user_plugins.status.active)
+                : t(($) => $.user_plugins.status.disabled)}
             </span>
           </div>
           {plugin.runtime_kind !== "none" ? (
@@ -288,7 +300,11 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
               size="sm"
               onClick={handleRun}
               disabled={!isActive || running}
-              title={isActive ? "运行插件运行时" : "启用插件后可运行"}
+              title={
+                isActive
+                  ? t(($) => $.user_plugins.run_title_active)
+                  : t(($) => $.user_plugins.run_title_disabled)
+              }
             >
               {running ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -309,7 +325,7 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
         <TabsList>
           {tabs.map((tab) => (
             <TabsTrigger key={tab.key} value={tab.key}>
-              {tabLabel(tab)}
+              {tabLabelText(tab)}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -462,11 +478,26 @@ interface SettingsTabProps {
 
 function SettingsTab({ plugin, onToggle, togglePending, onEditClick, onDeleteClick }: SettingsTabProps) {
   const { t } = useT("experimental");
+  // 0.5.105 (audit M1): row labels + enum values resolve through the
+  // locale (the form_* / trigger_* keys are shared with the create form);
+  // created_at renders in the runtime locale instead of hardcoded zh-CN.
   const rows: Array<[string, string]> = [
     ["Slug", plugin.slug],
-    ["触发模式", TRIGGER_MODE_LABELS[plugin.trigger_mode] ?? plugin.trigger_mode],
-    ["运行时类型", RUNTIME_KIND_LABELS[plugin.runtime_kind] ?? plugin.runtime_kind],
-    ["创建时间", new Date(plugin.created_at).toLocaleString("zh-CN")],
+    [
+      t(($) => $.user_plugins.form_trigger_mode),
+      plugin.trigger_mode === "issue_select"
+        ? t(($) => $.user_plugins.trigger_issue)
+        : t(($) => $.user_plugins.trigger_auto),
+    ],
+    [
+      t(($) => $.user_plugins.form_runtime_kind),
+      plugin.runtime_kind === "none"
+        ? t(($) => $.user_plugins.form_runtime_none)
+        : plugin.runtime_kind === "inline"
+          ? t(($) => $.user_plugins.form_runtime_inline)
+          : t(($) => $.user_plugins.form_runtime_subprocess),
+    ],
+    [t(($) => $.user_plugins.settings_created_at), new Date(plugin.created_at).toLocaleString()],
   ];
 
   return (
@@ -557,7 +588,9 @@ function SettingsDialogs({
             {t(($) => $.user_plugins.cancel)}
           </Button>
           <Button type="button" variant="destructive" onClick={onDelete} disabled={deleting}>
-            {deleting ? "删除中…" : "删除"}
+            {deleting
+              ? t(($) => $.user_plugins.delete_button_deleting)
+              : t(($) => $.user_plugins.delete_button)}
           </Button>
         </DialogFooter>
       </DialogContent>

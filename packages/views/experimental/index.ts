@@ -10,9 +10,5 @@ export { LabOutputPanel } from "./components/lab-output-panel";
 export { IssueBreadcrumb, type IssueBreadcrumbProps } from "./components/issue-breadcrumb";
 export { LabRunLink, labRunHref, type LabRunLinkProps } from "./components/lab-run-link";
 export { useDeepLinkRun, type UseDeepLinkRunResult } from "./components/use-deep-link-run";
-export {
-  SwarmTopologyGraph,
-  type SwarmRole,
-  type SwarmTopologyGraphProps,
-} from "./components/swarm-topology-graph";
-export { SwarmInterruptBar, type SwarmInterruptBarProps } from "./components/swarm-interrupt-bar";
+// 0.5.105 (audit H3): SwarmTopologyGraph / SwarmInterruptBar removed
+// with the swarm_topology runtime retirement.

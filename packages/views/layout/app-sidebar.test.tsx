@@ -149,7 +149,6 @@ vi.mock("@multica/core/experimental", () => {
     { key: "llm_wiki_bridge", flagKey: "llm_wiki_bridge", labelKey: "experimental_llm_wiki_bridge", route: "/experimental/llm-wiki-bridge" },
     { key: "code_canvas", flagKey: "code_canvas", labelKey: "experimental_code_canvas", route: "/experimental/code-canvas" },
     { key: "chat_pin_ui", flagKey: "chat_pin_ui", labelKey: "experimental_chat_pin_ui", route: "/experimental/chat-pin-ui" },
-    { key: "swarm_topology", flagKey: "swarm_topology", labelKey: "experimental_swarm_topology", route: "/experimental/swarm-topology" },
     { key: "experimental_semantica", flagKey: "semantica", labelKey: "experimental_semantica", route: "/experimental/semantica-explorer" },
   ];
   return {
@@ -214,29 +213,17 @@ describe("PinRow", () => {
   });
 });
 
-// 0.5.74 batch 1 — Code-Reviewer audit finding A: swarm_topology + semantica
-// must each resolve to a distinct lucide icon in the experimental sidebar
-// (Network / Brain respectively). Without entries in experimentalIconByKey
-// both fall back to FlaskConical, so we assert the row's primary icon SVG
-// (the first <svg> in the button — the BadgeShape FlaskConical lives deeper
-// inside a TooltipTrigger-wrapped button and is not the primary icon) is
-// the expected glyph.
+// 0.5.74 batch 1 — Code-Reviewer audit finding A: semantica must resolve to
+// a distinct lucide icon in the experimental sidebar (Brain). Without an
+// entry in experimentalIconByKey it falls back to FlaskConical, so we assert
+// the row's primary icon SVG (the first <svg> in the button — the BadgeShape
+// FlaskConical lives deeper inside a TooltipTrigger-wrapped button and is
+// not the primary icon) is the expected glyph. (0.5.105: the swarm_topology
+// Network-icon test was removed with the runtime retirement.)
 describe("experimentalIconByKey", () => {
   beforeEach(() => {
     navigation.current.pathname = "/acme/issues";
     detail.current = { isPending: false, isError: false, data: null, error: null };
-  });
-
-  it("renders swarm_topology row with Network icon (not FlaskConical fallback)", () => {
-    const { container } = render(<AppSidebar />);
-    const swarmButton = container.querySelector('button[data-href="/experimental/swarm-topology"]');
-    expect(swarmButton).not.toBeNull();
-    // The first <svg> child is the row's primary icon (resolved through
-    // experimentalIconByKey). The BadgeShape FlaskConical lives inside a
-    // nested TooltipTrigger button and is intentionally NOT the primary.
-    const primaryIcon = swarmButton?.querySelector(":scope > svg");
-    expect(primaryIcon?.classList.contains("lucide-network")).toBe(true);
-    expect(primaryIcon?.classList.contains("lucide-flask-conical")).toBe(false);
   });
 
   it("renders semantica row with Brain icon (not FlaskConical fallback)", () => {
