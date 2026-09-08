@@ -197,7 +197,7 @@ export function PluginShellView({ pluginSlug, issueId }: PluginShellViewProps) {
     if (!plugin) return;
     setDeleting(true);
     try {
-      await api.deleteUserPlugin(plugin.slug);
+      const res = await api.deleteUserPlugin(plugin.slug);
       toast.success(
         t(($) => $.user_plugins.toast.delete_success, { count: res.reclaim.length }),
       );

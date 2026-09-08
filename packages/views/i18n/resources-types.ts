@@ -28,7 +28,6 @@ import type squads from "../locales/en/squads.json";
 import type billing from "../locales/en/billing.json";
 import type pythia from "../locales/en/pythia.json";
 import type mythos from "../locales/en/mythos.json";
-import type swarm from "../locales/en/swarm.json";
 import type claudeLab from "../locales/en/claude-lab.json";
 import type timesfm from "../locales/en/timesfm.json";
 import type causalGraph from "../locales/en/causal-graph.json";
@@ -80,7 +79,6 @@ declare global {
     billing: typeof billing;
     pythia: typeof pythia;
     mythos: typeof mythos;
-    swarm: typeof swarm;
     "claude-lab": typeof claudeLab;
     timesfm: typeof timesfm;
     "causal-graph": typeof causalGraph;
