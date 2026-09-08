@@ -213,7 +213,7 @@
     "pythia_in_progress": "Pythia 推演中 · {{elapsed}}秒 / {{budget}}秒",
     "pythia_stream_requesting": "10 ラウンドの SSE ストリームをリクエスト中…",
     "pythia_stream_cost_hint": "10 回の oracle 呼び出し、各約 3〜5 秒 + 5 秒間隔",
-    "pythia_stuck_title": "90 秒以内に結果が返ってきませんでした",
+    "pythia_stuck_title": "5分以内に結果が返ってきませんでした",
     "pythia_stuck_detail": "考えられる原因：Python エンジンが起動していない / oracle プロセスがクラッシュした / ネットワーク切断。再試行すると 3 ラウンドを手動で再実行します。",
     "ticks_detail": "{{ticks}} ticks · {{ms}}ms",
     "pythia_requesting": "リクエスト中…",

@@ -47,7 +47,7 @@ describe("derivePythiaTriggerState", () => {
     expect(derivePythiaTriggerState(now - 999_999, true, now)).toBe("idle");
   });
 
-  it("is in_progress within the 90s window and stuck after it", () => {
+  it("is in_progress within the trigger window and stuck after it", () => {
     expect(
       derivePythiaTriggerState(now - (PYTHIA_IN_PROGRESS_WINDOW_MS - 1), false, now),
     ).toBe("in_progress");

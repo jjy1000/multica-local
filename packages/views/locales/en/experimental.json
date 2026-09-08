@@ -213,7 +213,7 @@
     "pythia_in_progress": "Pythia forecasting · {{elapsed}}s / {{budget}}s",
     "pythia_stream_requesting": "Requesting 10-round SSE stream…",
     "pythia_stream_cost_hint": "10 oracle calls, ~3-5s each + 5s interval",
-    "pythia_stuck_title": "No result within 90s",
+    "pythia_stuck_title": "No result within 5 minutes",
     "pythia_stuck_detail": "Possible causes: the Python engine is not running, the oracle process crashed, or the network dropped. Retry re-triggers 3 rounds manually.",
     "ticks_detail": "{{ticks}} ticks · {{ms}}ms",
     "pythia_requesting": "Requesting…",

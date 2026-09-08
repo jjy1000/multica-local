@@ -19,9 +19,12 @@
 // the constants — a drift between the two surfaces would render
 // contradictory states for the same run.
 
-/** Pythia: the Python oracle takes ~45s for 10 rounds; 90s grace before
- *  "triggered but nothing landed" flips to stuck. */
-export const PYTHIA_IN_PROGRESS_WINDOW_MS = 90_000;
+/** Pythia: a real LLM round takes 25–60s through the bridge (0.5.104
+ *  live measurement) and the default deliberation is 3 rounds, so the
+ *  trigger window has to span ~3 minutes. 5 minutes total before
+ *  "triggered but nothing landed" flips to stuck. (Was 90s for the
+ *  retired near-instant engine path.) */
+export const PYTHIA_IN_PROGRESS_WINDOW_MS = 300_000;
 
 /** Timesfm: a persisted run younger than this reads as "just ran" — the
  *  lab was active on this issue within the last two minutes. */

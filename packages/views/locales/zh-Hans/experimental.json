@@ -213,7 +213,7 @@
     "pythia_in_progress": "Pythia 推演中 · {{elapsed}}s / {{budget}}s",
     "pythia_stream_requesting": "正在请求 10 轮 SSE 流...",
     "pythia_stream_cost_hint": "10 轮 oracle 调用，每轮 ~3-5s + 5s 间隔",
-    "pythia_stuck_title": "推演未在 90 秒内返回结果",
+    "pythia_stuck_title": "推演未在 5 分钟内返回结果",
     "pythia_stuck_detail": "可能原因：Python 引擎未启动 / oracle 进程崩溃 / 网络中断。点重试可手动重新触发 3 轮。",
     "ticks_detail": "{{ticks}} ticks · {{ms}}ms",
     "pythia_requesting": "请求中...",

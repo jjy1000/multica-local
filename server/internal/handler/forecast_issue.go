@@ -750,7 +750,14 @@ func queryOracleIssue(
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Multica-Embedded", "1")
-	cli := &http.Client{Timeout: 4 * time.Second}
+	// 0.5.104: 4s assumed the engine answered each round near-instantly
+	// (its fast-fail placeholder path). With the engine bridge actually
+	// working — env fix + PAT acceptance — one real LLM round takes
+	// 25–60s through /api/runtime/llm-call (measured live). 4s cut every
+	// genuine round off and degraded the run to failover. 120s leaves
+	// headroom under the engine's own 180s httpx budget while keeping a
+	// hung engine from pinning the SSE round for the full horizon.
+	cli := &http.Client{Timeout: 120 * time.Second}
 	resp, err := cli.Do(req)
 	if err != nil {
 		return forecastEnvelope{}, err
