@@ -551,8 +551,16 @@ async def forecast_issue(payload: dict = Body(...)):
     # counterfactual pass that already produces (narrative, predictions).
     # We re-use it so the LLM prompt + JSON parsing stay identical to
     # the rest of the engine (one less code path to maintain).
+    #
+    # 0.5.104 honesty fix: when the LLM call fails (bridge unreachable,
+    # MULTICA_REQUIRED misconfig, unparseable model JSON) we now FLAG the
+    # envelope with `synthetic: true` so the Multica Go layer relabels it
+    # synthetic_oracle_failover instead of passing fallback data off as a
+    # real engine deduction. Pre-fix, a 200 with placeholder narrative was
+    # indistinguishable from a genuine model answer.
     from .runtime import oracle
     brief = STATE.world
+    synthetic = False
     try:
         scenario, narrative, preds = await oracle.what_if(
             scenario=question if not scenario_context else f"{question}\n\n{scenario_context[:1200]}",
@@ -563,6 +571,7 @@ async def forecast_issue(payload: dict = Body(...)):
         scenario = question
         narrative = f"（推演第 {rnd} 轮,种子 {seed}）{question} 的演化路径仍在收集中。"
         preds = []
+        synthetic = True
 
     # Pick the most-aligned prediction. The engine returns 4-6 predictions
     # per whatif; for an issue-bound round we surface the top one by
@@ -579,6 +588,7 @@ async def forecast_issue(payload: dict = Body(...)):
         # the SSE loop produces a coherent (round_index, probability)
         # trajectory even without a live LLM. ±0.06 per round simulates
         # deliberation drift.
+        synthetic = True
         import math
         base = ((seed or 1) % 100) / 100.0
         drift = (rnd - 1) * 0.04
@@ -594,4 +604,5 @@ async def forecast_issue(payload: dict = Body(...)):
         "horizon": horizon,
         "persona": persona,
         "round": rnd,
+        "synthetic": synthetic,
     }
