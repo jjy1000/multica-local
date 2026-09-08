@@ -588,8 +588,14 @@ async def forecast_issue(payload: dict = Body(...)):
         # the SSE loop produces a coherent (round_index, probability)
         # trajectory even without a live LLM. ±0.06 per round simulates
         # deliberation drift.
+        #
+        # 0.5.104: NO local `import math` here — a function-level import
+        # makes `math` a local name for the WHOLE function, so the
+        # success path's confidence expression below raised
+        # UnboundLocalError the moment the LLM actually returned
+        # predictions. The module-level import at the top of the file is
+        # the only one.
         synthetic = True
-        import math
         base = ((seed or 1) % 100) / 100.0
         drift = (rnd - 1) * 0.04
         prob = max(0.05, min(0.95, 0.45 + math.sin(base * 6.28 + rnd) * 0.18 + drift))
