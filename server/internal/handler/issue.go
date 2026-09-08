@@ -2808,6 +2808,13 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 			"lab_source must match a known experimental flag key")
 		return
 	}
+	// 0.5.105 (audit H3): frozen labs reject NEW bindings entirely.
+	if req.LabSource != nil {
+		if msg := frozenLabSourceBindError(*req.LabSource); msg != "" {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
+	}
 
 	// 0.3.31: lab ↔ assignee mutex — checked earlier (right after
 	// parseUUIDOrBadRequest) so it wins over validateAssigneePair. The
@@ -3343,6 +3350,11 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 					"lab_source must match a known experimental flag key")
 				return
 			}
+			// 0.5.105 (audit H3): frozen labs reject NEW bindings.
+			if msg := frozenLabSourceBindError(*req.LabSource); msg != "" {
+				writeError(w, http.StatusBadRequest, msg)
+				return
+			}
 			params.LabSource = pgtype.Text{String: *req.LabSource, Valid: true}
 		} else {
 			params.LabSource = pgtype.Text{Valid: false} // explicit null = remove lab
@@ -3654,16 +3666,6 @@ func defaultLabLeaderForKey(labSource string) (string, bool) {
 		// String MUST match defaultLeaderAgentForLab in
 		// service/issue.go and the timesfm install handler.
 		return "timesfm_oracle", true
-	case "swarm_topology":
-		// 0.5.21: swarm topology is a top-level task mode. The
-		// coordinator agent is created dynamically during the
-		// leader's bootstrap (Phase 1 of multica-creating-swarms
-		// SKILL.md), not at install time like mythos_swarm. Until
-		// that bootstrap completes, the issue has no assignee —
-		// the sole-mutex gate above permits this. Once the
-		// coordinator row exists, the orchestrator assigns it via
-		// the leader-rewrite path on the next PATCH.
-		return "swarm_coordinator", true
 	default:
 		return "", false
 	}
@@ -4232,6 +4234,13 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 			if req.Updates.LabSource != nil {
 				if *req.Updates.LabSource != "" && !experimental.IsKnownKey(*req.Updates.LabSource) {
 					slog.Warn("batch update rejected: lab_source not in catalog",
+						"issue_id", issueID, "lab_source", *req.Updates.LabSource)
+					continue
+				}
+				// 0.5.105 (audit H3): frozen labs reject NEW bindings;
+				// batch honours the continue-per-issue contract.
+				if msg := frozenLabSourceBindError(*req.Updates.LabSource); msg != "" {
+					slog.Warn("batch update rejected: lab_source frozen",
 						"issue_id", issueID, "lab_source", *req.Updates.LabSource)
 					continue
 				}

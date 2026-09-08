@@ -780,13 +780,15 @@ func TestUpdateIssueLabSourceMythosSoleModeNoAutoAssign(t *testing.T) {
 //     above (same pattern, mutating the lab_source post-create).
 //   - mythos_swarm equivalent: TestUpdateIssueLabSourceMythosSoleModeNoAutoAssign.
 
-// TestCreateIssueSwarmTopologyNoAssigneeAllowed — 0.5.22 (mutex contract #5).
+// TestCreateIssueSwarmTopologyFrozenRejectsBind — 0.5.105 (audit H3).
 //
-// A new issue with lab_source=swarm_topology and no assignee must
-// succeed (201). The leader-rewrite path then auto-assigns
-// swarm_coordinator (boot-provisioned) so the orchestrator can pick
-// it up.
-func TestCreateIssueSwarmTopologyNoAssigneeAllowed(t *testing.T) {
+// The swarm_topology runtime was retired (routes / service /
+// orchestrator deleted; catalog keeps a Frozen tombstone). A new issue
+// with lab_source=swarm_topology must be rejected with 400 naming the
+// freeze — binding to a lab with no runtime, no routes, and no leader
+// is the exact dead-end the audit flagged. Supersedes the 0.5.22
+// contract that auto-assigned swarm_coordinator on create.
+func TestCreateIssueSwarmTopologyFrozenRejectsBind(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -794,35 +796,18 @@ func TestCreateIssueSwarmTopologyNoAssigneeAllowed(t *testing.T) {
 		t.Skip("workspace fixture not initialized")
 	}
 
-	wsUUID := mustParseUUID(t, testWorkspaceID)
-	owner := mustCreateTestMember(t, wsUUID)
-	coordinatorID := ensureReadyLabLeader(t, wsUUID, owner, "swarm_coordinator")
-	coordinatorIDStr := util.UUIDToString(coordinatorID)
-
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-		"title":      "swarm-topology-no-assignee",
+		"title":      "swarm-topology-frozen-bind",
 		"status":     "todo",
 		"lab_source": "swarm_topology",
 	})
 	testHandler.CreateIssue(w, req)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("CreateIssue swarm_topology (no assignee): expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("CreateIssue swarm_topology (frozen): expected 400, got %d: %s", w.Code, w.Body.String())
 	}
-
-	var resp IssueResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode issue response: %v\nbody: %s", err, w.Body.String())
-	}
-	if resp.LabSource == nil || *resp.LabSource != "swarm_topology" {
-		t.Fatalf("expected lab_source=swarm_topology on response, got=%v", resp.LabSource)
-	}
-	if resp.AssigneeType == nil || *resp.AssigneeType != "agent" {
-		t.Fatalf("expected swarm_coordinator auto-assigned, got assignee_type=%v", resp.AssigneeType)
-	}
-	if resp.AssigneeID == nil || *resp.AssigneeID != coordinatorIDStr {
-		t.Fatalf("expected assignee_id=%s (= swarm_coordinator), got=%v",
-			coordinatorIDStr, resp.AssigneeID)
+	if body := w.Body.String(); !strings.Contains(body, "frozen") {
+		t.Fatalf("expected 400 body to name the freeze, got: %s", body)
 	}
 }
 

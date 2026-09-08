@@ -724,6 +724,16 @@ func IsKnownKey(key string) bool {
 	return ok
 }
 
+// IsFrozen reports whether the catalog marks key as frozen — retired
+// for new issue bindings (0.5.105: swarm_topology). Frozen stays
+// advisory for toggles and for the daemon delegation briefing; only
+// the lab_source BIND path (handler/issue.go, via
+// frozenLabSourceBindError) treats it as a hard reject.
+func IsFrozen(key string) bool {
+	f, ok := FlagByKey(key)
+	return ok && f.Frozen
+}
+
 // FlagByKey returns a copy of the Flag definition for key, resolving
 // the dynamic user-plugin layer first (mirrors InteractionModelOf).
 // ok=false when key is unknown to both layers. 0.5.88 added this so

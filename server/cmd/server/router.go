@@ -34,7 +34,6 @@ import (
 	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
 	agent_trust "github.com/multica-ai/multica/server/internal/service/agent_trust"
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
-	swarmsvc "github.com/multica-ai/multica/server/internal/service/swarm"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
@@ -764,115 +763,83 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		}
 	}
 
-	// 0.5.21: wire the swarm topology service. Mirrors the mythos
-	// supervise block above: a single Service instance hosts a
-	// per-swarm_run orchestrator goroutine (30s tick + 72h cap +
-	// 5-phase machine). Orchestrators launch lazily via
-	// StartOrchestrator on bootstrap (multica-creating-swarms SKILL.md
-	// Phase 2); ResumeOrchestration re-adopts non-terminal runs from
-	// a previous daemon process (mirrors mythos ResumeSupervision).
-	// The swarm_gc GC loop runs on the same 6h cadence as runtime_gc
-	// (terminal status + 7d → archive, 90d → trash).
-	{
-		svc := swarmsvc.NewService(h.Queries, slog.Default())
-		h.SwarmService = svc
-		bootCtx, bootCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer bootCancel()
-		if pool != nil {
-			if ids, err := h.Queries.ListAllWorkspaceIDs(bootCtx); err == nil {
-				var totalResumed int
-				for _, id := range ids {
-					if n, err := svc.ResumeOrchestration(bootCtx, id); err != nil {
-						slog.Warn("swarm orchestrator resume failed",
-							"workspace_id", util.UUIDToString(id),
-							"err", err)
-					} else {
-						totalResumed += n
-					}
-				}
-				if totalResumed > 0 {
-					slog.Info("swarm orchestrator resumed", "total", totalResumed)
-				}
-			} else {
-				slog.Warn("swarm orchestrator resume: list workspace ids failed",
-					"err", err)
-			}
-			// Launch swarm_gc (parallel to runtime_gc.Start pattern).
-			// The GC is monolithic (one sweep per tick) so a nil pool
-			// (test-only build) skips it cleanly.
-			swarmGC := experimental.NewSwarmGC(experimental.SwarmGCConfig{
-				Queries: h.Queries,
-			})
-			// 0.5.39 fix: Start() takes NO context. Passing bootCtx
-			// here previously killed the loop at router-setup
-			// completion (Run exited on ctx.Done() ~8ms after boot,
-			// so swarm cleanup never ran). The GC owns
-			// context.Background internally; shutdown is via
-			// h.SwarmGC.Stop() in main.go.
-			swarmGC.Start()
-			// 0.5.22 audit fix (P2): store the GC on the Handler so
-			// the shutdown sequence in cmd/server/main.go can call
-			// Stop() — the GC goroutine otherwise outlives the
-			// graceful shutdown and gets SIGKILL'd mid-tick (a tick
-			// could be mid-archive, leaving the sentinel in place
-			// until the next boot re-adopts it).
-			h.SwarmGC = swarmGC
-			slog.Info("swarm_gc started")
+	// 0.5.105 (audit H3): the swarm_topology runtime (orchestrator
+	// Service + per-workspace ResumeOrchestration) is retired — the
+	// catalog keeps only a Frozen tombstone. What survives is the
+	// generic half of the old swarm_gc: the 6h tick that drives
+	// SweepOrphanedExperimentalResources (0.5.60, audit P0-3 lineage),
+	// rehomed as ResourceGC.
+	if pool != nil {
+		resourceGC := experimental.NewResourceGC(experimental.ResourceGCConfig{
+			Queries: h.Queries,
+		})
+		// 0.5.39 fix (inherited from swarm_gc): Start() takes NO
+		// context. Passing the boot-scoped bootCtx here previously
+		// killed the loop at router-setup completion (Run exited on
+		// ctx.Done() ~8ms after boot, so cleanup never ran). The GC
+		// owns context.Background internally; shutdown is via
+		// h.ResourceGC.Stop() in main.go.
+		resourceGC.Start()
+		// 0.5.22 audit fix (P2): store the GC on the Handler so the
+		// shutdown sequence in cmd/server/main.go can call Stop() —
+		// the goroutine otherwise outlives the graceful shutdown and
+		// gets SIGKILL'd mid-tick.
+		h.ResourceGC = resourceGC
+		slog.Info("resource_gc started")
 
-			// Launch runtime_gc — the 30/90/120-day retention ladder
-			// for experimental_claude_runtime_session rows. Pre-0.5.25
-			// this GC existed in the codebase (migration 151 documented
-			// it) but was never wired at boot, so expired sessions
-			// accumulated indefinitely. Mirrors the swarm_gc pattern:
-			// store on the Handler so main.go's shutdown sequence
-			// can call Stop() before SIGKILL. Interval defaults to
-			// 6h inside NewRuntimeGC; production cadence matches
-			// research tempo (a few sessions per day).
-			runtimeGC := experimental.NewRuntimeGC(experimental.RuntimeGCConfig{
-				Queries: h.Queries,
-			})
-			runtimeGC.Start()
-			h.RuntimeGC = runtimeGC
-			slog.Info("runtime_gc started")
+		// Launch runtime_gc — the 30/90/120-day retention ladder
+		// for experimental_claude_runtime_session rows. Pre-0.5.25
+		// this GC existed in the codebase (migration 151 documented
+		// it) but was never wired at boot, so expired sessions
+		// accumulated indefinitely. Mirrors the resource_gc pattern:
+		// store on the Handler so main.go's shutdown sequence
+		// can call Stop() before SIGKILL. Interval defaults to
+		// 6h inside NewRuntimeGC; production cadence matches
+		// research tempo (a few sessions per day).
+		runtimeGC := experimental.NewRuntimeGC(experimental.RuntimeGCConfig{
+			Queries: h.Queries,
+		})
+		runtimeGC.Start()
+		h.RuntimeGC = runtimeGC
+		slog.Info("runtime_gc started")
 
-			// 0.5.30 P1-3 — synthesizer Round 7: Semantica
-			// provenance + api-key retention. Filesystem-only
-			// (no db.Queries); 24h tick + 90d cutoff. Defaults
-			// baked into NewSemanticaGC.
-			semanticaGC := experimental.NewSemanticaGC(experimental.SemanticaGCConfig{})
-			semanticaGC.Start()
-			h.SemanticaGC = semanticaGC
-			slog.Info("semantica_gc started")
+		// 0.5.30 P1-3 — synthesizer Round 7: Semantica
+		// provenance + api-key retention. Filesystem-only
+		// (no db.Queries); 24h tick + 90d cutoff. Defaults
+		// baked into NewSemanticaGC.
+		semanticaGC := experimental.NewSemanticaGC(experimental.SemanticaGCConfig{})
+		semanticaGC.Start()
+		h.SemanticaGC = semanticaGC
+		slog.Info("semantica_gc started")
 
-			// 0.5.58 P6: ACL reconciler tick. Pure observability
-			// today (the reconcile body lands when upstream
-			// semantica exposes list /api/decisions). 6h cadence
-			// matches the plan §2.3 contract; defaults baked into
-			// NewACLReconciler.
-			aclReconciler := experimental.NewACLReconciler(experimental.ACLReconcilerConfig{
-				Queries: h.Queries,
-			})
-			aclReconciler.Start()
-			h.SemanticaACLReconciler = aclReconciler
-			slog.Info("semantica_acl_reconciler started")
+		// 0.5.58 P6: ACL reconciler tick. Pure observability
+		// today (the reconcile body lands when upstream
+		// semantica exposes list /api/decisions). 6h cadence
+		// matches the plan §2.3 contract; defaults baked into
+		// NewACLReconciler.
+		aclReconciler := experimental.NewACLReconciler(experimental.ACLReconcilerConfig{
+			Queries: h.Queries,
+		})
+		aclReconciler.Start()
+		h.SemanticaACLReconciler = aclReconciler
+		slog.Info("semantica_acl_reconciler started")
 
-			// 0.5.31: AuthTokenGC sweeps the three auth-token
-			// tables that have an `expires_at` column but no
-			// working retention GC (task_token + workspace_invitation
-			// + daemon_token). Same dormant-ladder bug class as
-			// RuntimeGC pre-0.5.25 — the migrations documented the
-			// ladder but no GC ever swept the rows. Mirrors the
-			// RuntimeGC + SwarmGC pattern: store on the Handler so
-			// main.go's shutdown sequence can call Stop() before
-			// SIGKILL. Interval defaults to 6h inside
-			// NewAuthTokenGC; per-table sub-context timeout 15s.
-			authTokenGC := experimental.NewAuthTokenGC(experimental.AuthTokenGCConfig{
-				Queries: h.Queries,
-			})
-			authTokenGC.Start()
-			h.AuthTokenGC = authTokenGC
-			slog.Info("auth_token_gc started")
-		}
+		// 0.5.31: AuthTokenGC sweeps the three auth-token
+		// tables that have an `expires_at` column but no
+		// working retention GC (task_token + workspace_invitation
+		// + daemon_token). Same dormant-ladder bug class as
+		// RuntimeGC pre-0.5.25 — the migrations documented the
+		// ladder but no GC ever swept the rows. Mirrors the
+		// RuntimeGC + ResourceGC pattern: store on the Handler so
+		// main.go's shutdown sequence can call Stop() before
+		// SIGKILL. Interval defaults to 6h inside
+		// NewAuthTokenGC; per-table sub-context timeout 15s.
+		authTokenGC := experimental.NewAuthTokenGC(experimental.AuthTokenGCConfig{
+			Queries: h.Queries,
+		})
+		authTokenGC.Start()
+		h.AuthTokenGC = authTokenGC
+		slog.Info("auth_token_gc started")
 	}
 
 	// 0.5.5: boot-provision the agent_creation_studio leader
@@ -947,13 +914,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// this every refetch. Public to any signed-in user — see
 	// handler.claude_science_skills.go for the visibility filter.
 	r.Get("/api/experimental/claude-science/skills", h.ClaudeScienceSkills)
-
-	// 0.5.56 P4: fork-side ACL-filtered read endpoint for the semantica
-	// lab. Returns only the decisions the calling viewer is allowed to
-	// see in the workspace (per the visibility SQL in
-	// semantica_acl.sql::ListSemanticaDecisionsForViewer). Membership-
-	// gated via X-User-ID; non-members get 403.
-	r.Get("/api/experimental/semantica/decisions", h.ListSemanticaDecisions)
 
 	// 0.3.30: Labs runtime + LLM Wiki bridge + Mythos Swarm + Pythia
 	// per-issue forecast are now registered UNCONDITIONALLY inside the
@@ -1106,20 +1066,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Get("/api/experimental/mythos-swarm/supervise/{runID}", h.GetMythosSuperviseState)
 			r.Post("/api/experimental/mythos-swarm/supervise/{runID}/tick", h.PostMythosSuperviseTick)
 		})
-		// 0.5.21 swarm_topology: multi-agent role-graph topology. The
-		// orchestrator runs in-process (Service.StartOrchestrator +
-		// runOrchestratorLoop); no subprocess, no proxy. Mounted via
-		// RegisterSwarmRoutes which wires POST /runs, POST .../interrupt,
-		// GET .../state, and the issue-side reverse lookup GET
-		// /api/issues/{id}/swarm-runs (also gated — if you can't run
-		// the lab, the issue badge is hidden too).
-		//
-		// 0.5.21 fix: previously the routes were declared in
-		// swarm_routes.go but never mounted, so every call 404'd.
-		r.Group(func(r chi.Router) {
-			r.Use(h.RequireExperimentalFlag("swarm_topology"))
-			handler.RegisterSwarmRoutes(r, h)
-		})
 		// 0.3.29 Pythia Oracle per-issue forecast. Previously dead code:
 		// RegisterPythiaIssueForecastRoutes / AttachPythiaIssueForecastMiddleware
 		// had zero call sites, so the flagship 0.3.29 per-issue forecast
@@ -1157,6 +1103,22 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Group(func(r chi.Router) {
 			r.Use(h.RequireExperimentalFlag("causal_graph"))
 			handler.RegisterCausalGraphRoutes(r, h)
+		})
+
+		// 0.5.105 (audit H1): the semantica ACL read endpoint moves
+		// into the authenticated group behind the same
+		// RequireExperimentalFlag guard as every other lab read
+		// surface (Labs Platform invariant #1: flag-off MUST bypass
+		// entirely). It previously sat on the OUTER router with no
+		// auth middleware at all — requestUserID reads the raw
+		// X-User-ID header, so an unauthenticated caller could spoof
+		// a member identity and reach the ACL filter. See
+		// handler/experimental_guard.go for the guard contract
+		// (flag-off answers 404, indistinguishable from a missing
+		// route) and handler/semantica_decisions_test.go for the pin.
+		r.Group(func(r chi.Router) {
+			r.Use(h.RequireExperimentalFlag("semantica"))
+			r.Get("/api/experimental/semantica/decisions", h.ListSemanticaDecisions)
 		})
 
 		// 0.3.45.1: agent_self_optimization history view endpoints.

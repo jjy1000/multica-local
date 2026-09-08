@@ -100,7 +100,8 @@ func init() {
 	rootCmd.AddCommand(pythiaCmd)
 	rootCmd.AddCommand(claudeScienceCmd)
 	rootCmd.AddCommand(labCmd)
-	rootCmd.AddCommand(swarmCmd)
+	// 0.5.105 (audit H3): swarmCmd removed with the swarm_topology
+	// runtime retirement.
 
 	initHelp(rootCmd)
 }

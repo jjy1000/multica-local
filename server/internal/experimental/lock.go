@@ -101,14 +101,11 @@ const (
 	// removed; the source string stays so historical lock rows still
 	// match by string, and migration 237 can clean them up.
 	SourceAgentCreationStudio Source = "agent_creation_studio"
-	// SourceSwarmTopology is the 0.5.21 swarm topology feature —
-	// top-level task mode (parallel to claude_science_lab), NOT a
-	// LabPicker sub-plugin. Self-organising multi-agent system:
-	// the orchestrator authors N role-agents + M skills + 1
-	// coordinating squad on bootstrap, runs a 5-phase machine, and
-	// tears everything down on terminal status. See
-	// server/internal/service/swarm/orchestrator.go.
-	SourceSwarmTopology Source = "swarm_topology"
+	// SourceSwarmTopology (0.5.21) was RETIRED in 0.5.105 (audit H3):
+	// the constant left AllSources because nothing claims
+	// "swarm_topology" locks anymore. Historical lock rows are
+	// released by the same cascade paths as before; the string stays
+	// valid in the DB CHECK (no migration touched).
 	// SourceSemantica is the 0.5.22 Semantica × Multica integration lab.
 	// Owns the `semantica_decision_advisor` leader agent (the only
 	// installable resource) so the P0#4 leader-rewrite path can land
@@ -156,7 +153,6 @@ var AllSources = []Source{
 	SourcePythiaOracle,
 	SourceCodeCanvas,
 	SourceAgentCreationStudio,
-	SourceSwarmTopology,
 	SourceSemantica,
 	SourceTimesfm,
 	SourceCausalGraph,

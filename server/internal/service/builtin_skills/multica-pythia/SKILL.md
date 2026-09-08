@@ -1,6 +1,6 @@
 ---
 name: multica-pythia
-description: "Use when the user asks about predictions, scenarios, world briefings, geopolitical risks, market forecasts, or \"what happens next\" questions across horizons (24h / week / month / year). Pythia is the bundled headless Python oracle that fuses a local swarm prediction engine (MiroFish) with a live global-intelligence feed (Osiris). Resolves a loopback URL via `multica --json pythia status` then calls one of the bundled verbs: `brief` (latest world brief), `ask` (oracle question), `predict` (run a forecast pass), `whatif` (counterfactual), `events` (raw live signals), `predictions` (current forecasts), `view` (consolidated agent view), `scorecard` (forecast accuracy), `models` (LLM list), `links` (engine health matrix). Requires the `pythia_oracle` Labs flag enabled; the desktop must have the Pythia service running. Do not use it for chat / issues / Multica platform operations — that is what multica-mentioning / multica-working-on-issues cover."
+description: "Use when the user asks about predictions, scenarios, world briefings, geopolitical risks, market forecasts, or \"what happens next\" questions across horizons (24h / week / month / year). Pythia is the bundled headless Python oracle that fuses a local swarm prediction engine (MiroFish) with a live global-intelligence feed (Osiris). Resolves a loopback URL via `multica --json pythia status` then calls one of the bundled verbs: `brief` (latest world brief), `predict` (run a forecast pass), `whatif` (counterfactual). Requires the `pythia_oracle` Labs flag enabled; the desktop must have the Pythia service running. Do not use it for chat / issues / Multica platform operations — that is what multica-mentioning / multica-working-on-issues cover."
 user-invocable: true
 allowed-tools: Bash(multica pythia *)
 ---
@@ -12,6 +12,8 @@ that the desktop starts on demand when the `pythia_oracle` Labs flag is enabled.
 The service is a FastAPI app exposing `/health`, `/predict`, `/brief`,
 `/whatif`, `/ask`, `/scorecard`, `/events`, `/predictions`, `/view`, `/links`,
 `/models`, `/config`, and a bundled MCP server at `/mcp` (stdio JSON-RPC).
+(The CLI wraps only a subset of these — see the verb table below; the rest
+are engine HTTP surfaces reachable via the loopback URL from `status`.)
 
 This skill is the agent-facing contract for talking to it.
 
@@ -34,19 +36,21 @@ manager isolates its env from Multica's provider chain.
 
 | Verb | Endpoint | When to use |
 | --- | --- | --- |
+| `multica pythia status` | (none — local probe) | "Is the oracle running, and on what URL?" |
 | `multica pythia brief --topic <...>` | `GET /brief` | "What's happening in the world right now?" |
-| `multica pythia ask --question <...>` | `POST /ask` | "What does the oracle think about X?" — grounded free-form answer |
 | `multica pythia predict` | `POST /predict` | "Run a forecast pass now" — kicks the LOOP asynchronously |
 | `multica pythia whatif --scenario <...>` | `POST /whatif` | "What if X happens?" — counterfactual; never touches the ledger |
-| `multica pythia events --domain conflict` | `GET /agent/events` | "Show raw live signals filtered by domain" |
-| `multica pythia predictions --horizon week` | `GET /predictions` | "List current forecasts by horizon" |
-| `multica pythia view` | `GET /agent/view` | "Give me the consolidated agent-readable snapshot" |
-| `multica pythia scorecard` | `GET /scorecard` | "How accurate were past forecasts?" |
-| `multica pythia models` | `GET /models` | "Which models can the oracle run?" |
-| `multica pythia links` | `GET /links` | "Engine / Osiris / oracle health matrix" |
 
 All return JSON; pass `--output json` to keep machine-readable output intact
 (the default plain-text representation drops fields).
+
+0.5.105 audit M6: this table previously listed `ask` / `events` /
+`predictions` / `view` / `scorecard` / `models` / `links` as well — those
+engine HTTP endpoints exist, but the CLI has never wrapped them, so the
+verbs were phantom. Only the four implemented verbs above are documented
+now (per the skills ↔ CLI contract). If an engine-only surface is genuinely
+needed, query the loopback URL from `status` with an explicit HTTP request
+and say so in the reply — do not pretend a `multica pythia` verb ran.
 
 ## Hard rules
 

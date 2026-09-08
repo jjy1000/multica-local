@@ -515,7 +515,10 @@ func TestBatchUpdateIssuesRespectsSwarmTopologyMutex(t *testing.T) {
 		}
 	})
 
-	t.Run("lab only on unassigned issue → succeeds", func(t *testing.T) {
+	t.Run("lab only on unassigned issue → frozen reject skips the issue", func(t *testing.T) {
+		// 0.5.105 (audit H3): swarm_topology is frozen — a new binding
+		// is rejected per-issue (continue contract: never 400 the whole
+		// batch), so the response is 2xx but lab_source must NOT land.
 		created := createIssueForTest(t, map[string]any{
 			"title": "batch-swarm-mutex-3",
 		})
@@ -528,7 +531,7 @@ func TestBatchUpdateIssuesRespectsSwarmTopologyMutex(t *testing.T) {
 		})
 		testHandler.BatchUpdateIssues(w, req)
 		if w.Code < 200 || w.Code >= 300 {
-			t.Fatalf("expected 2xx, got %d: %s", w.Code, w.Body.String())
+			t.Fatalf("expected 2xx for batch, got %d: %s", w.Code, w.Body.String())
 		}
 		var labSourceAfter pgtype.Text
 		if err := testPool.QueryRow(context.Background(),
@@ -536,9 +539,8 @@ func TestBatchUpdateIssuesRespectsSwarmTopologyMutex(t *testing.T) {
 		).Scan(&labSourceAfter); err != nil {
 			t.Fatalf("re-read issue: %v", err)
 		}
-		if !labSourceAfter.Valid || labSourceAfter.String != swarmLab {
-			t.Errorf("expected lab_source=%q, got valid=%v str=%q",
-				swarmLab, labSourceAfter.Valid, labSourceAfter.String)
+		if labSourceAfter.Valid {
+			t.Errorf("batch persisted frozen lab_source=%q; expected per-issue skip", labSourceAfter.String)
 		}
 	})
 }

@@ -189,20 +189,13 @@ assigned to that agent and the turn actually delivered work.
 `--value` is JSON-parsed by default (bool/number sniff); `--type` forces
 `string`/`number`/`bool`.
 
-## Custom properties CLI
+## Custom properties CLI (retired 0.5.105)
 
-| Behavior | File:line |
-|---|---|
-| `multica property list/get/create/update/archive/unarchive` | `server/cmd/multica/cmd_property.go` |
-| `multica issue property list/set/unset` (name→id translation) | `server/cmd/multica/cmd_property.go` (`encodeIssuePropertyValue`) |
-| Definition CRUD, admin gate, agent-actor rejection | `server/internal/handler/property.go` (`requirePropertyAdmin`) |
-| Optional catalog icon field and allowlist validation | `server/internal/handler/property.go` (`PropertyResponse`, `validatePropertyIcon`) |
-| Per-type value validation (self-correcting errors) | `server/internal/handler/property.go` (`validatePropertyValue`) |
-| `actor` / `multi_actor` reference parsing, `member` as the only kind, 20-value cap | `server/internal/handler/property.go` (`actorPropertyKinds`, `parseActorRef`, `parseActorRefList`, `maxPropertyActorValues`) |
-| Actor references are checked for workspace membership only | `server/internal/handler/property.go` (`resolveActorRefs`) |
-| `--value` name / email / id → `member:<uuid>` resolution (same member lookup as `--assignee`) | `server/cmd/multica/cmd_property.go` (`resolveActorPropertyRef`, `memberOnlyKinds`) |
-| Shared actor-reference types and helpers | `packages/core/types/property.ts` (`parseActorRef`, `actorRefsFromValue`, `MAX_ISSUE_PROPERTY_ACTOR_VALUES`) |
-| API routes (`/api/properties`, PUT/DELETE `/api/issues/{id}/properties/{propertyId}`) | `server/cmd/server/router.go` |
+Upstream-only feature — this fork has no `cmd_property.go`, no
+`server/internal/handler/property.go`, no `packages/core/types/property.ts`,
+and no `/api/properties` routes. The rows that used to live here pointed at
+files that do not exist in this checkout (audit M6). Custom issue state goes
+through issue metadata (`server/cmd/multica/cmd_issue_metadata.go`) instead.
 
 ## Verification command
 

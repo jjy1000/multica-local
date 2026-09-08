@@ -607,21 +607,12 @@ func main() {
 		h.MythosService.Stop()
 	}
 
-	// Cancel any in-flight swarm orchestrator goroutines. Lossless:
-	// swarm_run.current_phase + each swarm_role.last_heartbeat_at is
-	// persisted every tick; ResumeOrchestration re-adopts non-terminal
-	// rows on the next boot.
-	if h.SwarmService != nil {
-		h.SwarmService.Stop()
-	}
-	// 0.5.22 audit fix (P2): stop the swarm_gc goroutine before
-	// process exit. Without this the GC outlives graceful shutdown
-	// and gets SIGKILL'd mid-tick — a mid-archive kill leaves the
-	// .archiving sentinel in place (recoverable on next boot, but
-	// cleaner to close the channel and let the goroutine exit after
-	// its current sweep). swarm_gc.Stop is a no-op if not started.
-	if h.SwarmGC != nil {
-		h.SwarmGC.Stop()
+	// 0.5.22 audit fix (P2), rehomed 0.5.105: stop the resource GC
+	// (ex-swarm_gc) before process exit. Without this the GC outlives
+	// graceful shutdown and gets SIGKILL'd mid-tick. Stop is a no-op
+	// if not started.
+	if h.ResourceGC != nil {
+		h.ResourceGC.Stop()
 	}
 	if h.RuntimeGC != nil {
 		h.RuntimeGC.Stop()

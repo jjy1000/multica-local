@@ -168,22 +168,20 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
   (`IssueService.maybeEnqueueOnAssign` in service/issue.go + `WillEnqueueRun`
   in service/issue_trigger.go — the single chokepoint for UpdateIssue +
   BatchUpdateIssues). Nil/true = unchanged 0.3.46 behaviour; **false**
-  (currently only `claude_science_lab`) means the assignee is still
-  written (leader-rewrite still applies) but no `agent_task_queue` row
-  is created until the user explicitly clicks "Run research" on the lab
-  workbench's IssueContextBar (`apps/desktop/.../claude-lab-view.tsx`).
-  That trigger fires via
-  `POST /api/experimental/claude-science/issues/{id}/run`
-  (handler/claude_science_run.go), which calls
-  `TaskService.EnqueueTaskForIssue` directly — bypassing both service
-  gates because the endpoint IS the manual opt-in. The route is mounted
-  inside the existing `RequireExperimentalFlag("claude_science_lab")`
-  chi group in cmd/server/router.go. Reading code goes through
+  (currently `pythia_oracle` + `timesfm` + `causal_graph`) means the
+  assignee is still written (leader-rewrite still applies) but no
+  `agent_task_queue` row is created until the user explicitly triggers a
+  run from the lab workbench (claude_science_lab was the original opt-out;
+  its manual trigger via `POST /api/experimental/claude-science/issues/{id}/run`
+  in handler/claude_science_run.go calls `TaskService.EnqueueTaskForIssue`
+  directly — bypassing both service gates because the endpoint IS the
+  manual opt-in). Reading code goes through
   `experimental.AutoDispatch(key)` (true when pointer is nil/unknown,
-  returns the dereferenced value otherwise). Adding a second opt-out lab
+  returns the dereferenced value otherwise). Adding another opt-out lab
   is a 3-line catalog edit — no service-layer or router changes needed.
   Tests: `TestAutoDispatchFlagBehavior` in
-  `internal/experimental/registry_test.go`.
+  `internal/experimental/registry_test.go`. (0.5.105 audit M5: this
+  clause previously claimed claude_science_lab was the only opt-out.)
 - **Experimental runtime GC for `experimental_claude_runtime_session` (0.5.25).**
   `experimental.RuntimeGC` is the 30/90/120-day retention ladder for claude
   science research sessions (migration 151). Three contracts: (1) `Run()`
@@ -192,7 +190,8 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
   *eagerly* at the top of `Run()`, so the first `select` evaluated
   `<-g.stopped` immediately and the GC exited without ever ticking.
   (2) `Start()` is wired at boot in `cmd/server/router.go` alongside
-  `swarm_gc.Start()`. Pre-0.5.25 it was orphaned — the comment "parallel
+  `resource_gc.Start()` (the 0.5.105 rehoming of the former swarm_gc
+  tick). Pre-0.5.25 it was orphaned — the comment "parallel
   to runtime_gc.Start pattern" had never been realized on the runtime_gc
   side. Store the GC on `Handler.RuntimeGC` so `cmd/server/main.go`'s
   shutdown can call `Stop()` before SIGKILL. (3) The loop body is

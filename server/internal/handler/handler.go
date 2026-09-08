@@ -36,7 +36,6 @@ import (
 	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
 	"github.com/multica-ai/multica/server/internal/service/mcpsync"
 	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
-	swarmsvc "github.com/multica-ai/multica/server/internal/service/swarm"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -178,18 +177,12 @@ type Handler struct {
 	// h.Queries is available. Nil is acceptable (older builds or
 	// tests) — the supervise HTTP handlers fall back to 503.
 	MythosService *mythossvc.Service
-	// SwarmService (0.5.21) owns the per-swarm_run orchestrator
-	// goroutines (5-phase machine: research → design → implement →
-	// review → done). Boot wires it from cmd/server/router.go.
-	// Nil is acceptable — the swarm HTTP handlers fall back to a
-	// 503 if StartOrchestrator hasn't been called yet.
-	SwarmService *swarmsvc.Service
-	// SwarmGC (0.5.22, audit P2) owns the swarm_gc background cleanup
-	// loop (6h tick → terminal+7d archive → 90d trash). Boot wires it
-	// from cmd/server/router.go alongside SwarmService. Nil is
-	// acceptable — the GC goroutine is independent and only needs the
-	// Stop() hook at server shutdown to exit cleanly before SIGKILL.
-	SwarmGC *experimental.SwarmGC
+	// ResourceGC (0.5.105, ex-swarm_gc) owns the 6h orphan sweep for
+	// experimental_resource_lock / experimental_resource_visibility.
+	// Boot wires it from cmd/server/router.go. Nil is acceptable —
+	// the GC goroutine is independent and only needs the Stop() hook
+	// at server shutdown to exit cleanly before SIGKILL.
+	ResourceGC *experimental.ResourceGC
 	// RuntimeGC (0.5.25) owns the runtime_gc background cleanup
 	// loop for experimental_claude_runtime_session rows
 	// (6h tick → 30d archive → 90d trash → 120d unlink). The GC
@@ -566,6 +559,25 @@ func isCheckViolation(err error) bool {
 
 func requestUserID(r *http.Request) string {
 	return r.Header.Get("X-User-ID")
+}
+
+// frozenLabSourceBindError returns a 400 message when the caller tries
+// to CREATE a new issue binding on a frozen lab (0.5.105: swarm_topology
+// retirement — audit H3). Frozen is advisory for toggles and for the
+// delegation briefing, but a new lab_source binding would produce an
+// issue bound to a lab with no runtime, no routes, and no leader — the
+// exact "deep-link into a lab that cannot run" trap the audit flagged.
+// Empty string = not frozen, proceed. Update paths only consult this
+// when the request actually carries a lab_source field, so legacy
+// frozen-bound issues keep PATCHing unrelated fields (forward-only law).
+func frozenLabSourceBindError(key string) string {
+	if !experimental.IsFrozen(key) {
+		return ""
+	}
+	if f, ok := experimental.FlagByKey(key); ok && f.SuccessorKey != "" {
+		return "lab_source=" + key + " is frozen and can no longer be bound to issues (successor: " + f.SuccessorKey + ")"
+	}
+	return "lab_source=" + key + " is frozen and can no longer be bound to issues"
 }
 
 // resolveActor determines whether the request is from an agent or a human member.

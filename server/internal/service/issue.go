@@ -418,11 +418,9 @@ var defaultLeaderAgentForLab = map[string]string{
 	// land on the right agent. Mirrors defaultLabLeaderForKey in
 	// handler/issue.go; keep the strings in sync when renaming.
 	"semantica": "semantica_decision_advisor",
-	// 0.5.22: swarm_topology leader. Boot-provisioned alongside
-	// agent_creation_expert so the leader-rewrite path has a row to
-	// resolve on the first create-issue (the legacy "wait for
-	// bootstrap to author it" path loses the leading edge case).
-	"swarm_topology": "swarm_coordinator",
+	// 0.5.105 (audit H3): the swarm_topology entry was removed with
+	// the runtime retirement — frozen labs reject new bindings and
+	// resolve no leader (mirrors defaultLabLeaderForKey).
 	// 0.5.86: timesfm leader (0.5.82 gap — the engine agent existed
 	// but lab_source=timesfm never auto-assigned it). MUST match
 	// defaultLabLeaderForKey in handler/issue.go and the timesfm

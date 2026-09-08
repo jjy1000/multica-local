@@ -460,12 +460,24 @@ func (h *Handler) UpdateUserPlugin(w http.ResponseWriter, r *http.Request) {
 	// The slug (and thus flag_key) is immutable, so old and new keys match —
 	// the unregister keeps the catalog from holding a torn intermediate state
 	// if the merged flag's metadata changed shape.
+	//
+	// 0.5.105 (audit M2): status must take effect IN-PROCESS, not only at
+	// the next boot. The boot path registers only ListActiveUserPlugins
+	// rows, but this handler used to re-register unconditionally — a PUT
+	// status:'disabled' left the lab live until restart. Mirror the boot
+	// semantics: only active rows (re-)register; disabled/deleted rows
+	// unregister and stay gone. (The real enable/disable switch is
+	// experimental_pref and is untouched here.)
 	flagKey := updated.FlagKey
 	experimental.UnregisterUserPlugin(flagKey)
-	experimental.RegisterUserPlugins([]experimental.Flag{userPluginToFlag(updated)})
+	if updated.Status == "active" {
+		experimental.RegisterUserPlugins([]experimental.Flag{userPluginToFlag(updated)})
+	}
 	if h.ExperimentRegistry != nil {
 		h.ExperimentRegistry.RemoveUserPlugin(flagKey)
-		h.ExperimentRegistry.MergeUserPlugins([]experimental.Flag{userPluginToFlag(updated)})
+		if updated.Status == "active" {
+			h.ExperimentRegistry.MergeUserPlugins([]experimental.Flag{userPluginToFlag(updated)})
+		}
 	}
 
 	// Re-seed visibility when the manifest changed. The common lab-builder

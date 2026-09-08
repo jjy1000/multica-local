@@ -148,37 +148,19 @@ multica issue metadata delete <issue-id> --key <stale-key>
 `--value` is JSON-parsed by default (bool/number are sniffed); pass `--type
 string|number|bool` to force a type.
 
-## Custom properties: typed workflow state
+## Custom properties: upstream-only, absent from this fork
 
-Workspaces may define custom issue properties (Severity, Environment, QA
-Status, Reviewer, ...). Properties are the typed, user-visible sibling of
-metadata: values are validated against the definition (select options, date
-format, http(s) URL, member reference), visible in the issue sidebar, and
-addressed by name.
+Upstream Multica ships typed, workspace-defined issue properties (Severity,
+Environment, ...) behind `multica property` and `multica issue property`
+verbs. This localized fork has NONE of that surface — no property CLI verbs,
+no property handler, no property API client. **Do not invoke those verbs**;
+they fail with an unknown-command error. (0.5.105 audit M6: this section
+previously documented the verbs as if they existed.)
 
-- Read what exists before writing: `multica property list` shows the catalog;
-  `multica issue property list <issue-id>` shows values set on the issue.
-- Set values by property name and option name — the CLI translates to ids:
-
-```bash
-multica issue property set <issue-id> --name Environment --value staging
-multica issue property set <issue-id> --name Platforms --value "iOS,Android"
-multica issue property set <issue-id> --name Reviewer --value Bohan
-multica issue property unset <issue-id> --name Environment
-```
-
-- A validation error lists the legal options — fix the value and retry.
-- `actor` / `multi_actor` properties (Reviewer, Escalation contact, ...) hold
-  workspace members only. `--value` takes a member name, email, UUID, short id,
-  or an explicit `member:<uuid>`; `multi_actor` takes a comma-separated list
-  (duplicates dropped, order kept, max 20).
-- Definitions may include an optional catalog icon for visual identification;
-  it does not change the property's type or value validation.
-- Agents cannot create or edit property definitions (owner/admin humans only).
-  If a needed property does not exist, propose it in a comment instead.
-- Property vs metadata: if the value is workflow state a human should see and
-  filter by, and a definition exists, prefer the property. Metadata stays the
-  free-form bag for durable custom issue state.
+Durable custom issue state goes through **metadata** instead (section
+above): `multica issue metadata set/delete` is the free-form KV bag, and
+human-visible workflow state lives in status + labels. If a typed field
+seems necessary, propose it in a comment for a human to decide.
 
 ## Status changes have server side effects
 
