@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { BaseExperimentalManager, type ExperimentalManager } from "./experimental/manager-template";
 import { registerExperimentalUpstream, unregisterExperimentalUpstream } from "./experimental/upstream-registry";
+import { activeDesktopProfileName } from "./daemon-manager";
 
 // PythiaManager spawns the bundled Pythia Python service on a free
 // loopback port. Pythia is a FastAPI app exposing /health, /predict,
@@ -47,49 +48,70 @@ let sharedManager: PythiaManager | null = null;
 // engine stays spawnable in dev / standalone testing as long as the
 // developer does NOT set MULTICA_REQUIRED=1 themselves.
 //
-// Re-exported from syncToken's readProfileConfig path so we don't
-// duplicate the disk-format guesswork — same parsing rules, same
-// edge-case handling.
+// 0.5.104 profile-selection fix: this used to take the FIRST `desktop-*`
+// directory and give up when that one lacked server_url+token — which
+// silently bound the engine to nothing when a stale `desktop-*` leftover
+// sorted first (the pre-fork `desktop-api.multica.ai` cloud profile has
+// no token). Every oracle.whatif call then failed fast inside the engine
+// and the Go layer still labelled the placeholder rounds "oracle". Now:
+// the canonical profile name comes from daemon-manager's target URL
+// derivation (same profile the daemon uses), and the directory scan is
+// only a fallback that validates EVERY candidate instead of just the
+// first.
 function pythiaRuntimeEnv(): Record<string, string> {
+  const readTokenFromProfile = (profile: string): Record<string, string> | null => {
+    const cfgPath = join(homedir(), ".multica", "profiles", profile, "config.json");
+    if (!existsSync(cfgPath)) return null;
+    let cfg: Record<string, unknown>;
+    try {
+      cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+    } catch {
+      return null;
+    }
+    const apiUrl = typeof cfg.server_url === "string" ? cfg.server_url : "";
+    const token =
+      typeof cfg.token === "string"
+        ? cfg.token
+        : typeof cfg.access_token === "string"
+        ? cfg.access_token
+        : typeof cfg.jwt === "string"
+        ? cfg.jwt
+        : "";
+    if (!apiUrl || !token) return null;
+    return {
+      MULTICA_AGENT_RUNTIME_URL: apiUrl.replace(/\/+$/, ""),
+      MULTICA_API_TOKEN: token,
+      MULTICA_REQUIRED: "1",
+    };
+  };
+
+  // 1. The profile the daemon manager derives from the bound target URL —
+  //    the same one syncToken writes the PAT into.
+  const canonical = activeDesktopProfileName();
+  if (canonical) {
+    const env = readTokenFromProfile(canonical);
+    if (env) return env;
+  }
+
+  // 2. Fallback: scan every profile, desktop-* first. Each candidate is
+  //    fully validated; the first complete one wins.
   try {
     const profilesRoot = join(homedir(), ".multica", "profiles");
-    if (!existsSync(profilesRoot)) return { MULTICA_REQUIRED: "1" };
-    const entries = readdirSync(profilesRoot, { withFileTypes: true })
-      .filter((d: { isDirectory: () => boolean }) => d.isDirectory())
-      .map((d: { name: string }) => d.name);
-    // Prefer the desktop- profile (mirrors daemon-manager.resolveActiveProfile
-    // heuristic); fall back to the first profile that has a config.json.
-    const desktopProfile = entries.find((n: string) => n.startsWith("desktop-"));
-    const candidates = desktopProfile ? [desktopProfile] : entries;
-    for (const profile of candidates) {
-      const cfgPath = join(profilesRoot, profile, "config.json");
-      if (!existsSync(cfgPath)) continue;
-      const raw = readFileSync(cfgPath, "utf-8");
-      let cfg: Record<string, unknown>;
-      try {
-        cfg = JSON.parse(raw);
-      } catch {
-        continue;
+    if (existsSync(profilesRoot)) {
+      const entries = readdirSync(profilesRoot, { withFileTypes: true })
+        .filter((d: { isDirectory: () => boolean }) => d.isDirectory())
+        .map((d: { name: string }) => d.name);
+      const ordered = [
+        ...entries.filter((n) => n.startsWith("desktop-")),
+        ...entries.filter((n) => !n.startsWith("desktop-")),
+      ];
+      for (const profile of ordered) {
+        const env = readTokenFromProfile(profile);
+        if (env) return env;
       }
-      const apiUrl = typeof cfg.server_url === "string" ? cfg.server_url : "";
-      const token =
-        typeof cfg.token === "string"
-          ? cfg.token
-          : typeof cfg.access_token === "string"
-          ? cfg.access_token
-          : typeof cfg.jwt === "string"
-          ? cfg.jwt
-          : "";
-      if (!apiUrl || !token) continue;
-      return {
-        MULTICA_AGENT_RUNTIME_URL: apiUrl.replace(/\/+$/, ""),
-        MULTICA_API_TOKEN: token,
-        MULTICA_REQUIRED: "1",
-      };
     }
   } catch {
-    // best-effort; on read error we still mark MULTICA_REQUIRED=1 so
-    // the engine fails fast instead of silently contacting Ollama.
+    // best-effort; fall through to the fail-fast env below.
   }
   return { MULTICA_REQUIRED: "1" };
 }

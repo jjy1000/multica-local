@@ -37,8 +37,9 @@
 //      lab_source="synthetic"; the wire shape stays stable so the
 //      renderer doesn't have to branch.
 //
-//   4. `rounds` defaults to 1 and is capped to 3 to honor the 0.3.29
-//      "报告轮次默认最小" constraint. Each round emits one envelope.
+//   4. `rounds` defaults to 3 (0.5.104; the 0.3.30.3-era default of 10
+//      was retired for latency + LLM budget reasons) and is capped at
+//      10. Each round emits one envelope.
 
 package handler
 
@@ -80,10 +81,14 @@ func RegisterPythiaIssueForecastRoutes(r chi.Router) {
 }
 
 // defaultIssueForecastRounds is the default number of forecast
-// rounds a caller gets when they don't pass `rounds`. 0.3.30.3 raises
-// the default from 1 → 10 to honor the "issue creation triggers a
-// 10-round Pythia deliberation" contract.
-const defaultIssueForecastRounds = 10
+// rounds a caller gets when they don't pass `rounds`. 0.3.30.3 raised
+// the default from 1 → 10 for the "issue creation triggers a 10-round
+// Pythia deliberation" contract; 0.5.104 lowers it to 3 — the 10-round
+// auto-run multiplied latency (~45s) and LLM spend for marginal report
+// value. Clients that want more rounds pass `rounds` explicitly (the
+// issue body may pin them, e.g. "推演5轮"); the hard cap below is
+// unchanged.
+const defaultIssueForecastRounds = 3
 
 // maxIssueForecastRounds caps a single SSE call at 10 rounds. Each
 // round blocks on a /forecast/issue upstream POST (~3-5 s with a
@@ -111,10 +116,9 @@ func clampIssueForecastRounds(req int) int {
 type issueForecastRequest struct {
 	IssueID string `json:"issue_id"`
 	// Rounds controls how many forecast envelopes to emit before
-	// closing the stream. Defaults to 10 to honor the 0.3.30.3
-	// "Pythia 推演 10 轮" contract — issue creation auto-launches a
-	// 10-round deliberation loop. Capped at 10 so a single request
-	// can never starve the LLM proxy budget (60 req/min global).
+	// closing the stream. Defaults to 3 (0.5.104 — was 10 under the
+	// retired 0.3.30.3 "推演 10 轮" contract). Capped at 10 so a single
+	// request can never starve the LLM proxy budget (60 req/min global).
 	Rounds int `json:"rounds,omitempty"`
 }
 
@@ -166,9 +170,8 @@ func pythiaIssueForecast(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Rounds <= 0 {
-		// 0.3.30.3: 10 rounds is the issue-creation default per the
-		// "Pythia 推演 10 轮" contract. Callers can still override
-		// by passing `rounds: N`.
+		// 0.5.104: 3 rounds is the default (was 10 under the retired
+		// 0.3.30.3 contract). Callers override by passing `rounds: N`.
 		req.Rounds = defaultIssueForecastRounds
 	}
 	if req.Rounds > maxIssueForecastRounds {
@@ -695,10 +698,10 @@ func syntheticIssueForecast(
 	round int,
 ) (forecastEnvelope, error) {
 	return forecastEnvelope{
-		ID:              fmt.Sprintf("p_issue_%d_r%d", forecastSeq.Add(1), round),
-		IssueID:         ifc.IssueID,
-		Scenario:        ifc.Title,
-		Narrative:       scenarioContextFor(ifc),
+		ID:        fmt.Sprintf("p_issue_%d_r%d", forecastSeq.Add(1), round),
+		IssueID:   ifc.IssueID,
+		Scenario:  ifc.Title,
+		Narrative: scenarioContextFor(ifc),
 		// Clamp at 0.97: the band-widening formula crosses 1.0 at round ≥ 9
 		// (0.42 + 9*0.07 = 1.05), which the renderer then displays as
 		// "105%" — an impossible probability that screams fake data even
@@ -764,6 +767,13 @@ func queryOracleIssue(
 		Horizon     string  `json:"horizon"`
 		Persona     string  `json:"persona"`
 		Round       int     `json:"round"`
+		// Synthetic is the engine's own honesty flag (0.5.104): true when
+		// the round's narrative came from the engine's internal fallback
+		// (LLM bridge call failed or the model JSON was unparseable)
+		// rather than a genuine model answer. Pre-0.5.104 a 200 carrying
+		// placeholder text was indistinguishable from a real deduction,
+		// so runs reported "真实引擎推演" while every round was filler.
+		Synthetic bool `json:"synthetic"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 		return forecastEnvelope{}, err
@@ -782,6 +792,14 @@ func queryOracleIssue(
 	if persona == "" {
 		persona = "strategist"
 	}
+	labSource := "oracle"
+	if raw.Synthetic {
+		// Engine-reported fallback relabels to the failover provenance so
+		// the report comment's 数据来源 note and the renderer's "模拟数据"
+		// badge stay truthful. Transport-level failures get the same label
+		// from sourceForForecast's error path below.
+		labSource = "synthetic_oracle_failover"
+	}
 	return forecastEnvelope{
 		ID:              fmt.Sprintf("p_issue_%d-ora_r%d", forecastSeq.Add(1), round),
 		IssueID:         ifc.IssueID,
@@ -791,7 +809,7 @@ func queryOracleIssue(
 		Confidence:      raw.Confidence,
 		Horizon:         horizon,
 		Persona:         persona,
-		LabSource:       "oracle",
+		LabSource:       labSource,
 		ScenarioContext: scenarioContextFor(ifc),
 		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
 	}, nil

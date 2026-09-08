@@ -262,6 +262,22 @@ function deriveProfileName(targetUrl: string): string {
 }
 
 /**
+ * Canonical desktop profile name for the current target API URL, or null
+ * before `initTargetApiUrl`/`setupDaemonManager` has pinned one.
+ *
+ * Exported so subprocess spawners (pythia-manager) bind env to the SAME
+ * profile the daemon uses instead of re-guessing by directory listing —
+ * a guess that silently picked stale `desktop-*` leftovers (e.g. the
+ * pre-fork `desktop-api.multica.ai` cloud profile, which has no token)
+ * and left the subprocess without its runtime credentials (0.5.104).
+ */
+export function activeDesktopProfileName(): string | null {
+  if (!targetApiBaseUrl) return null;
+  const name = deriveProfileName(targetApiBaseUrl);
+  return name === "desktop" ? null : name;
+}
+
+/**
  * Pure-function decision: should `syncToken` reuse the cached PAT, or
  * mint a fresh one?
  *

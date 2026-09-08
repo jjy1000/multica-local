@@ -140,7 +140,7 @@ describe("useIssueActions", () => {
     );
   });
 
-  it("tagging an issue with lab_source=pythia_oracle auto-launches a 10-round forecast on update success", () => {
+  it("tagging an issue with lab_source=pythia_oracle auto-launches a default 3-round forecast on update success", () => {
     // The mutate mock normally ignores the options bag; wire it to invoke
     // onSuccess so the update-path lab-parity branch actually runs.
     mockUpdateMutate.mockImplementation((_payload, opts) => opts?.onSuccess?.());
@@ -154,7 +154,25 @@ describe("useIssueActions", () => {
       "/api/experimental/pythia-oracle/forecast/issue",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ issue_id: "issue-1", rounds: 10 }),
+        body: JSON.stringify({ issue_id: "issue-1", rounds: 3 }),
+      }),
+    );
+  });
+
+  it("a 推演N轮 phrase in the issue text pins the round count", () => {
+    mockUpdateMutate.mockImplementation((_payload, opts) => opts?.onSuccess?.());
+    const issue: Issue = { ...mockIssue, title: "模拟推演方案推演5轮" };
+    const { result } = renderHook(() => useIssueActions(issue), { wrapper });
+
+    act(() => {
+      result.current.updateField({ lab_source: "pythia_oracle" });
+    });
+
+    expect(mockRawRequest).toHaveBeenCalledWith(
+      "/api/experimental/pythia-oracle/forecast/issue",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ issue_id: "issue-1", rounds: 5 }),
       }),
     );
   });

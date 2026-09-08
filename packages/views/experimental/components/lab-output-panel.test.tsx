@@ -27,6 +27,26 @@ vi.mock("@multica/core/api", async () => {
   };
 });
 
+// 0.5.104: PythiaPanel resolves the lab flag itself (flag-off honesty —
+// the server 404s every pythia endpoint while the flag is off, which used
+// to render as the misleading stuck panel). The mock defaults to enabled
+// so pre-existing pythia renders keep the normal flow; the flag-off test
+// flips the holder.
+const flagState = vi.hoisted(() => ({
+  data: [{ key: "pythia_oracle", enabled: true }] as
+    | Array<{ key: string; enabled: boolean }>
+    | undefined,
+}));
+vi.mock("@multica/core/experimental", async () => {
+  const actual = await vi.importActual<
+    typeof import("@multica/core/experimental")
+  >("@multica/core/experimental");
+  return {
+    ...actual,
+    useExperimentalFlags: () => ({ data: flagState.data }),
+  };
+});
+
 function makeResponse(status: number, body: unknown): Response {
   return {
     status,
@@ -191,9 +211,30 @@ function renderCodeCanvasPanel() {
 
 beforeEach(() => {
   mockRawRequest.mockReset();
+  flagState.data = [{ key: "pythia_oracle", enabled: true }];
 });
 
 describe("LabOutputPanel", () => {
+  it("pythia panel says the lab is disabled when the flag is off (never the stuck panel)", async () => {
+    flagState.data = [{ key: "pythia_oracle", enabled: false }];
+    // The server 404s the runs poll while the flag is off — exactly the
+    // condition that used to render the misleading "引擎未启动" stuck
+    // panel with a silently-failing retry button.
+    mockRawRequest.mockResolvedValue(makeResponse(404, { error: "not found" }));
+    renderPythiaPanel();
+
+    expect(
+      screen.getByTestId("lab-output-panel-pythia-flag-off"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Pythia lab is disabled")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("lab-output-panel-pythia-stuck"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /retry/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows a loading skeleton, then the latest task output", async () => {
     mockRawRequest.mockResolvedValue(makeResponse(200, dataContext));
     renderPanel();

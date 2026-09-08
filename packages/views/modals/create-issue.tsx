@@ -41,6 +41,8 @@ import { ContentEditor, type ContentEditorRef, TitleEditor, useFileDropZone, Fil
 import { StatusIcon, StatusPicker, PriorityPicker, StagePicker, AssigneePicker, StartDatePicker, DueDatePicker, LabPicker } from "../issues/components";
 import { maxSiblingStage } from "../issues/components/pickers/stage-picker";
 import { labSourceRouteSuffix } from "../issues/components/issue-labs-section";
+import { resolveForecastRounds } from "../issues/utils/forecast-rounds";
+import { startPythiaIssueForecast } from "../issues/utils/pythia-forecast-trigger";
 import { ProjectPicker } from "../projects/components/project-picker";
 import { useIssueTriggerPreview } from "../issues/hooks/use-issue-trigger-preview";
 import { useActorName } from "@multica/core/workspace/hooks";
@@ -594,41 +596,28 @@ export function ManualCreatePanel({
       });
 
       // 0.3.30.3: when the issue is tagged with lab_source =
-      // pythia_oracle, auto-launch a 10-round Pythia deliberation
-      // against the new issue in the background. The user sees the
-      // issue toast; the report accumulates on the issue detail's
-      // Pythia panel. Best-effort: a Pythia failure must not block
-      // the create flow (the issue already exists in the DB).
+      // pythia_oracle, auto-launch a Pythia deliberation against the new
+      // issue in the background. The user sees the issue toast; the
+      // report accumulates on the issue detail's Pythia panel.
+      // Best-effort: a Pythia failure must not block the create flow
+      // (the issue already exists in the DB).
       //
-      // 0.5.59: stamp the sessionStorage trigger key BEFORE firing so
-      // the PythiaPanel that mounts when the user navigates to the
-      // issue detail immediately flips into "推演中..." instead of
-      // showing the silent-empty state for the first ~5s of polling.
-      // Key shape matches <PythiaPanel> in lab-output-panel.tsx.
+      // 0.5.59: the trigger key is stamped by startPythiaIssueForecast
+      // BEFORE firing so the PythiaPanel that mounts when the user
+      // navigates to the issue detail immediately flips into "推演中..."
+      // instead of showing the silent-empty state for the first ~5s of
+      // polling.
+      //
+      // 0.5.104: the round count comes from the issue's own text ("推演5轮"
+      // pins 5) and defaults to 3 (was hardcoded 10). Fire-and-forget via
+      // the shared trigger so the create flow never waits out the SSE loop;
+      // the in-flight run registers with the shared cancel registry.
       if (labSource === "pythia_oracle") {
-        try {
-          window.sessionStorage.setItem(
-            `pythia-triggered-${wsId}-${issue.id}`,
-            String(Date.now()),
-          );
-        } catch {
-          // sessionStorage unavailable (private mode, SSR, etc.) — ignore.
-        }
-        try {
-          await api.rawRequest(
-            "/api/experimental/pythia-oracle/forecast/issue",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ issue_id: issue.id, rounds: 10 }),
-            },
-          );
-        } catch (err) {
-          console.warn(
-            "[create-issue] pythia_oracle auto-launch failed",
-            err,
-          );
-        }
+        startPythiaIssueForecast({
+          wsId,
+          issueId: issue.id,
+          rounds: resolveForecastRounds(finalTitle, finalDescription),
+        });
       }
 
       // Link queued children to the new parent. Deferred to after create

@@ -4,14 +4,12 @@ import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Issue, UpdateIssueRequest } from "@multica/core/types";
-import { api } from "@multica/core/api";
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useModalStore } from "@multica/core/modals";
 import { useUpdateIssue } from "@multica/core/issues/mutations";
 import { useExperimentalFlags } from "@multica/core/experimental";
-import { sessionStorageAdapter } from "@multica/core/platform";
 import { pinListOptions, useCreatePin, useDeletePin } from "@multica/core/pins";
 import { copyText } from "@multica/ui/lib/clipboard";
 import { useNavigation } from "../../navigation";
@@ -20,6 +18,8 @@ import {
   labLockLabel,
   matchAssigneeLabLockError,
 } from "../components/pickers/assignee-lab-lock";
+import { resolveForecastRounds } from "../utils/forecast-rounds";
+import { startPythiaIssueForecast } from "../utils/pythia-forecast-trigger";
 
 export interface UseIssueActionsResult {
   isPinned: boolean;
@@ -69,6 +69,9 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
   const issueAssigneeType = issue?.assignee_type ?? null;
   const issueAssigneeId = issue?.assignee_id ?? null;
   const issueStatus = issue?.status ?? null;
+  // Feed the pythia round-count prompt parser ("推演5轮" → 5).
+  const issueTitle = issue?.title ?? null;
+  const issueDescription = issue?.description ?? null;
 
   const updateField = useCallback(
     (updates: Partial<UpdateIssueRequest>) => {
@@ -103,39 +106,23 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
             // Lab parity with the create-issue path: when the user tags an
             // existing issue with lab_source = pythia_oracle (the update
             // path, e.g. via the LabPicker in the detail panel), auto-launch
-            // a 10-round Pythia deliberation so "selecting the lab starts the
-            // work" — mirroring create-issue.tsx. The report accumulates in
-            // the Pythia panel (the lab's experiment interface), never the
-            // issue timeline. Best-effort: a launch failure must not surface
-            // as an update error, because the field change already succeeded.
+            // a Pythia deliberation so "selecting the lab starts the work"
+            // — mirroring create-issue.tsx. The report accumulates in the
+            // Pythia panel (the lab's experiment interface), never the
+            // issue timeline. Best-effort: a launch failure must not
+            // surface as an update error, because the field change already
+            // succeeded.
+            //
+            // 0.5.104: rounds come from the issue's own text ("推演5轮"
+            // pins 5), defaulting to 3 (was hardcoded 10); the run goes
+            // through the shared trigger so the cancel registry + trigger
+            // stamp behave identically on both paths.
             if (updates.lab_source === "pythia_oracle") {
-              // 0.5.59: stamp the trigger key so <PythiaPanel> on the
-              // issue detail flips into "推演中..." immediately after
-              // the update mutation resolves. Key shape matches
-              // lab-output-panel.tsx.
-              try {
-                sessionStorageAdapter.setItem(
-                  `pythia-triggered-${wsId}-${issueId}`,
-                  String(Date.now()),
-                );
-              } catch {
-                // sessionStorage unavailable — ignore.
-              }
-              void api
-                .rawRequest(
-                  "/api/experimental/pythia-oracle/forecast/issue",
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ issue_id: issueId, rounds: 10 }),
-                  },
-                )
-                .catch((err) => {
-                  console.warn(
-                    "[issue-actions] pythia_oracle auto-launch failed",
-                    err,
-                  );
-                });
+              startPythiaIssueForecast({
+                wsId,
+                issueId,
+                rounds: resolveForecastRounds(issueTitle, issueDescription),
+              });
             }
           },
           onError: (err) => {
@@ -160,7 +147,7 @@ export function useIssueActions(issue: Issue | null): UseIssueActionsResult {
         },
       );
     },
-    [issueId, issueStatus, updateIssue, openModal, t, flags],
+    [issueId, issueStatus, issueTitle, issueDescription, wsId, updateIssue, openModal, t, flags],
   );
 
   // Explicit "open it somewhere else" CTA, so the new tab takes focus

@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, FlaskConical, Loader2, RefreshCw, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FlaskConical, Loader2, RefreshCw, Square, XCircle } from "lucide-react";
 import { api, parseWithFallback } from "@multica/core/api";
-import { useTimesfmForecastRuns } from "@multica/core/experimental";
+import { useTimesfmForecastRuns, useExperimentalFlags } from "@multica/core/experimental";
 import {
   CodeCanvasArtifactListSchema,
   CodeCanvasArtifactSchema,
@@ -33,6 +33,11 @@ import { ArtifactRenderer, type Artifact } from "./artifact-renderer";
 import { InteractiveChartEnvelope } from "./interactive-chart-envelope";
 import { AppLink } from "../../navigation";
 import { labSourceRouteSuffix } from "../../issues/components/issue-labs-section";
+import {
+  cancelPythiaIssueForecast,
+  registerPythiaForecastController,
+  unregisterPythiaForecastController,
+} from "../../issues/utils/pythia-forecast-trigger";
 import { LabRunLink, labRunHref } from "./lab-run-link";
 import {
   PYTHIA_IN_PROGRESS_WINDOW_MS,
@@ -813,6 +818,17 @@ function PythiaPanel({
 }) {
   const { t } = useT("experimental");
 
+  // 0.5.104: flag-off honesty. When the pythia_oracle flag is disabled
+  // the server's RequireExperimentalFlag guard 404s BOTH the runs poll
+  // and the forecast POST (experimental_guard.go — off-flag callers must
+  // not distinguish a gated surface from a nonexistent one). That used
+  // to render as the stuck "引擎未启动" panel with a retry button whose
+  // clicks silently 404'd. Resolve the flag here and say plainly that
+  // the lab is disabled instead.
+  const { data: flags } = useExperimentalFlags();
+  const flagsLoaded = flags != null;
+  const flagEnabled = (flags ?? []).some((f) => f.key === "pythia_oracle" && f.enabled);
+
   // 0.5.59: track when the user last triggered a forecast so the panel
   // can show "推演进行中..." for the SSE-loop window instead of an empty
   // placeholder that reads as "no data / broken". Without this, an
@@ -830,18 +846,30 @@ function PythiaPanel({
 
   const triggerForecast = useMutation({
     mutationFn: async (rounds: number) => {
-      const r = await api.rawRequest(
-        "/api/experimental/pythia-oracle/forecast/issue",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ issue_id: issueId, rounds }),
-        },
-      );
-      if (!r.ok && r.status !== 200) {
-        throw new Error(`forecast trigger ${r.status}`);
+      // 0.5.104: the in-flight request registers with the shared cancel
+      // registry so the stop button below (and the create/update path's
+      // runs) abort the SAME issue's forecast. The SSE round loop on the
+      // server honours the disconnect and persists whatever rounds
+      // already completed.
+      const controller = new AbortController();
+      registerPythiaForecastController(wsId, issueId, controller);
+      try {
+        const r = await api.rawRequest(
+          "/api/experimental/pythia-oracle/forecast/issue",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ issue_id: issueId, rounds }),
+            signal: controller.signal,
+          },
+        );
+        if (!r.ok && r.status !== 200) {
+          throw new Error(`forecast trigger ${r.status}`);
+        }
+        return rounds;
+      } finally {
+        unregisterPythiaForecastController(wsId, issueId, controller);
       }
-      return rounds;
     },
     onMutate: (rounds) => {
       const now = Date.now();
@@ -886,6 +914,22 @@ function PythiaPanel({
   const isInProgress = triggerState === "in_progress";
   const isStuck = triggerState === "stuck";
 
+  if (flagsLoaded && !flagEnabled) {
+    return (
+      <div
+        className="space-y-1 rounded-md border border-dashed border-border/60 px-2 py-1.5"
+        data-testid="lab-output-panel-pythia-flag-off"
+      >
+        <p className="text-[11px] font-medium text-muted-foreground">
+          {t(($) => $.lab_output_panel.pythia_flag_off)}
+        </p>
+        <p className="text-[10px] leading-snug text-muted-foreground">
+          {t(($) => $.lab_output_panel.pythia_flag_off_hint)}
+        </p>
+      </div>
+    );
+  }
+
   if (runsQuery.isLoading) {
     return (
       <div className="space-y-2" data-testid="lab-output-panel-loading">
@@ -915,6 +959,12 @@ function PythiaPanel({
   // the user sees work happening. The retry button is intentionally
   // NOT shown here (oracle is still running; clicking it would
   // stack a second 10-round run on top of the first).
+  //
+  // 0.5.104: a stop button joins the spinner. Aborts the in-flight SSE
+  // (panel-triggered OR create/update-path auto-launch — shared
+  // registry); the server persists whatever rounds already completed,
+  // so the panel flips to the partial result instead of spinning to
+  // the natural end.
   if (isInProgress) {
     const elapsed = Math.floor((now - (triggeredAt ?? now)) / 1000);
     const budgetSec = Math.floor(PYTHIA_IN_PROGRESS_WINDOW_MS / 1000);
@@ -925,9 +975,22 @@ function PythiaPanel({
       >
         <div className="flex items-center gap-1.5 text-[11px] font-medium text-purple-700 dark:text-purple-300">
           <Loader2 className="size-3 animate-spin" aria-hidden />
-          <span>
+          <span className="min-w-0 flex-1">
             {t(($) => $.lab_output_panel.pythia_in_progress, { elapsed, budget: budgetSec })}
           </span>
+          <button
+            type="button"
+            aria-label={t(($) => $.lab_output_panel.pythia_stop_forecast)}
+            title={t(($) => $.lab_output_panel.pythia_stop_forecast)}
+            data-testid="lab-output-panel-pythia-stop"
+            onClick={() => {
+              cancelPythiaIssueForecast(wsId, issueId);
+              runsQuery.refetch();
+            }}
+            className="inline-flex shrink-0 items-center justify-center rounded p-1 text-purple-700 transition-colors hover:bg-purple-500/10 dark:text-purple-300"
+          >
+            <Square className="size-3" aria-hidden />
+          </button>
         </div>
         <p className="text-[10px] leading-snug text-muted-foreground">
           {triggerForecast.isPending

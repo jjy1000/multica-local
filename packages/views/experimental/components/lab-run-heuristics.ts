@@ -46,7 +46,7 @@ export function readPythiaTriggeredAt(
 }
 
 /** Record "a forecast was just triggered". Fire-and-forget — callers then
- *  re-derive the state from the returned timestamp. */
+ *  re-read the timestamp. */
 export function markPythiaTriggered(
   wsId: string,
   issueId: string,
@@ -54,6 +54,15 @@ export function markPythiaTriggered(
 ): void {
   if (typeof window === "undefined") return;
   window.sessionStorage.setItem(pythiaTriggerKey(wsId, issueId), String(now));
+}
+
+/** Clear the trigger timestamp — used when the user explicitly cancels an
+ *  in-flight forecast (0.5.104). Without this the "推演中..." heuristic
+ *  keeps spinning for its full 90s window after the run was already
+ *  stopped. */
+export function clearPythiaTriggered(wsId: string, issueId: string): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(pythiaTriggerKey(wsId, issueId));
 }
 
 export type PythiaTriggerState = "idle" | "in_progress" | "stuck";

@@ -339,6 +339,20 @@ function PythiaProgressCard({
 
   if (runsQuery.isLoading) return <LabProgressCardSkeleton />;
   if (runsQuery.isError) {
+    // 0.5.104: with the flag off the server 404s the runs endpoint by
+    // design (experimental_guard.go); that read as a red "failed" card.
+    // A disabled lab is not a failure — render the muted idle row.
+    if (!flagEnabled) {
+      return (
+        <ProgressCardBody
+          testId="lab-progress-card"
+          labSource="pythia_oracle"
+          issueId={issueId}
+          state={{ kind: "idle" }}
+          flagEnabled={flagEnabled}
+        />
+      );
+    }
     return (
       <ProgressCardBody
         testId="lab-progress-card"

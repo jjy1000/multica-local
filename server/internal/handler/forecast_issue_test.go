@@ -16,15 +16,17 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-// TestClampIssueForecastRounds covers the 0.3.30.3 rounds contract:
-// caller omitting `rounds` gets the 10-round default; a caller
-// explicitly requesting N above the cap gets clamped down to 10.
+// TestClampIssueForecastRounds covers the rounds contract: a caller
+// omitting `rounds` gets the 3-round default (0.5.104 — the 0.3.30.3
+// 10-round auto-run was retired for latency + LLM budget reasons); a
+// caller explicitly requesting N above the cap gets clamped down to 10.
 func TestClampIssueForecastRounds(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -32,9 +34,10 @@ func TestClampIssueForecastRounds(t *testing.T) {
 		in   int
 		want int
 	}{
-		{"zero defaults to 10", 0, 10},
-		{"negative defaults to 10", -3, 10},
+		{"zero defaults to 3", 0, 3},
+		{"negative defaults to 3", -3, 3},
 		{"1 keeps 1", 1, 1},
+		{"3 keeps 3", 3, 3},
 		{"10 keeps 10", 10, 10},
 		{"11 clamps to 10", 11, 10},
 		{"1000 clamps to 10", 1000, 10},
@@ -44,6 +47,53 @@ func TestClampIssueForecastRounds(t *testing.T) {
 			got := clampIssueForecastRounds(tc.in)
 			if got != tc.want {
 				t.Errorf("clampIssueForecastRounds(%d) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestQueryOracleIssueSyntheticRelabel pins the 0.5.104 honesty fix:
+// when the engine answers 200 with `synthetic: true` (its internal LLM
+// bridge call failed and it emitted placeholder narrative), the envelope
+// MUST carry lab_source=synthetic_oracle_failover instead of "oracle".
+// Pre-fix, a placeholder round was indistinguishable from a genuine
+// deduction and runs reported "真实引擎推演" for pure filler data.
+func TestQueryOracleIssueSyntheticRelabel(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		synthetic  bool
+		wantLabSrc string
+	}{
+		{"real engine answer stays oracle", false, "oracle"},
+		{"engine-reported fallback relabels", true, "synthetic_oracle_failover"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"scenario":    "scenario",
+					"narrative":   "narrative",
+					"probability": 0.61,
+					"confidence":  0.55,
+					"horizon":     "week",
+					"persona":     "strategist",
+					"round":       1,
+					"synthetic":   tc.synthetic,
+				})
+			}))
+			defer srv.Close()
+
+			env, err := queryOracleIssue(context.Background(), srv.URL, &issueForecastContext{
+				IssueID: "00000000-0000-0000-0000-000000000001",
+				Title:   "模拟推演方案",
+			}, 42, 1)
+			if err != nil {
+				t.Fatalf("queryOracleIssue returned error: %v", err)
+			}
+			if env.LabSource != tc.wantLabSrc {
+				t.Errorf("LabSource = %q, want %q (synthetic=%v)", env.LabSource, tc.wantLabSrc, tc.synthetic)
 			}
 		})
 	}
