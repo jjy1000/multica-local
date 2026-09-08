@@ -65,12 +65,12 @@ import (
 // We accept OpenAI-style "messages" too, so any OpenAI-compatible client
 // can dial the endpoint without translation.
 type LLMCallRequest struct {
-	Prompt     string             `json:"prompt,omitempty"`
-	System     string             `json:"system,omitempty"`
-	Messages   []LLMCallMessage   `json:"messages,omitempty"`
-	Model      string             `json:"model,omitempty"`
-	MaxTokens  int                `json:"max_tokens,omitempty"`
-	Temperature *float64          `json:"temperature,omitempty"`
+	Prompt      string           `json:"prompt,omitempty"`
+	System      string           `json:"system,omitempty"`
+	Messages    []LLMCallMessage `json:"messages,omitempty"`
+	Model       string           `json:"model,omitempty"`
+	MaxTokens   int              `json:"max_tokens,omitempty"`
+	Temperature *float64         `json:"temperature,omitempty"`
 }
 
 type LLMCallMessage struct {
@@ -118,24 +118,48 @@ func (h *Handler) LLMCallHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bearer token: same parser the rest of the package uses. We do not
-	// require workspace membership here — the caller is a local service
-	// on behalf of a user, and the JWT itself carries the user identity.
+	// Bearer token. Two caller classes dial this bridge: local tooling
+	// holding a user JWT, and local subprocesses (the PYTHIA engine) holding
+	// the desktop PAT — "mul_…" is the only credential pythiaRuntimeEnv
+	// injects into config.json. 0.5.104: accept BOTH. The bare jwt.Parse
+	// below rejected the PAT with 401, so once the engine env fix let the
+	// bridge calls through, every one of them still failed auth and the
+	// deliberation degraded to fallback data. PAT validation mirrors
+	// middleware/auth.go (hash → lookup → expiry) minus the TTL cache —
+	// this endpoint is rate-limited at 60 req/min, so the extra SELECT is
+	// negligible. We do not require workspace membership: the caller is a
+	// local service on behalf of a user.
 	authHeader := r.Header.Get("Authorization")
 	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
 	if token == "" {
 		writeError(w, http.StatusUnauthorized, "missing bearer token")
 		return
 	}
-	parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, jwt.ErrSignatureInvalid
+	if strings.HasPrefix(token, "mul_") {
+		if h.Queries == nil {
+			writeError(w, http.StatusUnauthorized, "invalid bearer token")
+			return
 		}
-		return auth.JWTSecret(), nil
-	})
-	if err != nil || parsed == nil || !parsed.Valid {
-		writeError(w, http.StatusUnauthorized, "invalid bearer token")
-		return
+		pat, err := h.Queries.GetPersonalAccessTokenByHash(r.Context(), auth.HashToken(token))
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, "invalid bearer token")
+			return
+		}
+		if pat.ExpiresAt.Valid && !time.Now().Before(pat.ExpiresAt.Time) {
+			writeError(w, http.StatusUnauthorized, "expired bearer token")
+			return
+		}
+	} else {
+		parsed, err := jwt.Parse(token, func(t *jwt.Token) (any, error) {
+			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, jwt.ErrSignatureInvalid
+			}
+			return auth.JWTSecret(), nil
+		})
+		if err != nil || parsed == nil || !parsed.Valid {
+			writeError(w, http.StatusUnauthorized, "invalid bearer token")
+			return
+		}
 	}
 
 	// Rate limit per source IP.
