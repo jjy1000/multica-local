@@ -9,7 +9,7 @@
 // mirror; that would destroy the Qoder parallel.
 //
 // CLAUDE.md is the authoritative rules file; AGENTS.md is a derived digest of
-// it. This check fails when the two files drift on any of the five shared
+// it. This check fails when the two files drift on any of the six shared
 // constraint categories, or when either file drifts from the real pins:
 //
 //   1. Toolchain versions  — the `| Tool | Version | ... |` table must list
@@ -114,6 +114,35 @@ checkGroundTruth("React", reactPin, "pnpm-workspace.yaml catalog");
 const ci = read(".github/workflows/ci.yml");
 const pgPin = ci.match(/pgvector\/pgvector:pg(\d+)/)?.[1] ?? "";
 checkGroundTruth("PostgreSQL", pgPin, "ci.yml pgvector service image", { prefix: true });
+
+// ---------------------------------------------------------------------------
+// 1b. Release version line (0.5.105, audit M5)
+// ---------------------------------------------------------------------------
+
+// The "> **Current release: X.Y.Z**" banner is the one deliberately
+// hand-maintained line in each file, so it used to drift silently (both
+// files said 0.5.102 while 0.5.104 was shipped). Both files must now
+// carry the SAME version — the release checklist bumps them together.
+function parseReleaseLine(text, label) {
+  const m = text.match(/\*?Current release:\s*(\d+\.\d+\.\d+)/);
+  if (!m) {
+    fail(`${label}: no "Current release: X.Y.Z" line found`);
+    return null;
+  }
+  return m[1];
+}
+
+const claudeRelease = parseReleaseLine(claude, "CLAUDE.md");
+const agentsRelease = parseReleaseLine(agents, "AGENTS.md");
+if (
+  claudeRelease !== null &&
+  agentsRelease !== null &&
+  claudeRelease !== agentsRelease
+) {
+  fail(
+    `release-version drift: CLAUDE.md says ${claudeRelease}, AGENTS.md says ${agentsRelease} — bump both in the same commit`,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // 2. Package boundaries

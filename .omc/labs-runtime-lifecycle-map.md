@@ -1,10 +1,20 @@
 ---
 name: labs-runtime-lifecycle-map
 created: 2026-07-22T12:42:05Z
-updated: 2026-08-20T16:25:28Z
+updated: 2026-09-08T00:00:00Z
 ---
 
 # Experimental Labs — Runtime Lifecycle & Install/Rollback Infrastructure
+
+> **2026-09-08 addendum (0.5.105 lab audit batch — SUPERSEDES the counts below).** Audit-driven correction of this map's stale statements (audit M5) + the H3 swarm retirement:
+>
+> - **`swarm_topology` runtime RETIRED (0.5.105, audit H3).** `service/swarm` (1933 LOC), `handler/swarm_run.go`, `handler/swarm_routes.go`, `handler/product_swarm_coordinator.go`, `cmd_swarm.go`, the desktop view/routes, and the 4 swarm migrations' runtime consumers are DELETED. The catalog keeps a `Frozen: true` tombstone (successor `mythos_swarm`); `experimental.IsFrozen` + `frozenLabSourceBindError` reject NEW issue bindings (400); DB tables stay (forward-only law). `swarm_gc` is rehomed as the generic `experimental.ResourceGC` (6h tick driving `SweepOrphanedExperimentalResources` — the 0.5.60 orphan sweep survives, the swarm-run archive/trash sweep does not).
+> - **Catalog is 10 built-in flags** (not 8): + `semantica` (0.5.81), `timesfm` (0.5.82), `causal_graph` (0.5.83), alongside the eight below.
+> - **Install handlers ×7** (not ×5): + `install_semantica.go`, `install_timesfm.go`, `install_causal_graph.go`.
+> - **`ProxyRoutes()` covers 4 subprocess labs** (not 2): pythia_oracle, code_canvas, semantica, timesfm.
+> - **Migrations**: the experimental list at §11 stops at 164 — the full chain now runs through 286 (user_plugin 166/168, semantica_acl 273, lock backfill 274, causal 276–279, mcp sync 285, sub-issue 286 …). §11 is a historical snapshot, not the current list.
+> - **`MythosService.Stop()` DOES have a production caller** — the cmd/server shutdown sequence (main.go, `h.MythosService.Stop()`); the §10 claim was stale.
+> - **Manifest dirs = 10** (`resources/experiments/`): causal_graph, chat_pin_ui, claude_science_lab, code_canvas, llm_wiki_bridge, mythos_swarm, pythia_oracle, semantica, swarm_topology (tombstone), timesfm.
 
 > **2026-08-21 addendum (0.5.21+ drift + 0.5.46 state + semantica cp-block fix 17f4cc2a9).** Since 2026-07-30:
 >
@@ -28,11 +38,11 @@ Full lifecycle: **manifest → catalog → registry → flag toggle → install 
 ```
 manifest.json (resources/experiments/<key>/)     ← developer-authored, declarative
    ↓ SidebarEntries() lazy-loads spec.entry_points.sidebar
-catalog.go  Catalog []Flag                        ← compile-time source of truth (8 flags)
+catalog.go  Catalog []Flag                        ← compile-time source of truth (10 flags)
    ↓ NewRegistry() snapshots into Registry.flags
 registry.go  Registry                             ← install/rollback/proxy/loopback dispatch maps
    ↓ router.go boot wiring
-   ├─ RegisterInstallHandler(key, closure)  ×5     (router.go:531-565)
+   ├─ RegisterInstallHandler(key, closure)  ×7     (router.go boot wiring)
    ├─ MountExperimentalProxies(r,h)                (router.go:505, auto-mounts ProxyRoutes())
    └─ MythosService = mythossvc.NewService + ResumeSupervision (router.go:573-591)
    ↓ request time
@@ -67,7 +77,10 @@ Manifest is **declarative metadata only** — it does NOT provision DB rows. Pro
 | claude_science_lab | inline | — | — | **yes** | no (AutoDispatch=false since 0.5.22) |
 | pythia_oracle | subprocess | /experimental/pythia | pythia_oracle | **yes** | no |
 | mythos_swarm | headless | — | — | **yes** | no (sole-mode mutex w/ assignee) |
-| swarm_topology | headless | — | — | **yes** | no (0.5.21 mutex Active Contract #5) |
+| swarm_topology | headless | — | — | retired 0.5.105 | Frozen tombstone only; new binds 400 (audit H3) |
+| semantica | subprocess | — | semantica | **yes** | no (AutoDispatch=false) |
+| timesfm | subprocess | — | timesfm | records-only | no (AutoDispatch=false; HideFromIssueLabPicker) |
+| causal_graph | inline | — | — | auxiliary | yes (AutoDispatch=false) |
 | llm_wiki_bridge | subprocess | — | llm-wiki (stdio MCP to LLM Wiki app) | no | yes |
 | code_canvas | subprocess | /experimental/code-canvas | code_canvas | **yes** | no |
 | semantica | subprocess | — | semantica | **yes** | no |
@@ -87,7 +100,7 @@ Helpers: `IsKnownKey` (lab_source validation), `AllFlagKeys`, `DefaultFor` (flag
 - Maps: `flags`, `loopback`, `install`, `rollback`.
 - `RunInstall(key, userID, wsID)` → `ErrNoInstallHandler` if unbound, else call.
 - `RunRollback(key)` → **returns nil when no handler bound** (silent no-op). No production code ever calls `RegisterUnregisterHandler` → rollback map is always empty → **RunRollback is effectively a permanent no-op**.
-- `ProxyRoutes()` → one route per `RuntimeKind=="subprocess"` flag with non-empty ProxyPrefix+LoopbackService (= pythia_oracle, code_canvas). Auto-mounted by `MountExperimentalProxies`.
+- `ProxyRoutes()` → one route per `RuntimeKind=="subprocess"` flag with non-empty ProxyPrefix+LoopbackService (= pythia_oracle, code_canvas, semantica, timesfm). Auto-mounted by `MountExperimentalProxies`.
 - `SetLoopbackURL/LoopbackURL(service)` → desktop main process publishes per-service loopback URLs; proxy 502s with "manager is not running" when empty.
 
 ## 4. Flag toggle (`server/internal/handler/experimental_flags.go` + `experimental_resources.go`)
@@ -109,6 +122,9 @@ All five share: `resolveLabWorkspace` (X-Workspace-ID UUID → else first user w
 | `InstallAgentSelfOptimization` (186L) | 1 agent (智能体优化专家) + 2 autopilots w/ schedule triggers | none | no |
 | `InstallPythia` (127L) | 1 agent (pythia_runtime) | agent×1 | no |
 | `InstallCodeCanvas` (109L) | 1 agent (code_canvas_worker); subprocess owned by manager-factory.ts | agent×1 | no |
+| `InstallSemantica` | 1 agent (semantica_decision_advisor) | agent×1 | no |
+| `InstallTimesfm` | 1 agent (timesfm_oracle) | agent×1 | no |
+| `InstallCausalGraph` | graph tables only (no agent) | — | no |
 
 Lock vocabulary (`lock.go`): `Source` enum, `ResourceType` (workspace/skill/agent/squad/member/mcp_server), `Claim`/`Hide`/`Restore`/`RestoreOne`, `LifecycleMarker` (SHA-256-derived UUID, prefix `0xEC`).
 
@@ -152,7 +168,7 @@ Columns: `issue.lab_source` (nullable TEXT, mig 155), `issue.lab_mode` (`'sole'|
 - enhancer + no assignee → 400 "enhancer requires an assignee".
 - enhancer + `lab_source != mythos_swarm` → 400 (Update only).
 
-**Leader-rewrite (0.3.46 P0#4)** — `defaultLabLeaderForKey`: claude_science_lab→"research", pythia_oracle→"pythia_runtime", code_canvas→"code_canvas_worker", mythos_swarm→(" ",false). `shouldRewriteAssigneeForLabLeader` 4-case table:
+**Leader-rewrite (0.3.46 P0#4)** — `defaultLabLeaderForKey`: claude_science_lab→"research", pythia_oracle→"pythia_runtime", code_canvas→"code_canvas_worker", semantica→"semantica_decision_advisor", timesfm→"timesfm_oracle", mythos_swarm→("",false), swarm_topology→RETIRED 0.5.105 (frozen binds reject before the lookup). `shouldRewriteAssigneeForLabLeader` 4-case table:
 | lab has leader? | existing assignee | result |
 |---|---|---|
 | no (mythos) | any | noop |
@@ -179,7 +195,7 @@ Columns: `issue.lab_source` (nullable TEXT, mig 155), `issue.lab_mode` (`'sole'|
 - **Supervise goroutine** (`startSupervise`): context rooted at `context.Background()` (outlives request); stored in `superviseSet[runID]=cancel` (idempotent cancel-replace). `runSuperviseLoop`: 30s ticker + 24h max-lifetime; `select` on ctx.Done (unregister, NO abort write → resumable) / maxLifetime (aborted) / tick (tickSupervision; error→degraded continue; terminal phase→complete + flip issue done).
 - `tickSupervision`: phase ladder preparing→planning→supervising; `SubTasksTotal` from `coda_conclusions` length; **`SubTasksDone` never incremented (documented TODO)**; no LLM call.
 - `ResumeSupervision(ctx, wsID)` re-launches goroutines for `status='supervising'` runs at boot (router.go:591).
-- **Two distinct Service instances**: run path uses throwaway `mythos.NewService` (experimental_mythos_run.go:310); supervise HTTP + boot-resume use `h.MythosService`. Their superviseSet maps are independent. `Service.Stop()` has **no production caller**.
+- **Two distinct Service instances**: run path uses throwaway `mythos.NewService` (experimental_mythos_run.go:310); supervise HTTP + boot-resume use `h.MythosService`. Their superviseSet maps are independent. `Service.Stop()` is called from the cmd/server shutdown sequence (main.go).
 - HTTP surface (`mythos_supervise.go`): `GET /supervise/{runID}` (read state), `POST /supervise/{runID}/tick` (rejects non-enhancer 400 / non-supervising 409; sync `TickSupervisionOnce`), `GET /issues/{id}/mythos-runs`.
 
 ### Pythia / code_canvas (subprocess)
