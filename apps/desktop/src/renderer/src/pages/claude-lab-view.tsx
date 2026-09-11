@@ -51,6 +51,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { motion, useReducedMotion } from "motion/react";
 import {
   ArrowRight,
   FlaskConical,
@@ -61,6 +62,7 @@ import {
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useExperimentalFlag } from "@multica/core/experimental";
+import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { useT } from "@multica/views/i18n";
 import { ForecastStreamView, LabChatPanel, labChatPanelPropsFromContext } from "@multica/views/experimental";
 import {
@@ -77,6 +79,17 @@ import { ExperimentalArtifactView } from "@/components/experimental-artifact-vie
 type LabTab = "plan" | "artifact" | "forecast" | "code" | "knowledge";
 
 const TAB_ORDER: LabTab[] = ["plan", "artifact", "forecast", "code", "knowledge"];
+
+// 0.5.106 Code tab default snippet: a runnable smoke that also shows
+// filesystem persistence across "continue in session" runs.
+const DEFAULT_CODE_TEMPLATE = [
+  "# 在沙箱工作区运行的 Python（每次一个独立目录）",
+  "# 「在此会话继续运行」会复用上一次的工作目录，",
+  "# 此前写入的文件仍然可见（notebook 式状态延续）。",
+  "import sys",
+  "print('python', sys.version.split()[0])",
+  "",
+].join("\n");
 
 interface LabIssue {
   id: string;
@@ -233,12 +246,17 @@ export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: st
           wsId={wsId}
           selectedIssueId={selectedIssueId}
         />
-        <ActiveTab
-          tab={tab}
-          wsId={wsId}
-          selectedIssueId={selectedIssueId}
-          onSelectIssue={setSelectedIssueId}
-        />
+        {/* 0.5.106: tab content crossfade — reuses the shared motion
+            tokens (same family as lab-progress-card) and honours
+            reduced-motion by skipping the initial transform. */}
+        <TabFade key={tab}>
+          <ActiveTab
+            tab={tab}
+            wsId={wsId}
+            selectedIssueId={selectedIssueId}
+            onSelectIssue={setSelectedIssueId}
+          />
+        </TabFade>
         {/* 0.3.40 Claude Lab workbench: appears below the active tab
             whenever an issue is selected. The Plan/Artifact/Forecast/
             Code/Knowledge tabs above remain the workspace-scoped
@@ -803,6 +821,24 @@ function formatMs(ms: number): string {
   return `${m}m${rs.toString().padStart(2, "0")}s`;
 }
 
+// TabFade (0.5.106) — lightweight crossfade wrapper for tab content.
+// The main view previously swapped tab content with a hard state swap;
+// a 150ms fade/slide reuses the shared motion token family and gives
+// the lab the same motion feel as the issue-side progress card.
+// Reduced-motion users get an instant swap (no initial transform).
+function TabFade({ children }: { children: React.ReactNode }) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.div
+      initial={reduce ? false : { opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: UI_MOTION_DURATION.fast, ease: UI_EASE_OUT }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
 function Header({
   active,
   onTabChange,
@@ -1314,9 +1350,15 @@ function ForecastTab({ selectedIssueId: _selectedIssueId }: { selectedIssueId: s
 // updates the underlying state; we read it via a small adapter hook
 // (`useForecastFrames`) so this chart shares the same wire parser as
 // `<ForecastStreamView>` without duplicating the SSE plumbing.
+//
+// 0.5.106: the polyline draws in on mount (pathLength animation, the
+// same technique causal-minimap uses) and the latest point pulses
+// while the stream is live. Both respect reduced-motion and degrade
+// to the previous static render.
 function ForecastProbabilityChart({ url }: { url: string }) {
   const frames = useForecastFrames(url);
   const data = useMemo(() => frames.slice(0, 20).reverse(), [frames]);
+  const reduce = useReducedMotion();
   const { t } = useT("claude-lab");
   if (data.length < 2) {
     return (
@@ -1343,17 +1385,28 @@ function ForecastProbabilityChart({ url }: { url: string }) {
       <rect x={0} y={0} width={W} height={H} fill="transparent" />
       <line x1={padX} y1={H - padY} x2={W - padX} y2={H - padY} stroke="var(--border)" strokeDasharray="3 3" />
       <line x1={padX} y1={padY} x2={W - padX} y2={padY} stroke="var(--border)" strokeDasharray="3 3" />
-      <polyline
+      <motion.polyline
         points={points}
         fill="none"
         stroke="var(--primary)"
         strokeWidth={2}
         strokeLinejoin="round"
         strokeLinecap="round"
+        initial={reduce ? false : { pathLength: 0, opacity: 0.4 }}
+        animate={{ pathLength: 1, opacity: 1 }}
+        transition={{ duration: 0.6, ease: UI_EASE_OUT }}
       />
       {xs.map((x, i) => (
         <circle key={i} cx={x} cy={ys[i]} r={2.4} fill="var(--primary)" />
       ))}
+      <motion.circle
+        cx={xs[xs.length - 1]}
+        cy={ys[ys.length - 1]}
+        fill="var(--primary)"
+        initial={reduce ? false : { r: 2.4, opacity: 1 }}
+        animate={reduce ? { r: 3 } : { r: [3, 5, 3], opacity: [1, 0.5, 1] }}
+        transition={reduce ? { duration: 0 } : { duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+      />
       <text x={padX} y={padY + 8} fontSize={9} fill="var(--muted-foreground)">
         {Math.round(last.probability * 100)}%
       </text>
@@ -1425,6 +1478,14 @@ function CodeTab({
   const enabled = useExperimentalFlag(CLAUDE_LAB_FLAG, false);
   const queryClient = useQueryClient();
   const [runState, setRunState] = useState<"idle" | "running" | "done" | "error">("idle");
+  // 0.5.106: editable snippet + notebook-style continuation. The old
+  // Code tab was a single "Run for me" button posting a hardcoded
+  // hello-world; now the textarea is the source of the executed code
+  // and `sessionRoot` (from the last run's root_session_id) enables
+  // "continue in this session", which reuses that run's working
+  // directory so earlier files stay visible.
+  const [code, setCode] = useState(DEFAULT_CODE_TEMPLATE);
+  const [sessionRoot, setSessionRoot] = useState<string | null>(null);
 
   const sessions = useQuery({
     queryKey: ["claude-lab-code-sessions", wsId, selectedIssueId],
@@ -1456,8 +1517,8 @@ function CodeTab({
 
   // 0.3.45.8: the running agent is sourced from the bound issue's
   // assignee, NOT from a separate lab-agent lock state. This guarantees
-  // the lab's "Run for me" call executes on the exact agent the user
-  // bound via IssueDetail's LabPicker — no second source of truth.
+  // the lab's run executes on the exact agent the user bound via
+  // IssueDetail's LabPicker — no second source of truth.
   const issueQ = useQuery({
     queryKey: ["claude-lab-issue", wsId, selectedIssueId] as const,
     enabled: enabled && !!wsId && !!selectedIssueId,
@@ -1478,7 +1539,7 @@ function CodeTab({
 
   const runDisabled = !agentId || runState === "running";
 
-  const onRunForMe = async () => {
+  const onExecute = async (sessionID: string | null) => {
     if (!agentId) return;
     setRunState("running");
     try {
@@ -1490,18 +1551,17 @@ function CodeTab({
           agent_id: agentId,
           issue_id: selectedIssueId,
           language: "python",
-          // 0.3.29 "Run for me" — emits a self-describing JSON blob so
-          // the resulting stdout + artifact trace show the issue the
-          // run was bound to without any plumbing on the caller side.
-          code:
-            "import json, sys\n" +
-            "payload = {'hello': 'claude-lab', 'issue_id': '" + selectedIssueId + "'}\n" +
-            "print(json.dumps(payload, ensure_ascii=False))\n",
+          code,
+          ...(sessionID ? { session_id: sessionID } : {}),
         }),
       });
       if (!r.ok) {
         setRunState("error");
         return;
+      }
+      const data = (await r.json()) as { root_session_id?: string };
+      if (data.root_session_id) {
+        setSessionRoot(data.root_session_id);
       }
       setRunState("done");
       void queryClient.invalidateQueries({
@@ -1522,38 +1582,66 @@ function CodeTab({
           <span className="font-medium text-foreground">
             {t(($) => $.title_code)}
           </span>
-          <button
-            type="button"
-            onClick={onRunForMe}
-            disabled={runDisabled}
-            aria-busy={runState === "running"}
-            title={
-              !agentId
-                ? (t(($) => $.agent_lock_no_assignee_hint) ??
-                  "请先在 issue 面板选择「实验插件」以指派实验 leader")
-                : runState === "running"
-                  ? t(($) => $.code_run_running)
-                  : t(($) => $.code_run_button)
-            }
-            className={
-              "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs " +
-              (runDisabled
-                ? "cursor-not-allowed border border-border bg-muted text-muted-foreground"
-                : "border border-border bg-background hover:bg-muted")
-            }
-          >
-            {runState === "running" ? (
-              <Loader2 className="size-3 animate-spin" aria-hidden />
-            ) : (
-              <Play className="size-3" aria-hidden />
-            )}
-            {runState === "running"
-              ? t(($) => $.code_run_running)
-              : t(($) => $.code_run_button)}
-          </button>
+          <span className="flex items-center gap-1.5">
+            {sessionRoot ? (
+              <button
+                type="button"
+                onClick={() => void onExecute(sessionRoot)}
+                disabled={runDisabled}
+                aria-busy={runState === "running"}
+                title={t(($) => $.code_run_in_session_hint)}
+                className={
+                  "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs " +
+                  (runDisabled
+                    ? "cursor-not-allowed border border-border bg-muted text-muted-foreground"
+                    : "border border-primary/40 bg-primary/10 text-foreground hover:bg-primary/20")
+                }
+              >
+                <Play className="size-3" aria-hidden />
+                {t(($) => $.code_run_in_session)}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void onExecute(null)}
+              disabled={runDisabled}
+              aria-busy={runState === "running"}
+              title={
+                !agentId
+                  ? (t(($) => $.agent_lock_no_assignee_hint) ??
+                    "请先在 issue 面板选择「实验插件」以指派实验 leader")
+                  : runState === "running"
+                    ? t(($) => $.code_run_running)
+                    : t(($) => $.code_run_button)
+              }
+              className={
+                "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs " +
+                (runDisabled
+                  ? "cursor-not-allowed border border-border bg-muted text-muted-foreground"
+                  : "border border-border bg-background hover:bg-muted")
+              }
+            >
+              {runState === "running" ? (
+                <Loader2 className="size-3 animate-spin" aria-hidden />
+              ) : (
+                <Play className="size-3" aria-hidden />
+              )}
+              {runState === "running"
+                ? t(($) => $.code_run_running)
+                : t(($) => $.code_run_button)}
+            </button>
+          </span>
         </header>
-        <p className="text-xs text-muted-foreground">
-          {t(($) => $.code_intro_with_count, { count: sessions.data?.total ?? 0 })}
+        <textarea
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          spellCheck={false}
+          rows={8}
+          aria-label={t(($) => $.title_code)}
+          className="w-full resize-y rounded-md border border-border bg-background/60 p-3 font-mono text-[12px] leading-relaxed text-foreground outline-none focus:border-primary/50"
+        />
+        <p className="mt-1.5 text-[10px] text-muted-foreground">
+          {t(($) => $.code_editor_hint)}
         </p>
         {!agentId ? (
           <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">
@@ -1572,6 +1660,9 @@ function CodeTab({
           </p>
         ) : null}
       </section>
+      <p className="text-xs text-muted-foreground">
+        {t(($) => $.code_intro_with_count, { count: sessions.data?.total ?? 0 })}
+      </p>
       {sessions.data?.sessions && sessions.data.sessions.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {sessions.data.sessions.map((s) => (
@@ -1614,20 +1705,50 @@ function KnowledgeTab({
   selectedIssueId: string | null;
 }) {
   const { t } = useT("claude-lab");
-  // 0.3.29 ships a lightweight knowledge surface: the bundled
-  // claude-science skill catalogue is filtered for entries relevant
-  // to a Claude Lab issue. The full 5-connector literature search
-  // (PubMed / arXiv / Crossref / OpenAlex / Semantic Scholar) is
-  // tracked for 0.3.30.
+  // 0.5.106 rework: the catalogue previously read the retired
+  // reserved-slug workspace and rendered at most 10 name-only rows
+  // (its description field never existed on the wire). It now scopes
+  // to the caller's workspace, supports search/category filtering, and
+  // expands a row into the full SKILL.md body + supporting files via
+  // the 0.5.106 detail/file endpoints.
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("");
+  const [expanded, setExpanded] = useState<string | null>(null);
+
   const skills = useQuery({
-    queryKey: ["claude-lab-skills", selectedIssueId],
-    enabled: !!selectedIssueId,
+    queryKey: ["claude-lab-skills", wsId, search, category],
+    enabled: !!wsId,
     staleTime: 60_000,
     queryFn: async () => {
-      const r = await api.rawRequest("/api/experimental/claude-science/skills");
+      const params = new URLSearchParams({ workspace_id: wsId ?? "" });
+      if (search.trim()) params.set("q", search.trim());
+      if (category) params.set("category", category);
+      const r = await api.rawRequest(`/api/experimental/claude-science/skills?${params.toString()}`);
       if (!r.ok) throw new Error(`skills ${r.status}`);
-      const data = (await r.json()) as { skills: { name: string; description?: string }[] };
-      return data.skills ?? [];
+      return (await r.json()) as {
+        skills: { name: string; category: string; description?: string }[];
+        total: number;
+        categories: string[];
+      };
+    },
+  });
+
+  const detail = useQuery({
+    queryKey: ["claude-lab-skill-detail", wsId, expanded],
+    enabled: !!wsId && !!expanded,
+    staleTime: 300_000,
+    queryFn: async () => {
+      const r = await api.rawRequest(
+        `/api/experimental/claude-science/skills/${encodeURIComponent(expanded as string)}?workspace_id=${encodeURIComponent(wsId ?? "")}`,
+      );
+      if (!r.ok) throw new Error(`skill ${r.status}`);
+      return (await r.json()) as {
+        name: string;
+        category: string;
+        description?: string;
+        content: string;
+        files: { path: string; bytes: number }[];
+      };
     },
   });
 
@@ -1641,27 +1762,100 @@ function KnowledgeTab({
   }
   return (
     <section className="rounded-xl border border-border bg-card p-4">
-      <header className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+      <header className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <Sparkles className="size-4" aria-hidden />
         <span className="font-medium text-foreground">{t(($) => $.title_knowledge)}</span>
         <span>· {t(($) => $.knowledge_header)}</span>
+        {skills.data ? (
+          <span className="text-muted-foreground/70">
+            {t(($) => $.knowledge_count, { count: skills.data.total })}
+          </span>
+        ) : null}
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t(($) => $.knowledge_search_placeholder)}
+          className="ml-auto w-44 rounded-md border border-border bg-background/60 px-2 py-1 text-xs text-foreground outline-none focus:border-primary/50"
+        />
+        {skills.data?.categories && skills.data.categories.length > 0 ? (
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            className="rounded-md border border-border bg-background/60 px-1.5 py-1 text-xs text-foreground outline-none focus:border-primary/50"
+          >
+            <option value="">{t(($) => $.knowledge_all_categories)}</option>
+            {skills.data.categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        ) : null}
       </header>
       {skills.isLoading ? (
         <LoadingHint title="" />
       ) : skills.isError ? (
         <ErrorHint title="" body={`${t(($) => $.knowledge_load_error)}: ${(skills.error as Error).message}`} />
-      ) : (skills.data ?? []).length === 0 ? (
+      ) : (skills.data?.skills ?? []).length === 0 ? (
         <p className="text-xs text-muted-foreground">{t(($) => $.knowledge_empty)}</p>
       ) : (
-        <ul className="flex flex-col gap-2">
-          {(skills.data ?? []).slice(0, 10).map((s) => (
-            <li
-              key={s.name}
-              className="rounded-md border border-border bg-background/40 p-3 text-xs"
-            >
-              <div className="font-medium">{s.name}</div>
-              {s.description ? (
-                <p className="mt-1 text-muted-foreground">{s.description}</p>
+        <ul className="flex max-h-[480px] flex-col gap-1.5 overflow-y-auto pr-1">
+          {(skills.data?.skills ?? []).slice(0, 100).map((s) => (
+            <li key={s.name}>
+              <button
+                type="button"
+                onClick={() => setExpanded((prev) => (prev === s.name ? null : s.name))}
+                aria-expanded={expanded === s.name}
+                className="w-full rounded-md border border-border bg-background/40 p-2.5 text-left text-xs transition-colors hover:bg-muted/50"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-foreground">{s.name}</span>
+                  {s.category ? (
+                    <span className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      {s.category}
+                    </span>
+                  ) : null}
+                </div>
+                {s.description ? (
+                  <p className="mt-1 line-clamp-2 text-muted-foreground">{s.description}</p>
+                ) : null}
+              </button>
+              {expanded === s.name ? (
+                <div className="mt-1 rounded-md border border-border/60 bg-background/60 p-3">
+                  {detail.isLoading ? (
+                    <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <Loader2 className="size-3 animate-spin" aria-hidden />
+                      {t(($) => $.loading)}
+                    </p>
+                  ) : detail.isError || !detail.data ? (
+                    <p className="text-[11px] text-destructive">
+                      {t(($) => $.knowledge_detail_error)}
+                    </p>
+                  ) : (
+                    <>
+                      <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/40 p-2.5 font-mono text-[11px] leading-relaxed">
+                        {detail.data.content.slice(0, 20000)}
+                      </pre>
+                      {detail.data.files.length > 0 ? (
+                        <div className="mt-2">
+                          <p className="mb-1 text-[10px] font-medium text-muted-foreground">
+                            {t(($) => $.knowledge_files)}
+                          </p>
+                          <ul className="flex flex-wrap gap-1.5">
+                            {detail.data.files.map((f) => (
+                              <li
+                                key={f.path}
+                                className="rounded border border-border bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                              >
+                                {f.path} · {f.bytes}B
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
               ) : null}
             </li>
           ))}
