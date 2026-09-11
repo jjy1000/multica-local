@@ -360,6 +360,54 @@ func (q *Queries) ListAgentSkillsByWorkspace(ctx context.Context, workspaceID pg
 	return items, nil
 }
 
+const listClaudeLabSkillSummariesByWorkspace = `-- name: ListClaudeLabSkillSummariesByWorkspace :many
+SELECT id, name, description
+FROM skill
+WHERE workspace_id = $1
+  AND NOT EXISTS (
+    SELECT 1 FROM experimental_resource_lock l
+    WHERE l.resource_type = 'skill'
+      AND l.resource_id = skill.id
+      AND l.hidden = true
+      AND l.experimental_source NOT IN ('claude_science', 'claude_science_lab')
+  )
+ORDER BY name ASC
+`
+
+type ListClaudeLabSkillSummariesByWorkspaceRow struct {
+	ID          pgtype.UUID `json:"id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description"`
+}
+
+// 0.5.106: workspace-scoped summary list for the claude_science_lab
+// Knowledge surface. Unlike ListVisibleSkillSummariesByWorkspace above,
+// rows locked hidden by the claude_science labs themselves stay IN —
+// the installer ends with a blanket Hide(source) so every lab-owned
+// skill row is hidden=true by design, and this endpoint is already
+// gated behind RequireExperimentalFlag. Only locks owned by OTHER
+// labs (a skill claimed by two labs is possible in principle) still
+// suppress the row. Carries description for list rendering.
+func (q *Queries) ListClaudeLabSkillSummariesByWorkspace(ctx context.Context, workspaceID pgtype.UUID) ([]ListClaudeLabSkillSummariesByWorkspaceRow, error) {
+	rows, err := q.db.Query(ctx, listClaudeLabSkillSummariesByWorkspace, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListClaudeLabSkillSummariesByWorkspaceRow{}
+	for rows.Next() {
+		var i ListClaudeLabSkillSummariesByWorkspaceRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSkillFileMetadata = `-- name: ListSkillFileMetadata :many
 SELECT id, skill_id, path,
        octet_length(content)::bigint AS size,

@@ -908,12 +908,13 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// just dial it without a JWT. See handler.runtime_llm_call.go.
 	r.Post("/api/runtime/llm-call", h.LLMCallHandler)
 
-	// 0.3.16 Multica-native skills browser. The catalogue is sourced
-	// from the claude_science reserved-slug workspace + the bundled
-	// manifest; the renderer under /experimental/claude-science polls
-	// this every refetch. Public to any signed-in user — see
-	// handler.claude_science_skills.go for the visibility filter.
-	r.Get("/api/experimental/claude-science/skills", h.ClaudeScienceSkills)
+	// 0.3.16 Multica-native skills browser → 0.5.106: the catalogue +
+	// on-demand skill loading endpoints moved INSIDE the authenticated
+	// group under RequireExperimentalFlag("claude_science_lab") — the
+	// old public registration leaked the catalogue to unauthenticated
+	// callers (same H1 class as the 0.5.105 semantica-decisions fix)
+	// and read the retired reserved-slug workspace. See
+	// RegisterClaudeScienceSkillRoutes in handler/claude_science_skills.go.
 
 	// 0.3.30: Labs runtime + LLM Wiki bridge + Mythos Swarm + Pythia
 	// per-issue forecast are now registered UNCONDITIONALLY inside the
@@ -1046,6 +1047,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// Bypasses the service-layer gates so the workbench's
 			// "Run research" button can fire on demand.
 			handler.RegisterClaudeScienceRunRoute(r, h)
+			// 0.5.106: skill catalogue + on-demand skill loading,
+			// relocated from the public section (was unauthenticated).
+			handler.RegisterClaudeScienceSkillRoutes(r, h)
 		})
 		r.Group(func(r chi.Router) {
 			r.Use(h.RequireExperimentalFlag("llm_wiki_bridge"))

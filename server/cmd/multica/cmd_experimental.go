@@ -101,6 +101,19 @@ var claudeScienceRuntimeDeleteCmd = &cobra.Command{
 	RunE:  runClaudeScienceRuntimeDelete,
 }
 
+var claudeScienceRuntimeSkillsCmd = &cobra.Command{
+	Use:   "skills",
+	Short: "List the lab's installed research skills (0.5.106 on-demand loading)",
+	RunE:  runClaudeScienceRuntimeSkills,
+}
+
+var claudeScienceRuntimeSkillCmd = &cobra.Command{
+	Use:   "skill <name>",
+	Short: "Print one skill's SKILL.md body (or --file <path> for a supporting file)",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runClaudeScienceRuntimeSkillDetail,
+}
+
 var llmWikiRootCmd = &cobra.Command{
 	Use:   "llm-wiki",
 	Short: "LLM Wiki local bridge (Labs: llm_wiki_bridge)",
@@ -155,9 +168,13 @@ var (
 	runtimeExecTimeoutMs   int
 	runtimeExecAgentID     string
 	runtimeExecWorkspaceID string
+	runtimeExecSessionID   string
 	runtimeSessionsWS      string
 	runtimeArtifactsSess   string
 	runtimeDeleteSess      string
+	runtimeSkillsWS        string
+	runtimeSkillName       string
+	runtimeSkillFile       string
 
 	llmFilesRoot      string
 	llmFilesRecursive bool
@@ -190,15 +207,23 @@ func init() {
 		claudeScienceRuntimeSessionsCmd,
 		claudeScienceRuntimeArtifactsCmd,
 		claudeScienceRuntimeDeleteCmd,
+		claudeScienceRuntimeSkillsCmd,
+		claudeScienceRuntimeSkillCmd,
 	)
 
 	claudeScienceRuntimeExecCmd.Flags().StringVar(&runtimeExecCodeFile, "code-file", "", "path to a python file to execute")
 	claudeScienceRuntimeExecCmd.Flags().IntVar(&runtimeExecTimeoutMs, "timeout-ms", 30000, "exec timeout in ms (max 120000)")
 	claudeScienceRuntimeExecCmd.Flags().StringVar(&runtimeExecAgentID, "agent-id", "", "agent UUID (defaults to MULTICA_AGENT_ID env or zero UUID)")
 	claudeScienceRuntimeExecCmd.Flags().StringVar(&runtimeExecWorkspaceID, "workspace-id", "", "workspace UUID")
+	// 0.5.106: notebook-style continuation — reuse a prior run's working
+	// directory so files written earlier stay visible.
+	claudeScienceRuntimeExecCmd.Flags().StringVar(&runtimeExecSessionID, "session", "", "session UUID whose workspace dir to reuse")
 	claudeScienceRuntimeSessionsCmd.Flags().StringVar(&runtimeSessionsWS, "workspace-id", "", "workspace UUID")
 	claudeScienceRuntimeArtifactsCmd.Flags().StringVar(&runtimeArtifactsSess, "session-id", "", "session UUID")
 	claudeScienceRuntimeDeleteCmd.Flags().StringVar(&runtimeDeleteSess, "session-id", "", "session UUID")
+	claudeScienceRuntimeSkillsCmd.Flags().StringVar(&runtimeSkillsWS, "workspace-id", "", "workspace UUID (optional)")
+	claudeScienceRuntimeSkillCmd.Flags().StringVar(&runtimeSkillsWS, "workspace-id", "", "workspace UUID (optional)")
+	claudeScienceRuntimeSkillCmd.Flags().StringVar(&runtimeSkillFile, "file", "", "print a supporting file instead of SKILL.md (path relative to the skill dir)")
 
 	experimentalCmd.AddCommand(llmWikiRootCmd)
 	llmWikiRootCmd.AddCommand(
@@ -472,16 +497,16 @@ func runExperimentalInspect(cmd *cobra.Command, args []string) error {
 	}
 
 	view := map[string]any{
-		"key":             flagKey,
-		"title_en":        snapshot.TitleEn,
-		"title_zh":        snapshot.TitleZh,
-		"runtime":         snapshot.Runtime,
-		"proxy_prefix":    snapshot.ProxyPrefix,
+		"key":              flagKey,
+		"title_en":         snapshot.TitleEn,
+		"title_zh":         snapshot.TitleZh,
+		"runtime":          snapshot.Runtime,
+		"proxy_prefix":     snapshot.ProxyPrefix,
 		"loopback_service": snapshot.LoopbackService,
-		"manifest_path":   snapshot.ManifestPath,
-		"effective":       status,
-		"default_enabled": def,
-		"remote_error":    remoteErr,
+		"manifest_path":    snapshot.ManifestPath,
+		"effective":        status,
+		"default_enabled":  def,
+		"remote_error":     remoteErr,
 	}
 	if outputJSON {
 		return writeJSONOutput(view)
@@ -573,6 +598,9 @@ func runClaudeScienceRuntimeExecute(cmd *cobra.Command, _ []string) error {
 		"code":         string(code),
 		"timeout_ms":   runtimeExecTimeoutMs,
 	}
+	if runtimeExecSessionID != "" {
+		payload["session_id"] = runtimeExecSessionID
+	}
 	var raw experimentalEnvelope
 	if err := experimentalPOST(cmd.Context(), "/api/experimental/claude-science-runtime/execute", payload, &raw, false); err != nil {
 		return err
@@ -583,6 +611,9 @@ func runClaudeScienceRuntimeExecute(cmd *cobra.Command, _ []string) error {
 	data, _ := raw.Data.(map[string]any)
 	fmt.Printf("session=%v status=%v exit=%v duration_ms=%v\n",
 		data["session_id"], data["status"], data["exit_code"], data["duration_ms"])
+	if s, _ := data["root_session_id"].(string); s != "" && s != fmt.Sprintf("%v", data["session_id"]) {
+		fmt.Printf("workspace_dir=%v (continue with --session %v)\n", s, s)
+	}
 	if s, _ := data["stdout"].(string); s != "" {
 		fmt.Println("--- stdout ---")
 		fmt.Println(s)
@@ -673,6 +704,97 @@ func runClaudeScienceRuntimeDelete(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
+// runClaudeScienceRuntimeSkills lists the lab's installed research
+// skills (0.5.106): agents discover the catalogue on demand instead of
+// every skill body being injected into each claim.
+func runClaudeScienceRuntimeSkills(cmd *cobra.Command, _ []string) error {
+	path := "/api/experimental/claude-science/skills"
+	if runtimeSkillsWS != "" {
+		path += "?workspace_id=" + runtimeSkillsWS
+	}
+	var raw experimentalEnvelope
+	if err := experimentalGET(cmd.Context(), path, &raw); err != nil {
+		return err
+	}
+	if outputJSON {
+		return writeJSONOutput(raw)
+	}
+	data, _ := raw.Data.(map[string]any)
+	rows, _ := data["skills"].([]any)
+	fmt.Printf("%d skills\n", len(rows))
+	for _, r := range rows {
+		m, _ := r.(map[string]any)
+		desc, _ := m["description"].(string)
+		if len(desc) > 100 {
+			desc = desc[:100] + "…"
+		}
+		fmt.Printf("  %-36s %-14s %s\n", m["name"], m["category"], desc)
+	}
+	return nil
+}
+
+// runClaudeScienceRuntimeSkillDetail prints one skill's full SKILL.md
+// body, or a supporting file via --file. This is how a research agent
+// loads the specific skill it needs mid-task.
+func runClaudeScienceRuntimeSkillDetail(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	if runtimeSkillFile != "" {
+		path := "/api/experimental/claude-science/skills/" + name + "/file?path=" + runtimeSkillFile
+		if runtimeSkillsWS != "" {
+			path += "&workspace_id=" + runtimeSkillsWS
+		}
+		req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, experimentalAPIURL()+path, nil)
+		if err != nil {
+			return err
+		}
+		if tok, err := experimentalAuthToken(); err != nil {
+			return err
+		} else if tok != "" {
+			req.Header.Set("Authorization", "Bearer "+tok)
+		}
+		resp, err := experimentalHTTPClient().Do(req)
+		if err != nil {
+			return fmt.Errorf("skill file: %w", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode >= 300 {
+			return fmt.Errorf("skill file %s/%s: %s: %s", name, runtimeSkillFile, resp.Status, string(body))
+		}
+		_, err = cmd.OutOrStdout().Write(body)
+		return err
+	}
+	path := "/api/experimental/claude-science/skills/" + name
+	if runtimeSkillsWS != "" {
+		path += "?workspace_id=" + runtimeSkillsWS
+	}
+	var raw experimentalEnvelope
+	if err := experimentalGET(cmd.Context(), path, &raw); err != nil {
+		return err
+	}
+	if outputJSON {
+		return writeJSONOutput(raw)
+	}
+	data, _ := raw.Data.(map[string]any)
+	fmt.Printf("# %v  [%v]\n", data["name"], data["category"])
+	if desc, _ := data["description"].(string); desc != "" {
+		fmt.Printf("# %s\n\n", desc)
+	}
+	if files, _ := data["files"].([]any); len(files) > 0 {
+		fmt.Println("# supporting files:")
+		for _, f := range files {
+			m, _ := f.(map[string]any)
+			fmt.Printf("#   %v (%v bytes) — multica experimental claude-science-runtime skill %s --file %v\n",
+				m["path"], m["bytes"], name, m["path"])
+		}
+		fmt.Println()
+	}
+	if content, _ := data["content"].(string); content != "" {
+		fmt.Println(content)
+	}
+	return nil
+}
+
 func runLLMWikiStatus(cmd *cobra.Command, _ []string) error {
 	var raw experimentalEnvelope
 	if err := experimentalGET(cmd.Context(), "/api/experimental/llm-wiki/status", &raw); err != nil {
@@ -752,8 +874,8 @@ func runLLMWikiSearch(cmd *cobra.Command, _ []string) error {
 		return errors.New("--query is required")
 	}
 	payload := map[string]any{
-		"query":          llmSearchQuery,
-		"top_k":          llmSearchTopK,
+		"query":           llmSearchQuery,
+		"top_k":           llmSearchTopK,
 		"include_content": llmSearchContent,
 	}
 	var raw experimentalEnvelope
@@ -852,9 +974,9 @@ var llmWikiTokenCmd = &cobra.Command{
 }
 
 var (
-	llmTokenSet     string
+	llmTokenSet      string
 	llmTokenSetStdin bool
-	llmTokenClear   bool
+	llmTokenClear    bool
 )
 
 // runLLMWikiToken decodes the raw {configured, source} shape the

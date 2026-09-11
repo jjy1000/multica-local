@@ -49,6 +49,29 @@ The agent runtime picks up the comment, dispatches to a research-capable
 agent (configured in workspace settings), and starts producing. Each step's
 output appears as additional comments / status changes on the same issue.
 
+## Step 2b — load domain skills on demand (0.5.106)
+
+The lab ships ~294 research skills (biology, chemistry, physics,
+ml-training, databases, quantum, …). Their bodies are NOT in your
+context — discover and load only what the current research step needs:
+
+```sh
+# browse the catalogue (name / category / one-line description)
+multica experimental claude-science-runtime skills
+
+# load the full SKILL.md body of a relevant skill, then follow it
+multica experimental claude-science-runtime skill anndata
+
+# read a supporting reference or script
+multica experimental claude-science-runtime skill anndata \
+  --file references/concatenation.md
+```
+
+Load a skill when the plan's current step falls into its domain; skip
+the catalogue entirely for general tasks (literature scan, synthesis).
+For code execution against the lab sandbox see the
+`multica-claude-science-runtime` Skill.
+
 ## Step 3 — monitor and steer
 
 The work runs in-band through the standard Multica agent runtime. To
