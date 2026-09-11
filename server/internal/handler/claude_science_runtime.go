@@ -17,9 +17,17 @@
 //     subsystem (memory: next-code-environment-library).
 //
 //  2. Timeout: 30s default, 120s ceiling. Expired sessions are GC'd
-//     by runtime_gc.go after 30 days. The session row's expires_at
-//     is set on create; re-running an expired session returns
-//     ErrSessionExpired.
+//     by runtime_gc.go after 30 days. execute with session_id= targets
+//     an existing session's working directory; an expired root
+//     returns ErrSessionExpired (410).
+//
+//  2a. Session continuation (0.5.106): execute accepts session_id to
+//     reuse a prior run's working directory — files written by earlier
+//     runs stay visible, which is the notebook-style filesystem state.
+//     The working directory is always <runtimeBaseDir>/<root session
+//     id>/ and artifact row paths are anchored at that same name (the
+//     pre-0.5.106 code anchored them at the per-run DB row id, which
+//     never matched the on-disk uuid dir, so artifact bytes 404'd).
 //
 //  3. The handler never serves artifact bytes from disk without
 //     first confirming session.workspace_id == caller's workspace
@@ -45,7 +53,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/util"
@@ -82,6 +89,12 @@ type RuntimeExecuteRequest struct {
 	Language    string `json:"language,omitempty"`
 	Code        string `json:"code"`
 	TimeoutMs   int    `json:"timeout_ms,omitempty"`
+	// SessionID optionally names an existing session whose working
+	// directory this run should reuse (0.5.106 notebook-style
+	// continuation: files written by earlier runs in the same
+	// workspace are visible to this one). The referenced session must
+	// belong to the same workspace and must not be expired.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // RuntimeExecuteResponse is the wire shape returned to the client.
@@ -93,6 +106,10 @@ type RuntimeExecuteResponse struct {
 	Stderr     string                `json:"stderr"`
 	DurationMs int                   `json:"duration_ms"`
 	Artifacts  []RuntimeArtifactStub `json:"artifacts"`
+	// RootSessionID is the session whose working directory this run
+	// used. Passing it back as session_id continues in the same
+	// workspace directory.
+	RootSessionID string `json:"root_session_id"`
 }
 
 // RuntimeArtifactStub is the per-file metadata returned by execute +
@@ -220,19 +237,42 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 		return
 	}
 
-	sessionDirName, sessionDir, err := createRuntimeSessionDir()
-	_ = sessionDirName
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not create session dir: " + err.Error()})
-		return
+	// 0.5.106 session continuation: when session_id is supplied, the run
+	// reuses that session's working directory so files written by
+	// earlier runs stay visible (notebook-style filesystem state). The
+	// referenced row must exist, belong to the same workspace, and not
+	// be expired (ErrSessionExpired → 410, per the documented contract).
+	rootID := pgtype.UUID{}
+	if req.SessionID != "" {
+		parsed, err := util.ParseUUID(req.SessionID)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_id is not a UUID"})
+			return
+		}
+		root, err := h.Queries.GetExperimentalClaudeRuntimeSession(r.Context(), parsed)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+			return
+		}
+		if root.WorkspaceID != wsID {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "session belongs to another workspace"})
+			return
+		}
+		if root.ExpiresAt.Valid && time.Now().After(root.ExpiresAt.Time) {
+			writeJSON(w, http.StatusGone, map[string]string{"error": ErrSessionExpired.Error()})
+			return
+		}
+		rootID = root.ID
 	}
 
-	snippetPath := filepath.Join(sessionDir, "snippet.py")
-	if err := os.WriteFile(snippetPath, []byte(req.Code), 0o644); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not write snippet: " + err.Error()})
-		return
-	}
-
+	// Insert the session row FIRST, then derive the working directory
+	// from the ROOT session id. Artifact paths are self-describing
+	// (<dirName>/<file>) and the bytes endpoint joins runtimeBaseDir +
+	// row.Path, so the dir name and the row id MUST agree for fresh
+	// runs. The pre-0.5.106 code created a throwaway uuid dir and built
+	// RelPath from the DB row id — the two never matched, so every
+	// artifact bytes fetch 404'd. Reused runs insert their own history
+	// row but keep the root's directory.
 	inserted, err := h.Queries.InsertExperimentalClaudeRuntimeSession(r.Context(), db.InsertExperimentalClaudeRuntimeSessionParams{
 		WorkspaceID: wsID,
 		AgentID:     agentID,
@@ -242,6 +282,22 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not create session: " + err.Error()})
+		return
+	}
+	dirName := inserted.ID
+	if rootID.Valid {
+		dirName = rootID
+	}
+	sessionDir, err := ensureRuntimeSessionDir(dirName.String())
+	if err != nil {
+		// Leave the queued row for the GC sweep; nothing executed.
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not create session dir: " + err.Error()})
+		return
+	}
+
+	snippetPath := filepath.Join(sessionDir, "snippet.py")
+	if err := os.WriteFile(snippetPath, []byte(req.Code), 0o644); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not write snippet: " + err.Error()})
 		return
 	}
 
@@ -314,8 +370,11 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 		return
 	}
 
-	// Scan + persist artifacts.
-	artifacts, err := ingestSessionArtifacts(inserted.ID, sessionDir)
+	// Scan + persist artifacts. RelPath is anchored at the working
+	// directory's name (dirName), which is what the bytes endpoint
+	// joins against — for reused sessions the DB row id would point at
+	// a directory that doesn't exist.
+	artifacts, err := ingestSessionArtifacts(inserted.ID, dirName.String(), sessionDir)
 	if err != nil {
 		res.stderr += "\n[artifact scan error] " + err.Error()
 	}
@@ -376,13 +435,14 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 	}
 
 	writeJSON(w, http.StatusOK, RuntimeExecuteResponse{
-		SessionID:  inserted.ID.String(),
-		Status:     finalStatus,
-		ExitCode:   res.exit,
-		Stdout:     res.stdout,
-		Stderr:     res.stderr,
-		DurationMs: durationMs,
-		Artifacts:  stubs,
+		SessionID:     inserted.ID.String(),
+		Status:        finalStatus,
+		ExitCode:      res.exit,
+		Stdout:        res.stdout,
+		Stderr:        res.stderr,
+		DurationMs:    durationMs,
+		Artifacts:     stubs,
+		RootSessionID: dirName.String(),
 	})
 }
 
@@ -605,20 +665,20 @@ func runtimeBaseDirExpanded() string {
 	return filepath.Join(home, runtimeBaseDir)
 }
 
-// createRuntimeSessionDir makes the per-session working directory.
-// The returned name is the directory's basename, which the handler
-// stores alongside the inserted session row.
-func createRuntimeSessionDir() (name string, path string, err error) {
+// ensureRuntimeSessionDir makes (or re-opens, for session continuation)
+// the working directory for a session whose row id is already known:
+// <runtimeBaseDir>/<sessionID>/. Reuse over an existing directory is
+// the point — earlier runs' files stay visible to later runs.
+func ensureRuntimeSessionDir(sessionID string) (path string, err error) {
 	base := runtimeBaseDirExpanded()
 	if err := os.MkdirAll(base, 0o755); err != nil {
-		return "", "", fmt.Errorf("mkdir %s: %w", base, err)
+		return "", fmt.Errorf("mkdir %s: %w", base, err)
 	}
-	name = uuid.NewString()
-	path = filepath.Join(base, name)
+	path = filepath.Join(base, sessionID)
 	if err := os.MkdirAll(path, 0o755); err != nil {
-		return "", "", fmt.Errorf("mkdir %s: %w", path, err)
+		return "", fmt.Errorf("mkdir %s: %w", path, err)
 	}
-	return name, path, nil
+	return path, nil
 }
 
 // probePython3 runs `python3 -I -c "pass"` and exits non-zero if
@@ -645,8 +705,10 @@ type sessionArtifact struct {
 }
 
 // ingestSessionArtifacts scans sessionDir for files the python
-// invocation emitted.
-func ingestSessionArtifacts(sessionID pgtype.UUID, sessionDir string) ([]sessionArtifact, error) {
+// invocation emitted. dirName is the on-disk directory basename the
+// bytes endpoint resolves row.Path against — the root session id, not
+// necessarily this execution's row id.
+func ingestSessionArtifacts(sessionID pgtype.UUID, dirName, sessionDir string) ([]sessionArtifact, error) {
 	entries, err := os.ReadDir(sessionDir)
 	if err != nil {
 		return nil, fmt.Errorf("readdir: %w", err)
@@ -675,7 +737,7 @@ func ingestSessionArtifacts(sessionID pgtype.UUID, sessionDir string) ([]session
 			Kind:    kind,
 			Bytes:   len(data),
 			SHA256:  hex.EncodeToString(sum[:]),
-			RelPath: filepath.Join(sessionID.String(), name),
+			RelPath: filepath.Join(dirName, name),
 		})
 	}
 	return out, nil
