@@ -86,15 +86,20 @@ if (existsSync(skillsRoot)) {
       if (!statSync(skillPath).isDirectory()) continue;
       const skillMd = join(skillPath, "SKILL.md");
       if (!existsSync(skillMd)) continue;
-      const relPath = relative(skillsRoot, skillMd);
-      // Copy the skill directory into resources so the runtime has the
-      // raw SKILL.md + supporting files on disk.
-      const dest = join(skillsOut, relPath);
+      // 0.5.106 layout fix: copy the skill directory to
+      // skills/<category>/<name>/ (NOT .../SKILL.md). The old code used
+      // relative(skillsRoot, skillMd) as the destination, which made
+      // `SKILL.md` a DIRECTORY whose child `SKILL.md` held the real body
+      // — the Go installer then read the directory (EISDIR → "") and
+      // every installed skill row shipped an empty body. body_path keeps
+      // pointing at the real file inside the copied tree.
+      const relDir = relative(skillsRoot, skillPath);
+      const dest = join(skillsOut, relDir);
       copyDir(skillPath, dest);
       skills.push({
         category,
         name,
-        body_path: `skills/${relPath}`,
+        body_path: `skills/${relDir}/SKILL.md`,
       });
     }
   }

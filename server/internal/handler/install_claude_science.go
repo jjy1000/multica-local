@@ -346,18 +346,40 @@ func upsertClaudeScienceSkill(
 	ctx context.Context, h *Handler,
 	workspaceID pgtype.UUID, sk manifestSkill, slug string,
 ) (pgtype.UUID, error) {
+	body := loadManifestAsset(slug, sk.BodyPath)
+	description := skillFrontmatterDescription(body)
+	if description == "" {
+		description = fmt.Sprintf("Imported from Claude Science manifest (%s)", sk.Category)
+	}
 	id, err := h.Queries.GetSkillByWorkspaceAndName(ctx, db.GetSkillByWorkspaceAndNameParams{
 		WorkspaceID: workspaceID,
 		Name:        sk.Name,
 	})
 	if err == nil {
+		// 0.5.106 content repair: rows installed by builds affected by
+		// the nested-SKILL.md packaging bug carry an empty Content (the
+		// installer read the SKILL.md *directory* and silently stored
+		// ""). The upsert used to short-circuit on the existing row,
+		// which made re-install unable to ever heal those rows. When the
+		// manifest now yields a non-empty body for a row whose stored
+		// content is still empty, backfill content + the parsed
+		// frontmatter description. Rows the user has since edited (non-
+		// empty content) are left untouched.
+		if id.Content == "" && body != "" {
+			if _, uerr := h.Queries.UpdateSkill(ctx, db.UpdateSkillParams{
+				ID:          id.ID,
+				Description: pgtype.Text{String: description, Valid: true},
+				Content:     pgtype.Text{String: body, Valid: true},
+			}); uerr != nil {
+				return pgtype.UUID{}, fmt.Errorf("repair content: %w", uerr)
+			}
+		}
 		return id.ID, nil
 	}
-	body := loadManifestAsset(slug, sk.BodyPath)
 	created, cerr := h.Queries.CreateSkill(ctx, db.CreateSkillParams{
 		WorkspaceID: workspaceID,
 		Name:        sk.Name,
-		Description: fmt.Sprintf("Imported from Claude Science manifest (%s)", sk.Category),
+		Description: description,
 		Content:     body,
 		Config:      []byte(`{}`),
 		CreatedBy:   pgtype.UUID{},
@@ -411,7 +433,7 @@ func upsertClaudeScienceAgent(
 		RuntimeConfig:      []byte(`{}`),
 		RuntimeID:          runtimeID,
 		Visibility:         "workspace",
-		PermissionMode:    "public_to",
+		PermissionMode:     "public_to",
 		MaxConcurrentTasks: 1,
 		OwnerID:            pgtype.UUID{},
 		Instructions:       instructions,
@@ -893,6 +915,17 @@ func loadClaudeScienceManifest() (claudeScienceManifest, error) {
 // the resource as "asset not bundled" via a separate code path that
 // is out of scope for PR 6.
 //
+// 0.5.106: builds produced by build-claude-science-manifest.mjs before
+// the same-version layout fix stage the skill tree as
+// `skills/<cat>/<name>/SKILL.md/` — a DIRECTORY named SKILL.md whose
+// children are the real `SKILL.md` file plus `references/` / `scripts/`.
+// Reading that path with os.Open succeeds (directories open fine) but
+// the first Read returns EISDIR, which the loop below silently
+// swallowed as "" — every installed skill row shipped an empty body.
+// When the resolved path is a directory, retry with the real file at
+// `<dir>/SKILL.md`. Canonical (post-fix) trees stage body_path as a
+// regular file, which hits the direct-read path unchanged.
+//
 // Sized-bound: we cap at 256 KB so a runaway symlink cannot wedge the
 // install. Most SKILL.md files are under 30 KB.
 func loadManifestAsset(slug string, relPath string) string {
@@ -904,6 +937,9 @@ func loadManifestAsset(slug string, relPath string) string {
 		return ""
 	}
 	full := filepath.Join(dir, "claude-science", relPath)
+	if st, serr := os.Stat(full); serr == nil && st.IsDir() {
+		full = filepath.Join(full, "SKILL.md")
+	}
 	f, err := os.Open(full)
 	if err != nil {
 		return ""
@@ -936,4 +972,42 @@ func loadManifestAsset(slug string, relPath string) string {
 		}
 	}
 	return string(buf)
+}
+
+// skillFrontmatterDescription extracts the `description:` field from a
+// SKILL.md YAML frontmatter block (the upstream OpenScience skill
+// format: `---\nname: ...\ndescription: ...\n---`). Multi-line or
+// folded scalars (`>`, `|`) contribute only their first line — good
+// enough for a list-page teaser, and the full body is served verbatim
+// elsewhere. Returns "" when there is no frontmatter description.
+func skillFrontmatterDescription(body string) string {
+	if !strings.HasPrefix(body, "---") {
+		return ""
+	}
+	lines := strings.SplitN(body, "\n", 512)
+	inFrontmatter := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if i == 0 && trimmed == "---" {
+			inFrontmatter = true
+			continue
+		}
+		if inFrontmatter && trimmed == "---" {
+			break // end of frontmatter
+		}
+		if !inFrontmatter || !strings.HasPrefix(trimmed, "description:") {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(trimmed, "description:"))
+		value = strings.Trim(value, `"'`)
+		if idx := strings.IndexAny(value, "\n"); idx >= 0 {
+			value = value[:idx]
+		}
+		const maxDesc = 500
+		if len(value) > maxDesc {
+			value = value[:maxDesc]
+		}
+		return value
+	}
+	return ""
 }
