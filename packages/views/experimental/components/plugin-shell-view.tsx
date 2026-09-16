@@ -19,7 +19,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@multica/ui/components/ui/tabs";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
-import { useUpdateExperimentalFlag } from "@multica/core/experimental";
+import { useExperimentalFlag, useUpdateExperimentalFlag } from "@multica/core/experimental";
 import { getCurrentWsId } from "@multica/core/platform";
 import { useNavigation } from "../../navigation";
 import type { UserPluginResponse } from "@multica/core/types";
@@ -478,6 +478,10 @@ interface SettingsTabProps {
 
 function SettingsTab({ plugin, onToggle, togglePending, onEditClick, onDeleteClick }: SettingsTabProps) {
   const { t } = useT("experimental");
+  // 0.5.107 (audit P-1): reflects the Labs preference the toggle writes,
+  // not the plugin row's lifecycle status — see labEnabled in
+  // settings/components/user-plugins-section.tsx for the full rationale.
+  const labOn = useExperimentalFlag(plugin.flag_key);
   // 0.5.105 (audit M1): row labels + enum values resolve through the
   // locale (the form_* / trigger_* keys are shared with the create form);
   // created_at renders in the runtime locale instead of hardcoded zh-CN.
@@ -521,7 +525,7 @@ function SettingsTab({ plugin, onToggle, togglePending, onEditClick, onDeleteCli
               </p>
             </div>
             <Switch
-              checked={plugin.status === "active"}
+              checked={labOn}
               onCheckedChange={onToggle}
               disabled={togglePending}
             />

@@ -439,6 +439,107 @@ func TestBatchUpdateIssuesRespectsLabMutex(t *testing.T) {
 	})
 }
 
+// TestBatchUpdateIssuesLabAssigneeLockParity — 0.5.107 audit C-1.
+//
+// The batch mutex switch hardcodes two keys (mythos_swarm / swarm_topology),
+// so every lab the 0.5.86 assignee interaction model widened onto
+// (claude_science_lab / pythia_oracle / semantica / timesfm) plus every
+// interaction_model=assignee user plugin can be batch-bound to a manual
+// assignee while the equivalent single-issue PATCH 400s through
+// assigneeLabLockError. That is the same drift class as 0.5.60 audit P0-1
+// (swarm), which the comment below the batch switch already records.
+//
+// Rather than re-enumerate keys (which is how the previous extension got
+// forgotten here), derive them from the catalog and assert batch parity
+// against the single-issue path for each.
+func TestBatchUpdateIssuesLabAssigneeLockParity(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	var labs []string
+	for _, f := range experimental.Catalog {
+		if experimental.IsFrozen(f.Key) || !experimental.IsAssigneeModelLab(f.Key) {
+			continue
+		}
+		labs = append(labs, f.Key)
+	}
+	// The two hardcoded batch keys are excluded below (they already skip via
+	// their own cases), so the pinned set here is the widened remainder.
+	if len(labs) < 4 {
+		t.Fatalf("expected the assignee-model set to cover the widened labs, got %v", labs)
+	}
+
+	memberID := testUserID
+	for _, lab := range labs {
+		if lab == "mythos_swarm" || lab == "swarm_topology" {
+			continue
+		}
+		t.Run(lab, func(t *testing.T) {
+			// Precondition: the single-issue path rejects this post-state.
+			single := createIssueForTest(t, map[string]any{
+				"title":         "batch-parity-single-" + lab,
+				"assignee_type": "member",
+				"assignee_id":   memberID,
+			})
+			wSingle := httptest.NewRecorder()
+			reqSingle := withURLParam(
+				newRequest("PUT", "/api/issues/"+single.ID, map[string]any{
+					"lab_source":    lab,
+					"assignee_type": "member",
+					"assignee_id":   memberID,
+				}),
+				"id", single.ID,
+			)
+			testHandler.UpdateIssue(wSingle, reqSingle)
+			if wSingle.Code != http.StatusBadRequest {
+				t.Fatalf("single-issue PATCH: expected 400, got %d: %s",
+					wSingle.Code, wSingle.Body.String())
+			}
+			if !strings.Contains(wSingle.Body.String(), "assignee") {
+				t.Fatalf("single-issue PATCH: expected the assignee-lock message, got %s",
+					wSingle.Body.String())
+			}
+
+			// Same post-state through the batch endpoint must be skipped,
+			// not persisted.
+			batched := createIssueForTest(t, map[string]any{
+				"title":         "batch-parity-batch-" + lab,
+				"assignee_type": "member",
+				"assignee_id":   memberID,
+			})
+			wBatch := httptest.NewRecorder()
+			reqBatch := newRequest("POST", "/api/issues/batch?workspace_id="+testWorkspaceID, map[string]any{
+				"issue_ids": []string{batched.ID},
+				"updates": map[string]any{
+					"lab_source":    lab,
+					"assignee_type": "member",
+					"assignee_id":   memberID,
+				},
+			})
+			testHandler.BatchUpdateIssues(wBatch, reqBatch)
+			if wBatch.Code < 200 || wBatch.Code >= 300 {
+				t.Fatalf("expected 2xx batch with a per-issue skip, got %d: %s",
+					wBatch.Code, wBatch.Body.String())
+			}
+			var labAfter pgtype.Text
+			if err := testPool.QueryRow(context.Background(),
+				`SELECT lab_source FROM issue WHERE id = $1`, batched.ID,
+			).Scan(&labAfter); err != nil {
+				t.Fatalf("re-read: %v", err)
+			}
+			if labAfter.Valid {
+				t.Errorf("batch persisted lab_source=%q for assignee-model lab %q; "+
+					"expected the per-issue skip the single-issue path 400s on",
+					labAfter.String, lab)
+			}
+		})
+	}
+}
+
 // TestBatchUpdateIssuesRespectsSwarmTopologyMutex — 0.5.60 (audit P0-1).
 // The 0.5.21 swarm mutex extension landed in CreateIssue/UpdateIssue/UI but
 // never reached the batch switch: a batch PATCH flipping lab_source to

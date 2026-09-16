@@ -1632,6 +1632,9 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 			// User plugin CRUD (0.3.60 Labs sandbox). Always available
 			// to authenticated users — no RequireExperimentalFlag gate.
+			// "CRUD" here means management only (create/list/update/
+			// delete, the reclaim pair and the artifact index); the
+			// execution endpoint below is flag-gated since 0.5.107.
 			r.Get("/api/user-plugins", h.ListUserPlugins)
 			r.Post("/api/user-plugins", h.CreateUserPlugin)
 			r.Put("/api/user-plugins/{slug}", h.UpdateUserPlugin)
@@ -1646,7 +1649,12 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// User plugin runtime (execution loop). Runs the plugin's
 			// inline code in its persistent env dir and ingests emitted
 			// files as artifacts. runtime_kind gates dispatch:
-			// inline runs, subprocess → 501, none → 400.
+			// inline writes+runs entry.py, subprocess runs
+			// manifest.runtime.command (argv, no shell), none → 400.
+			// Unlike the CRUD group above, execution IS flag-gated
+			// (0.5.107): the caller's effective flag state must be on or
+			// the run 409s. Managing a lab stays possible while it is
+			// off; running its code does not.
 			r.Post("/api/user-plugins/{slug}/run", h.RunUserPlugin)
 
 			// User plugin artifact storage (0.3.60). Filesystem-backed

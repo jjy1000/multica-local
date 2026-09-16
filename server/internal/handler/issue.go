@@ -4155,16 +4155,17 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 0.3.31: lab ↔ assignee mutex (batch variant). Mirrors the
-		// UpdateIssue gate above, including the 0.3.33 narrowing:
-		// only `mythos_swarm` (sole mode — enhancer REQUIRES an
-		// assignee) and `swarm_topology` (0.5.21, no modes) still
-		// reserve the roster. Other labs
-		// auto-assign their own leader agent since 0.3.47, so the
-		// old "any lab + any assignee → skip" rule silently dropped
-		// every batch status/priority move against lab-tagged issues
-		// (the auto-assigned leader tripped the gate). The gate
-		// trigger uses prevIssue values for fields the batch does
-		// not touch, so a batch that PATCHes only the assignee
+		// UpdateIssue gate above. The two hardcoded cases below are the
+		// 0.3.33 narrowed pair (mythos_swarm sole mode — enhancer REQUIRES
+		// an assignee — plus swarm_topology, no modes) and stay as history:
+		// they encode mythos's enhancer semantics, which
+		// assigneeLabLockError does not carry. Since 0.5.86 the authoritative
+		// lock scope is every lab whose interaction model is `assignee`
+		// (claude_science_lab / pythia_oracle / semantica / timesfm and every
+		// interaction_model=assignee user plugin); the check after the switch
+		// closes the gap by calling that same helper instead of a second key
+		// list. The gate trigger uses prevIssue values for fields the batch
+		// does not touch, so a batch that PATCHes only the assignee
 		// against a pre-labbed mythos issue is still caught. Batch
 		// cannot change lab_mode, so the persisted value decides
 		// enhancer-ness. Per the batch endpoint's per-issue
@@ -4217,6 +4218,33 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 					"issue_id", issueID, "post_lab", postLab)
 				continue
 			}
+
+			// 0.5.107 (audit C-1): the two cases above are the hardcoded
+			// 0.3.33 pair; the 0.5.86 assignee interaction model widened
+			// the lock onto claude_science_lab / pythia_oracle / semantica
+			// / timesfm and onto interaction_model=assignee user plugins,
+			// all of which resolved through this same switch and silently
+			// persisted. Route the remaining labs through the server's
+			// single source of truth instead of a second key list — the
+			// enumeration IS the defect class (see the 0.5.60 note above).
+			//
+			// Scoped to a batch that explicitly carries assignee_*, which
+			// mirrors UpdateIssue's `touchedAssignee` case. A lab-only
+			// batch flip stays on the 0.3.47 leader auto-rewrite path
+			// below, so pinning it here would regress
+			// TestBatchUpdateIssuesLabSourceAutoAssignsLeader.
+			// Enhancer mode unlocks (the target assignee IS the field
+			// enhancer exists to populate).
+			_, batchTouchType := rawUpdates["assignee_type"]
+			_, batchTouchID := rawUpdates["assignee_id"]
+			if (batchTouchType || batchTouchID) && !enhancerMode {
+				if msg := h.assigneeLabLockError(r.Context(), prevIssue.WorkspaceID,
+					postLab, postAssigneeType, postAssigneeID); msg != "" {
+					slog.Warn("batch update rejected: assignee-model lab lock",
+						"issue_id", issueID, "post_lab", postLab)
+					continue
+				}
+			}
 		}
 
 		// 0.3.31: BatchUpdateIssues used to silently drop
@@ -4258,11 +4286,12 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		// leader assignee — WillEnqueueRun never arms because
 		// assigneeChanged stays false, so the research leader never
 		// starts. CLAUDE.md (Active Contracts §2) explicitly binds
-		// BatchUpdateIssues to the same helper. Since the mutex gate
-		// was narrowed to mythos_swarm (0.3.33 parity), a batch may
-		// legitimately carry lab_source AND assignee_* together for
-		// other labs — an explicit assignee is a deliberate user
-		// choice, so the auto-rewrite yields to it.
+		// BatchUpdateIssues to the same helper. An explicit assignee in
+		// the same batch makes this rewrite yield (deliberate user choice),
+		// but since 0.5.107 the assignee-model labs are already rejected by
+		// the assigneeLabLockError check above, so the only batches that
+		// reach here carrying both are legacy (unclassified) and auxiliary
+		// labs, for which coexistence is legal.
 		_, batchTouchedType := rawUpdates["assignee_type"]
 		_, batchTouchedID := rawUpdates["assignee_id"]
 		labAutoRewrote := false

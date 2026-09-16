@@ -362,3 +362,120 @@ func TestClaudeScienceRuntime_SessionContinuation(t *testing.T) {
 		t.Fatalf("unknown session: want 404, got %d", w3.Code)
 	}
 }
+
+// TestClaudeScienceRuntime_ExecEnvIsSanitized — 0.5.107 audit E1.
+//
+// `python3 -I` isolates site-packages, NOT the process environment. The
+// pre-fix exec left cmd.Env nil, so Go handed the snippet the server's
+// entire os.Environ(): the daemon-injected MULTICA_API_TOKEN, the JWT
+// secret and DATABASE_URL were one os.environ read away for any
+// agent-authored snippet. The plugin inline runtime already refuses to
+// inherit (see the pluginRuntimeEnv contract); this pins the lab
+// sandbox to the same explicit allowlist, and pins the HOME anchor to
+// the session directory so a tilde-relative write cannot reach the real
+// profile tree.
+//
+// Also pins the bytes endpoint's F-006 parity headers: snippet HTML
+// must not render inline when the URL is navigated to directly.
+func TestClaudeScienceRuntime_ExecEnvIsSanitized(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	if err := probePython3(); err != nil {
+		t.Skipf("python3 not available: %v", err)
+	}
+	t.Setenv("MULTICA_TEST_SECRET", "sentinel-must-not-leak")
+
+	ctx := context.Background()
+	userID, workspaceID := installCodeCanvasFresh(t, ctx, "cs-runtime-env")
+	agentID := "00000000-0000-0000-0000-0000000000aa"
+
+	r := chi.NewRouter()
+	r.Post("/api/experimental/claude-science-runtime/execute", testHandler.PostClaudeScienceRuntimeExecute)
+	r.Get("/api/experimental/claude-science-runtime/artifacts/{artifactID}", testHandler.GetClaudeScienceRuntimeArtifactBytes)
+
+	code := "import os\n" +
+		"print('KEYS=' + ','.join(sorted(os.environ)))\n" +
+		"print('SENTINEL=' + os.environ.get('MULTICA_TEST_SECRET', '<absent>'))\n" +
+		"print('HOME=' + os.environ.get('HOME', ''))\n" +
+		"open('page.html', 'w').write('<h1>snippet output</h1>')\n"
+
+	payload, err := json.Marshal(RuntimeExecuteRequest{
+		WorkspaceID: workspaceID,
+		AgentID:     agentID,
+		Language:    "python",
+		Code:        code,
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost,
+		"/api/experimental/claude-science-runtime/execute", strings.NewReader(string(payload)))
+	req.Header.Set("X-User-ID", userID)
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("execute: %d %s", w.Code, w.Body.String())
+	}
+	var resp RuntimeExecuteResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v body=%s", err, w.Body.String())
+	}
+	if resp.Status != "completed" {
+		t.Fatalf("run did not complete: %s / stderr=%s", resp.Status, resp.Stderr)
+	}
+
+	// Positive control on the harness itself: the sentinel must be in
+	// the parent env, otherwise a missing child report proves nothing
+	// beyond a run that never reached the print.
+	if os.Getenv("MULTICA_TEST_SECRET") != "sentinel-must-not-leak" {
+		t.Fatal("harness: sentinel absent from the parent process env")
+	}
+	if !strings.Contains(resp.Stdout, "KEYS=") {
+		t.Fatalf("snippet printed no env dump; stdout=%q stderr=%q", resp.Stdout, resp.Stderr)
+	}
+
+	if strings.Contains(resp.Stdout, "sentinel-must-not-leak") ||
+		!strings.Contains(resp.Stdout, "SENTINEL=<absent>") {
+		t.Errorf("parent env leaked into the snippet:\n%s", resp.Stdout)
+	}
+	if want := "KEYS=HOME,LANG,LC_ALL,PATH"; !strings.Contains(resp.Stdout, want) {
+		t.Errorf("expected exactly the allowlist %q, got:\n%s", want, resp.Stdout)
+	}
+	wantHome := filepath.Join(os.Getenv("HOME"), runtimeBaseDir, resp.RootSessionID)
+	if !strings.Contains(resp.Stdout, "HOME="+wantHome) {
+		t.Errorf("expected HOME anchored at %q, got:\n%s", wantHome, resp.Stdout)
+	}
+
+	// F-006 parity on the artifact bytes response.
+	rows, err := testHandler.Queries.ListExperimentalRuntimeArtifactsBySession(
+		ctx, uuidToPgtype(resp.SessionID))
+	if err != nil {
+		t.Fatalf("list artifacts: %v", err)
+	}
+	var htmlID string
+	for _, a := range rows {
+		if a.Name == "page.html" {
+			htmlID = a.ID.String()
+		}
+	}
+	if htmlID == "" {
+		t.Fatalf("page.html not ingested: %+v", rows)
+	}
+	wBytes := httptest.NewRecorder()
+	reqBytes := httptest.NewRequest(http.MethodGet,
+		"/api/experimental/claude-science-runtime/artifacts/"+htmlID, nil)
+	reqBytes.Header.Set("X-User-ID", userID)
+	r.ServeHTTP(wBytes, reqBytes)
+	if wBytes.Code != http.StatusOK {
+		t.Fatalf("artifact bytes: %d %s", wBytes.Code, wBytes.Body.String())
+	}
+	if cd := wBytes.Header().Get("Content-Disposition"); !strings.HasPrefix(cd, "attachment") ||
+		!strings.Contains(cd, "page.html") {
+		t.Errorf("expected an attachment Content-Disposition, got %q", cd)
+	}
+	if got := wBytes.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("expected nosniff, got %q", got)
+	}
+}

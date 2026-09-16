@@ -201,7 +201,8 @@ func isIngestableName(name string) bool {
 // result plus the artifacts it produced.
 // POST /api/user-plugins/{slug}/run
 func (h *Handler) RunUserPlugin(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireUserID(w, r); !ok {
+	userID, ok := requireUserID(w, r)
+	if !ok {
 		return
 	}
 
@@ -223,6 +224,26 @@ func (h *Handler) RunUserPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	if plugin.Status != "active" {
 		writeError(w, http.StatusConflict, "plugin is not active")
+		return
+	}
+
+	// 0.5.107 (audit P-2): executing a lab is not a management operation,
+	// so the "CRUD stays available without a flag gate" decision at
+	// cmd/server/router.go does not extend here. `user_plugin.status` and
+	// the Labs toggle are two different states — the row stays 'active'
+	// after the user flips the lab off, and without this check a disabled
+	// lab still ran manifest.runtime.command / entry.py, breaking the
+	// platform rule that flag-off must completely bypass experimental
+	// code. Same resolution as RequireExperimentalFlag (blacklist →
+	// experimental_pref → catalog default).
+	//
+	// 409 rather than the guard's 404: this route is deliberately not
+	// hidden behind the flag, so the caller already knows the plugin
+	// exists — a status code that names the remedy beats one that
+	// pretends the surface is absent, and leaks nothing new.
+	if !experimentalFlagEnabled(r.Context(), h.Queries, userID, plugin.FlagKey) {
+		writeError(w, http.StatusConflict,
+			"lab "+plugin.FlagKey+" is off — enable it in Settings → Labs before running")
 		return
 	}
 

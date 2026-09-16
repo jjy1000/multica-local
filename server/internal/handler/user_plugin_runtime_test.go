@@ -1,13 +1,19 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/multica-ai/multica/server/internal/experimental"
 )
 
 // TestUserPluginRuntime_IngestEmittedArtifacts is the end-to-end runtime
@@ -375,5 +381,93 @@ func TestUserPluginRuntime_SubprocessCommandEmitsArtifacts(t *testing.T) {
 	}
 	if arts[0].Title != "report.txt" || arts[0].Type != "file" {
 		t.Fatalf("unexpected artifact: %+v", arts[0])
+	}
+}
+
+// TestRunUserPluginRejectedWhenLabDisabled — 0.5.107 audit P-2.
+//
+// RunUserPlugin used to gate on `user_plugin.status` alone. A freshly
+// created plugin is 'active' while its Labs flag defaults to OFF, so a
+// disabled lab still executed manifest.runtime.command / entry.py —
+// breaking the platform rule that flag-off completely bypasses
+// experimental code. This is the first HTTP-layer test for /run (the
+// pre-existing runtime tests drive the exec core directly and never touch
+// the status decision).
+func TestRunUserPluginRejectedWhenLabDisabled(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	if err := probePython3(); err != nil {
+		t.Skipf("python3 not available: %v", err)
+	}
+	// Anchor HOME to a temp tree so the run's env dir, entry.py and
+	// runs.json never touch the real ~/.multica/plugins.
+	t.Setenv("HOME", t.TempDir())
+
+	ctx := context.Background()
+	slug := fmt.Sprintf("rungate-%d", time.Now().UnixNano())
+	flagKey := "user_" + slug
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM experimental_pref WHERE flag_key = $1`, flagKey)
+		testPool.Exec(ctx, `DELETE FROM user_plugin WHERE slug = $1`, slug)
+		experimental.UnregisterUserPlugin(flagKey)
+	})
+
+	wCreate := httptest.NewRecorder()
+	testHandler.CreateUserPlugin(wCreate, newRequest(http.MethodPost, "/api/user-plugins", map[string]any{
+		"slug":         slug,
+		"title":        map[string]any{"en": "Run gate", "zh": "执行闸口"},
+		"runtime_kind": "inline",
+		"manifest":     json.RawMessage(`{"runtime": {"entry_code": "print('gate-ran')"}}`),
+	}))
+	if wCreate.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", wCreate.Code, wCreate.Body.String())
+	}
+
+	// Precondition for the whole finding: the row IS active, so the only
+	// thing that can refuse the run is the flag gate.
+	var status string
+	if err := testPool.QueryRow(ctx,
+		`SELECT status FROM user_plugin WHERE slug = $1`, slug).Scan(&status); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if status != "active" {
+		t.Fatalf("fixture: expected status active, got %q", status)
+	}
+
+	runOnce := func() (int, string) {
+		w := httptest.NewRecorder()
+		req := withURLParam(
+			newRequest(http.MethodPost, "/api/user-plugins/"+slug+"/run", map[string]any{}),
+			"slug", slug,
+		)
+		testHandler.RunUserPlugin(w, req)
+		return w.Code, w.Body.String()
+	}
+
+	// No pref row → the catalog default (false) decides. Must refuse.
+	code, body := runOnce()
+	if code != http.StatusConflict {
+		t.Fatalf("flag off: expected 409, got %d: %s", code, body)
+	}
+	if !strings.Contains(body, "Labs") {
+		t.Errorf("flag off: expected the response to name the remedy, got %s", body)
+	}
+
+	// Positive control: the SAME request succeeds once the lab is enabled,
+	// proving the 409 above came from the gate rather than a broken
+	// fixture, an unparsable manifest, or a missing python3.
+	if _, err := testPool.Exec(ctx,
+		`INSERT INTO experimental_pref (user_id, flag_key, enabled) VALUES ($1, $2, true)`,
+		testUserID, flagKey,
+	); err != nil {
+		t.Fatalf("seed pref: %v", err)
+	}
+	code, body = runOnce()
+	if code != http.StatusOK {
+		t.Fatalf("flag on: expected 200, got %d: %s", code, body)
+	}
+	if !strings.Contains(body, "gate-ran") {
+		t.Errorf("flag on: expected the snippet stdout in the response, got %s", body)
 	}
 }

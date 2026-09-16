@@ -154,14 +154,29 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
 - **chi route order: literal slug BEFORE `{param}`.** A `/sessions/by-issue`
   registered after `/sessions/{sessionID}` makes chi capture `"by-issue"` as the
   param (400 "not a UUID"). Register the literal first and comment the rationale.
-- **Lab ↔ assignee mutex (server layer) — `mythos_swarm` ONLY (narrowed 0.3.33).**
-  `CreateIssue` / `UpdateIssue` / `BatchUpdateIssues` reject `mythos_swarm` sole
-  mode + manual assignee with `400 "lab_source and assignee are mutually
-  exclusive"`, gated BEFORE `validateAssigneePair`; `lab_mode='enhancer'`
-  REVERSES it (assignee required). Every other lab (built-in or `user_*`) has NO
-  mutex — assignee + lab is legal, and the leader auto-rewrite fills the gap.
-  Batch violations `continue` per-issue, never 400 the whole batch. `lab_source`
-  (mig 155) and `lab_mode` (mig 157, CHECK `'sole'|'enhancer'`) are nullable TEXT.
+- **Lab ↔ assignee mutex (server layer) — scoped by `interaction_model` since 0.5.86.**
+  The lock belongs to every lab classified `InteractionModelAssignee`:
+  `claude_science_lab`, `pythia_oracle`, `semantica`, `timesfm`,
+  `mythos_swarm` (sole mode — `lab_mode='enhancer'` REVERSES it, an assignee is
+  REQUIRED), plus any `user_*` plugin whose manifest declares
+  `interaction_model: assignee`. `llm_wiki_bridge` / `causal_graph`
+  (auxiliary) and unclassified legacy flags never lock. Authority is
+  `experimental.IsAssigneeModelLab` + `handler/issue.go::assigneeLabLockError`
+  (its three messages all begin `lab_source=<key> ... the lab to own the
+  assignee` / `locks the assignee to the lab agent` — grep those, not the
+  obsolete `"mutually exclusive"` string). CreateIssue and UpdateIssue 400;
+  BatchUpdateIssues `continue`s per-issue, never 400s the whole batch.
+  **0.5.107 closed a batch gap:** the batch switch only ever hardcoded
+  `mythos_swarm` + `swarm_topology`, so a batch PATCH explicitly carrying
+  `assignee_*` onto any widened lab persisted silently while the single-issue
+  PATCH 400'd — the third recurrence of this class (0.5.21→0.5.60 swarm,
+  0.5.86→0.5.107 widened set). If you widen `interaction_model` again, do NOT
+  add a key to the batch switch; both paths already call
+  `assigneeLabLockError`. Pinned by
+  `TestBatchUpdateIssuesLabAssigneeLockParity` (`issue_lab_source_test.go`),
+  which derives its key list from the catalog instead of restating it.
+  `lab_source` (mig 155) and `lab_mode` (mig 157, CHECK `'sole'|'enhancer'`)
+  are nullable TEXT.
 - **Lab leader rewrite.** Code paths that flip `issue.lab_source` must go through
   `handler/issue.go::shouldRewriteAssigneeForLabLeader` + `assignDefaultLabAgentOnUpdate`
   (4-case contract; tests in `issue_lab_dispatch_test.go`), not a re-derived gate.
@@ -235,6 +250,24 @@ sidebar) is in the root `CLAUDE.md` "Labs Platform" section. Backend rules:
   NOT a long-lived loopback service (that stays desktop-manager-owned for built-in
   subprocess labs like pythia/code_canvas). Do not re-add the old 501 "reserved
   upgrade slot".
+  **Execution is flag-gated (0.5.107); management is not.** `user_plugin.status`
+  and the Labs toggle are separate state — the row stays `active` after the user
+  flips the lab off — so `RunUserPlugin` additionally checks
+  `experimentalFlagEnabled` and refuses with **409** naming the remedy. 409 rather
+  than `RequireExperimentalFlag`'s 404 because this route is deliberately
+  enumerable (the CRUD group above it stays open by design, `router.go`), so the
+  caller already knows the plugin exists. Do not extend the ungated exception to
+  any new execution endpoint. Pinned by `TestRunUserPluginRejectedWhenLabDisabled`.
+- **Every subprocess a handler spawns MUST set `cmd.Env` explicitly.** A nil
+  `cmd.Env` silently inherits `os.Environ()`, and in the desktop co-resident
+  deployment that is the whole server: the daemon-injected `MULTICA_API_TOKEN`,
+  the JWT secret, `DATABASE_URL`, `ANTHROPIC_*` and the profile-bearing real
+  `HOME` (→ `~/.multica/profiles/<name>/config.json`). `python3 -I` isolates
+  site-packages, NOT the environment — it is not a substitute. Build an allowlist
+  (`pluginRuntimeEnv` for plugin runs, `runtimeSessionEnv` for the
+  claude_science_lab sandbox: `PATH` + `HOME` pinned to the run's own directory +
+  a fixed UTF-8 locale) and keep `TMPDIR` pointing at the shared temp dir, since
+  a session-directory `TMPDIR` gets re-ingested as phantom artifacts.
 - **Trust-gated agent auto-approval (0.5.18 F-002).** The claude backend's
   `--permission-mode bypassPermissions` is no longer hardcoded: it is appended
   only when `agent.ExecOptions.BypassPermissions` is true. The server computes

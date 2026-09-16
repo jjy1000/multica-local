@@ -1,8 +1,6 @@
 package experimental
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -107,94 +105,6 @@ func TestUserPluginsToFlagsEmpty(t *testing.T) {
 	}
 	if len(flags) != 0 {
 		t.Fatalf("got %d flags, want 0", len(flags))
-	}
-}
-
-// TestScanUserPluginDirMissing verifies a missing/unreadable directory is a
-// soft skip (returns nil, no panic).
-func TestScanUserPluginDirMissing(t *testing.T) {
-	if flags := ScanUserPluginDir(filepath.Join(t.TempDir(), "does-not-exist")); flags != nil {
-		t.Errorf("ScanUserPluginDir(missing) = %v, want nil", flags)
-	}
-}
-
-// TestScanUserPluginDir exercises the filesystem discovery path: a valid
-// manifest is parsed, a manifest-declared name overrides the directory name,
-// a runtime kind defaults to "inline" when absent, non-directory entries and
-// directories without a manifest are ignored, and invalid JSON is skipped.
-func TestScanUserPluginDir(t *testing.T) {
-	dir := t.TempDir()
-
-	// Valid plugin, explicit runtime kind, manifest name overrides dir name.
-	writePlugin(t, dir, "alpha-dir", `{
-		"metadata": {
-			"name": "alpha",
-			"title": {"en": "Alpha", "zh": "阿尔法"},
-			"description": {"en": "first", "zh": "第一"}
-		},
-		"spec": {"runtime": {"kind": "subprocess"}}
-	}`)
-
-	// Valid plugin, no runtime kind → defaults to "inline"; no name → dir name.
-	writePlugin(t, dir, "beta", `{
-		"metadata": {"title": {"en": "Beta"}}
-	}`)
-
-	// Directory without a manifest — ignored.
-	if err := os.Mkdir(filepath.Join(dir, "no-manifest"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Directory with invalid JSON manifest — skipped.
-	writePlugin(t, dir, "broken", `{not json`)
-
-	// A plain file at the top level — ignored (not a directory).
-	if err := os.WriteFile(filepath.Join(dir, "loose.txt"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	flags := ScanUserPluginDir(dir)
-	if len(flags) != 2 {
-		t.Fatalf("got %d flags, want 2 (alpha + beta)", len(flags))
-	}
-
-	byKey := map[string]Flag{}
-	for _, f := range flags {
-		byKey[f.Key] = f
-	}
-
-	alpha, ok := byKey["user_alpha"]
-	if !ok {
-		t.Fatalf("expected key user_alpha (manifest name override), got keys %v", keysOf(byKey))
-	}
-	if alpha.RuntimeKind != "subprocess" {
-		t.Errorf("alpha RuntimeKind = %q, want subprocess", alpha.RuntimeKind)
-	}
-	if alpha.Title.En != "Alpha" || alpha.Title.Zh != "阿尔法" {
-		t.Errorf("alpha Title = %+v, want localized pair", alpha.Title)
-	}
-	if alpha.DefaultVal {
-		t.Error("alpha DefaultVal = true, want false")
-	}
-
-	beta, ok := byKey["user_beta"]
-	if !ok {
-		t.Fatalf("expected key user_beta (dir name), got keys %v", keysOf(byKey))
-	}
-	if beta.RuntimeKind != "inline" {
-		t.Errorf("beta RuntimeKind = %q, want inline (default)", beta.RuntimeKind)
-	}
-}
-
-// writePlugin creates dir/<name>/manifest.json with the given content.
-func writePlugin(t *testing.T, root, name, manifest string) {
-	t.Helper()
-	pdir := filepath.Join(root, name)
-	if err := os.Mkdir(pdir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(pdir, "manifest.json"), []byte(manifest), 0o644); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -382,12 +292,4 @@ func TestUserPluginRegistryContractResolution(t *testing.T) {
 	if got := InteractionModelOf(key); got != "" {
 		t.Errorf("InteractionModelOf after unregister = %q, want empty (unclassified)", got)
 	}
-}
-
-func keysOf(m map[string]Flag) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	return out
 }

@@ -657,8 +657,10 @@ func IsAuxiliaryModelLab(key string) bool {
 }
 
 // userPluginMu guards the dynamic user plugin layer. Built-in flags
-// in Catalog are immutable after init; user plugins are loaded at
-// boot from the DB and optionally from ~/.multica/plugins/.
+// in Catalog are immutable after init; user plugins come from the
+// user_plugin table only — loaded at boot (ListActiveUserPlugins) and
+// merged incrementally on each CRUD write. There is no on-disk
+// discovery path.
 var (
 	userPluginMu sync.RWMutex
 	userPlugins  = map[string]Flag{}

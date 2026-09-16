@@ -19,7 +19,8 @@ import {
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
-import { useUpdateExperimentalFlag } from "@multica/core/experimental";
+import { useExperimentalFlags, useUpdateExperimentalFlag } from "@multica/core/experimental";
+import type { ExperimentalFlag } from "@multica/core/types/experimental";
 import type { UserPluginReclaimPlan, UserPluginResponse } from "@multica/core/types";
 import { UserPluginFormDialog } from "../../experimental/components/user-plugin-form-dialog";
 import { useT } from "../../i18n";
@@ -51,6 +52,20 @@ export function pluginInjectedSkillNames(
 
 const SKILLS_ACK_PREFIX = "multica.plugin_skills_ack.";
 
+// 0.5.107 (audit P-1): the Labs toggle writes `experimental_pref`; the
+// plugin row's `status` only changes through plugin create/update/delete.
+// The two are unrelated state, so binding the Switch to `status` made every
+// toggle snap back on the next refetch — and a lab the user had just
+// switched OFF still rendered as ON. `status` keeps its own badge.
+// Explicit `=== true` per the API-compatibility rule (a missing flag row or
+// a non-boolean `enabled` from an older backend reads as off, never on).
+function labEnabled(
+  flags: ExperimentalFlag[] | undefined,
+  flagKey: string,
+): boolean {
+  return flags?.find((f) => f.key === flagKey)?.enabled === true;
+}
+
 function isSkillsAcked(slug: string): boolean {
   try {
     return defaultStorage.getItem(SKILLS_ACK_PREFIX + slug) === "1";
@@ -71,6 +86,7 @@ export function UserPluginsSection() {
   const { t } = useT("experimental");
   const qc = useQueryClient();
   const updateFlag = useUpdateExperimentalFlag();
+  const { data: flags } = useExperimentalFlags();
 
   const { data: plugins, isLoading } = useQuery({
     queryKey: userPluginKeys.all,
@@ -259,7 +275,7 @@ export function UserPluginsSection() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch
-                    checked={plugin.status === "active"}
+                    checked={labEnabled(flags, plugin.flag_key)}
                     onCheckedChange={(next) => handleToggle(plugin, next)}
                     disabled={updateFlag.isPending}
                   />

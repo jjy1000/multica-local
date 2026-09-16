@@ -193,14 +193,26 @@ func (r *Registry) RegisterInstallHandler(flagKey string, h InstallHandler) {
 
 // RunInstall dispatches the install for flagKey to the bound
 // handler. The returned error is the handler's verbatim — the HTTP
-// layer maps it to the appropriate status. Returns false when no
-// handler is bound so the caller can 404.
+// layer maps it to the appropriate status. When no handler is bound
+// it returns ErrNoInstallHandler so the caller can 404.
+//
+// The dispatch runs under a panic flag context so a panic inside
+// per-flag install code is attributed to that flag by the recover
+// sentinel in cmd/server/main.go, which blacklists it via
+// MarkBroken(ReasonPanic). Without this producer the sentinel's
+// PopPanicFlagContext always returns ok=false and the panic arm of
+// the 0.3.18 safety net never fires (the burst middleware covers
+// 5xx storms only).
 func (r *Registry) RunInstall(flagKey, userID, workspaceID string) error {
 	h, ok := r.install[flagKey]
 	if !ok {
 		return ErrNoInstallHandler
 	}
-	return h(userID, workspaceID)
+	var err error
+	WithPanicFlagContext(flagKey, "registry.RunInstall", func() {
+		err = h(userID, workspaceID)
+	})
+	return err
 }
 
 // RegisterUnregisterHandler binds a rollback handler. The default

@@ -16,6 +16,14 @@
 //     — any defensive sandboxing belongs in the future "Lab sandbox"
 //     subsystem (memory: next-code-environment-library).
 //
+//     1a. The subprocess gets runtimeSessionEnv's explicit allowlist
+//     (PATH, HOME pinned to the session dir, UTF-8 locale) and NOT the
+//     server's os.Environ(). A nil cmd.Env inherits everything, which
+//     pre-0.5.107 handed an agent-authored snippet the daemon-injected
+//     MULTICA_API_TOKEN, the JWT secret, DATABASE_URL and the real HOME
+//     (→ ~/.multica/profiles/<name>/config.json). `-I` isolates
+//     site-packages, never the environment.
+//
 //  2. Timeout: 30s default, 120s ceiling. Expired sessions are GC'd
 //     by runtime_gc.go after 30 days. execute with session_id= targets
 //     an existing session's working directory; an expired root
@@ -75,6 +83,13 @@ const (
 	// context.
 	defaultRuntimeTimeout = 30 * time.Second
 	maxRuntimeTimeout     = 120 * time.Second
+
+	// maxRuntimeArtifactBytes bounds one ingested artifact. Ingest
+	// reads each candidate fully into memory to hash it, so an
+	// uncapped file is an out-of-memory the snippet controls; a run
+	// emitting anything this large is an accidental file drop (a
+	// serialized model, a full dataset dump), not a result.
+	maxRuntimeArtifactBytes = 32 << 20
 )
 
 // ErrSessionExpired is returned when a caller tries to re-run or
@@ -314,6 +329,9 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 	go func() {
 		cmd := exec.CommandContext(execCtx, "python3", "-I", snippetPath)
 		cmd.Dir = sessionDir
+		// A nil cmd.Env silently inherits os.Environ(), so the
+		// allowlist must be set explicitly to take effect.
+		cmd.Env = runtimeSessionEnv(sessionDir)
 		// Final backstop: if a grandchild inherits the stdout/stderr
 		// pipes and outlives the kill, don't let cmd.Run() block the
 		// HTTP handler forever waiting on the pipe copy.
@@ -629,6 +647,15 @@ func (h *Handler) GetClaudeScienceRuntimeArtifactBytes(w http.ResponseWriter, r 
 	defer f.Close()
 	w.Header().Set("Content-Type", mimeForKind(row.Kind))
 	w.Header().Set("Cache-Control", "private, max-age=300")
+	// 0.5.107 (F-006 parity): snippet output is agent-generated, so the
+	// html/svg kinds must not render inline when the URL is navigated
+	// to directly on the API origin. The renderer-side consumers are
+	// unaffected — ArtifactImage/ArtifactIframe re-materialise the body
+	// as a blob: URL and SvgInline/ChartFetch read it as text, none of
+	// which consult Content-Disposition. %q escapes the basename so a
+	// snippet-authored filename cannot inject response headers.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(row.Path)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, f)
 }
@@ -681,6 +708,35 @@ func ensureRuntimeSessionDir(sessionID string) (path string, err error) {
 	return path, nil
 }
 
+// runtimeSessionEnv is the environment the snippet subprocess runs
+// with. It deliberately does NOT inherit the parent server's
+// os.Environ(). The desktop server is the daemon's child and carries
+// the profile-bearing HOME plus the daemon-injected MULTICA_API_TOKEN
+// and the connection/JWT secrets — inheriting all of that would let
+// any snippet read the user's JWT via ~/.multica/profiles/<name>/
+// config.json or replay the task token against privileged endpoints.
+// `python3 -I` alone is not a boundary: it isolates site-packages, not
+// the environment.
+//
+// Same contract as pluginRuntimeEnv (handler/user_plugin_runtime.go),
+// minus the MULTICA_PLUGIN_* variables — those are the plugin inline
+// runtime's documented callback contract and have no meaning here.
+// TMPDIR is intentionally not overridden: it stays in the shared
+// /tmp so interpreter scratch files are not swept into the session
+// directory and ingested as phantom artifacts.
+func runtimeSessionEnv(sessionDir string) []string {
+	path := strings.TrimSpace(os.Getenv("PATH"))
+	if path == "" {
+		path = "/usr/local/bin:/usr/bin:/bin"
+	}
+	return []string{
+		"PATH=" + path,
+		"HOME=" + sessionDir,
+		"LANG=C.UTF-8",
+		"LC_ALL=C.UTF-8",
+	}
+}
+
 // probePython3 runs `python3 -I -c "pass"` and exits non-zero if
 // python3 is missing. Pre-flight per memory 0.3.10 ENOENT
 // prevention contract.
@@ -727,6 +783,18 @@ func ingestSessionArtifacts(sessionID pgtype.UUID, dirName, sessionDir string) (
 			continue
 		}
 		full := filepath.Join(sessionDir, name)
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		// Stat before reading: the hash below pulls the whole file
+		// into memory, so an oversized emit is an OOM the snippet
+		// controls. Skipped, like an unknown extension.
+		if info.Size() > maxRuntimeArtifactBytes {
+			slog.Warn("claude-science runtime: artifact over size cap, not ingested",
+				"session_id", sessionID.String(), "name", name, "size", info.Size())
+			continue
+		}
 		data, err := os.ReadFile(full)
 		if err != nil {
 			continue

@@ -56,6 +56,50 @@ func TestRegistry_InstallRoundTrip(t *testing.T) {
 	}
 }
 
+// TestRegistry_RunInstallAttributesPanic pins the 0.5.107 producer for the
+// panic arm of the 0.3.18 safety net. SetPanicFlagContext previously had no
+// caller at all, so the recover() sentinel in cmd/server/main.go always read
+// an empty slot and ReasonPanic was never recorded — a flag that crashed on
+// install kept crashing on every launch. RunInstall is the chokepoint where
+// per-flag code runs, so it must leave the flag's name in the slot for that
+// sentinel.
+//
+// Deliberately NOT t.Parallel: it shares the package-level slot with the
+// parallel install tests above, and the sequential group finishes before any
+// paused test resumes. Pop in the recover consumes the slot so no stale
+// context leaks into later tests.
+func TestRegistry_RunInstallAttributesPanic(t *testing.T) {
+	defer PopPanicFlagContext() // belt and braces
+
+	r := NewRegistry()
+	r.RegisterInstallHandler("semantica", func(_, _ string) error {
+		panic("simulated install crash")
+	})
+
+	recovered := false
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("RunInstall should not swallow the handler panic")
+			}
+			recovered = true
+			key, ctx, ok := PopPanicFlagContext()
+			if !ok {
+				t.Error("RunInstall left no panic flag context; the main.go sentinel cannot attribute the crash")
+				return
+			}
+			if key != "semantica" || ctx != "registry.RunInstall" {
+				t.Errorf("panic attributed to (%q, %q), want (semantica, registry.RunInstall)", key, ctx)
+			}
+		}()
+		_ = r.RunInstall("semantica", "user-123", "ws-1")
+	}()
+
+	if !recovered {
+		t.Fatal("panic never reached the recover() sentinel")
+	}
+}
+
 // TestRegistry_LoopbackURLConcurrent drives concurrent
 // SetLoopbackURL + GetLoopbackURL to confirm the mutex protects
 // the loopback map. The Desktop manager writes the URL on

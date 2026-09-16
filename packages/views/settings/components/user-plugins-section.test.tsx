@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { describe, expect, it, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
@@ -13,6 +13,12 @@ const mockDeleteUserPlugin = vi.hoisted(() => vi.fn());
 const mockMutate = vi.hoisted(() => vi.fn());
 const mockToastSuccess = vi.hoisted(() => vi.fn());
 const mockToastError = vi.hoisted(() => vi.fn());
+// 0.5.107 (audit P-1): the section reads the Labs preference list to drive
+// each Switch, so the test controls it explicitly instead of letting the
+// real hook call api.listExperimentalFlags (unmocked here).
+const mockFlags = vi.hoisted(() => ({
+  current: [] as Array<{ key: string; enabled: boolean }>,
+}));
 
 vi.mock("@multica/core/api", () => ({
   api: {
@@ -32,6 +38,7 @@ vi.mock("@multica/core/experimental", async () => {
       mutate: mockMutate,
       isPending: false,
     }),
+    useExperimentalFlags: () => ({ data: mockFlags.current }),
   };
 });
 
@@ -188,5 +195,70 @@ describe("UserPluginsSection — i18n label rendering", () => {
       { msg: "network unreachable" },
     );
     expect(rendered).toBe("Delete failed: network unreachable");
+  });
+});
+
+// 0.5.107 (audit P-1): the Switch used to read `plugin.status`, a field the
+// toggle never writes — so every click snapped back on the next refetch and
+// a lab that was actually OFF rendered as ON. It now reads the Labs
+// preference the mutation writes. Server-side, RunUserPlugin gained the
+// matching gate, so the switch and the executable surface agree.
+describe("UserPluginsSection — Labs toggle binds the preference, not the row status", () => {
+  const plugin = {
+    id: "p1",
+    slug: "demo-plugin",
+    flag_key: "user_demo_plugin",
+    trigger_mode: "auto" as const,
+    runtime_kind: "inline" as const,
+    // The row is active in every case below: that is precisely the state the
+    // old binding mistook for "lab enabled".
+    status: "active" as const,
+    title: { en: "Demo Plugin" },
+    description: { en: "Demo description" },
+    manifest: null,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockListUserPlugins.mockResolvedValue([plugin]);
+  });
+
+  // Base UI marks the root with aria-checked and/or data-checked; accept
+  // either so the assertion cannot pass vacuously on an attribute rename.
+  function switchIsOn(el: HTMLElement): boolean {
+    return el.getAttribute("aria-checked") === "true" || el.hasAttribute("data-checked");
+  }
+
+  async function renderSwitch(): Promise<HTMLElement> {
+    const I18nWrapper = makeI18nProvider("en", enExperimental);
+    render(<UserPluginsSection />, { wrapper: I18nWrapper });
+    await waitFor(() => expect(screen.getByText("Demo Plugin")).toBeTruthy());
+    return screen.getByRole("switch") as HTMLElement;
+  }
+
+  it("renders OFF while the preference is off even though the row is active", async () => {
+    mockFlags.current = [{ key: plugin.flag_key, enabled: false }];
+    expect(switchIsOn(await renderSwitch())).toBe(false);
+  });
+
+  it("renders ON from the preference and writes the preference on click", async () => {
+    mockFlags.current = [{ key: plugin.flag_key, enabled: true }];
+    const sw = await renderSwitch();
+    // Guards against a vacuous pass: if the component rendered no state at
+    // all, the OFF assertion above could not tell a fix from a regression.
+    expect(switchIsOn(sw)).toBe(true);
+
+    fireEvent.click(sw);
+    await waitFor(() =>
+      expect(mockMutate).toHaveBeenCalledWith(
+        { key: plugin.flag_key, enabled: false },
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("reads a missing flag row as OFF, never ON", async () => {
+    mockFlags.current = [];
+    expect(switchIsOn(await renderSwitch())).toBe(false);
   });
 });
