@@ -32,7 +32,7 @@ import { failureReasonLabel } from "../../agents/components/tabs/task-failure";
 import { buildTimeline } from "../../common/task-transcript";
 import { TaskStatusPill } from "./task-status-pill";
 import { formatElapsedMs } from "../lib/format";
-import { splitTimeline, extractCopyText } from "../lib/copy-text";
+import { splitTimeline, extractCopyText, canonicalAnswerText } from "../lib/copy-text";
 import { useT } from "../../i18n";
 
 // ─── Public component ────────────────────────────────────────────────────
@@ -257,6 +257,15 @@ function AssistantMessage({
 
   const timeline: ChatTimelineItem[] = buildTimeline(taskMessages ?? []);
 
+  // The persisted chat_message content is the canonical completed answer.
+  // Empty content is valid for attachment-only/no-response turns and for
+  // legacy rows whose transcript is the only remaining text source — only a
+  // non-empty canonical answer replaces timeline text after settlement.
+  const canonicalAnswer =
+    message.message_kind !== "no_response" && (message.content ?? "").trim()
+      ? canonicalAnswerText(message)
+      : undefined;
+
   // Failure bubble path: when the server's FailTask wrote a failure
   // chat_message (failure_reason set), render a destructive bubble with the
   // human-readable reason label + collapsible raw errMsg + the same timeline
@@ -295,7 +304,7 @@ function AssistantMessage({
   return (
     <div className="w-full space-y-1.5">
       {timeline.length > 0 ? (
-        <TimelineView items={timeline} attachments={message.attachments} />
+        <TimelineView items={timeline} attachments={message.attachments} settledContent={canonicalAnswer} />
       ) : (
         <div className="text-body leading-relaxed prose prose-sm dark:prose-invert max-w-none">
           <Markdown attachments={message.attachments}>{message.content}</Markdown>
@@ -318,7 +327,8 @@ function AssistantMessage({
 // Action icons live here (not as a hover-floating overlay) so they're
 // discoverable on first read and don't shift content. Buttons stay quiet
 // (muted) until hover. Copy is suppressed during streaming because the
-// final text is still being appended.
+// final text is still being appended, and on turns with nothing to copy
+// (no_response, attachment-only).
 function MessageFooter({
   message,
   timeline,
@@ -328,28 +338,24 @@ function MessageFooter({
   timeline: ChatTimelineItem[];
   isPending: boolean;
 }) {
-  const showCopy = !isPending;
+  const isNoResponse = message.message_kind === "no_response";
+  const copyContent = extractCopyText(message, timeline);
+  const showCopy = !isPending && !isNoResponse && copyContent.trim().length > 0;
   if (message.elapsed_ms == null && !showCopy) return null;
   return (
     <div className="flex items-center gap-1.5">
       {message.elapsed_ms != null && (
         <ElapsedCaption variant="replied" elapsedMs={message.elapsed_ms} />
       )}
-      {showCopy && <MessageCopyButton message={message} timeline={timeline} />}
+      {showCopy && <MessageCopyButton content={copyContent} />}
     </div>
   );
 }
 
-function MessageCopyButton({
-  message,
-  timeline,
-}: {
-  message: ChatMessage;
-  timeline: ChatTimelineItem[];
-}) {
+function MessageCopyButton({ content }: { content: string }) {
   const { t } = useT("chat");
   const handleCopy = async () => {
-    if (await copyText(extractCopyText(message, timeline))) {
+    if (await copyText(content)) {
       toast.success(t(($) => $.message_list.copied_toast));
     } else {
       toast.error(t(($) => $.message_list.copy_failed_toast));
@@ -461,29 +467,48 @@ function FailureBubble({
   );
 }
 
-// ─── Timeline: outer process fold + final text (Conductor-style) ─────────
+// ─── Timeline: outer process fold + answer (Conductor-style) ─────────────
 //
-// splitTimeline (lib/copy-text.ts) carves the items into:
+// While streaming, splitTimeline (lib/copy-text.ts) carves the items into:
 //   preface — text before the first thinking/tool item
 //   middle  — first → last non-text item (inclusive, may sandwich text)
 //   final   — text after the last non-text item
 //
-// We render preface + final outside an outer Collapsible ("X steps") that
-// wraps middle. The inner row Collapsibles (ThinkingRow / ToolCallRow /
-// ToolResultRow) are unchanged — clicking them toggles independently of
-// the outer fold. Copy mirrors what's visible when the outer fold is
-// closed: preface + final, never middle. See extractCopyText for the
-// authoritative copy logic.
+// Once settled (settledContent provided by the persisted AssistantMessage),
+// the chat_message content is authoritative for the answer. Preface + middle
+// stay in the process fold so intermediate narration remains inspectable;
+// only trailing transcript text is replaced by the canonical answer.
 
 function TimelineView({
   items,
   isStreaming,
   attachments,
+  settledContent,
 }: {
   items: ChatTimelineItem[];
   isStreaming?: boolean;
   attachments?: import("@multica/core/types").Attachment[];
+  settledContent?: string;
 }) {
+  if (settledContent !== undefined) {
+    const { preface, middle } = splitTimeline(items);
+    const processItems = [...preface, ...middle];
+    return (
+      <>
+        {processItems.length > 0 && (
+          <OuterProcessFold
+            items={processItems}
+            attachments={attachments}
+            stepCount={middle.length}
+          />
+        )}
+        <div key="answer" className="text-body leading-relaxed prose prose-sm dark:prose-invert max-w-none">
+          <Markdown attachments={attachments}>{settledContent}</Markdown>
+        </div>
+      </>
+    );
+  }
+
   const { preface, middle, final } = splitTimeline(items);
 
   return (
@@ -517,10 +542,12 @@ function OuterProcessFold({
   items,
   defaultOpen,
   attachments,
+  stepCount,
 }: {
   items: ChatTimelineItem[];
   defaultOpen?: boolean;
   attachments?: import("@multica/core/types").Attachment[];
+  stepCount?: number;
 }) {
   const { t } = useT("chat");
   // useState seeds once at mount — subsequent renders never overwrite the
@@ -529,13 +556,16 @@ function OuterProcessFold({
   // own <TimelineView>, so the persisted instance starts closed (default)
   // even if the live one was open. That's the desired collapsed-default.
   const [open, setOpen] = useState(defaultOpen ?? false);
-  const stepCount = items.length;
+  // When the fold wraps preface + middle (settled render), the step count
+  // label should still name only the real process steps, not the folded
+  // preface text rows.
+  const displayedStepCount = stepCount ?? items.length;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="flex items-center gap-1 text-caption text-muted-foreground hover:text-foreground transition-colors">
         {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-        <span>{t(($) => $.message_list.process_steps, { count: stepCount })}</span>
+        <span>{t(($) => $.message_list.process_steps, { count: displayedStepCount })}</span>
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="mt-1 rounded-lg border bg-muted/20 p-2 space-y-0.5">
