@@ -616,6 +616,20 @@ func (h *Handler) ListAgentRuntimes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// NotifyRuntimeGone emits the post-commit runtime invalidation signal: a
+// daemon:heartbeat_ack frame with Status=runtime_gone pushed to any daemon
+// still holding a WebSocket for the deleted runtime (upstream 731af7ccd,
+// MUL-7002). The passive heartbeat-404 lookup remains the correctness
+// fallback; this only closes the active-connection gap. It is exported so
+// the runtime GC sweeper can use the same publisher as request handlers.
+// Nil-safe: without a daemon hub (tests / bare builds) it is a no-op.
+func (h *Handler) NotifyRuntimeGone(runtimeID string) {
+	if h == nil || h.DaemonHub == nil || runtimeID == "" {
+		return
+	}
+	h.DaemonHub.NotifyRuntimeGone(runtimeID)
+}
+
 // DeleteAgentRuntime deletes a runtime after permission and dependency checks.
 //
 // The strict variant: refuses with 409 + structured `runtime_has_active_agents`
@@ -735,6 +749,7 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
 		return
 	}
+	h.NotifyRuntimeGone(uuidToString(rt.ID))
 
 	slog.Info("runtime deleted", "runtime_id", uuidToString(rt.ID), "deleted_by", userID)
 
@@ -965,6 +980,7 @@ func (h *Handler) ArchiveAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusInternalServerError, "failed to commit transaction")
 		return
 	}
+	h.NotifyRuntimeGone(uuidToString(rt.ID))
 
 	// Post-commit fan-out — same ordering as publishRevocation so subscribers
 	// observe task:cancelled before agent:archived before the runtime list

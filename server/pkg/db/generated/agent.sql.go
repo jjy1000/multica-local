@@ -2260,6 +2260,28 @@ func (q *Queries) GetAgentTaskOriginator(ctx context.Context, id pgtype.UUID) (p
 	return originator_user_id, err
 }
 
+const getAgentTaskStatus = `-- name: GetAgentTaskStatus :one
+SELECT atq.status, a.workspace_id
+FROM agent_task_queue atq
+JOIN agent a ON a.id = atq.agent_id
+WHERE atq.id = $1
+`
+
+type GetAgentTaskStatusRow struct {
+	Status      string      `json:"status"`
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+}
+
+// Hot-path status polling needs only the task status and the owning agent's
+// workspace for authorization. Keep this independent of optional source links
+// (issue, chat session, autopilot run) so it needs no source-entity lookup.
+func (q *Queries) GetAgentTaskStatus(ctx context.Context, id pgtype.UUID) (GetAgentTaskStatusRow, error) {
+	row := q.db.QueryRow(ctx, getAgentTaskStatus, id)
+	var i GetAgentTaskStatusRow
+	err := row.Scan(&i.Status, &i.WorkspaceID)
+	return i, err
+}
+
 const getLastTaskSession = `-- name: GetLastTaskSession :one
 SELECT session_id, work_dir, runtime_id FROM agent_task_queue
 WHERE agent_id = $1 AND issue_id = $2

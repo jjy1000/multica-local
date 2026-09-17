@@ -478,7 +478,10 @@ func main() {
 	// The desktop fork sets MULTICA_TASK_QUEUED_TTL=5m via server-manager.ts
 	// so single-user stale tasks fail fast; self-hosted deployments can raise
 	// it if low-concurrency runtimes legitimately hold queued work past 2h.
-	go runRuntimeSweeper(sweepCtx, pool, queries, liveness, taskSvc, bus,
+	// h doubles as the runtime-gone notifier: it routes the post-deletion
+	// daemon invalidation through the same daemon hub the request handlers
+	// use (upstream 731af7ccd).
+	go runRuntimeSweeper(sweepCtx, pool, queries, liveness, taskSvc, bus, h,
 		envDuration("MULTICA_TASK_QUEUED_TTL", defaultTaskQueuedTTL))
 	go heartbeatScheduler.Run(sweepCtx)
 	go runAutopilotFailureMonitor(autopilotCtx, queries, bus, envFailureMonitorConfig())

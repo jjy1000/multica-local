@@ -87,6 +87,14 @@ type runtimeGCTxStarter interface {
 	Begin(context.Context) (pgx.Tx, error)
 }
 
+// runtimeGoneNotifier pushes post-deletion invalidation to daemons still
+// holding a WebSocket for a runtime the sweeper just deleted (upstream
+// 731af7ccd, MUL-7002). *handler.Handler satisfies it via its daemon hub.
+// Nil keeps the passive heartbeat-404 lookup as the only invalidation path.
+type runtimeGoneNotifier interface {
+	NotifyRuntimeGone(runtimeID string)
+}
+
 // runRuntimeSweeper periodically marks runtimes as offline if their
 // last_seen_at exceeds the stale threshold, and fails orphaned tasks.
 // This handles cases where the daemon crashes, is killed without calling
@@ -98,7 +106,7 @@ type runtimeGCTxStarter interface {
 // hot heartbeat path; the DB is allowed to lag up to runtimeHeartbeatDBFlushInterval).
 // When liveness is unavailable or errors, we fall back to trusting the DB
 // stale window — that is the original behavior.
-func runRuntimeSweeper(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, liveness handler.LivenessStore, taskSvc *service.TaskService, bus *events.Bus, queuedTTL time.Duration) {
+func runRuntimeSweeper(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, liveness handler.LivenessStore, taskSvc *service.TaskService, bus *events.Bus, gone runtimeGoneNotifier, queuedTTL time.Duration) {
 	ticker := time.NewTicker(sweepInterval)
 	defer ticker.Stop()
 
@@ -110,7 +118,7 @@ func runRuntimeSweeper(ctx context.Context, txStarter runtimeGCTxStarter, querie
 			sweepStaleRuntimes(ctx, queries, liveness, taskSvc, bus)
 			sweepStaleTasks(ctx, queries, taskSvc, bus)
 			sweepExpiredQueuedTasks(ctx, queries, taskSvc, queuedTTL)
-			gcRuntimes(ctx, txStarter, queries, taskSvc.Metrics, bus)
+			gcRuntimes(ctx, txStarter, queries, taskSvc.Metrics, bus, gone)
 		}
 	}
 }
@@ -234,11 +242,11 @@ func filterStaleRuntimesByLiveness(ctx context.Context, candidates []db.SelectSt
 // gcRuntimes deletes offline runtimes that have exceeded the TTL and have
 // no active (non-archived) agents, preserving terminal task history by
 // detaching it first (MUL-6107, upstream #6894).
-func gcRuntimes(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, metrics *obsmetrics.BusinessMetrics, bus *events.Bus) {
-	gcRuntimesWithBudget(ctx, txStarter, queries, metrics, bus, runtimeGCTickTimeout)
+func gcRuntimes(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, metrics *obsmetrics.BusinessMetrics, bus *events.Bus, gone runtimeGoneNotifier) {
+	gcRuntimesWithBudget(ctx, txStarter, queries, metrics, bus, gone, runtimeGCTickTimeout)
 }
 
-func gcRuntimesWithBudget(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, metrics *obsmetrics.BusinessMetrics, bus *events.Bus, budget time.Duration) {
+func gcRuntimesWithBudget(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, metrics *obsmetrics.BusinessMetrics, bus *events.Bus, gone runtimeGoneNotifier, budget time.Duration) {
 	gcCtx, cancelGC := context.WithTimeout(ctx, budget)
 	defer cancelGC()
 
@@ -307,6 +315,9 @@ func gcRuntimesWithBudget(ctx context.Context, txStarter runtimeGCTxStarter, que
 		deleted++
 		metrics.RecordRuntimeGCDeleted()
 		gcWorkspaces[workspaceID] = true
+		if gone != nil {
+			gone.NotifyRuntimeGone(util.UUIDToString(runtimeID))
+		}
 	}
 	if deleted == 0 {
 		return

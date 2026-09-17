@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -567,6 +568,33 @@ func (s *TaskService) EnqueueTaskForIssueWithOriginator(ctx context.Context, iss
 	return s.enqueueIssueTask(ctx, issue, commentID, false, "", originatorUserID)
 }
 
+// ErrDuplicatePendingTask means a fresh enqueue lost the race to a concurrent
+// one: a queued/dispatched task for the same (issue, agent) already exists, so
+// the pending-task unique index rejected the insert (upstream b8d03bc3f,
+// MUL-7326). This is a benign outcome — a sibling run already covers this
+// target — not a server fault. Enqueue paths return it so callers can report a
+// success-shaped coalesced outcome / structured 409 instead of surfacing the
+// raw Postgres constraint as a 500. It is returned BARE (the raw driver text,
+// including the index name, is logged once at debug and never wrapped in) so no
+// upper-layer log or response can leak the constraint name.
+var ErrDuplicatePendingTask = errors.New("a pending task for this issue and agent already exists")
+
+// isDuplicatePendingTaskErr reports whether err is the pending-task unique-index
+// violation (a concurrent enqueue won the race). Accept the v1 name and the
+// defensive v2/thread names while they can coexist across schema history.
+func isDuplicatePendingTaskErr(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return false
+	}
+	switch pgErr.ConstraintName {
+	case "idx_one_pending_task_per_issue_agent", "idx_one_pending_task_per_issue_agent_v2", "idx_one_pending_task_per_issue_agent_thread":
+		return true
+	default:
+		return false
+	}
+}
+
 // enqueueIssueTask is the shared implementation behind EnqueueTaskForIssue
 // and the manual rerun path. forceFreshSession=true marks the task so the
 // daemon claim handler skips the (agent_id, issue_id) resume lookup — the
@@ -611,6 +639,16 @@ func (s *TaskService) enqueueIssueTask(ctx context.Context, issue db.Issue, trig
 		OriginatorUserID: originatorUserID,
 	})
 	if err != nil {
+		// A concurrent enqueue for the same (issue, agent) won the race and the
+		// unique index rejected this insert. That is benign — a sibling run
+		// already covers this target — so log it at debug and return a typed
+		// sentinel the caller maps to a coalesced outcome / 409 rather than a
+		// 500 that leaks the raw constraint name (upstream b8d03bc3f). Mirrors
+		// the mention path in enqueueMentionTask.
+		if isDuplicatePendingTaskErr(err) {
+			slog.Debug("task enqueue coalesced: pending task already exists", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(issue.AssigneeID))
+			return db.AgentTaskQueue{}, ErrDuplicatePendingTask
+		}
 		slog.Error("task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "error", err)
 		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
 	}
@@ -727,6 +765,16 @@ func (s *TaskService) enqueueMentionTask(ctx context.Context, issue db.Issue, ag
 		OriginatorUserID: originatorUserID,
 	})
 	if err != nil {
+		// Same benign duplicate-pending-task race as the issue-assignee path
+		// in enqueueIssueTask: a concurrent mention/squad-leader enqueue won
+		// the unique-index slot. Log at debug and return the typed sentinel
+		// so the handler coalesces instead of surfacing a 500 that leaks the
+		// constraint name (upstream b8d03bc3f; the fork never ported the
+		// mention-path half of upstream #5958, so it lands here).
+		if isDuplicatePendingTaskErr(err) {
+			slog.Debug("mention task enqueue coalesced: pending task already exists", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID))
+			return db.AgentTaskQueue{}, ErrDuplicatePendingTask
+		}
 		slog.Error("mention task enqueue failed", "issue_id", util.UUIDToString(issue.ID), "agent_id", util.UUIDToString(agentID), "error", err)
 		return db.AgentTaskQueue{}, fmt.Errorf("create task: %w", err)
 	}

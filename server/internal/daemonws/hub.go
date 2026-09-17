@@ -256,6 +256,13 @@ func (h *Hub) NotifyRuntimeProfilesChanged(workspaceID, profileID string) {
 	h.notifyRuntimeProfilesChanged(workspaceID, profileID, "")
 }
 
+// NotifyRuntimeGone tells daemons watching runtimeID that the server deleted
+// the runtime. The existing heartbeat lookup remains the correctness fallback;
+// this notification only closes the active-connection invalidation gap.
+func (h *Hub) NotifyRuntimeGone(runtimeID string) {
+	h.notifyRuntimeGone(runtimeID, "")
+}
+
 func (h *Hub) notifyTaskAvailable(runtimeID, taskID, eventID string) {
 	if h == nil || runtimeID == "" {
 		return
@@ -283,16 +290,37 @@ func (h *Hub) notifyRuntimeProfilesChanged(workspaceID, profileID, eventID strin
 	h.notifyWorkspaceFrame(workspaceID, data, eventID)
 }
 
+func (h *Hub) notifyRuntimeGone(runtimeID, eventID string) {
+	if h == nil || runtimeID == "" {
+		return
+	}
+	data, err := runtimeGoneFrame(runtimeID)
+	if err != nil {
+		return
+	}
+	delivered, deduped := h.notifyFrame(runtimeID, data, eventID)
+	if delivered {
+		M.RuntimeGoneDeliveredHit.Add(1)
+	} else if !deduped {
+		M.RuntimeGoneDeliveredMiss.Add(1)
+	}
+}
+
 func (h *Hub) DeliverDaemonRuntime(scopeID string, frame []byte, eventID string) {
 	if h == nil {
 		return
 	}
-	M.WakeupReceivedTotal.Add(1)
 	var msg protocol.Message
 	if err := json.Unmarshal(frame, &msg); err != nil {
+		M.WakeupReceivedTotal.Add(1)
 		slog.Debug("daemon websocket relay: invalid frame", "error", err, "scope_id", scopeID, "event_id", eventID)
 		M.WakeupDeliveredMiss.Add(1)
 		return
+	}
+	if msg.Type == protocol.EventDaemonHeartbeatAck {
+		M.RuntimeGoneReceivedTotal.Add(1)
+	} else {
+		M.WakeupReceivedTotal.Add(1)
 	}
 	switch msg.Type {
 	case protocol.EventDaemonTaskAvailable:
@@ -320,6 +348,19 @@ func (h *Hub) DeliverDaemonRuntime(scopeID string, frame []byte, eventID string)
 			M.WakeupDeliveredHit.Add(1)
 		} else if !deduped {
 			M.WakeupDeliveredMiss.Add(1)
+		}
+	case protocol.EventDaemonHeartbeatAck:
+		var payload protocol.DaemonHeartbeatAckPayload
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.RuntimeID == "" || payload.Status != protocol.HeartbeatStatusRuntimeGone || !payload.RuntimeGone {
+			slog.Debug("daemon websocket relay: invalid runtime_gone payload", "error", err, "scope_id", scopeID, "event_id", eventID)
+			M.RuntimeGoneDeliveredMiss.Add(1)
+			return
+		}
+		delivered, deduped := h.notifyFrame(payload.RuntimeID, frame, eventID)
+		if delivered {
+			M.RuntimeGoneDeliveredHit.Add(1)
+		} else if !deduped {
+			M.RuntimeGoneDeliveredMiss.Add(1)
 		}
 	default:
 		M.WakeupDeliveredMiss.Add(1)
@@ -399,6 +440,17 @@ func runtimeProfilesChangedFrame(workspaceID, profileID string) ([]byte, error) 
 		Payload: mustMarshalRaw(protocol.RuntimeProfilesChangedPayload{
 			WorkspaceID:      workspaceID,
 			RuntimeProfileID: profileID,
+		}),
+	})
+}
+
+func runtimeGoneFrame(runtimeID string) ([]byte, error) {
+	return json.Marshal(protocol.Message{
+		Type: protocol.EventDaemonHeartbeatAck,
+		Payload: mustMarshalRaw(protocol.DaemonHeartbeatAckPayload{
+			RuntimeID:   runtimeID,
+			Status:      protocol.HeartbeatStatusRuntimeGone,
+			RuntimeGone: true,
 		}),
 	})
 }

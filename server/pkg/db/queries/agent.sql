@@ -353,6 +353,15 @@ RETURNING *;
 SELECT * FROM agent_task_queue
 WHERE id = $1;
 
+-- name: GetAgentTaskStatus :one
+-- Hot-path status polling needs only the task status and the owning agent's
+-- workspace for authorization. Keep this independent of optional source links
+-- (issue, chat session, autopilot run) so it needs no source-entity lookup.
+SELECT atq.status, a.workspace_id
+FROM agent_task_queue atq
+JOIN agent a ON a.id = atq.agent_id
+WHERE atq.id = $1;
+
 -- name: GetAgentTaskOriginator :one
 -- 0.5.21 (MUL-4304 fork-local minimal port): read just the top-of-chain
 -- originator_user_id for an agent_task_queue row. Used by

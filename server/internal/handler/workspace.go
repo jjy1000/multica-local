@@ -740,12 +740,27 @@ func (h *Handler) DeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Take a best-effort snapshot of the runtimes the cascade delete is about
+	// to remove, for post-commit daemon invalidation (upstream 731af7ccd).
+	// Runtime registration does not participate in any delete lock protocol,
+	// so a registration racing this snapshot still falls back to the passive
+	// heartbeat 404 lookup as the correctness backstop.
+	runtimes, err := h.Queries.ListAgentRuntimes(r.Context(), requester.WorkspaceID)
+	if err != nil {
+		slog.Warn("delete workspace failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID, "stage", "list runtimes")...)
+		writeError(w, http.StatusInternalServerError, "failed to delete workspace")
+		return
+	}
+
 	// At this point workspaceMember has resolved → workspaceID is a valid UUID
 	// (the lookup would have errored otherwise), so reuse the resolved value.
 	if err := h.Queries.DeleteWorkspace(r.Context(), requester.WorkspaceID); err != nil {
 		slog.Warn("delete workspace failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
 		writeError(w, http.StatusInternalServerError, "failed to delete workspace")
 		return
+	}
+	for _, rt := range runtimes {
+		h.NotifyRuntimeGone(uuidToString(rt.ID))
 	}
 
 	slog.Info("workspace deleted", append(logger.RequestAttrs(r), "workspace_id", workspaceID)...)

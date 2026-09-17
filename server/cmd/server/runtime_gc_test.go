@@ -286,7 +286,7 @@ func TestRuntimeGC_TickBudgetBoundsWholeBatch(t *testing.T) {
 	starter := &blockingRuntimeGCTxStarter{}
 
 	startedAt := time.Now()
-	gcRuntimesWithBudget(ctx, starter, db.New(testPool), nil, events.New(), 250*time.Millisecond)
+	gcRuntimesWithBudget(ctx, starter, db.New(testPool), nil, events.New(), nil, 250*time.Millisecond)
 	elapsed := time.Since(startedAt)
 
 	if got := starter.begins.Load(); got != 1 {

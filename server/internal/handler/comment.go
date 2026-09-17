@@ -1499,7 +1499,43 @@ func (h *Handler) enqueueCommentAgentTriggers(ctx context.Context, issue db.Issu
 				continue
 			}
 		}
+		// attemptFreshEnqueue runs one INSERT-side enqueue and records its
+		// outcome. Shared by the main path and the lost-race retry below so
+		// both report identical results.
+		attemptFreshEnqueue := func(trigger commentAgentTrigger) {
+			if err := h.enqueueSingleCommentTrigger(ctx, issue, triggerCommentID, trigger, actorType, actorID, originatorUserID); err != nil {
+				record(trigger, DispatchBlocked, commentEnqueueFailureReason(err))
+				return
+			}
+			record(trigger, DispatchQueued, ReasonQueued)
+		}
 		if err := h.enqueueSingleCommentTrigger(ctx, issue, triggerCommentID, trigger, actorType, actorID, originatorUserID); err != nil {
+			// Lost the duplicate-pending-task race (ErrDuplicatePendingTask,
+			// upstream b8d03bc3f MUL-7326): a sibling run now holds the unique
+			// slot. Fold the losing comment into that sibling through the same
+			// atomic merge the AlreadyPending path uses, and report the merge's
+			// honest outcome — a bare coalesced record would drop the comment's
+			// instruction entirely (fork-adapted equivalent of upstream's
+			// resolveCommentTriggerEnqueue coalescing).
+			if errors.Is(err, service.ErrDuplicatePendingTask) {
+				if status, reason, terminal := commentMergeTerminalOutcome(
+					h.mergeCommentIntoPendingTask(ctx, issue, trigger, triggerCommentID, actorType, actorID),
+				); terminal {
+					record(trigger, status, reason)
+					continue
+				}
+				// No queued sibling anymore (claimed between the INSERT and the
+				// merge). Mirror the AlreadyPending fallthrough: an active
+				// (claimed) task defers to completion reconcile; with none left
+				// a fresh enqueue is safe.
+				active, activeErr := h.hasActiveTaskForIssueAndAgent(ctx, issue.ID, trigger.Agent.ID)
+				if status, reason, enqueueFresh := decidePostMergeMiss(active, activeErr); !enqueueFresh {
+					record(trigger, status, reason)
+					continue
+				}
+				attemptFreshEnqueue(trigger)
+				continue
+			}
 			record(trigger, DispatchBlocked, commentEnqueueFailureReason(err))
 			continue
 		}
@@ -1570,6 +1606,18 @@ func commentEnqueueFailureReason(err error) DispatchReasonCode {
 	return ReasonInternalError
 }
 
+// logCommentEnqueueFailure logs a failed comment-trigger enqueue at the right
+// severity: the benign duplicate-pending-task race (ErrDuplicatePendingTask,
+// upstream b8d03bc3f MUL-7326) is debug — a sibling run already covers the
+// target — while anything else stays a warning.
+func logCommentEnqueueFailure(msg string, err error, attrs ...any) {
+	if errors.Is(err, service.ErrDuplicatePendingTask) {
+		slog.Debug(msg+": duplicate pending task, coalescing into the sibling run", attrs...)
+		return
+	}
+	slog.Warn(msg, append(attrs, "error", err)...)
+}
+
 // enqueueSingleCommentTrigger enqueues one resolved trigger and returns the
 // PRIMARY enqueue error (nil on success) so the caller can surface a
 // trigger_outcome (MUL-4525 §2). Implicit-only routing (assignee / thread-parent
@@ -1584,12 +1632,15 @@ func (h *Handler) enqueueSingleCommentTrigger(ctx context.Context, issue db.Issu
 	// agent actors it's empty"). Writing the raw actorID for an agent actor
 	// would put an agent id into a user-id column: silently accepted on
 	// databases that predate the 240 foreign key, an enqueue failure on
-	// those that have it.
-	originator := parseUUID(actorID)
+	// those that have it. The empty-actorID guard mirrors
+	// mergeCommentIntoPendingTask so an unresolvable actor degrades to a NULL
+	// originator instead of panicking on parseUUID.
+	var originator pgtype.UUID
+	if actorType == "member" && actorID != "" {
+		originator = parseUUID(actorID)
+	}
 	if actorType != "member" && strings.TrimSpace(originatorUserID) != "" {
 		originator = parseUUID(originatorUserID)
-	} else if actorType != "member" {
-		originator = pgtype.UUID{}
 	}
 	switch trigger.Source {
 	case commentTriggerSourceIssueAssignee:
@@ -1600,35 +1651,36 @@ func (h *Handler) enqueueSingleCommentTrigger(ctx context.Context, issue db.Issu
 			// it's empty (the triggering comment's task already
 			// carries the chain root via X-Task-ID resolver).
 			if _, err := h.TaskService.EnqueueTaskForSquadLeaderWithOriginator(ctx, issue, trigger.Agent.ID, trigger.Squad.ID, originator, triggerCommentID); err != nil {
-				slog.Warn("enqueue squad leader task failed",
+				logCommentEnqueueFailure("enqueue squad leader task failed", err,
 					"issue_id", uuidToString(issue.ID),
 					"squad_id", uuidToString(trigger.Squad.ID),
-					"leader_id", uuidToString(trigger.Agent.ID),
-					"error", err)
+					"leader_id", uuidToString(trigger.Agent.ID))
 				return err
 			}
 			return nil
 		}
 		if _, err := h.TaskService.EnqueueTaskForIssueWithOriginator(ctx, issue, originator, triggerCommentID); err != nil {
-			slog.Warn("enqueue agent task on comment failed", "issue_id", uuidToString(issue.ID), "error", err)
+			// EnqueueTaskForIssue now returns ErrDuplicatePendingTask on the
+			// benign duplicate-pending-task race, so use the shared helper that
+			// downgrades that case to debug (upstream b8d03bc3f).
+			logCommentEnqueueFailure("enqueue agent task on comment failed", err,
+				"issue_id", uuidToString(issue.ID))
 			return err
 		}
 		return nil
 	case commentTriggerSourceMentionSquadLeader:
 		if _, err := h.TaskService.EnqueueTaskForSquadLeaderWithOriginator(ctx, issue, trigger.Agent.ID, trigger.Squad.ID, originator, triggerCommentID); err != nil {
-			slog.Warn("enqueue squad leader mention task failed",
+			logCommentEnqueueFailure("enqueue squad leader mention task failed", err,
 				"issue_id", uuidToString(issue.ID),
-				"agent_id", uuidToString(trigger.Agent.ID),
-				"error", err)
+				"agent_id", uuidToString(trigger.Agent.ID))
 			return err
 		}
 		return nil
 	case commentTriggerSourceMentionAgent:
 		if _, err := h.TaskService.EnqueueTaskForMentionWithOriginator(ctx, issue, trigger.Agent.ID, originator, triggerCommentID); err != nil {
-			slog.Warn("enqueue mention agent task failed",
+			logCommentEnqueueFailure("enqueue mention agent task failed", err,
 				"issue_id", uuidToString(issue.ID),
-				"agent_id", uuidToString(trigger.Agent.ID),
-				"error", err)
+				"agent_id", uuidToString(trigger.Agent.ID))
 			return err
 		}
 		return nil
