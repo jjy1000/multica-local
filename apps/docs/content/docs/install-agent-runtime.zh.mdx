@@ -84,6 +84,7 @@ Cursor 编辑器的 CLI 对应物。**会话续接可用**——当前 Cursor Ag
 | | |
 |---|---|
 | 守护进程扫描 | `opencode` |
+| 最低版本 | `1.1.54`。更早的构建在解压原生模块时无视 `TMPDIR`/`TMP`/`TEMP`，每次运行向共享系统临时目录泄漏一个 4-8 MB 文件，守护进程会在注册时直接拒绝。 |
 | 安装 | 看官方指引 [opencode.ai](https://opencode.ai/) 或仓库 [github.com/sst/opencode](https://github.com/sst/opencode)。一般是装脚本或 npm 包。 |
 | 认证 | 按 OpenCode 的文档配你自己的模型供应商（Anthropic、OpenAI 等）。 |
 

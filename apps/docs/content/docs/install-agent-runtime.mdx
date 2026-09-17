@@ -84,6 +84,7 @@ Open-source CLI agent. Dynamically discovers available models from its own confi
 | | |
 |---|---|
 | Daemon looks for | `opencode` |
+| Minimum version | `1.1.54`. Earlier builds ignore `TMPDIR`/`TMP`/`TEMP` when extracting a native module and leak one 4-8 MB file into the shared system temp dir per run; the daemon refuses them at registration. |
 | Install | Follow the official guide at [opencode.ai](https://opencode.ai/) or the GitHub repo at [github.com/sst/opencode](https://github.com/sst/opencode). The typical route is the install script or the npm package. |
 | Authentication | Configure your model provider(s) per OpenCode's docs (Anthropic, OpenAI, etc.). |
 
