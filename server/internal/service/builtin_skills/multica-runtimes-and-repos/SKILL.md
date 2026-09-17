@@ -49,6 +49,10 @@ multica repo checkout <url> --ref <branch-or-sha>
 
 `repo checkout` requires `MULTICA_DAEMON_PORT`; it is intended to run inside a daemon task. If absent, you are not in the normal agent checkout path. When a project `github_repo` resource has `resource_ref.ref`, `repo checkout <url>` uses that ref by default for the current task; an explicit `repo checkout <url> --ref <branch-or-sha>` overrides it.
 
+## Usage accounting on Claude runs
+
+`runtime usage` reflects what the server recorded. When a Claude run ends without usable final usage, the server reconstructs input/cache totals from the run's assistant events and counts each response once — output tokens are only reported when the run carried final usage, so a 0 there means "fallback accounting", not "no output". Treat reconstructed totals as main-loop input/cache only, never as a complete bill.
+
 ## Debugging an agent that did not run
 
 Check in this order:

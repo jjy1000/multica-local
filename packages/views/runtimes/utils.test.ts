@@ -144,6 +144,20 @@ describe("estimateCost", () => {
     expect(cost).toBeCloseTo(10 + 50 + 1 + 12.5, 5);
   });
 
+  it("prices Claude Fable 5.1 at the Mythos-class tier with quarter-rate cache reads", () => {
+    // Same $10 / $50 and $12.50 cache write as Fable 5, but cache reads are
+    // 0.025x input ($0.25) rather than the usual 0.1x.
+    const cost = estimateCost({
+      ...zeroUsage,
+      model: "claude-fable-5-1",
+      input_tokens: 1_000_000,
+      output_tokens: 1_000_000,
+      cache_read_tokens: 1_000_000,
+      cache_write_tokens: 1_000_000,
+    });
+    expect(cost).toBeCloseTo(10 + 50 + 0.25 + 12.5, 5);
+  });
+
   it("prices the provider-prefixed Anthropic form (anthropic/claude-sonnet-4.6)", () => {
     // openclaw / opencode emit `<provider>/<model>`. Same SKU as the
     // bare form, must hit the same rate.
@@ -423,6 +437,7 @@ describe("estimateCost", () => {
 describe("isModelPriced", () => {
   it("recognises both Claude and Codex/GPT families", () => {
     expect(isModelPriced("claude-fable-5")).toBe(true);
+    expect(isModelPriced("claude-fable-5-1")).toBe(true);
     expect(isModelPriced("claude-sonnet-4-6")).toBe(true);
     expect(isModelPriced("gpt-5-codex")).toBe(true);
     expect(isModelPriced("gpt-5-mini")).toBe(true);
@@ -435,6 +450,7 @@ describe("isModelPriced", () => {
     // while Anthropic's own CLIs use dashes (`claude-opus-4-7`). Both must
     // hit the same catalog row, otherwise Copilot-routed usage gets bucketed
     // as "unmapped" and the user has to type the price in by hand.
+    expect(isModelPriced("claude-fable-5.1")).toBe(true);
     expect(isModelPriced("claude-haiku-4.5")).toBe(true);
     expect(isModelPriced("claude-sonnet-4.5")).toBe(true);
     expect(isModelPriced("claude-sonnet-4.6")).toBe(true);
@@ -447,6 +463,7 @@ describe("isModelPriced", () => {
     // openclaw / opencode emit `<provider>/<model>` in `meta.agentMeta.model`.
     // The provider prefix is routing metadata, not part of the SKU.
     expect(isModelPriced("anthropic/claude-fable-5")).toBe(true);
+    expect(isModelPriced("anthropic/claude-fable-5-1")).toBe(true);
     expect(isModelPriced("anthropic/claude-opus-4.7")).toBe(true);
     expect(isModelPriced("anthropic/claude-sonnet-4-6")).toBe(true);
   });
