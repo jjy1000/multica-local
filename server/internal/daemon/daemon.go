@@ -2983,9 +2983,9 @@ func (d *Daemon) runRuntimePoller(
 
 		taskTarget := task.IssueID
 		if taskTarget == "" && task.ChatSessionID != "" {
-			taskTarget = "chat:" + shortID(task.ChatSessionID)
+			taskTarget = "chat:" + task.ChatSessionID
 		}
-		d.logger.Info("task received", "task", shortID(task.ID), "target", taskTarget)
+		d.logger.Info("task received", "task", task.ID, "target", taskTarget)
 		taskWG.Add(1)
 		d.activeTasks.Add(1)
 		go func(t Task, slot int) {
@@ -3120,14 +3120,19 @@ func (d *Daemon) handleTask(ctx context.Context, task Task, slot int) {
 	d.mu.Unlock()
 	provider := rt.Provider
 
-	// Task-scoped logger with short ID for readable concurrent logs.
-	taskLog := d.logger.With("task", shortID(task.ID))
+	// Task-scoped logger. The task id goes in whole: it is the key every
+	// other surface prints (task JSON, env-root ownership manifest, server
+	// logs), so a full id is what lets a log line be joined to them. An
+	// 8-char prefix cannot — task ids are UUIDv7, whose leading 32 bits are
+	// a millisecond timestamp that only advances every ~65s, so concurrent
+	// tasks routinely share one (#7326).
+	taskLog := d.logger.With("task", task.ID)
 	agentName := "agent"
 	if task.Agent != nil {
 		agentName = task.Agent.Name
 	}
 	if task.ChatSessionID != "" {
-		taskLog.Info("picked chat task", "chat_session", shortID(task.ChatSessionID), "agent", agentName, "provider", provider)
+		taskLog.Info("picked chat task", "chat_session", task.ChatSessionID, "agent", agentName, "provider", provider)
 	} else {
 		taskLog.Info("picked task", "issue", task.IssueID, "agent", agentName, "provider", provider)
 	}
@@ -3348,7 +3353,7 @@ func (d *Daemon) acquireLocalDirectoryLockIfNeeded(ctx context.Context, task Tas
 		if holder != "" {
 			reason = fmt.Sprintf("%s (held by task %s)", reason, shortID(holder))
 		}
-		taskLog.Info("local_directory: waiting on path mutex", "holder", shortID(holder))
+		taskLog.Info("local_directory: waiting on path mutex", "holder", holder)
 		if waitErr := d.client.MarkTaskWaitingLocalDirectory(ctx, task.ID, reason); waitErr != nil {
 			// Non-fatal: even if the server-side flag fails to update,
 			// we still want to block on the lock and proceed when free.
@@ -4646,7 +4651,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 	idleWatchdogThreshold.Store(int64(d.cfg.AgentIdleWatchdog))
 	idleWindow := d.cfg.AgentIdleWatchdog
 	if idleWindow > 0 {
-		go d.runIdleWatchdog(agentCtx, idleWindow, d.cfg.AgentToolWatchdog, &lastActivityAt, &inFlightTools, &idleWatchdogFired, &idleWatchdogThreshold, agentCancel, session.Messages, taskLog, taskID)
+		go d.runIdleWatchdog(agentCtx, idleWindow, d.cfg.AgentToolWatchdog, &lastActivityAt, &inFlightTools, &idleWatchdogFired, &idleWatchdogThreshold, agentCancel, session.Messages, taskLog)
 	}
 
 	go func() {
@@ -4774,10 +4779,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 						}
 					}
 					s := seq.Add(1)
-					output := msg.Output
-					if len(output) > 8192 {
-						output = output[:8192]
-					}
+					output := toolOutputPreview(msg.Output)
 					toolName := msg.Tool
 					if toolName == "" && msg.CallID != "" {
 						mu.Lock()
@@ -4914,7 +4916,7 @@ func idleWatchdogTickInterval(window time.Duration) time.Duration {
 	return interval
 }
 
-func (d *Daemon) runIdleWatchdog(agentCtx context.Context, window, toolWindow time.Duration, lastActivityAt *atomic.Int64, inFlightTools *atomic.Int32, fired *atomic.Bool, firedThreshold *atomic.Int64, cancel context.CancelFunc, messages <-chan agent.Message, taskLog *slog.Logger, taskID string) {
+func (d *Daemon) runIdleWatchdog(agentCtx context.Context, window, toolWindow time.Duration, lastActivityAt *atomic.Int64, inFlightTools *atomic.Int32, fired *atomic.Bool, firedThreshold *atomic.Int64, cancel context.CancelFunc, messages <-chan agent.Message, taskLog *slog.Logger) {
 	ticker := time.NewTicker(idleWatchdogTickInterval(window))
 	defer ticker.Stop()
 	for {
@@ -4945,8 +4947,8 @@ func (d *Daemon) runIdleWatchdog(agentCtx context.Context, window, toolWindow ti
 			if len(messages) > 0 {
 				continue
 			}
+			// No "task" field here: taskLog already carries the full id.
 			taskLog.Warn("idle watchdog firing: no agent activity, force-stopping run",
-				"task", shortID(taskID),
 				"idle_for", idleFor.Round(time.Second).String(),
 				"threshold", threshold.String(),
 				"tool_in_flight", toolInFlight,
@@ -5049,7 +5051,12 @@ func (d *Daemon) isActiveEnvRoot(envRoot string) bool {
 	return d.activeEnvRoots[envRoot] > 0
 }
 
-// shortID returns the first 8 characters of an ID for readable logs.
+// shortID returns the first 8 characters of an ID for a human-facing label.
+//
+// Display only, and only where the label is read rather than joined: the
+// waiting-reason string the UI renders as "Waiting for {reason}" is the one
+// caller left. Structured log fields must carry the FULL id — see the
+// task-scoped logger in handleTask for why a prefix cannot identify a task.
 func shortID(id string) string {
 	if len(id) <= 8 {
 		return id

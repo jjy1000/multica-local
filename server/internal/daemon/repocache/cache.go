@@ -461,6 +461,9 @@ func (c *Cache) CreateWorktree(params WorktreeParams) (*WorktreeResult, error) {
 		for _, pattern := range agentGitExcludePatterns {
 			_ = excludeFromGit(worktreePath, pattern)
 		}
+		if err := isolateWorktreeIdentity(barePath, worktreePath); err != nil {
+			return nil, fmt.Errorf("isolate checkout Git identity: %w", err)
+		}
 
 		// Reconcile the Co-authored-by hook and the workspace's recorded
 		// setting. The hook lives in the bare repo's shared hooks dir, so we
@@ -492,6 +495,10 @@ func (c *Cache) CreateWorktree(params WorktreeParams) (*WorktreeResult, error) {
 	// Exclude agent context files from git tracking.
 	for _, pattern := range agentGitExcludePatterns {
 		_ = excludeFromGit(worktreePath, pattern)
+	}
+
+	if err := isolateWorktreeIdentity(barePath, worktreePath); err != nil {
+		return nil, fmt.Errorf("isolate checkout Git identity: %w", err)
 	}
 
 	// Reconcile the Co-authored-by hook and the workspace's recorded setting.

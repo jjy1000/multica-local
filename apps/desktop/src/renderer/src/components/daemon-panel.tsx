@@ -651,7 +651,11 @@ function EmptyState({
 
 // ---------- Helpers ----------
 
-function truncateValue(value: string, max = 32): string {
+// 36 is the width of a canonical UUID. Task, chat-session and holder ids are
+// logged in full so concurrent runs stay distinguishable (MUL-6957), and those
+// ids carry their entropy in the tail — a budget that clipped them would put
+// the ambiguity right back into this collapsed row.
+function truncateValue(value: string, max = 36): string {
   return value.length > max ? `${value.slice(0, max)}…` : value;
 }
 
