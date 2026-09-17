@@ -12,6 +12,7 @@ import {
   useAuthStore,
 } from "../auth";
 import type { StorageAdapter, User, Workspace } from "../types";
+import { workspaceKeys } from "../workspace/queries";
 import { AuthInitializer } from "./auth-initializer";
 
 const logger = vi.hoisted(() => ({
@@ -54,6 +55,7 @@ function makeStorage(initial: Record<string, string> = {}): StorageAdapter & {
     removeItem: (key) => {
       delete values[key];
     },
+    keys: () => Object.keys(values),
     snapshot: () => ({ ...values }),
   };
 }
@@ -95,7 +97,6 @@ function renderInitializer({
         cookieAuth={cookieAuth}
         identity={{ platform }}
         onLogin={onLogin}
-        onLogout={onLogout}
         storage={storage}
       >
         <div>child</div>
@@ -331,5 +332,67 @@ describe("AuthInitializer recovery", () => {
     expect(storage.snapshot().multica_token).toBeUndefined();
     expect(getMe).toHaveBeenCalledTimes(1);
     expect(onLogout).toHaveBeenCalledOnce();
+  });
+});
+
+describe("AuthInitializer session cleanup (MUL-7028)", () => {
+  // The failure mode that must never happen: a laptop with no connectivity
+  // gets signed out and asked for credentials it cannot verify. Only a 401
+  // ends a session — everything else waits in `recovering` with the token,
+  // the drafts, and the tab layout intact.
+  it.each([
+    ["offline", new TypeError("fetch failed")],
+    ["server error", new ApiError("boom", 500, "Internal Server Error")],
+    ["gateway timeout", new ApiError("slow", 504, "Gateway Timeout")],
+  ])("keeps the session and every draft when getMe fails: %s", async (_label, error) => {
+    const before = {
+      multica_token: "token-1",
+      "multica_issue_draft:acme": '{"title":"unsent work"}',
+      multica_tabs: '[{"path":"/acme/issues/1"}]',
+    };
+    const storage = makeStorage(before);
+    const api = makeApi({ getMe: vi.fn().mockRejectedValue(error) });
+    renderInitializer({ api, storage });
+
+    await waitFor(() => {
+      expect(useAuthStore.getState().status).toBe("recovering");
+    });
+
+    expect(useAuthStore.getState().status).not.toBe("unauthenticated");
+    expect(storage.snapshot()).toEqual(before);
+  });
+
+  // A closes the app, the token expires while it is shut, and the next launch
+  // is rejected at the identity probe. This never passes through
+  // `authenticated`, and there is no workspace list to enumerate slugs from —
+  // so both the trigger and the sweep have to work without either.
+  it("erases the previous session on a cold start with a stale token", async () => {
+    vi.useFakeTimers();
+    const storage = makeStorage({
+      multica_token: "stale-token",
+      "multica_issue_draft:acme": '{"title":"A private draft"}',
+      "multica:chat:activeSessionId:acme": "session-1",
+      multica_tabs: '[{"path":"/acme/issues/secret"}]',
+      multica_locale: "zh-Hans",
+    });
+    // Stands in for the api client's 401 hook: it drops the credential the
+    // moment the probe's getMe is rejected, and the ladder's next attempt
+    // then publishes `unauthenticated` through the store's teardown.
+    const getMe = vi.fn().mockImplementation(() => {
+      storage.removeItem("multica_token");
+      return Promise.reject(new ApiError("unauthorized", 401, "Unauthorized"));
+    });
+    const api = makeApi({ getMe });
+    const { queryClient } = renderInitializer({ api, storage });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(useAuthStore.getState().status).toBe("unauthenticated");
+
+    // The unauthenticated-keyed effect flushed inside the act above: only the
+    // device preference survives.
+    expect(storage.snapshot()).toEqual({ multica_locale: "zh-Hans" });
+    expect(queryClient.getQueryData(workspaceKeys.list())).toBeUndefined();
   });
 });

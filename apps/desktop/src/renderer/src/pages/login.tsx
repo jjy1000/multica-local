@@ -30,13 +30,20 @@ import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
 import { Label } from "@multica/ui/components/ui/label";
 import { Loader2 } from "lucide-react";
+import { Alert, AlertDescription } from "@multica/ui/components/ui/alert";
 import { DragStrip } from "@multica/views/platform";
+import { useT } from "@multica/views/i18n";
 import { MulticaIcon } from "@multica/ui/components/common/multica-icon";
 
 export function DesktopLoginPage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const { t } = useT("auth");
+  // The last session ended because the server rejected its credential, not
+  // because the user asked to leave. Without saying so, landing here reads as
+  // the app having lost their work for no reason.
+  const sessionExpired = useAuthStore((state) => state.expired);
 
   const [name, setName] = useState("");
   const [error, setError] = useState("");
@@ -89,7 +96,14 @@ export function DesktopLoginPage() {
               subsequent logins return to your workspace.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {sessionExpired && (
+              <Alert>
+                <AlertDescription>
+                  {t(($) => $.errors.session_expired)}
+                </AlertDescription>
+              </Alert>
+            )}
             <form
               id="login-form"
               onSubmit={handleSubmit}

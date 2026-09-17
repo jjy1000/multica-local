@@ -34,7 +34,7 @@ These are the core variables you must think about before deploying — some have
 | `PORT` | `8080` | API listen port |
 | `JWT_SECRET` | required in production | Secret for sign-in JWTs and some signing flows; production refuses to boot on empty or known placeholders |
 | `APP_ENV` | empty | Set to `production` in production |
-| `AUTH_TOKEN_TTL` | `720h` (30 days) | Lifetime of browser JWTs and cookies; accepts a Go duration or a positive integer of seconds |
+| `AUTH_TOKEN_TTL` | `720h` (30 days) | Lifetime of browser JWTs and cookies; accepts a Go duration or a positive integer of seconds. Sessions slide: past half the TTL, the next authenticated request re-issues the session, so continuous use never hits a scheduled logout. Minimum `60s` (shorter values are clamped up with a startup warning) |
 | `LOG_LEVEL` | application default | Log level |
 | `MULTICA_SHUTDOWN_HOLD_DURATION` | `0` | How long to wait after a termination signal before graceful shutdown begins |
 | `MULTICA_RUNTIME_RECONNECT_GRACE` | `3h` | How long an offline runtime may reconnect before its in-flight tasks fail; values below `150s` are clamped |

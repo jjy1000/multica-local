@@ -21,6 +21,27 @@ const (
 	AuthCookieName      = "multica_auth"
 	CSRFCookieName      = "multica_csrf"
 	defaultAuthTokenTTL = 30 * 24 * time.Hour // 30 days
+
+	// MinAuthTokenTTL is the shortest session lifetime this system can serve
+	// correctly, and what sets it is the CLIENT FLOOR, not the wire format.
+	//
+	// The renewal cadence is TTL/10, and every client floors what the server
+	// sends at five seconds so a nonsense value cannot turn activity into a
+	// request per event. Once TTL/10 drops below that floor the floor wins,
+	// and the client is checking on a schedule the server did not choose —
+	// which is exactly how a cadence ends up longer than the window it has to
+	// land in. TTL/10 >= 5s means TTL >= 50 seconds; one minute is that bound
+	// rounded to something an operator would actually write, and it leaves
+	// the cadence (six seconds) comfortably above the floor.
+	//
+	// Whole-second serialisation (RefreshSessionResponse.CheckAgainInSeconds)
+	// is a second, looser constraint: it only bites below about four seconds
+	// of cadence, i.e. a TTL under 40 seconds, so the client floor is the one
+	// that actually decides this number.
+	//
+	// Anything shorter is clamped up rather than honoured, because honouring
+	// it would mean silently logging active users out.
+	MinAuthTokenTTL = time.Minute
 )
 
 var (
@@ -75,6 +96,16 @@ func AuthTokenTTL() time.Duration {
 	authTokenTTLOnce.Do(func() {
 		raw := os.Getenv("AUTH_TOKEN_TTL")
 		if ttl, ok := parseAuthTokenTTL(raw); ok {
+			if ttl < MinAuthTokenTTL {
+				// Clamping up, not falling back to the default: someone who
+				// asked for 30 seconds is far better served by 1 minute than
+				// by the 30-day default they did not ask for, and the warning
+				// says exactly what happened.
+				slog.Warn("AUTH_TOKEN_TTL is below the shortest supported session lifetime; using the minimum",
+					"value", raw, "minimum_seconds", int(MinAuthTokenTTL.Seconds()),
+					"reason", "a shorter TTL derives a renewal cadence below the floor every client applies, so clients would check on a schedule this server did not choose")
+				ttl = MinAuthTokenTTL
+			}
 			authTokenTTLCached = ttl
 			slog.Info("auth token TTL configured", "seconds", int(ttl.Seconds()))
 			return
@@ -86,6 +117,19 @@ func AuthTokenTTL() time.Duration {
 		}
 	})
 	return authTokenTTLCached
+}
+
+// IsSafeMethod reports whether a method is read-only under RFC 9110, i.e. one
+// that carries no CSRF requirement. Exported because the session-renewal
+// middleware reuses it: re-issuing the auth cookie is itself a write to the
+// client's cookie jar, and doing it only on safe requests keeps a rotation
+// from ever racing the CSRF token of the request that triggered it.
+func IsSafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	return false
 }
 
 // cookieDomain returns the trimmed COOKIE_DOMAIN env value, or "" if it looks

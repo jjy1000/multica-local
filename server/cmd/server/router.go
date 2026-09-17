@@ -1176,6 +1176,10 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// the Helper agent + starter issue via generic CreateAgent /
 		// CreateIssue and only calls /complete here.
 		r.Post("/api/cli-token", h.IssueCliToken)
+		// Sliding session renewal for clients that hold the session as a
+		// string (Desktop). Browsers get theirs re-issued inline by
+		// middleware.Auth and never call this (MUL-7436).
+		r.Post("/api/auth/refresh", h.RefreshSession)
 		r.Post("/api/upload-file", h.UploadFile)
 		r.Post("/api/feedback", h.CreateFeedback)
 		// 0.5.0 fork wave 1 — client-usage daily heartbeat. Records one row

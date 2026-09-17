@@ -34,7 +34,7 @@ import { Callout } from "fumadocs-ui/components/callout";
 | `PORT` | `8080` | API listen port |
 | `JWT_SECRET` | 프로덕션에서 필수 | 로그인 JWT와 일부 서명 절차에서 사용하는 키. 프로덕션에서는 비어 있거나 알려진 자리표시자 값으로 부팅 거부 |
 | `APP_ENV` | 비어 있음 | 프로덕션 환경에서는 `production`으로 설정 |
-| `AUTH_TOKEN_TTL` | `720h`(30일) | 브라우저 JWT와 cookie 유효 기간. Go duration 또는 양의 정수 초 허용 |
+| `AUTH_TOKEN_TTL` | `720h`(30일) | 브라우저 JWT와 cookie 유효 기간. Go duration 또는 양의 정수 초 허용. 세션은 슬라이딩됩니다. TTL의 절반 이하로 떨어지면 다음 인증된 요청이 세션을 재발행하여, 계속 사용하는 계정은 예정된 로그아웃에 걸리지 않습니다. 최솟값은 `60s`(그보다 짧은 값은 시작 시 경고와 함께 클램프됨) |
 | `LOG_LEVEL` | 앱 기본값 | 로그 수준 |
 | `MULTICA_SHUTDOWN_HOLD_DURATION` | `0` | 종료 신호를 받은 뒤 graceful shutdown을 시작하기 전 대기 시간 |
 | `MULTICA_RUNTIME_RECONNECT_GRACE` | `3h` | 오프라인 런타임이 진행 중인 작업을 실패시키지 않고 재연결할 수 있는 유예 시간. `150s` 미만은 `150s`로 조정됨 |

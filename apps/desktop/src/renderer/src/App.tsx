@@ -30,6 +30,11 @@ import { createDesktopLocaleAdapter } from "./platform/i18n-adapter";
 import { captureEvent } from "@multica/core/analytics";
 import { RESOURCES } from "@multica/views/locales";
 import { DesktopAuthSessionBridge } from "./platform/auth-session-bridge";
+import {
+  tearDownOnLogout,
+  tearDownOnSessionExpiry,
+  type SessionTeardown,
+} from "./platform/session-teardown";
 
 // BCP-47 region tags for the <html lang> attribute, mirroring
 // apps/web/app/layout.tsx HTML_LANG. index.html ships a static lang="en";
@@ -365,27 +370,23 @@ function BlockingRuntimeConfigError({ message }: { message: string }) {
   );
 }
 
-// On logout, wipe desktop-only in-memory state and stop the daemon so that
-// a subsequent login as a different user never inherits the previous user's
-// tabs, overlay, or credentials. Zustand persist only writes to localStorage;
-// useLogout clears the storage key, but the live stores stay populated until
-// we explicitly reset them here.
-async function handleDaemonLogout() {
-  useTabStore.getState().reset();
-  useWindowOverlayStore.getState().close();
-  // Drop any post-onboarding welcome signal so user B logging in next
-  // doesn't inherit user A's pending modal state.
-  useWelcomeStore.getState().reset();
-  try {
-    await window.daemonAPI.clearToken();
-  } catch {
-    // Best-effort — clearing is followed by stop which also hardens state.
-  }
-  try {
-    await window.daemonAPI.stop();
-  } catch {
-    // Daemon may already be stopped.
-  }
+// Binds the teardown steps to this renderer's real stores and IPC. Which of
+// them each path runs — and why logout stops the daemon while an expiry
+// leaves it running — lives in platform/session-teardown.
+const sessionTeardown: SessionTeardown = {
+  resetTabs: () => useTabStore.getState().reset(),
+  closeOverlay: () => useWindowOverlayStore.getState().close(),
+  resetWelcome: () => useWelcomeStore.getState().reset(),
+  clearDaemonToken: () => window.daemonAPI.clearToken(),
+  stopDaemon: () => window.daemonAPI.stop(),
+};
+
+function handleDaemonLogout() {
+  return tearDownOnLogout(sessionTeardown);
+}
+
+function handleSessionExpired() {
+  tearDownOnSessionExpiry(sessionTeardown);
 }
 
 /**
@@ -520,6 +521,7 @@ export default function App() {
             apiBaseUrl={runtimeConfigResult.config.apiUrl}
             wsUrl={runtimeConfigResult.config.wsUrl}
             onLogout={handleDaemonLogout}
+            onSessionExpired={handleSessionExpired}
             identity={identity}
             locale={locale}
             resources={resources}

@@ -34,7 +34,7 @@ Multica 的 [自部署](/self-host-quickstart) 服务器启动时从环境变量
 | `PORT` | `8080` | API 监听端口 |
 | `JWT_SECRET` | 生产环境必填 | 登录 JWT、部分签名流程使用的密钥；生产环境对空值或已知占位值拒绝启动 |
 | `APP_ENV` | 空 | 生产环境设为 `production` |
-| `AUTH_TOKEN_TTL` | `720h`（30 天） | 浏览器 JWT 与 cookie 有效期；接受 Go duration 或正整数秒数 |
+| `AUTH_TOKEN_TTL` | `720h`（30 天） | 浏览器 JWT 与 cookie 有效期；接受 Go duration 或正整数秒数。会话为滑动式：剩余有效期低于 TTL 一半时，下一个已认证请求会重新签发会话，因此持续使用的账号不会被定时登出。最小值为 `60s`（更短的值会在启动时告警并向上钳制） |
 | `LOG_LEVEL` | 应用默认 | 日志级别 |
 | `MULTICA_SHUTDOWN_HOLD_DURATION` | `0` | 收到终止信号后，开始优雅退出前等待多久 |
 | `MULTICA_RUNTIME_RECONNECT_GRACE` | `3h` | 运行时离线后可重新连接且不终止在途 task 的宽限时间；低于 `150s` 时按 `150s` 处理 |
