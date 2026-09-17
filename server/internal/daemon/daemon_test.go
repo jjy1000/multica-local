@@ -1120,6 +1120,96 @@ func TestExecuteAndDrain_ResumeFailureFallback(t *testing.T) {
 	}
 }
 
+// orderedTranscriptBackend streams messages that interleave every drain
+// message type — the shape Copilot emits when a reply folds narration,
+// thinking, tool calls and text together (MUL-7458).
+type orderedTranscriptBackend struct{}
+
+func (orderedTranscriptBackend) Execute(_ context.Context, _ string, _ agent.ExecOptions) (*agent.Session, error) {
+	msgCh := make(chan agent.Message)
+	resCh := make(chan agent.Result, 1)
+	go func() {
+		msgCh <- agent.Message{Type: agent.MessageText, Content: "preface"}
+		msgCh <- agent.Message{Type: agent.MessageThinking, Content: "reasoning"}
+		msgCh <- agent.Message{Type: agent.MessageText, Content: "answer one"}
+		msgCh <- agent.Message{Type: agent.MessageToolUse, Tool: "read", CallID: "ordered"}
+		msgCh <- agent.Message{Type: agent.MessageToolResult, Tool: "read", CallID: "ordered", Output: "ok"}
+		msgCh <- agent.Message{Type: agent.MessageText, Content: "answer two"}
+		msgCh <- agent.Message{Type: agent.MessageError, Content: "warning"}
+		msgCh <- agent.Message{Type: agent.MessageText, Content: "answer three"}
+		close(msgCh)
+		resCh <- agent.Result{Status: "completed", Output: "done"}
+		close(resCh)
+	}()
+	return &agent.Session{Messages: msgCh, Result: resCh}, nil
+}
+
+func TestExecuteAndDrain_PreservesTranscriptArrivalOrderAcrossMessageTypes(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var reported []TaskMessageData
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/messages") {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		var body struct {
+			Messages []TaskMessageData `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		reported = append(reported, body.Messages...)
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	d := &Daemon{client: NewClient(srv.URL), logger: slog.Default()}
+
+	if _, _, _, err := d.executeAndDrain(context.Background(), orderedTranscriptBackend{}, "p", agent.ExecOptions{}, slog.Default(), "task-order"); err != nil {
+		t.Fatalf("executeAndDrain: %v", err)
+	}
+
+	// The fork has no drain-finished channel: the drain goroutine's final
+	// flush races the Result select, so poll until all 8 rows are in (or fail).
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		got := append([]TaskMessageData(nil), reported...)
+		mu.Unlock()
+		if len(got) >= 8 || time.Now().After(deadline) {
+			reported = got
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	want := []struct {
+		typ     string
+		content string
+	}{
+		{typ: "text", content: "preface"},
+		{typ: "thinking", content: "reasoning"},
+		{typ: "text", content: "answer one"},
+		{typ: "tool_use"},
+		{typ: "tool_result"},
+		{typ: "text", content: "answer two"},
+		{typ: "error", content: "warning"},
+		{typ: "text", content: "answer three"},
+	}
+	if len(reported) != len(want) {
+		t.Fatalf("reported %d messages, want %d in arrival order: %+v", len(reported), len(want), reported)
+	}
+	for i, expected := range want {
+		if reported[i].Seq != i+1 || reported[i].Type != expected.typ || reported[i].Content != expected.content {
+			t.Fatalf("message %d = %+v, want seq=%d type=%q content=%q", i, reported[i], i+1, expected.typ, expected.content)
+		}
+	}
+}
+
 func TestExecuteAndDrain_NoRetryWhenSessionEstablished(t *testing.T) {
 	t.Parallel()
 
