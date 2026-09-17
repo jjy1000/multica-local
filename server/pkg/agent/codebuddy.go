@@ -109,7 +109,11 @@ func (b *codebuddyBackend) Execute(ctx context.Context, prompt string, opts Exec
 	if opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
-	cmd.Env = buildEnv(b.cfg.Env)
+	// Multica closes stdin after the first result and cannot wait for
+	// cross-turn task_notification events. Force CodeBuddy's documented
+	// headless disable so Bash/PowerShell/Agent never take the background
+	// path (CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS; see CLI headless docs).
+	cmd.Env = buildCodebuddyEnv(b.cfg.Env)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -168,6 +172,7 @@ func (b *codebuddyBackend) Execute(ctx context.Context, prompt string, opts Exec
 		var sessionID string
 		finalStatus := "completed"
 		var finalError string
+		sawBackgroundTask := false
 		usage := make(map[string]TokenUsage)
 
 		// Close stdout when the context is cancelled so scanner.Scan() unblocks.
@@ -199,6 +204,14 @@ func (b *codebuddyBackend) Execute(ctx context.Context, prompt string, opts Exec
 			case "system":
 				if msg.SessionID != "" {
 					sessionID = msg.SessionID
+				}
+				// CodeBuddy background lifecycle rides on system subtypes
+				// (task_started / task_progress / task_updated /
+				// task_notification), not Claude's async_launched tool_result.
+				// With CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS these should
+				// never appear; if they do, fail rather than report success.
+				if codebuddySystemIsBackgroundTask(msg.Subtype) {
+					sawBackgroundTask = true
 				}
 				trySend(msgCh, Message{Type: MessageStatus, Status: "running", SessionID: sessionID})
 			case "result":
@@ -241,14 +254,17 @@ func (b *codebuddyBackend) Execute(ctx context.Context, prompt string, opts Exec
 		// broken pipe, or been unblocked by the kill that ended cmd.
 		writeErr := <-writeDone
 
-		switch {
-		case runCtx.Err() == context.DeadlineExceeded:
-			finalStatus = "timeout"
-			finalError = fmt.Sprintf("codebuddy timed out after %s", timeout)
-		case runCtx.Err() == context.Canceled:
-			finalStatus = "aborted"
-			finalError = "execution cancelled"
-		case writeErr != nil && finalStatus == "completed" && sessionID == "":
+			switch {
+			case runCtx.Err() == context.DeadlineExceeded:
+				finalStatus = "timeout"
+				finalError = fmt.Sprintf("codebuddy timed out after %s", timeout)
+			case runCtx.Err() == context.Canceled:
+				finalStatus = "aborted"
+				finalError = "execution cancelled"
+			case sawBackgroundTask && finalStatus == "completed":
+				finalStatus = "failed"
+				finalError = "codebuddy emitted a background task system event; Multica-managed runs require foreground execution (set CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS=1)"
+			case writeErr != nil && finalStatus == "completed" && sessionID == "":
 			// No result event landed and the prompt write failed — codebuddy
 			// died before reading the prompt. Surface the write error; the
 			// stderr tail attached below carries the real reason.
@@ -363,6 +379,10 @@ func (b *codebuddyBackend) handleControlRequest(msg codebuddySDKMessage, stdin i
 	if inputMap == nil {
 		inputMap = map[string]any{}
 	}
+	// Do not rewrite run_in_background here: under bypassPermissions most
+	// tools never emit control_request, and CodeBuddy does not use Claude's
+	// async_launched tool_result shape. Background work is disabled via
+	// CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS before tool execution.
 
 	response := map[string]any{
 		"type": "control_response",
@@ -409,6 +429,32 @@ func writeCodebuddyInput(w io.Writer, prompt string) error {
 		return err
 	}
 	return nil
+}
+
+const codebuddyDisableBackgroundTasksEnv = "CODEBUDDY_CODE_DISABLE_BACKGROUND_TASKS"
+
+// buildCodebuddyEnv merges task env and always forces background tasks off.
+// Multica's adapter closes stdin after the first result; CodeBuddy's
+// background lifecycle can push task_notification after that point, which we
+// cannot observe. The official CLI documents this variable for exactly that
+// headless shape (https://www.codebuddy.ai/docs/cli/headless).
+//
+// Append the forced entry last so os/exec's platform-aware dedup
+// (case-insensitive on Windows, last-wins) keeps our "=1" even when the
+// inherited or custom_env key differs only by case.
+func buildCodebuddyEnv(extra map[string]string) []string {
+	return append(buildEnv(extra), codebuddyDisableBackgroundTasksEnv+"=1")
+}
+
+// codebuddySystemIsBackgroundTask reports CodeBuddy's real background-task
+// system subtypes (not Claude's async_launched tool_result).
+func codebuddySystemIsBackgroundTask(subtype string) bool {
+	switch strings.TrimSpace(subtype) {
+	case "task_started", "task_progress", "task_updated", "task_notification":
+		return true
+	default:
+		return false
+	}
 }
 
 // ── Codebuddy SDK JSON types ──
