@@ -199,14 +199,32 @@ describe("createMentionSuggestion", () => {
     expect(searchProjectsMock).not.toHaveBeenCalled();
   });
 
-  it("captures Enter while the popup has no selectable items", () => {
+  // An empty picker (remote search pending or no results) must hand keys back
+  // to the host editor: Enter keeps its newline/submit meaning, plain Tab keeps
+  // focus navigation, arrows keep moving the caret.
+  it("lets picker keys reach the editor while search has no result rows", async () => {
     const ref = createRef<MentionListRef>();
+    searchIssuesMock.mockResolvedValue({ issues: [], total: 0 });
 
     render(<I18nWrapper><MentionList ref={ref} items={[]} query="协作" command={vi.fn()} /></I18nWrapper>);
 
-    expect(
-      ref.current?.onKeyDown({ event: new KeyboardEvent("keydown", { key: "Enter" }) }),
-    ).toBe(true);
+    expect(screen.getByText("Searching...")).toBeInTheDocument();
+
+    const press = (init: KeyboardEventInit) =>
+      ref.current?.onKeyDown({ event: new KeyboardEvent("keydown", init) });
+    expect(press({ key: "ArrowUp" })).toBe(false);
+    expect(press({ key: "ArrowDown" })).toBe(false);
+    expect(press({ key: "Enter" })).toBe(false);
+    expect(press({ key: "Tab" })).toBe(false);
+
+    await waitFor(() => {
+      expect(screen.getByText("No results")).toBeInTheDocument();
+    });
+
+    expect(press({ key: "ArrowUp" })).toBe(false);
+    expect(press({ key: "ArrowDown" })).toBe(false);
+    expect(press({ key: "Enter" })).toBe(false);
+    expect(press({ key: "Tab" })).toBe(false);
   });
 
   // MUL-3685: plain Tab accepts the highlighted row exactly like Enter.
@@ -254,16 +272,6 @@ describe("createMentionSuggestion", () => {
     expect(press({ key: "Tab", ctrlKey: true })).toBe(false);
     expect(press({ key: "Tab", altKey: true })).toBe(false);
     expect(command).not.toHaveBeenCalled();
-  });
-
-  it("captures Tab while the popup has no selectable items, like Enter", () => {
-    const ref = createRef<MentionListRef>();
-
-    render(<I18nWrapper><MentionList ref={ref} items={[]} query="协作" command={vi.fn()} /></I18nWrapper>);
-
-    expect(
-      ref.current?.onKeyDown({ event: new KeyboardEvent("keydown", { key: "Tab" }) }),
-    ).toBe(true);
   });
 
   // MUL-3607: groupItems() re-buckets the list (current → recent → search →

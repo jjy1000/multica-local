@@ -278,13 +278,17 @@ export const MentionList = forwardRef<MentionListRef, MentionListProps>(
         // those keys belong to the IME (Enter commits composition, etc).
         if (isImeComposing(event)) return false;
         if (event.key === "ArrowUp") {
-          if (orderedItems.length === 0) return true;
+          // With no rows, including while remote search is pending, the picker
+          // has nothing to navigate. Let the host editor own the key instead.
+          if (orderedItems.length === 0) return false;
           const next = (selectedIndex + orderedItems.length - 1) % orderedItems.length;
           setSelectedKey(mentionItemKey(orderedItems[next]!));
           return true;
         }
         if (event.key === "ArrowDown") {
-          if (orderedItems.length === 0) return true;
+          // With no rows, including while remote search is pending, the picker
+          // has nothing to navigate. Let the host editor own the key instead.
+          if (orderedItems.length === 0) return false;
           const next = (selectedIndex + 1) % orderedItems.length;
           setSelectedKey(mentionItemKey(orderedItems[next]!));
           return true;
@@ -292,7 +296,9 @@ export const MentionList = forwardRef<MentionListRef, MentionListProps>(
         // Enter is the canonical accept; plain Tab is an additive alias (see
         // isPickerAcceptKey). Shift/modifier+Tab fall through to focus nav.
         if (isPickerAcceptKey(event)) {
-          if (orderedItems.length === 0) return true;
+          // An empty picker cannot accept anything, so preserve the editor's
+          // newline, submit shortcut, and focus-navigation behavior.
+          if (orderedItems.length === 0) return false;
           selectItem(orderedItems[selectedIndex]);
           return true;
         }
