@@ -4717,16 +4717,29 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 		defer ticker.Stop()
 
 		done := make(chan struct{})
+		firstVisible := make(chan struct{}, 1)
 		go func() {
 			for {
 				select {
 				case <-ticker.C:
+					flush()
+				case <-firstVisible:
 					flush()
 				case <-done:
 					return
 				}
 			}
 		}()
+		// The periodic flush bounds request rate for the rest of the transcript,
+		// but making the first visible event wait for its next 500 ms edge adds
+		// pure presentation latency. Signal at most once per execution; a buffered
+		// channel keeps the drain loop non-blocking while the reporter is busy.
+		var firstVisibleOnce sync.Once
+		flushFirstVisible := func() {
+			firstVisibleOnce.Do(func() {
+				firstVisible <- struct{}{}
+			})
+		}
 
 		var sessionPinned atomic.Bool
 		for {
@@ -4778,6 +4791,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 						Input: msg.Input,
 					})
 					mu.Unlock()
+					flushFirstVisible()
 				case agent.MessageToolResult:
 					// Decrement only when the count would stay >= 0. A stray
 					// tool_result with no matching tool_use (backend bug or
@@ -4809,13 +4823,20 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 						Output: output,
 					})
 					mu.Unlock()
+					flushFirstVisible()
 				case agent.MessageThinking:
 					appendPending("thinking", msg.Content)
+					if msg.Content != "" {
+						flushFirstVisible()
+					}
 				case agent.MessageText:
 					if msg.Content != "" {
 						taskLog.Debug("agent", "text", truncateLog(msg.Content, 200))
 					}
 					appendPending("text", msg.Content)
+					if msg.Content != "" {
+						flushFirstVisible()
+					}
 				case agent.MessageError:
 					taskLog.Error("agent error", "content", msg.Content)
 					mu.Lock()
@@ -4827,6 +4848,7 @@ func (d *Daemon) executeAndDrain(ctx context.Context, backend agent.Backend, pro
 						Content: msg.Content,
 					})
 					mu.Unlock()
+					flushFirstVisible()
 				}
 			case <-drainCtx.Done():
 				goto drainDone

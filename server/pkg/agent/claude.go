@@ -604,12 +604,14 @@ type claudeControlRequestPayload struct {
 
 // ── Shared helpers ──
 
-func trySend(ch chan<- Message, msg Message) {
+func trySend(ch chan<- Message, msg Message) bool {
 	select {
 	case ch <- msg:
+		return true
 	default:
 		// Channel full — drop message. Final output is accumulated separately
 		// in Result.Output, so only streaming consumers are affected.
+		return false
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1187,6 +1188,15 @@ func TestExecuteAndDrain_PreservesTranscriptArrivalOrderAcrossMessageTypes(t *te
 		time.Sleep(20 * time.Millisecond)
 	}
 
+	// The first-visible flush (MUL-7465) runs on the ticker goroutine while the
+	// drain goroutine may already be running a later flush, so two POSTs can be
+	// in flight at once and the server observes batches out of order. Within a
+	// batch order is guaranteed, and seq — not HTTP arrival — is the transcript
+	// sort key, so assert on the seq-sorted rows like upstream's post-image.
+	slices.SortFunc(reported, func(a, b TaskMessageData) int {
+		return a.Seq - b.Seq
+	})
+
 	want := []struct {
 		typ     string
 		content string
@@ -1207,6 +1217,86 @@ func TestExecuteAndDrain_PreservesTranscriptArrivalOrderAcrossMessageTypes(t *te
 		if reported[i].Seq != i+1 || reported[i].Type != expected.typ || reported[i].Content != expected.content {
 			t.Fatalf("message %d = %+v, want seq=%d type=%q content=%q", i, reported[i], i+1, expected.typ, expected.content)
 		}
+	}
+}
+
+type firstVisibleTranscriptBackend struct {
+	emitted chan time.Time
+	release chan struct{}
+}
+
+func (b firstVisibleTranscriptBackend) Execute(ctx context.Context, _ string, _ agent.ExecOptions) (*agent.Session, error) {
+	msgCh := make(chan agent.Message)
+	resCh := make(chan agent.Result, 1)
+	go func() {
+		defer close(msgCh)
+		msgCh <- agent.Message{Type: agent.MessageText, Content: "first visible text"}
+		b.emitted <- time.Now()
+		select {
+		case <-b.release:
+			resCh <- agent.Result{Status: "completed", Output: "done"}
+		case <-ctx.Done():
+			resCh <- agent.Result{Status: "cancelled", Error: ctx.Err().Error()}
+		}
+		close(resCh)
+	}()
+	return &agent.Session{Messages: msgCh, Result: resCh}, nil
+}
+
+// TestExecuteAndDrain_ReportsFirstVisibleMessageWithoutTickerDelay pins the
+// leading edge of the daemon-to-server path. Later chunks remain batched, but
+// the first user-visible content must not sit behind the 500 ms periodic flush.
+func TestExecuteAndDrain_ReportsFirstVisibleMessageWithoutTickerDelay(t *testing.T) {
+	t.Parallel()
+
+	emitted := make(chan time.Time, 1)
+	release := make(chan struct{})
+	reported := make(chan time.Time, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/messages") {
+			var body struct {
+				Messages []TaskMessageData `json:"messages"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode messages: %v", err)
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			if len(body.Messages) > 0 {
+				select {
+				case reported <- time.Now():
+				default:
+				}
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	d := &Daemon{client: NewClient(srv.URL), logger: slog.Default()}
+	done := make(chan error, 1)
+	go func() {
+		_, _, _, err := d.executeAndDrain(context.Background(), firstVisibleTranscriptBackend{
+			emitted: emitted,
+			release: release,
+		}, "p", agent.ExecOptions{}, slog.Default(), "task-first-visible")
+		done <- err
+	}()
+
+	emittedAt := <-emitted
+	select {
+	case reportedAt := <-reported:
+		delay := reportedAt.Sub(emittedAt)
+		t.Logf("first visible message reached the server in %s", delay.Round(time.Millisecond))
+		if delay >= 300*time.Millisecond {
+			t.Fatalf("first visible message report delay = %s, want <300ms", delay.Round(time.Millisecond))
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first visible message report")
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatalf("executeAndDrain: %v", err)
 	}
 }
 
