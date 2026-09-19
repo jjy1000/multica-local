@@ -410,10 +410,12 @@ func TestRunIssuePullRequestsListsLinkedPRsAsJSON(t *testing.T) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
+	drainCh := make(chan []byte, 1)
+	go func() { b, _ := io.ReadAll(r); drainCh <- b }()
 	err := runIssuePullRequests(cmd, []string{"MUL-2818"})
 	_ = w.Close()
 	os.Stdout = old
-	out, _ := io.ReadAll(r)
+	out := <-drainCh
 	if err != nil {
 		t.Fatalf("runIssuePullRequests: %v", err)
 	}
@@ -475,10 +477,12 @@ func TestRunIssueUsageReturnsTokenSummaryAsJSON(t *testing.T) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
+	drainCh := make(chan []byte, 1)
+	go func() { b, _ := io.ReadAll(r); drainCh <- b }()
 	err := runIssueUsage(cmd, []string{"MUL-2818"})
 	_ = w.Close()
 	os.Stdout = old
-	out, _ := io.ReadAll(r)
+	out := <-drainCh
 	if err != nil {
 		t.Fatalf("runIssueUsage: %v", err)
 	}
@@ -508,10 +512,12 @@ func TestRunIssuePullRequestsTableIncludesCoreFields(t *testing.T) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
+	drainCh := make(chan []byte, 1)
+	go func() { b, _ := io.ReadAll(r); drainCh <- b }()
 	printIssuePullRequestsTable(prs)
 	_ = w.Close()
 	os.Stdout = old
-	out, _ := io.ReadAll(r)
+	out := <-drainCh
 	text := string(out)
 	for _, want := range []string{"NUMBER", "STATE", "TITLE", "URL", "42", "open", "MUL-2818 add issue PR CLI", "https://github.com/multica-ai/multica/pull/42"} {
 		if !strings.Contains(text, want) {
