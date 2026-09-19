@@ -172,15 +172,15 @@ func Classify(rawError string) Reason {
 	//    wrapper trigger a fresh-session retry.
 	case isCursorProviderNetworkError(lower),
 		containsAny(lower,
-		"stream disconnected",
-		"error sending request",
-		"unable to connect",
-		"dial tcp",
-		"connection refused",
-		"connectionrefused",
-		"dns",
-		"i/o timeout",
-	):
+			"stream disconnected",
+			"error sending request",
+			"unable to connect",
+			"dial tcp",
+			"connection refused",
+			"connectionrefused",
+			"dns",
+			"i/o timeout",
+		):
 		return ReasonAgentProviderNetwork
 
 	// 8. Model not found / unavailable. The SQL uses `%model%not%found%`,
