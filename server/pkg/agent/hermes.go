@@ -61,6 +61,14 @@ func (b *hermesBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 	hermesArgs := append([]string{"acp"}, filterCustomArgs(opts.CustomArgs, hermesBlockedArgs, b.cfg.Logger)...)
 	cmd := newRuntimeCmd(exec.CommandContext(runCtx, execPath, hermesArgs...))
 	hideAgentWindow(cmd)
+	// What makes the shutdown below bounded. Wait waits on the direct child, and
+	// a child that ignores the cancel would otherwise hold it forever; with a
+	// WaitDelay, a cancelled context makes Wait kill and reap within it. Wait
+	// returning is also what closes the parent ends of the pipes, which is the
+	// step that frees a reader an escaped descendant is holding — so bounding
+	// Wait is what lets the forced shutdown join its readers at all. Same 10s
+	// the claude, codex and antigravity backends use.
+	cmd.WaitDelay = 10 * time.Second
 	b.cfg.logAgentCommand(cmd, newAgentCommandLogArgs(hermesArgs, trustAgentCommandPositional(0, "acp")))
 	agentsMDPresent := false
 	if opts.Cwd != "" {
@@ -188,6 +196,23 @@ func (b *hermesBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		c.closeAllPending(fmt.Errorf("hermes process exited"))
 	}()
 
+	// reapProcess runs cmd.Wait() — which may only be called once — and returns
+	// when it has. Wait is what closes the parent ends of the stdout and stderr
+	// pipes, so it is also the only way to free a reader blocked on a pipe that
+	// a descendant outside the process group is still holding. Both the forced
+	// shutdown below and the deferred cleanup need it, in that order.
+	var waitOnce sync.Once
+	waitDone := make(chan struct{})
+	reapProcess := func() {
+		waitOnce.Do(func() {
+			go func() {
+				defer close(waitDone)
+				_ = cmd.Wait()
+			}()
+		})
+		<-waitDone
+	}
+
 	// Drive the ACP session lifecycle in a goroutine.
 	go func() {
 		defer cancel()
@@ -195,7 +220,13 @@ func (b *hermesBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 		defer close(resCh)
 		defer func() {
 			stdin.Close()
-			_ = cmd.Wait()
+			reapProcess()
+			// Wait has closed the pipes, so both readers are now guaranteed to
+			// reach EOF and return. Join them before the enclosing goroutine
+			// returns and closes msgCh: a reader that outlived that close would
+			// panic sending on it.
+			<-readerDone
+			<-stderrDone
 			// Leader reaped; drop the runtime-process-tree ownership
 			// handle (Unix: no-op; Windows: closes the Job Object).
 			releaseProcessGroup(cmd)
@@ -396,8 +427,23 @@ func (b *hermesBackend) Execute(ctx context.Context, prompt string, opts ExecOpt
 
 		// Close stdin and cancel context to signal hermes acp to exit.
 		stdin.Close()
+		// Cancel kills the owned process tree, so every descendant in it
+		// releases the pipes and both readers reach EOF. A descendant
+		// outside that tree does not get the signal: on POSIX because it
+		// called setsid and left the process group, on Windows because
+		// startOwnedProcessTree failed open and the child runs unowned, so
+		// the kill reaches the leader alone. Joining the readers is then an
+		// unbounded wait — the turn hangs with no result until the user
+		// cancels by hand, which is the MUL-5241 report.
 		cancel()
-
+		// Reap here rather than leaving it to the deferred cleanup. Wait
+		// closes the pipes, which is what frees a reader the kill could not
+		// reach, and cmd.WaitDelay bounds Wait itself now that the context
+		// is cancelled. Both joins below therefore terminate, and they still
+		// run before the buffers are read: promoteACPResultOnProviderError
+		// requires a fully drained stderr pipe, and it is not safe to call
+		// while the copier can still write.
+		reapProcess()
 		// Wait for the reader goroutine to finish so all output is accumulated.
 		<-readerDone
 		// Wait for the stderr copier as well so the provider-error sniffer
