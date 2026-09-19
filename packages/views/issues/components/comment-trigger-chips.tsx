@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Users } from "lucide-react";
 import type { CommentTriggerPreviewAgent } from "@multica/core/types";
 import { useAgentPresenceDetail } from "@multica/core/agents";
 import { useCurrentWorkspace } from "@multica/core/paths";
@@ -27,6 +28,8 @@ const MAX_STACK_HEADS = 4;
 
 interface CommentTriggerChipsProps {
   agents: CommentTriggerPreviewAgent[];
+  /** Whether the draft contains the structured @all member broadcast. */
+  hasAllMembersMention?: boolean;
   suppressedAgentIds: Set<string>;
   onToggle: (agentId: string) => void;
 }
@@ -110,6 +113,7 @@ function TriggerAgentTooltipBody({
 
 export function CommentTriggerChips({
   agents,
+  hasAllMembersMention = false,
   suppressedAgentIds,
   onToggle,
 }: CommentTriggerChipsProps) {
@@ -117,27 +121,44 @@ export function CommentTriggerChips({
 
   // Loading and errors render nothing: the preview is an enhancement, and
   // any interim chrome here reads as composer noise.
-  if (agents.length === 0) return null;
+  if (agents.length === 0 && !hasAllMembersMention) return null;
 
-  if (agents.length === 1) {
-    const agent = agents[0]!;
-    return (
+  // Static @all semantics, shown beside whatever the agent preview says:
+  // @all is a member broadcast and never starts agents on its own. The copy
+  // promises no notification delivery (edits do not notify; a draft may have
+  // no eligible recipients), so it reads as mention semantics, not a promise.
+  const allMembersNotice = hasAllMembersMention ? (
+    <span className="inline-flex h-6 min-w-0 max-w-full animate-in fade-in items-center gap-1.5 rounded-md px-1.5 text-micro font-medium text-muted-foreground">
+      <Users className="size-3 shrink-0" />
+      <span className="truncate">{t(($) => $.comment.all_members_notice)}</span>
+    </span>
+  ) : null;
+
+  const allowed =
+    agents.length === 1 ? (
       <SingleTriggerChip
-        agent={agent}
-        suppressed={suppressedAgentIds.has(agent.id)}
+        agent={agents[0]!}
+        suppressed={suppressedAgentIds.has(agents[0]!.id)}
         onToggle={onToggle}
         t={t}
       />
-    );
-  }
+    ) : agents.length > 1 ? (
+      <MultiTriggerChip
+        agents={agents}
+        suppressedAgentIds={suppressedAgentIds}
+        onToggle={onToggle}
+        t={t}
+      />
+    ) : null;
+
+  // Without the notice the single chip renders bare, exactly as before.
+  if (!allMembersNotice) return allowed;
 
   return (
-    <MultiTriggerChip
-      agents={agents}
-      suppressedAgentIds={suppressedAgentIds}
-      onToggle={onToggle}
-      t={t}
-    />
+    <div className="flex flex-wrap items-center gap-1.5">
+      {allMembersNotice}
+      {allowed}
+    </div>
   );
 }
 

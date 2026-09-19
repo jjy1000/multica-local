@@ -214,6 +214,7 @@ function ReplyInput({
         <div className="absolute bottom-0 left-0 right-24 min-w-0">
           <CommentTriggerChips
             agents={triggerPreview.agents}
+            hasAllMembersMention={triggerPreview.hasAllMembersMention}
             suppressedAgentIds={suppressedAgentIds}
             onToggle={toggleSuppressedAgent}
           />

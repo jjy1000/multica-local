@@ -624,6 +624,7 @@ function CommentRow({
             <div className="min-w-0 flex-1">
               <CommentTriggerChips
                 agents={edit.triggerPreview.agents}
+                hasAllMembersMention={edit.triggerPreview.hasAllMembersMention}
                 suppressedAgentIds={edit.suppressedAgentIds}
                 onToggle={edit.toggleSuppressedAgent}
               />
@@ -913,6 +914,7 @@ function CommentCardImpl({
                       )}
                     <CommentTriggerChips
                       agents={edit.triggerPreview.agents}
+                      hasAllMembersMention={edit.triggerPreview.hasAllMembersMention}
                       suppressedAgentIds={edit.suppressedAgentIds}
                       onToggle={edit.toggleSuppressedAgent}
                     />

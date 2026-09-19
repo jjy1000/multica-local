@@ -186,6 +186,7 @@ function CommentInput({ issueId, onSubmit, onAccepted }: CommentInputProps) {
       <div className="absolute bottom-1 left-2 right-28 min-w-0">
         <CommentTriggerChips
           agents={triggerPreview.agents}
+          hasAllMembersMention={triggerPreview.hasAllMembersMention}
           suppressedAgentIds={suppressedAgentIds}
           onToggle={toggleSuppressedAgent}
         />
