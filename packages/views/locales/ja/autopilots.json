@@ -294,7 +294,7 @@
     "event_filter_add": "追加",
     "event_filter_remove_label": "フィルターを削除",
     "event_filter_hint": "これらのイベントに一致する Webhook のみを処理します。空にするとすべて許可します。",
-    "schedule_disabled_reason": "このオートパイロットには複数のスケジュールがあります。詳細ページで編集してください。",
+    "schedule_disabled_reason": "このオートパイロットには複数のスケジュールがあります。変更するには、詳細ページで削除して作り直してください。",
     "next_run_label": "次回実行:",
     "output_modes": {
       "create_issue": {

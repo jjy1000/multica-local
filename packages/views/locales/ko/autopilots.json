@@ -294,7 +294,7 @@
     "event_filter_add": "추가",
     "event_filter_remove_label": "필터 제거",
     "event_filter_hint": "이 이벤트와 일치하는 Webhook만 처리합니다. 비워 두면 모두 허용합니다.",
-    "schedule_disabled_reason": "이 오토파일럿에는 여러 일정이 있습니다. 상세 페이지에서 수정하세요.",
+    "schedule_disabled_reason": "이 오토파일럿에는 여러 일정이 있습니다. 변경하려면 상세 페이지에서 삭제한 후 다시 만드세요.",
     "next_run_label": "다음 실행:",
     "output_modes": {
       "create_issue": {

@@ -335,8 +335,17 @@ export function AutopilotDialog(props: AutopilotDialogProps) {
     !isCreate && props.triggers[0] ? props.triggers[0].id : null,
   );
 
-  const triggerCount = isCreate ? 0 : props.triggers.length;
-  const schedulePillDisabled = !isCreate && triggerCount >= 2;
+  // Only SCHEDULE rows make this panel ambiguous, so only they are counted
+  // (MUL-7478). Counting every kind locked a 1 schedule + 1 webhook
+  // autopilot, where the save path below names exactly one row — the
+  // schedule row it already targets. Two schedules is the real ambiguity:
+  // this editor holds one TriggerConfig, so it would show the first row as
+  // if it were the whole story and save would silently rewrite that one
+  // alone.
+  const scheduleTriggerCount = isCreate
+    ? 0
+    : props.triggers.filter((trig) => trig.kind === "schedule").length;
+  const schedulePillDisabled = !isCreate && scheduleTriggerCount >= 2;
 
   const selectedAssignee = useMemo(() => {
     if (!assigneeId) return null;

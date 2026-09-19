@@ -294,7 +294,7 @@
     "event_filter_add": "Add",
     "event_filter_remove_label": "Remove filter",
     "event_filter_hint": "Only process webhooks matching these events. Leave empty to accept all.",
-    "schedule_disabled_reason": "This autopilot has multiple schedules — edit them in the detail page.",
+    "schedule_disabled_reason": "This autopilot has multiple schedules — to change one, delete it on the detail page and create it again.",
     "next_run_label": "Next run:",
     "output_modes": {
       "create_issue": {
