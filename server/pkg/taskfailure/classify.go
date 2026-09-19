@@ -166,8 +166,12 @@ func Classify(rawError string) Reason {
 		return ReasonAgentProviderServerError
 
 	// 7. Provider network. Stream cut, dial failures, DNS / I/O
-	//    timeout below the HTTP layer.
-	case containsAny(lower,
+	//    timeout below the HTTP layer. Cursor can exit before its first
+	//    stream event with a Node connect ETIMEDOUT error. Keep that
+	//    failed resume network-safe instead of letting the exit-status
+	//    wrapper trigger a fresh-session retry.
+	case isCursorProviderNetworkError(lower),
+		containsAny(lower,
 		"stream disconnected",
 		"error sending request",
 		"unable to connect",
@@ -274,6 +278,20 @@ var contextWindowExceededWitnesses = []string{
 	"context window limit",
 	"model_context_window_exceeded",
 	TerminalReasonPromptTooLong,
+}
+
+// isCursorProviderNetworkError recognizes the captured Cursor provider error,
+// bare or in the adapter's process-failure wrapper. Do not match ETIMEDOUT
+// globally: a local tool or MCP connection timeout is not provider evidence.
+func isCursorProviderNetworkError(lower string) bool {
+	if strings.HasPrefix(lower, "cursor-agent exited with error: ") {
+		_, stderr, ok := strings.Cut(lower, "; cursor stderr: ")
+		if !ok {
+			return false
+		}
+		lower = strings.TrimSpace(stderr)
+	}
+	return strings.HasPrefix(lower, "error: [unavailable] connect etimedout ")
 }
 
 // containsAny reports whether s contains any of the supplied substrings.
