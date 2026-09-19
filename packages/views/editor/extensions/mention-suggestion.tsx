@@ -18,6 +18,7 @@ import { useAuthStore } from "@multica/core/auth";
 import { canAssignAgentToIssue } from "@multica/core/permissions";
 import { api } from "@multica/core/api";
 import { isImeComposing } from "@multica/core/utils";
+import { isMentionBoundaryAfter } from "@multica/core/markdown";
 import type {
   Issue,
   ListIssuesCache,
@@ -35,6 +36,7 @@ import { cn } from "@multica/ui/lib/utils";
 import type { IssueStatus, ProjectStatus } from "@multica/core/types";
 import { PROJECT_STATUS_CONFIG } from "@multica/core/projects/config";
 import type { SuggestionOptions } from "@tiptap/suggestion";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { PluginKey } from "@tiptap/pm/state";
 import {
   getRecencyMap,
@@ -521,6 +523,21 @@ function projectToMention(p: { id: string; title: string; description?: string |
   };
 }
 
+/**
+ * True when the `@` at `pos` starts a token instead of continuing one.
+ *
+ * The rule itself — which characters make an `@` part of the word it follows,
+ * and why CJK needs the exception — lives in @multica/core/markdown, shared
+ * with the mobile composer so the two clients cannot drift apart.
+ */
+function isMentionBoundary(doc: ProseMirrorNode, pos: number): boolean {
+  if (pos <= 0) return true;
+  // Two units wide, so a code point outside the BMP arrives whole; one would
+  // hand back a lone surrogate. Across a block boundary this is the separator,
+  // which is not a word character either.
+  return isMentionBoundaryAfter(doc.textBetween(Math.max(0, pos - 2), pos, "\n", "\n"));
+}
+
 function matchesMentionQuery(item: MentionItem, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
@@ -623,6 +640,15 @@ export function createMentionSuggestion(
 
   return {
     pluginKey,
+    // The boundary rule is isMentionBoundary's, not Tiptap's default of "a
+    // half-width space and nothing else" (see the note there).
+    allowedPrefixes: null,
+    // Only open where the `@` starts a token: CJK typed with no separator
+    // (`你好@Mi`) or after a full-width space opens the picker, while an `@`
+    // glued to a word (`user@example.com`, `josé@example.com`) stays inert
+    // (MUL-7456).
+    shouldShow: ({ range, transaction }) =>
+      isMentionBoundary(transaction.doc, range.from),
     items: ({ query }) => {
       if (options.mode === "context") {
         const normalizedQuery = query.trim();
