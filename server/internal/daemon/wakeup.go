@@ -115,6 +115,10 @@ func (d *Daemon) runTaskWakeupConnection(ctx context.Context, runtimeIDs []strin
 
 	d.logger.Info("task wakeup websocket connected", "runtimes", len(runtimeIDs))
 	signalTaskWakeup(taskWakeups, "")
+	// A healthy reconnect is the strongest signal that a terminal callback
+	// stranded during an outage may now succeed. The buffered wakeup also
+	// preserves a connect that races replay-loop startup.
+	d.signalTerminalReportReplay()
 
 	// Serialize all writes through a single channel: the gorilla/websocket
 	// Conn does not allow concurrent WriteMessage calls, and the heartbeat

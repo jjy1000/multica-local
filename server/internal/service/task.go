@@ -1560,6 +1560,15 @@ func classifyFinalizeNoRows(existing db.AgentTaskQueue, action string) (*db.Agen
 // flipping to 'completed' and chat_session.session_id being refreshed,
 // causing the new task to resume against a stale (or NULL) session.
 func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string) (*db.AgentTaskQueue, error) {
+	task, _, err := s.CompleteTaskWithTransition(ctx, taskID, result, sessionID, workDir)
+	return task, err
+}
+
+// CompleteTaskWithTransition reports whether this call won the running ->
+// completed compare-and-swap. Callers with transaction-external side effects
+// must only run them when transitioned is true; a replay against an already
+// terminal task is still an idempotent success but must not emit them again.
+func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgtype.UUID, result []byte, sessionID, workDir string) (*db.AgentTaskQueue, bool, error) {
 	var task db.AgentTaskQueue
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
 		t, err := qtx.CompleteAgentTask(ctx, db.CompleteAgentTaskParams{
@@ -1612,7 +1621,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 						"current_status", existing.Status,
 						"agent_id", util.UUIDToString(existing.AgentID),
 					)
-					return task, nil
+					return task, false, nil
 				} else {
 					slog.Warn("complete task: invalid state for finalize",
 						"task_id", util.UUIDToString(taskID),
@@ -1620,7 +1629,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 						"agent_id", util.UUIDToString(existing.AgentID),
 						"error", classifyErr,
 					)
-					return nil, classifyErr
+					return nil, false, classifyErr
 				}
 			}
 			slog.Warn("complete task failed",
@@ -1637,7 +1646,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 				"lookup_error", lookupErr,
 			)
 		}
-		return nil, fmt.Errorf("complete task: %w", err)
+		return nil, false, fmt.Errorf("complete task: %w", err)
 	}
 
 	slog.Info("task completed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID))
@@ -1798,7 +1807,7 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 	// Broadcast
 	s.broadcastTaskEvent(ctx, protocol.EventTaskCompleted, task)
 
-	return &task, nil
+	return &task, true, nil
 }
 
 // FailTask marks a task as failed.
@@ -1818,6 +1827,14 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 // (via classifyPoisonedError, the timeout / runtime classifier, etc.)
 // will have their value preserved untouched.
 func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, failureReason string) (*db.AgentTaskQueue, error) {
+	task, _, err := s.FailTaskWithTransition(ctx, taskID, errMsg, sessionID, workDir, failureReason)
+	return task, err
+}
+
+// FailTaskWithTransition is the failure counterpart to
+// CompleteTaskWithTransition. The bool is false for an idempotent replay that
+// observed an already-terminal row.
+func (s *TaskService) FailTaskWithTransition(ctx context.Context, taskID pgtype.UUID, errMsg, sessionID, workDir, failureReason string) (*db.AgentTaskQueue, bool, error) {
 	// Strip bytes PostgreSQL cannot store before anything else reads errMsg, so
 	// the classifier, the transaction and every downstream consumer see the one
 	// text we will actually persist (GH #7098). Kept at the service boundary
@@ -1883,7 +1900,7 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 						"current_status", existing.Status,
 						"agent_id", util.UUIDToString(existing.AgentID),
 					)
-					return task, nil
+					return task, false, nil
 				} else {
 					slog.Warn("fail task: invalid state for finalize",
 						"task_id", util.UUIDToString(taskID),
@@ -1891,7 +1908,7 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 						"agent_id", util.UUIDToString(existing.AgentID),
 						"error", classifyErr,
 					)
-					return nil, classifyErr
+					return nil, false, classifyErr
 				}
 			}
 			slog.Warn("fail task failed",
@@ -1908,7 +1925,7 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 				"lookup_error", lookupErr,
 			)
 		}
-		return nil, fmt.Errorf("fail task: %w", err)
+		return nil, false, fmt.Errorf("fail task: %w", err)
 	}
 
 	slog.Warn("task failed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID), "error", errMsg, "failure_reason", failureReason)
@@ -1968,7 +1985,7 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 	// Broadcast
 	s.broadcastTaskEvent(ctx, protocol.EventTaskFailed, task)
 
-	return &task, nil
+	return &task, true, nil
 }
 
 // retryableReasons enumerates failure reasons that the auto-retry path is

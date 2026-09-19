@@ -120,6 +120,99 @@ func TestCompleteTask_ReconcilesMemberCommentPostedDuringRun(t *testing.T) {
 	}
 }
 
+// A daemon may replay /complete after the server committed but its response was
+// lost. The task CAS makes that replay a 200, but the handler must also skip the
+// transaction-external reconciliation; otherwise a follow-up that finished
+// between deliveries leaves no pending dedupe row and the same member comment
+// creates a second real agent run. Ports MUL-7471's replay gate; the fork's
+// fixture style is raw SQL (upstream uses the dbfx/testutil helpers).
+func TestCompleteTask_ReplayDoesNotCreateSecondFollowUp(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	var agentID, runtimeID string
+	if err := testPool.QueryRow(ctx,
+		`SELECT id, runtime_id FROM agent WHERE workspace_id = $1 AND runtime_id IS NOT NULL LIMIT 1`,
+		testWorkspaceID).Scan(&agentID, &runtimeID); err != nil {
+		t.Fatalf("setup: get agent: %v", err)
+	}
+
+	var issueID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO issue (workspace_id, title, status, priority, creator_id, creator_type, number, position, assignee_type, assignee_id)
+		VALUES ($1, 'replayed-complete fixture', 'in_progress', 'none', $2, 'member', 999009, 0, 'agent', $3)
+		RETURNING id
+	`, testWorkspaceID, testUserID, agentID).Scan(&issueID); err != nil {
+		t.Fatalf("setup: create issue: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM issue WHERE id = $1`, issueID) })
+
+	var triggerCommentID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, created_at)
+		VALUES ($1, $2, 'member', $3, 'initial request', 'comment', now() - interval '10 minutes')
+		RETURNING id
+	`, issueID, testWorkspaceID, testUserID).Scan(&triggerCommentID); err != nil {
+		t.Fatalf("setup: trigger comment: %v", err)
+	}
+
+	// The running task marks the trigger comment as already delivered so the
+	// mid-run reply below is the only reconcilable candidate.
+	var taskID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO agent_task_queue (agent_id, runtime_id, issue_id, trigger_comment_id, delivered_comment_ids, status, priority, created_at, started_at)
+		VALUES ($1, $2, $3, $4, ARRAY[$4::uuid], 'running', 0, now() - interval '10 minutes', now() - interval '5 minutes')
+		RETURNING id
+	`, agentID, runtimeID, issueID, triggerCommentID).Scan(&taskID); err != nil {
+		t.Fatalf("setup: running task: %v", err)
+	}
+	t.Cleanup(func() { testPool.Exec(ctx, `DELETE FROM agent_task_queue WHERE issue_id = $1`, issueID) })
+
+	// Fork note: upstream's fixture replies under the trigger comment, but the
+	// fork's isReplyToMemberThread guard suppresses assignee routing for member
+	// replies to member threads, so the undelivered comment here is top-level —
+	// the shape that earns exactly one follow-up on first completion (mirrors
+	// TestCompleteTask_ReconcilesMemberCommentPostedDuringRun).
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO comment (issue_id, workspace_id, author_type, author_id, content, type, created_at)
+		VALUES ($1, $2, 'member', $3, 'also handle this once', 'comment', now() - interval '1 minute')
+	`, issueID, testWorkspaceID, testUserID); err != nil {
+		t.Fatalf("setup: mid-run member comment: %v", err)
+	}
+
+	if w := completeTaskViaHandler(t, taskID, "done"); w.Code != http.StatusOK {
+		t.Fatalf("first CompleteTask: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var followUpID string
+	if err := testPool.QueryRow(ctx, `
+		SELECT id FROM agent_task_queue
+		WHERE issue_id = $1 AND agent_id = $2 AND id <> $3 AND status = 'queued'
+	`, issueID, agentID, taskID).Scan(&followUpID); err != nil {
+		t.Fatalf("setup: follow-up task missing after first completion: %v", err)
+	}
+	if _, err := testPool.Exec(ctx, `UPDATE agent_task_queue SET status = 'completed', completed_at = now() WHERE id = $1`, followUpID); err != nil {
+		t.Fatalf("setup: complete follow-up: %v", err)
+	}
+
+	if w := completeTaskViaHandler(t, taskID, "done"); w.Code != http.StatusOK {
+		t.Fatalf("replayed CompleteTask: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var total int
+	if err := testPool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_task_queue WHERE issue_id = $1 AND agent_id = $2`,
+		issueID, agentID).Scan(&total); err != nil {
+		t.Fatalf("count task rows: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("task rows after replay = %d, want original + exactly one follow-up", total)
+	}
+	if pending := pendingTaskCountForAgentIssue(t, issueID, agentID); pending != 0 {
+		t.Fatalf("replayed completion created %d additional pending follow-up(s)", pending)
+	}
+}
+
 // TestCompleteTask_NoReconcileWhenNoNewMemberComment guards against spurious
 // follow-ups: when no member comment arrived after the run started, completion
 // must not enqueue any new task.

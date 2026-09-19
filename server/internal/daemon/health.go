@@ -25,15 +25,22 @@ type HealthResponse struct {
 	// lifecycle CLI (`daemon start/stop`) acts on the host process namespace,
 	// so a foreign-OS daemon can't be started/stopped by the app even though
 	// /health is reachable. See #3916.
-	OS              string            `json:"os"`
-	Uptime          string            `json:"uptime"`
-	DaemonID        string            `json:"daemon_id"`
-	DeviceName      string            `json:"device_name"`
-	ServerURL       string            `json:"server_url"`
-	CLIVersion      string            `json:"cli_version"`
-	ActiveTaskCount int64             `json:"active_task_count"`
-	Agents          []string          `json:"agents"`
-	Workspaces      []healthWorkspace `json:"workspaces"`
+	OS              string `json:"os"`
+	Uptime          string `json:"uptime"`
+	DaemonID        string `json:"daemon_id"`
+	DeviceName      string `json:"device_name"`
+	ServerURL       string `json:"server_url"`
+	CLIVersion      string `json:"cli_version"`
+	ActiveTaskCount int64  `json:"active_task_count"`
+	// Terminal report queue diagnostics are additive and expose only counts and
+	// bytes, never payloads or local paths. Failed records require operator
+	// attention; pending records are still being replayed automatically.
+	PendingTerminalReportCount int               `json:"pending_terminal_report_count"`
+	PendingTerminalReportBytes int64             `json:"pending_terminal_report_bytes"`
+	FailedTerminalReportCount  int               `json:"failed_terminal_report_count"`
+	FailedTerminalReportBytes  int64             `json:"failed_terminal_report_bytes"`
+	Agents                     []string          `json:"agents"`
+	Workspaces                 []healthWorkspace `json:"workspaces"`
 }
 
 type healthWorkspace struct {
@@ -104,6 +111,15 @@ func (d *Daemon) healthHandler(startedAt time.Time) http.HandlerFunc {
 			ActiveTaskCount: d.activeTasks.Load(),
 			Agents:          agents,
 			Workspaces:      wsList,
+		}
+
+		if stats, err := d.terminalReports.stats(); err != nil {
+			d.logger.Warn("health: scan terminal report queue", "error", err)
+		} else {
+			resp.PendingTerminalReportCount = stats.PendingCount
+			resp.PendingTerminalReportBytes = stats.PendingBytes
+			resp.FailedTerminalReportCount = stats.FailedCount
+			resp.FailedTerminalReportBytes = stats.FailedBytes
 		}
 
 		w.Header().Set("Content-Type", "application/json")

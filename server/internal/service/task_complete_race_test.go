@@ -108,9 +108,12 @@ func TestCompleteTask_AlreadyFinalized(t *testing.T) {
 				Bus:     events.New(),
 			}
 
-			got, err := svc.CompleteTask(context.Background(), taskID, nil, "", "")
+			got, transitioned, err := svc.CompleteTaskWithTransition(context.Background(), taskID, nil, "", "")
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
+			}
+			if transitioned {
+				t.Fatal("already-finalized task reported a new completion transition")
 			}
 			if got == nil {
 				t.Fatal("expected task, got nil")
@@ -150,9 +153,12 @@ func TestFailTask_AlreadyFinalized(t *testing.T) {
 				Bus:     events.New(),
 			}
 
-			got, err := svc.FailTask(context.Background(), taskID, "agent crashed", "", "", "")
+			got, transitioned, err := svc.FailTaskWithTransition(context.Background(), taskID, "agent crashed", "", "", "")
 			if err != nil {
 				t.Fatalf("expected no error, got %v", err)
+			}
+			if transitioned {
+				t.Fatal("already-finalized task reported a new failure transition")
 			}
 			if got == nil {
 				t.Fatal("expected task, got nil")

@@ -2739,7 +2739,7 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.TaskService.CompleteTask(r.Context(), parseUUID(taskID), result, req.SessionID, req.WorkDir)
+	task, transitioned, err := h.TaskService.CompleteTaskWithTransition(r.Context(), parseUUID(taskID), result, req.SessionID, req.WorkDir)
 	if err != nil {
 		// 0.3.43: don't leak pgx/sqlc constraint strings to the
 		// daemon. The previous `err.Error()` body could include
@@ -2753,6 +2753,15 @@ func (h *Handler) CompleteTask(w http.ResponseWriter, r *http.Request) {
 			"task_id", taskID, "err", err,
 		)
 		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if !transitioned {
+		// Idempotent replay of an already-terminal task (durable terminal-
+		// report replay, response lost after commit). Every side effect
+		// below is transaction-external and was already emitted by the
+		// first delivery — re-running it would duplicate follow-up
+		// enqueues and notifications.
+		writeJSON(w, http.StatusOK, taskToResponse(*task, workspaceID))
 		return
 	}
 
@@ -3279,10 +3288,17 @@ func (h *Handler) FailTask(w http.ResponseWriter, r *http.Request) {
 // transaction, token revocation and runtime wake-up as one the daemon reported
 // as failed itself.
 func (h *Handler) failTask(w http.ResponseWriter, r *http.Request, taskID, workspaceID string, req TaskFailRequest) {
-	task, err := h.TaskService.FailTask(r.Context(), parseUUID(taskID), req.Error, req.SessionID, req.WorkDir, req.FailureReason)
+	task, transitioned, err := h.TaskService.FailTaskWithTransition(r.Context(), parseUUID(taskID), req.Error, req.SessionID, req.WorkDir, req.FailureReason)
 	if err != nil {
 		slog.Warn("fail task failed", "task_id", taskID, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !transitioned {
+		// Idempotent replay of an already-terminal task; the transaction-
+		// external side effects below were already emitted by the first
+		// delivery and must not run again.
+		writeJSON(w, http.StatusOK, taskToResponse(*task, workspaceID))
 		return
 	}
 
