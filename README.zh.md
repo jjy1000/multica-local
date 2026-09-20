@@ -4,6 +4,10 @@
 
 同一个「人类 + AI agent 共用一张任务看板」的托管 agent 平台，砍掉遥测 / OAuth / 云运行时 / 自动更新，重新配置为 macOS 上单用户自包含桌面工具。
 
+<p align="center">
+  <a href="./README.md">🇬🇧 English</a> &nbsp;&nbsp;|&nbsp;&nbsp; <a href="./README.zh.md"><b>🇨🇳 中文</b></a>
+</p>
+
 [![License](https://img.shields.io/badge/License-Apache_2.0_with_additions-blue)](./LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20arm64-lightgrey)](https://github.com/jjy1000/multica-local/releases)
 

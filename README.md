@@ -4,10 +4,14 @@
 
 Same managed-agents platform — humans and AI teammates sharing one task board — reconfigured for one user on macOS, with telemetry, OAuth, cloud runtime, and the auto-updater removed.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0_with_additions-blue)](./LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-macOS%20arm64-lightgrey)](https://github.com/jjy1000/multica-local/releases)
+<p align="center">
+  <a href="./README.md"><b>🇬🇧 English</b></a> &nbsp;&nbsp;|&nbsp;&nbsp; <a href="./README.zh.md">🇨🇳 中文</a>
+</p>
 
 ---
+
+[![License](https://img.shields.io/badge/License-Apache_2.0_with_additions-blue)](./LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20arm64-lightgrey)](https://github.com/jjy1000/multica-local/releases)
 
 ## Why This Fork Exists
 
