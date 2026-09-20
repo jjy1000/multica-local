@@ -259,18 +259,31 @@ multica issue create --title "Ship"       --parent <id> --assignee <agent> --sta
 ```
 
 When both Stage 1 sub-issues finish you (the parent assignee) are woken with a
-"Stage 1 complete" comment. Inspect the layout, then promote the next stage:
+stage-closed comment. Inspect the layout, then promote the next stage:
 
 ```bash
 multica issue children <parent-id>             # sub-issues grouped by stage
 multica issue status <stage-2-child-id> todo   # promote when its deps are met
 ```
 
+**Cancelled is not done in the wake comment** (0.5.109): `cancelled` closes the
+barrier exactly like `done`, but the comment no longer folds the two together.
+A stage with zero cancellations still reads "complete"; a stage that contains
+cancelled sub-issues reads "closed — its last sub-issue … was just cancelled",
+its progress line counts them separately ("Stage 1: 1/3 done, 2 cancelled"),
+and the closing instruction appends an explicit warning: confirm the cancelled
+work is not something the next stage depends on before advancing; if unsure,
+do not promote yet — post a comment to confirm first. Treat a closed stage as
+"finished", never "successful": a cancelled sub-issue delivered nothing and
+must not be read as a satisfied dependency. The same warning fires for an
+unstaged sibling set when any child was cancelled.
+
 `issue children --output json` reports per-stage `done` counts. A workspace may
-define custom statuses beyond the 7 built-ins; a custom status counts as done
-here when its category is `done` or `cancelled`, which is what `status_category`
-on each child carries. Read `status_category` rather than matching `status`
-against the built-in names.
+define custom statuses beyond the 7 built-ins; a custom status counts as
+terminal here when its category is `done` or `cancelled` (`done` counts as
+done, `cancelled` counts separately in the wake comment), which is what
+`status_category` on each child carries. Read `status_category` rather than
+matching `status` against the built-in names.
 
 Read each sub-issue's description before promoting and only promote items whose
 stated dependencies are met; if a description conflicts with the parent's

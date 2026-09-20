@@ -127,7 +127,7 @@ and is hidden from the PR list.
 | `shouldEnqueueAgentTask` returns false for `backlog` (parking lot) | `server/internal/handler/issue.go:2644-2648` | new citation |
 | Backlog → non-backlog (not done/cancelled) enqueues on update | `server/internal/handler/issue.go:2537-2540` | `:2523` |
 | Same contract in batch update | `server/internal/handler/issue.go:3021-3024` | new citation |
-| Child → `done` notifies + wakes the parent, gated by the stage barrier | `server/internal/handler/issue_child_done.go:66` (`notifyParentOfChildDone`; doc comment at `:15`; barrier gate at `:115`) | func def `:51` |
+| Child → `done` notifies + wakes the parent, gated by the stage barrier | `server/internal/handler/issue_child_done.go:79` (`notifyParentOfChildDone`; doc comment at `:17`; barrier gate at `:151`) | func def `:51` |
 | Status change (incl. → `cancelled`) does NOT cancel in-flight tasks; only issue deletion does (MUL-4465) | no-cancel note in `server/internal/handler/issue.go:2652-2658` (`UpdateIssue`) and `:3170-3171` (`BatchUpdateIssues`); deletion still cancels at `:2863` (`DeleteIssue`) / `:3239` (`BatchDeleteIssues`) via `CancelTasksForIssue` (`server/internal/service/task.go:1229`) | new citation |
 | `StartTask` / `CompleteTask` do not write issue status (agent CLI owns progress) | `server/internal/service/task.go` (`StartTask` / `CompleteTask` comments) | new citation |
 | Runtime brief: ordinary agent `in_progress` then `in_review` (Ownership mode unconditionally, Reply mode only for work turns on its own issue); squad leader `in_progress` only on first dispatch | `server/internal/daemon/execenv/runtime_config_sections.go` (`writeWorkflowIssue`) | new citation |
@@ -165,18 +165,25 @@ on those assignments creating their normal queued runs.
 | Behavior | File:line |
 |---|---|
 | `issue.stage` column (nullable, `>= 1`) | `server/migrations/123_issue_stage.up.sql` |
-| Stage barrier: notify+wake fire only when the lowest unfinished stage is all-terminal; unstaged set = one implicit stage | `server/internal/handler/issue_child_done.go:231` (`stageBarrierClosed`) |
-| Per-stage summary + next stage for the wake comment | `server/internal/handler/issue_child_done.go:254` (`stageProgressSummary`) |
+| Stage barrier: notify+wake fire only when the lowest unfinished stage is all-terminal; unstaged set = one implicit stage | `server/internal/handler/issue_child_done.go:335` (`stageBarrierClosed`; call site `:151`) |
+| Effective-status snapshot feeding barrier + wording (custom statuses resolved via `issuestatus.Effective`; fail-safe — an unparseable key reads non-terminal, so the barrier stays closed) | `server/internal/handler/issue_child_done.go:297` (`resolveChildStatuses`; `status`/`isTerminal` methods at `:283`/`:287`) |
+| Per-stage summary + next stage for the wake comment; `done`/`cancelled` counted separately since 0.5.109 (", N cancelled" suffix; next-stage "(next)" marker only when `terminal < total`) | `server/internal/handler/issue_child_done.go:370` (`stageProgressSummary`) |
+| 0.5.109 cancelled distinction: "closed … was just cancelled" headline branch, counted advance warning ("confirm that the cancelled work is not something Stage N depends on"), unstaged-set warning | `server/internal/handler/issue_child_done.go:183-191` (headline branch), `:417` (`countStageCancelled`), `:456` (`stageAdvanceInstruction` warning append), `:435` + `:475` (`anyCancelledChildren` / `unstagedCancellationInstruction`) |
+| No-cancellation wording byte-identical to pre-0.5.109 output | `server/internal/handler/issue_child_done_cancelled_test.go` (string-set regression) |
 | `--stage` on `issue create` / `issue update` | `server/cmd/multica/cmd_issue.go:328,350` |
 | `multica issue children <id>` (sub-issues grouped by stage) | `server/cmd/multica/cmd_issue.go:114,678`; stage `done` counting via `isTerminalChildIssue` (reads `status_category`, MUL-6243); route `GET /api/issues/{id}/children` → `ListChildIssues` |
 
 Advancement is agent-driven: the server only detects the closed barrier and
 wakes the parent assignee. Promoting the next stage's `backlog` sub-issues to
-`todo` is the woken agent's decision, not a server side effect. When the woken
-assignee (often a squad leader) decides the parent is complete, the system
-comment explicitly asks for `multica issue status <parent-id> in_review`. A
-reply turn may move the status on its own too, but only when the issue is
-assigned to that agent and the turn actually delivered work.
+`todo` is the woken agent's decision, not a server side effect. When the last
+stage closes, the comment tells the woken assignee to wrap up the parent —
+synthesize the results and move it forward, or close it out if nothing
+remains (`issue_child_done.go:464`); it does NOT name a target status. (An
+earlier revision of this map claimed the comment explicitly asks for
+`multica issue status <parent-id> in_review` — that sentence does not exist
+in the code; corrected 2026-09-20.) A reply turn may move the status on its
+own too, but only when the issue is assigned to that agent and the turn
+actually delivered work.
 
 ## Metadata CLI
 
@@ -209,5 +216,6 @@ grep -n 'func issuePullRequestRowToResponse\|type GitHubPullRequestResponse stru
 grep -n 'extractIdentifiers(\|extractClosingIdentifiers(\|derivePRState(' internal/handler/github.go
 grep -n 'qualifyingIdents\|reference_only\|ReferenceOnly' internal/handler/github.go pkg/db/queries/github.sql
 grep -n 'prevIssue.Status == "backlog"\|func (h \*Handler) shouldEnqueueAgentTask' internal/handler/issue.go
-grep -n 'func notifyParentOfChildDone'       internal/handler/issue_child_done.go
+grep -n 'func (h \*Handler) notifyParentOfChildDone' internal/handler/issue_child_done.go
+grep -n 'func countStageCancelled\|func stageAdvanceInstruction\|func resolveChildStatuses' internal/handler/issue_child_done.go
 ```

@@ -80,6 +80,57 @@ healthy-runtime catalog reads are memoized by `cachedDiscovery`, so a second
 read is cheap. If a future port needs the at-most-once contract, port that
 refactor alongside.
 
+## 0.5.109 — daemon terminal-report reliability + streaming (landed)
+
+Upstream port batch (12 ports / 10 skips; ledger
+`.omc/upstream-sync-2026-09-19.md`). Surfaces a future edit must know about:
+
+- **Terminal-report outbox** (`internal/daemon/terminal_report_queue.go`,
+  MUL-7471): daemon persists every complete/fail report to
+  `<WorkspacesRoot>/.pending-terminal-reports/` BEFORE sending
+  (temp+rename+file fsync; dir fsync no-op on Windows via the
+  `_sync_windows.go` build tag). A replay loop (boot + backoff ≤5min, woken
+  by the `terminal-report-replay` background loop) retries pending records;
+  a nil-store guard skips configs without `WorkspacesRoot`. Corrupt records
+  are kept for forensics and logged, never deleted or crash-looped.
+  Resource GC will NOT collect the dot-dir (no `.task_owner`/`.gc_meta.json`).
+  The persisted record carries the fork client field set only — upstream's
+  `sessionRolloutMissing`/`retiredSessionID`/`durableWorkDir` were NOT
+  back-filled (would ripple through every backend's result path).
+- **`transitioned` gate** (MUL-7471): `service.CompleteTask`/`FailTask`
+  return a second bool (true only when THIS call performed the terminal
+  transition). Handler paths gate transaction-external side effects
+  (`emitIssueExecutedOnFirstCompletion`, token revocation, comment
+  reconcile) on it — an already-finalized CompleteTask used to return 200
+  and REPLAY those effects. Fork's `CompleteTask` has 4 exits (incl. the H3
+  `classifyFinalizeNoRows` branch); all error exits return false.
+- **Codex delta streaming** (MUL-7465): `pkg/agent/codex.go` aggregates
+  `item/agentMessage/delta` through `codexAgentMessageStream` (shared
+  scanner in `stream_scanner.go`, `agentStreamMaxLineBytes` = 10 MiB, fork's
+  old inline value — upstream's 32 MiB came from unported MUL-5722) and
+  flushes whole pending chunks on the leading edge; daemon's drain loop has
+  5 `flushFirstVisible()` points so the first visible chunk reaches the
+  server without waiting for the ticker. Transcripts merge by `seq` on both
+  write paths, so cross-POST arrival order cannot corrupt render order
+  (pinned by test after a real race was observed).
+- **hermes bounded shutdown** (MUL-5241): `WaitDelay` = 10s + `reapProcess`
+  (sync.Once, per-cmd). An escaped descendant holding the pipes can no
+  longer wedge the reader joins forever. Do not "simplify" the
+  reap-before-join ordering — the deferred cleanup joining readers BEFORE
+  closing `msgCh` is what closes the send-after-close panic window.
+- **pi turn-error guard** (MUL-7467): `piTurnErrorGuard` records
+  turn_end `stopReason=error`, clears on real recovery events, and fails a
+  silently-hung errored turn after the grace timer; cancelled turns keep
+  the provider error. stderr is self-managed via `StderrPipe` + `io.Copy`
+  into the same logWriter — `cmd.Stderr = newLogWriter` alone lets os/exec
+  own an internal pipe whose drain stalls finalization when an escaped
+  descendant inherits stderr (measured 3.29s vs 345ms fixed).
+- **taskfailure cursor classification** (afedc6f76):
+  `isCursorProviderNetworkError` prefix-matches cursor connect-timeout
+  wrappers into `ReasonAgentProviderNetwork` instead of the process-failure
+  bucket. Fork has no `shouldRetryWithFreshSession`/`Result.ResumeRejected`
+  (upstream's resume-preservation consumer) — do not cite them.
+
 ## Localized fork contract (do NOT re-add)
 
 - **No telemetry.** `analytics.NewFromEnv()` always returns `NoopClient{}`. The

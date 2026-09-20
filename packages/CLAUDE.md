@@ -46,7 +46,19 @@ Packages export raw `.ts` / `.tsx`; consuming apps compile them. Direction:
 - Persist durable prefs/drafts/layout only; never persist server data or ephemeral
   UI state. Zustand selectors must return stable references.
 - Hooks needing workspace context accept `wsId`; don't call `useWorkspaceId()`
-  internally unless guaranteed to run under the provider.
+  internally unless guaranteed to be under the provider.
+
+## Realtime transcript streaming (0.5.109)
+
+`core/realtime/use-realtime-sync.ts` writes task-message WS frames into the
+MUL-6396 100ms batch window, EXCEPT the leading edge of a burst, which goes
+out immediately so streamed agent output (Codex deltas since 0.5.109) appears
+without window latency. Both write paths merge through
+`mergeTaskMessagesBySeq` (core/chat/queries.ts) — seq-sorted and deduped —
+so cross-POST arrival order can never reach the render order. When touching
+either path, keep the seq merge; arrival order between the leading-edge POST
+and the windowed POST is genuinely racy by design (daemon flushes from two
+goroutines).
 
 ## Commands
 
