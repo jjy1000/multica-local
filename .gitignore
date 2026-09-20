@@ -58,6 +58,15 @@ apps/web/test-results/
 # feature tracking
 _features/
 
+# local dev workspace — never publish (per-user cross-session memory + ship
+# notes + post-mortems + agent observation state). Keep locally; never push.
+.omc/
+CLAUDE.md
+AGENTS.md
+memory/
+.mimosa/
+.code-review-graph/
+
 # runtime
 *.pid
 
