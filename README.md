@@ -36,7 +36,7 @@ See **[`docs/FORK_DIFF.zh.md`](./docs/FORK_DIFF.zh.md)** for a Chinese compariso
 | **External support UI** | HelpLauncher, Discord, FeedbackModal | Deleted |
 | **Primary target** | Cloud web + Electron desktop | macOS desktop (Electron) — self-contained, bundled Postgres, signed nested binaries |
 | **Login model** | Persistent identity with workspace binding | Username-only; new user row on every login (intentional — typo-bound ownership is safer than auto-binding) |
-| **Labs & experimental surfaces** | Standard | Preserved with full flag catalog; the user's `interaction_model` widening and `auto-dispatch` opt-out live on top |
+| **Labs & experimental surfaces** | Standard | **Full flag catalog preserved + 7 labs shipped out-of-the-box.** All labs are **off by default** — manually enable in the **Labs tab** (sidebar). Some auto-dispatch on task assignment; some need an explicit "Run research" button. See [Labs section](#labs--experimental-surfaces) below. |
 | **Upstream sync** | n/a | Manual diff transplants per release, batched by domain, with deep-dive research agents and per-file sanity gates |
 
 Full feature parity on the platform itself: same Go backend (handlers, migrations, WS push), same Electron renderer, same shared packages, same React Native mobile, same Labs catalog. Everything that did not exist to feed the cloud business is still here.
@@ -57,6 +57,66 @@ The prebuilt 0.5.109 desktop app is published as a DMG on the [Releases](../../r
 The desktop app is fully self-contained: it spawns its own Postgres, its own backend on `:8090`, its own daemon, and the renderer in the same `.app` bundle. No external services, no auth, no telemetry.
 
 To build from source, see **[`CONTRIBUTING.md`](./CONTRIBUTING.md)** (single shared Postgres, one database per checkout, worktree-isolated dev model).
+
+---
+
+## Labs — Experimental Surfaces
+
+Labs are **opt-in AI surfaces** that activate specialized research / simulation / agent modes on top of the standard issue board. They are **off by default** and require manual enablement in the **Labs tab** (the only entry point — there is no plugin loader, no auto-discovery, no CLI shortcut).
+
+### Labs shipped in this build
+
+| Lab | What it does | Auto-dispatch | How to trigger |
+| --- | --- | --- | --- |
+| **`pythia_oracle`** | Loopback Python forecast / probability-simulation engine. Edits `issue.lab_source` and renders prediction deltas on the issue timeline. | ❌ opt-out | Open `/experimental/pythia-report` panel or click **Run research** in `IssueLabsSection` |
+| **`mythos_swarm`** | 5-agent debate / consensus engine (`mythos_prelude` leader + `mythos_loop_{coder,researcher,analyst}` + `mythos_coda`). Sole mode only — no enhancer. | ✅ | Set `issue.lab_source = 'mythos_swarm'`, swarm dispatches automatically |
+| **`claude_science_lab`** | Claude Code-style science research loop with an inline Python sandbox | ✅ | Assign task + set `lab_source`, agent dispatches |
+| **`timesfm`** | Time-series forecasting (records-only — never auto-triggers; predictions land on the issue timeline for review) | ❌ opt-out | View predictions on issue timeline once flag is on |
+| **`llm_wiki_bridge`** | Local LLM Wiki vault search exposed as an agent skill (autopilot / agent delegates can consult it) | ✅ auxiliary | Auxiliary — manual assignee; agent consults bridge during execution |
+| **`causal_graph`** | Causal edge proposer across issues; Tier A→D trust ladder, Tier D lands `status='suggested'` at confidence ≤ 0.5 | ❌ opt-out auxiliary | Background — no manual trigger; surfaces suggestions in the Causal Graph tab once flag is on |
+| **`semantica`** | Semantic similarity search across workspace content | ✅ | Agent-side, automatic |
+| **`user_*` plugins** | Your own custom lab via a plugin manifest — drop JSON in `apps/desktop/resources/experiments/<key>/manifest.json` | per-manifest | Visit `/experimental/plugin/<slug>` after install |
+
+### How to enable a lab
+
+1. Open Multica → click **Labs** in the sidebar (the only entry point).
+2. Toggle the flag for the lab you want on.
+3. **For auto-dispatch labs** (`mythos_swarm`, `claude_science_lab`, `semantica`, etc.) — assign a task; the lab leader agent picks it up.
+4. **For opt-out labs** (`pythia_oracle`, `timesfm`, `causal_graph`) — open the relevant route / panel and click **Run research** explicitly. They will not trigger from task assignment.
+5. CLI hint: `multica lab delegate` exists but fails fast if you name an auto-dispatch=false lab as the delegate target — by design.
+
+### Fork-local lab hardening
+
+- **Lab ↔ Assignee Mutex** (Active Contract #2): labs classified `assignee` take over the `assignee_*` slot; auxiliary labs (`llm_wiki_bridge`, `causal_graph`) accept a manual assignee instead. Server auto-rewrites `assignee_*` on `lab_source` flip via `assignDefaultLabAgentOnUpdate`.
+- **Frozen labs** (`swarm_topology`, retired 0.5.105 audit H3): catalog keeps a `Frozen: true` tombstone; new `lab_source='swarm_topology'` bindings 400. Successor is `mythos_swarm`.
+- **Two independent "is it on" states** (0.5.106 bug fixed in 0.5.107): `user_plugin.status` ≠ the Labs toggle (`experimental_pref`). They are not coupled — both must be on for the plugin to be invokable.
+
+### Plugin authoring (advanced)
+
+Labs are NOT a plugin loader — there is no dynamic module loading. To add a `user_*` lab:
+
+```bash
+# 1. Drop manifest
+mkdir -p apps/desktop/resources/experiments/my_lab
+cat > apps/desktop/resources/experiments/my_lab/manifest.json <<'EOF'
+{
+  "flag_key": "user_my_lab",
+  "name": "My Lab",
+  "runtime_kind": "inline",
+  "interaction_model": "assignee",
+  "auto_dispatch": false
+}
+EOF
+
+# 2. Register in catalog
+# server/internal/experimental/catalog.go: append Flag entry with user_ prefix
+# + create migration if your flag needs DB-backed prefs
+
+# 3. Rebuild bundle-cli
+cd apps/desktop && pnpm bundle-cli && pnpm build
+```
+
+Then `pnpm --filter @multica/desktop bundle-cli` mirrors it into the packaged resources.
 
 ---
 

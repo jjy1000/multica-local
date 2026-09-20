@@ -38,7 +38,7 @@
 | **外部支持 UI** | HelpLauncher、Discord、FeedbackModal | 删除 |
 | **首要交付物** | 云 Web + Electron 桌面 | macOS 桌面（Electron）——自包含、打包 Postgres、嵌套二进制已签名 |
 | **登录模型** | 持久身份 + workspace 绑定 | 仅 username；每次登录 upsert 新用户（有意为之——typo 自动绑定会让所有权拱手送人） |
-| **Labs & 实验面** | 标准 | 完整保留 flag catalog；fork 的 `interaction_model` 加宽 + `auto-dispatch` opt-out 都铺在上面 |
+| **Labs & 实验面** | 标准 | **完整保留 flag catalog，开箱即用 7 个 lab**。所有 lab **默认关闭** —— 必须在 sidebar 的 **Labs 标签页**手动启用。有的自动调度，有的需要显式「Run research」按钮。详见下方 [Labs 章节](#labs--实验面) |
 | **上游同步** | n/a | 每次发版手动 diff 移植，按域分批，deep-dive research agent + per-file sanity gate |
 
 平台本体**全功能对等**：同一套 Go 后端（handlers、migrations、WS push）、同一套 Electron renderer、同一套共享 packages、同一套 React Native 移动、同一套 Labs catalog。所有不为云业务存在的功能都还在。
@@ -59,6 +59,66 @@
 桌面 App 全自包含：自带 Postgres、自带后端（:8090）、自带 daemon、自带 renderer，全在同一个 `.app` bundle 里。没有外部服务、没有认证、没有遥测。
 
 从源码构建见 [`CONTRIBUTING.md`](./CONTRIBUTING.md)（共享 Postgres，每 checkout 一个 DB，worktree 隔离开发模型）。
+
+---
+
+## Labs — 实验面
+
+Labs 是**可选启用的 AI 表面**，在标准任务看板之上激活专门的研究 / 推演 / agent 模式。它们**默认全部关闭**，需要在 sidebar 的 **Labs 标签页**手动启用（唯一入口 —— 没有 plugin loader、没有自动发现、没有 CLI 快捷方式）。
+
+### 本版本内置的 lab
+
+| Lab | 功能 | 自动调度 | 触发方式 |
+| --- | --- | --- | --- |
+| **`pythia_oracle`** | Loopback Python 推演 / 概率仿真引擎。改 `issue.lab_source`，在 issue timeline 渲染预测 delta | ❌ opt-out | 打开 `/experimental/pythia-report` 面板或在 `IssueLabsSection` 点 **Run research** |
+| **`mythos_swarm`** | 5 agent 辩论 / 共识引擎（`mythos_prelude` leader + `mythos_loop_{coder,researcher,analyst}` + `mythos_coda`）。仅 sole 模式 | ✅ | 设 `issue.lab_source = 'mythos_swarm'`，swarm 自动 dispatch |
+| **`claude_science_lab`** | Claude Code 风格 science research 循环 + 内联 Python sandbox | ✅ | 分配任务 + 设 `lab_source`，agent 自动 dispatch |
+| **`timesfm`** | 时间序列预测（records-only —— 永不自动触发；预测落在 issue timeline 上供查看） | ❌ opt-out | flag 开启后在 issue timeline 上查看预测 |
+| **`llm_wiki_bridge`** | 把本地 LLM Wiki 知识库作为 agent skill 暴露（autopilot / agent delegate 可查询） | ✅ auxiliary | auxiliary —— 手动 assignee；agent 执行期间调用 bridge |
+| **`causal_graph`** | 跨 issue 因果边 proposer；Tier A→D 信任阶梯，Tier D 在 confidence ≤ 0.5 时落 `status='suggested'` | ❌ opt-out auxiliary | 后台 —— 无手动触发；flag 开启后在 Causal Graph tab 看到建议 |
+| **`semantica`** | workspace 内容的语义相似度搜索 | ✅ | agent 侧自动 |
+| **`user_*` 插件** | 通过 plugin manifest 自定义 lab —— JSON 丢进 `apps/desktop/resources/experiments/<key>/manifest.json` | per-manifest | 安装后访问 `/experimental/plugin/<slug>` |
+
+### 怎么启用一个 lab
+
+1. 打开 Multica → sidebar 点 **Labs**（唯一入口）
+2. toggle 想开的 lab flag
+3. **自动调度 lab**（`mythos_swarm` / `claude_science_lab` / `semantica` 等）—— 分配任务，lab leader agent 自动接
+4. **opt-out lab**（`pythia_oracle` / `timesfm` / `causal_graph`）—— 打开对应路由/面板显式点 **Run research**。任务分配不会触发它们
+5. CLI 提示：`multica lab delegate` 存在但你指定 auto-dispatch=false 的 lab 当 delegate 时会快速失败 —— 这是有意的
+
+### Fork 本地 lab 硬化
+
+- **Lab ↔ Assignee 互斥**（Active Contract #2）：分类为 `assignee` 的 lab 接管 `assignee_*` 槽位；auxiliary lab（`llm_wiki_bridge`、`causal_graph`）接受手动 assignee。服务端在 `lab_source` 翻转时通过 `assignDefaultLabAgentOnUpdate` 自动改写 `assignee_*`
+- **Frozen lab**（`swarm_topology`，0.5.105 审计 H3 退役）：catalog 留 `Frozen: true` 墓碑；新 `lab_source='swarm_topology'` 绑定 400。继任者是 `mythos_swarm`
+- **两个独立的「是否启用」状态**（0.5.106 bug，0.5.107 修复）：`user_plugin.status` ≠ Labs toggle（`experimental_pref`）。两者不耦合 —— 插件要被调用必须都开
+
+### 写自己的 lab plugin（高级）
+
+Lab **不是** plugin loader —— 没有动态模块加载。加一个 `user_*` lab：
+
+```bash
+# 1. 丢 manifest
+mkdir -p apps/desktop/resources/experiments/my_lab
+cat > apps/desktop/resources/experiments/my_lab/manifest.json <<'EOF'
+{
+  "flag_key": "user_my_lab",
+  "name": "My Lab",
+  "runtime_kind": "inline",
+  "interaction_model": "assignee",
+  "auto_dispatch": false
+}
+EOF
+
+# 2. 在 catalog 注册
+# server/internal/experimental/catalog.go: 追加带 user_ 前缀的 Flag 条目
+# + 如果你的 flag 需要 DB-backed prefs 就写 migration
+
+# 3. 重打 bundle-cli
+cd apps/desktop && pnpm bundle-cli && pnpm build
+```
+
+然后 `pnpm --filter @multica/desktop bundle-cli` 把它镜像到打包后的 resources 里。
 
 ---
 
