@@ -124,4 +124,4 @@ Chinese comparison doc: **[`docs/FORK_DIFF.zh.md`](./docs/FORK_DIFF.zh.md)**.
 
 ---
 
-🇨🇳 中文用户：从上游 [multica-ai/multica](https://github.com/multica-ai/multica) 派生。详细对比与本 fork 的取舍理由见 **[`docs/FORK_DIFF.zh.md`](./docs/FORK_DIFF.zh.md)**。
+🇨🇳 中文用户：完整中文版见 **[`README.zh.md`](./README.zh.md)**。详细对比见 **[`docs/FORK_DIFF.zh.md`](./docs/FORK_DIFF.zh.md)**。
