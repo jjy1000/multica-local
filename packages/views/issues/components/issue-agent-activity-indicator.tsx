@@ -2,6 +2,7 @@
 
 import { memo, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ShimmerText } from "@multica/ui/components/common/shimmer-text";
 import {
   HoverCard,
   HoverCardTrigger,
@@ -10,7 +11,6 @@ import {
 import { useWorkspaceId } from "@multica/core/hooks";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import type { AgentTask } from "@multica/core/types";
-import { cn } from "@multica/ui/lib/utils";
 import { AgentAvatarStack } from "../../agents/components/agent-avatar-stack";
 import { AgentActivityHoverContent } from "../../agents/components/agent-activity-hover-content";
 import { useT } from "../../i18n";
@@ -51,9 +51,8 @@ interface IssueAgentActivityIndicatorProps {
  *   - 0 running, ≥1 queued → half-opacity stack + muted "Queued"
  *   - nothing               → return null (no chrome, no placeholder)
  *
- * The shimmer reuses chat's `animate-chat-text-shimmer` utility (defined
- * in packages/ui/styles/base.css). Earlier iterations layered a brand
- * ring + opacity pulse around the avatars; both read as nervous on a
+ * The shimmer shares chat's ShimmerText component. Earlier iterations layered
+ * a brand ring + opacity pulse around the avatars; both read as nervous on a
  * dense board. Moving the "alive" signal onto the label keeps the
  * avatars themselves still and lets the cue ride a piece of text the
  * user can already read.
@@ -123,18 +122,14 @@ export const IssueAgentActivityIndicator = memo(function IssueAgentActivityIndic
           opacity={opacity}
           max={3}
         />
-        <span
-          className={cn(
-            "text-[10px] leading-none",
-            isRunning
-              ? "animate-chat-text-shimmer"
-              : "text-muted-foreground",
-          )}
+        <ShimmerText
+          active={isRunning}
+          className="text-[10px] leading-none text-muted-foreground"
         >
           {isRunning
             ? t(($) => $.agent_activity.status_running)
             : t(($) => $.agent_activity.status_queued)}
-        </span>
+        </ShimmerText>
       </HoverCardTrigger>
       <HoverCardContent align="end" className="w-72">
         <AgentActivityHoverContent tasks={hoverTasks} />
