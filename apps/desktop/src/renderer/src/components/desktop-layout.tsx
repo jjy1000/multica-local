@@ -2,6 +2,7 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion } from "motion/react";
 import { cn } from "@multica/ui/lib/utils";
+import { MulticaIcon } from "@multica/ui/components/common/multica-icon";
 import { useTabHistory } from "@/hooks/use-tab-history";
 import { useActiveTitleSync } from "@/hooks/use-tab-sync";
 import { useTabStore, resolveRouteIcon } from "@/stores/tab-store";
@@ -20,6 +21,7 @@ import { getCurrentSlug, subscribeToCurrentSlug } from "@multica/core/platform";
 import { useDesktopUnreadBadge } from "@multica/views/platform";
 import { DesktopNavigationProvider } from "@/platform/navigation";
 import { suppressNextWorkspaceRelease } from "@/platform/workspace-singleton-release-guard";
+import { useT } from "@multica/views/i18n";
 import { TabBar } from "./tab-bar";
 import { TabContent } from "./tab-content";
 import { WindowOverlay } from "./window-overlay";
@@ -104,9 +106,9 @@ function useNativeNavigationGestures() {
 // The main area's top bar doubles as a window drag region. When the sidebar
 // is not occupying main-flow width, leave room for the fixed window toolbar
 // so tabs do not land beneath the traffic lights / navigation controls.
-function MainTopBar() {
+function MainTopBar({ sidebarMounted }: { sidebarMounted: boolean }) {
   const { state, isMobile } = useSidebar();
-  const sidebarHidden = state === "collapsed" || isMobile;
+  const sidebarHidden = !sidebarMounted || state === "collapsed" || isMobile;
 
   return (
     <motion.header
@@ -133,9 +135,17 @@ function MainTopBar() {
 // The canvas hugs the expanded sidebar with a hairline gap. When the sidebar
 // leaves the main flow, the left margin must grow to mirror the fixed mr-2 so
 // the floating canvas sits symmetrically inside the window frame.
-function MainCanvas({ children }: { children: React.ReactNode }) {
+function MainCanvas({
+  children,
+  showWorkspaceLoading,
+}: {
+  children: React.ReactNode;
+  showWorkspaceLoading: boolean;
+}) {
   const { state, isMobile } = useSidebar();
+  const { t } = useT("layout");
   const sidebarHidden = state === "collapsed" || isMobile;
+  const loadingLabel = t(($) => $.workspace_loader.loading_workspace);
 
   return (
     <motion.div
@@ -145,6 +155,19 @@ function MainCanvas({ children }: { children: React.ReactNode }) {
       transition={toolbarMotion}
     >
       {children}
+      {showWorkspaceLoading && (
+        <div
+          aria-label={loadingLabel}
+          aria-live="polite"
+          className="absolute inset-0 z-20 flex items-center justify-center bg-page-canvas"
+          role="status"
+        >
+          <div className="flex flex-col items-center gap-4">
+            <MulticaIcon className="size-8 animate-pulse" />
+            <p className="text-body text-muted-foreground">{loadingLabel}</p>
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -251,11 +274,11 @@ export function DesktopShell() {
             {slug && <AppSidebar topSlot={<SidebarTopSpacer />} searchSlot={<SearchTrigger />} />}
             {/* Right side: header + content container */}
             <motion.div layout transition={toolbarMotion} className="flex flex-1 min-w-0 flex-col">
-              <MainTopBar />
+              <MainTopBar sidebarMounted={Boolean(slug)} />
               {/* Content canvas (ported from upstream): hugs the sidebar with
                   a hairline gap; when the sidebar collapses the left margin
                   mirrors mr-2 so the floating canvas sits symmetrically. */}
-              <MainCanvas>
+              <MainCanvas showWorkspaceLoading={!slug}>
                 <TabContent />
                 {slug && <ChatWindow />}
                 {slug && <ChatFab />}
