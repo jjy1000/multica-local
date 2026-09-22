@@ -288,6 +288,9 @@ func TestWorkingOnIssuesSkillCoversIssueLoopContracts(t *testing.T) {
 		"multica issue metadata list <issue-id> --output json",
 		"multica issue comment list <issue-id> --thread <trigger-comment-id>",
 		"multica issue comment add <issue-id> --parent <trigger-comment-id>",
+		// MUL-7577: the fork CLI has no --no-start flag (suppress_run exists
+		// only as a server API field), so teaching it is a dead contract.
+		"--no-start",
 	}
 	for _, forbidden := range mustNotContain {
 		if strings.Contains(body, forbidden) {
@@ -442,6 +445,10 @@ func TestSquadsSkillCoversLeaderRoutingContract(t *testing.T) {
 		"multica squad member set-role",
 		"mention://squad/<squad-id>",
 		"recording squad activity",
+		// MUL-5850: comment reads carry --compact (bounded agent reads),
+		// matching the CLI flag pinned in cmd_issue.go.
+		"multica issue comment list <issue-id> --recent 10 --compact --output json",
+		"multica issue comment list <issue-id> --compact --output json",
 		"references/squad-source-map.md",
 	}
 	for _, want := range mustContain {
