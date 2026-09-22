@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckCircle2, ChevronRight, ListChevronsDownUp, Copy, Loader2, MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { CheckCircle2, ChevronRight, ListChevronsDownUp, Copy, Link2, Loader2, MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@multica/ui/components/ui/card";
 import { Button } from "@multica/ui/components/ui/button";
@@ -114,6 +114,8 @@ interface CommentCardProps {
   onToggleReaction: (commentId: string, emoji: string) => void;
   /** Resolve/unresolve any comment in this thread (commentId = the target row). */
   onResolveToggle?: (commentId: string, resolved: boolean) => void;
+  /** Copy a deep link (`#comment-…`) to a single comment in this thread. */
+  onCopyLink?: (commentId: string) => void;
   /**
    * When non-null, the thread root is currently rendered as a resolved-but-
    * expanded card. Pass a "Collapse" affordance into the header so the user
@@ -461,6 +463,7 @@ function CommentRow({
   onDelete,
   onToggleReaction,
   onResolveToggle,
+  onCopyLink,
 }: {
   issueId: string;
   entry: TimelineEntry;
@@ -474,6 +477,7 @@ function CommentRow({
   onDelete: (commentId: string) => void;
   onToggleReaction: (commentId: string, emoji: string) => void;
   onResolveToggle?: (commentId: string, resolved: boolean) => void;
+  onCopyLink?: (commentId: string) => void;
 }) {
   const { t } = useT("issues");
   const locale = useLocale();
@@ -526,7 +530,12 @@ function CommentRow({
           <DropdownMenu>
             <DropdownMenuTrigger
               render={
-                <Button variant="ghost" size="icon-sm" className="text-muted-foreground">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
+                  aria-label={t(($) => $.comment.more_actions)}
+                >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               }
@@ -540,6 +549,12 @@ function CommentRow({
                 <Copy className="h-3.5 w-3.5" />
                 {t(($) => $.comment.copy_action)}
               </DropdownMenuItem>
+              {onCopyLink && (
+                <DropdownMenuItem onClick={() => onCopyLink(entry.id)}>
+                  <Link2 className="h-3.5 w-3.5" />
+                  {t(($) => $.comment.copy_link_action)}
+                </DropdownMenuItem>
+              )}
               {onResolveToggle && (
                 <>
                   <DropdownMenuSeparator />
@@ -683,6 +698,7 @@ function CommentCardImpl({
   onDelete,
   onToggleReaction,
   onResolveToggle,
+  onCopyLink,
   onCollapseResolved,
   expandedResolvedIds,
   onResolvedExpandChange,
@@ -807,7 +823,12 @@ function CommentCardImpl({
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
-                    <Button variant="ghost" size="icon-sm" className="text-muted-foreground">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-muted-foreground"
+                      aria-label={t(($) => $.comment.more_actions)}
+                    >
                       <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   }
@@ -821,6 +842,12 @@ function CommentCardImpl({
                     <Copy className="h-3.5 w-3.5" />
                     {t(($) => $.comment.copy_action)}
                   </DropdownMenuItem>
+                  {onCopyLink && (
+                    <DropdownMenuItem onClick={() => onCopyLink(entry.id)}>
+                      <Link2 className="h-3.5 w-3.5" />
+                      {t(($) => $.comment.copy_link_action)}
+                    </DropdownMenuItem>
+                  )}
                   {onResolveToggle && (
                     <>
                       <DropdownMenuSeparator />
@@ -986,6 +1013,7 @@ function CommentCardImpl({
                     onDelete={onDelete}
                     onToggleReaction={onToggleReaction}
                     onResolveToggle={onResolveToggle}
+                    onCopyLink={onCopyLink}
                   />
                 </div>
               )}
@@ -1018,6 +1046,7 @@ function CommentCardImpl({
                     onDelete={onDelete}
                     onToggleReaction={onToggleReaction}
                     onResolveToggle={onResolveToggle}
+                    onCopyLink={onCopyLink}
                   />
                 </div>
               ))}
