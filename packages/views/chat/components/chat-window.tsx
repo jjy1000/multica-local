@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useAuthStore } from "@multica/core/auth";
 import { agentListOptions, memberListOptions } from "@multica/core/workspace/queries";
-import { canAssignAgent } from "@multica/views/issues/components";
+import { canAssignAgent } from "../../issues/components/pickers/assignee-picker";
 import { api } from "@multica/core/api";
 import { useAgentPresenceDetail, useWorkspaceAgentAvailability } from "@multica/core/agents";
 import { useFileUpload } from "@multica/core/hooks/use-file-upload";
