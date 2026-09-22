@@ -144,6 +144,12 @@ type Config struct {
 	// It fences vendor-verified compatibility exceptions that only hold for the
 	// real built-in binary; unset callers fail closed.
 	BuiltinRuntime bool
+	// CLIVersion is the resolved CLI's version string (raw --version output).
+	// Backends that must branch on the CLI's major (opencode 2.x contract)
+	// read it; empty means unknown and keeps the legacy argv. Callers that
+	// know the version up front set it; otherwise opencodeBackend.Execute
+	// detects it once and caches it on its own copy of the config.
+	CLIVersion string
 	// provider is the runtime/provider identity used in safe launch logs. New
 	// fills it from the protocol family; NewRuntime preserves the concrete
 	// built-in runtime identity instead (for example omp rather than pi).
