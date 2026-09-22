@@ -578,11 +578,13 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	if len(ctx.Repos) > 0 {
 		b.WriteString("## Repositories\n\n")
 		b.WriteString("The following code repositories are available in this workspace.\n")
-		b.WriteString("Use `multica repo checkout <url>` to check out a repository into your working directory. Add `--ref <branch-or-sha>` when you need an exact branch, tag, or commit.\n\n")
+		b.WriteString("Use `multica repo checkout <url>` to check out a repository into your working directory. Pass `--ref <branch-or-sha>` only to override a repository's listed starting point, when a task or handoff names a different revision.\n\n")
+		pinned := false
 		for _, repo := range ctx.Repos {
 			refHint := ""
 			if repo.Ref != "" {
-				refHint = fmt.Sprintf(" (default ref: `%s`)", repo.Ref)
+				pinned = true
+				refHint = fmt.Sprintf(" (starts from `%s`)", repo.Ref)
 			}
 			if repo.Description != "" {
 				fmt.Fprintf(&b, "- %s%s — %s\n", repo.URL, refHint, repo.Description)
@@ -590,7 +592,32 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 				fmt.Fprintf(&b, "- %s%s\n", repo.URL, refHint)
 			}
 		}
-		b.WriteString("\nThe checkout command creates a git worktree with a dedicated branch. You can check out one or more repos as needed, and can pass `--ref` for review/QA on a non-default branch or commit.\n\n")
+		b.WriteString("\nThe checkout command creates a git worktree with a dedicated branch. You can check out one or more repos as needed.\n\n")
+		if pinned {
+			// A project pins a repo because its work lives on that line, so a
+			// pull request that silently targets the repo's default branch is
+			// wrong twice over: it asks to merge into the wrong place, and its
+			// diff carries every commit the pinned branch has that the default
+			// lacks. `gh pr create` defaults to the repo default branch, so the
+			// agent has to pass --base itself — nothing in the platform sets
+			// it. Stated conditionally because a pin is not necessarily a
+			// branch (see the slim brief for the full rationale).
+			b.WriteString("A repository that starts from a branch is already checked out there — do not pass `--ref` to get back to it. ")
+			b.WriteString("Deliver to the same line: open pull requests with `gh pr create --base <that-branch>`. ")
+			b.WriteString("If what it starts from is a tag or a commit rather than a branch, treat it as a starting point only and confirm the target branch before opening a pull request.\n")
+		}
+		// Stated for ANY repo, pinned or not (MUL-7504): a task resumed after
+		// the project's starting point changed still holds a checkout cut from
+		// the old one. A kept checkout reports the branch the worktree is ON —
+		// the task's own `agent/...` branch, the HEAD of a pull request, never
+		// its base — so it must not be named as the delivery target.
+		b.WriteString("\nIf `multica repo checkout` reports that it KEPT an existing checkout, you are continuing work that began earlier — possibly before this project was last reconfigured. ")
+		b.WriteString("The branch it names is the branch your work sits ON: the head of a pull request, never its base. It does not record where that work was meant to land. ")
+		b.WriteString("Keep delivering where this work was already going — the base of its existing pull request, or the target the task states — and ask if neither settles it.")
+		if pinned {
+			b.WriteString(" Do not retarget it to a starting point listed above: that is the project's current setting, which may have changed since this work began.")
+		}
+		b.WriteString("\n\n")
 	}
 
 	// Inject project-scoped context (resources attached to the issue's project).
@@ -612,7 +639,8 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 				fmt.Fprintf(&b, "- %s\n", formatProjectResource(r))
 			}
 			b.WriteString("\nResources are pointers — open them only when relevant to the task. ")
-			b.WriteString("For `github_repo` resources, use `multica repo checkout <url>` to fetch the code. Add `--ref <branch-or-sha>` when a task or handoff names an exact revision.\n\n")
+			b.WriteString("For `github_repo` resources, use `multica repo checkout <url>` to fetch the code. ")
+			b.WriteString("A resource listing a starting point is checked out there automatically — pass `--ref <branch-or-sha>` only to override it, when a task or handoff names a different revision.\n\n")
 		} else {
 			b.WriteString("This project has no resources attached yet.\n\n")
 		}

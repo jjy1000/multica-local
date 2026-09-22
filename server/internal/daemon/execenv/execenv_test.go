@@ -334,7 +334,7 @@ func TestPrepareWithRepoContext(t *testing.T) {
 	for _, want := range []string{
 		"multica repo checkout",
 		"https://github.com/org/backend",
-		"default ref: `release/v2`",
+		"starts from `release/v2`",
 		"https://github.com/org/frontend",
 	} {
 		if !strings.Contains(s, want) {

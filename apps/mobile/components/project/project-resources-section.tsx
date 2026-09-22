@@ -123,6 +123,21 @@ function ResourceRow({
             {describeResource(resource)}
           </Text>
         ) : null}
+        {/* Its own line rather than appended to the URL: a custom label already
+            takes the first slot, and this is the one project setting that
+            silently changes what every task starts from. */}
+        {checkoutRefOf(resource) ? (
+          <View className="flex-row items-center gap-1">
+            <Ionicons
+              name="git-branch-outline"
+              size={11}
+              color={THEME[colorScheme].mutedForeground}
+            />
+            <Text className="text-xs text-muted-foreground" numberOfLines={1}>
+              {checkoutRefOf(resource)}
+            </Text>
+          </View>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -145,4 +160,11 @@ function getResourceUrl(resource: ProjectResource): string | null {
 
 function describeResource(resource: ProjectResource): string {
   return getResourceUrl(resource) ?? resource.resource_type;
+}
+
+function checkoutRefOf(resource: ProjectResource): string | null {
+  if (resource.resource_type !== "github_repo") return null;
+  const ref = resource.resource_ref as GithubRepoResourceRef | undefined;
+  const value = ref?.ref?.trim();
+  return value ? value : null;
 }
