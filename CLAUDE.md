@@ -29,10 +29,11 @@ Each guide directory also carries an auto-synced `AGENTS.md` mirror. Co-located 
 
 ```bash
 # Single Go test (from server/)
-cd server && go test -run TestName -count1-1 -timeout 60s ./internal/handler/
+cd server && go test -run TestName -count=1 -timeout 60s ./internal/handler/
 
-# Single Vitest test (from repo root)
-pnpm test path/to/file.test.ts
+# Single Vitest test file (from repo root; path is relative to the package)
+pnpm --filter @multica/views exec vitest run modals/create-project.test.tsx
+pnpm --filter @multica/core exec vitest run github/repo-ref.test.ts
 
 # Docs-sync check (run after any root CLAUDE.md edit, before commit)
 node scripts/check-agents-docs-sync.mjs
@@ -417,7 +418,7 @@ Real failure modes that took non-trivial debugging. NOT obvious from reading the
 
 - **Workspace singleton lifecycle vs pre-workspace routes (0.5.80).** Navigating within a tab from workspace route into `/experimental/*` unmounts `WorkspaceRouteLayout` without a successor — its cleanup releases the workspace singleton, unmounting AppSidebar + WindowToolbar + ModalRegistry + SearchCommand (fullscreen takeover). Guard: every navigation path into `/experimental/*` MUST call `suppressNextWorkspaceRelease()` BEFORE dispatching. Arm sites in both navigation adapters, `tryRouteToPinnedNewTab`, and `multica:navigate` handler. **If you add a new way to navigate into `/experimental/*`, arm there too.**
 
-- **Bundled Postgres does not auto-start for headless ship runs.** `ship-mac.sh` step 2/7 (`go run ./cmd/migrate up`) dials `.env` DATABASE_URL directly. ECONNREFUSED on 5432 → start PG manually: `pg_ctl -D ~/Library/Application\ Support/Multica/pgdata -l ~/Library/Application\ Support/Multica/pg/17.4/pg.log start`.
+- **Bundled Postgres does not auto-start for headless ship runs.** `ship-mac.sh` step 2/7 (`go run ./cmd/migrate up`) dials `.env` DATABASE_URL directly. ECONNREFUSED on 5432 → start PG manually: `pg_ctl -D ~/Library/Application\ Support/Multica/pgdata -l ~/Library/Application\ Support/Multica/pg/17.4/pg.log start`. **The converse also holds (0.5.110 ship, measured): quitting the app stops a running bundled PG** (the postmaster's parent is launchd, but it shuts down with the session) — so "quit app → run migrate" fails with connection refused until the same `pg_ctl -w start` runs. Order for a manual ship: quit app → pg_ctl start → snapshot → migrate up → ship.
 
 - **Daemon does not auto-start on GUI relaunch when already logged in.** Renderer `useEffect` `[user]`-dep does not "change" on existing-user session → IPC never fires → `agent_task_queue` rows pile up as `queued`. 0.3.33 fix: `tryAutoStartFromMain()` at tail of `bootstrapCli()` + `maybeRecoverDaemon()` in `daemon-manager.ts:1114/1035` + App.tsx `[user]`-dep guard + `setTargetApiUrl` ordering. Defense-in-depth: `~/.multica/scripts/multica-daemon-watchdog.sh` (60s poll). Re-read memory `0.2.97-daemon-autostart-regression.md` before editing App.tsx/daemon-manager.ts/watchdog.
 

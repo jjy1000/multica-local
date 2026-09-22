@@ -80,7 +80,46 @@ healthy-runtime catalog reads are memoized by `cachedDiscovery`, so a second
 read is cheap. If a future port needs the at-most-once contract, port that
 refactor alongside.
 
+## 0.5.110 — OpenCode 2.x contract + repo checkout-ref validation (landed)
+
+Upstream port batch (13 ports; ledger `.omc/upstream-sync-2026-09-22.md`).
+Surfaces a future edit must know about:
+
+- **OpenCode 2.x contract** (`pkg/agent/opencode_v2.go` + branches in
+  `opencode.go`): one gate, `opencodeUsesV2Contract` (parseSemver major ≥ 2
+  AND `Config.BuiltinRuntime`), controls all four divergences — no `--dir`,
+  thinking level folded into the model as `provider/model#variant`,
+  `ErrOpenCodeV2MCPUnsupported` refusal for runs carrying Multica-managed MCP
+  servers, and `opencodeInterruptSession` (bounded `POST /api/session/<id>/
+  interrupt`) BEFORE the process-group signals on cancel. The 1.x path must
+  stay byte-identical — argv + MCP regression tests pin both sides. Fork
+  load-bearing details: `opencodeRunConnection` carries the resolved
+  `execPath` (no `Command` abstraction) and the interrupt process is rebuilt
+  via `newRuntimeCmd` + `combinedOutputOwned` (WaitDelay-bounded); the lazy
+  `CLIVersion` detect in Execute is gated on `BuiltinRuntime` AND a 10s
+  context — removing either gate reintroduces a measured 4-minute hang when
+  any fake/wrapper binary ignores `--version`. `opencode_v2_mcp_wiring_test.go`
+  was NOT ported (the daemon-side `mergeTaskRemoteMCPConfig` synthesis layer
+  is fork-absent); the refusal itself is pinned in `pkg/agent`.
+- **validateGitRef** (`internal/handler/project_resource.go`): shape-only
+  git-ref validation (255 cap, `git check-ref-format` subset) applied inside
+  `validateGithubRepoRef` — a bad ref is a 400 at save time, never a daemon
+  500 mid-task. Must stay in lockstep with `validateGitRef` in
+  `packages/core/github/repo-ref.ts` (both files say so; mobile duplicates the
+  error STRINGS only in `add-resource.tsx`).
+- **Brief carries the pinned ref + delivery target** (MUL-7504,
+  `internal/daemon/execenv/`): the fork keeps TWO brief paths — legacy
+  (default, inline in `runtime_config.go`) and slim
+  (`runtime_config_sections.go`). Any future brief-semantics change MUST land
+  on both; the wording differs but the semantics are pinned per-path
+  (`runtime_config_repo_ref_test.go` covers the default path via
+  `buildMetaSkillContent` and the slim path via `withSlimBrief`, which is
+  NOT parallel-safe). The resume warning must never name the kept checkout's
+  `agent/...` branch as a PR base (it is the head); the cleared-pin case
+  still emits the KEPT-checkout warning but drops the pinned-only halves.
+
 ## 0.5.109 — daemon terminal-report reliability + streaming (landed)
+
 
 Upstream port batch (12 ports / 10 skips; ledger
 `.omc/upstream-sync-2026-09-19.md`). Surfaces a future edit must know about:
