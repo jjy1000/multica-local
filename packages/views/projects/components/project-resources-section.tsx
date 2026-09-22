@@ -6,7 +6,6 @@ import {
   ChevronRight,
   FolderGit,
   FolderOpen,
-  Pencil,
   Plus,
   Search,
   Trash2,
@@ -16,7 +15,6 @@ import {
   projectResourcesOptions,
   useCreateProjectResource,
   useDeleteProjectResource,
-  useUpdateProjectResource,
 } from "@multica/core/projects";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace } from "@multica/core/paths";
@@ -77,7 +75,6 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
     projectResourcesOptions(wsId, projectId),
   );
   const createResource = useCreateProjectResource(wsId, projectId);
-  const updateResource = useUpdateProjectResource(wsId, projectId);
   const deleteResource = useDeleteProjectResource(wsId, projectId);
 
   // Desktop-only entry points. We hide (not just disable) on web so users
@@ -202,33 +199,6 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
     }
   };
 
-  const handleRenameLocalDirectory = async (
-    resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef },
-    nextLabel: string,
-  ) => {
-    const trimmed = nextLabel.trim();
-    const previous = resource.resource_ref.label ?? resource.label ?? "";
-    if (trimmed === previous.trim()) return;
-    try {
-      await updateResource.mutateAsync({
-        resourceId: resource.id,
-        data: {
-          resource_ref: {
-            ...resource.resource_ref,
-            label: trimmed,
-          },
-        },
-      });
-      toast.success(t(($) => $.resources.toast_local_renamed));
-    } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : t(($) => $.resources.toast_local_rename_failed);
-      toast.error(msg);
-    }
-  };
-
   return (
     <div>
       <button
@@ -255,9 +225,7 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
                   key={resource.id}
                   resource={resource}
                   localDaemonId={localDaemonId}
-                  canEdit={desktopMode}
                   onRemove={() => handleRemove(resource)}
-                  onRenameLocalDirectory={handleRenameLocalDirectory}
                 />
               ))}
             </div>
@@ -390,20 +358,13 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
 interface ResourceRowProps {
   resource: ProjectResource;
   localDaemonId: string | null;
-  canEdit: boolean;
   onRemove: () => void;
-  onRenameLocalDirectory: (
-    resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef },
-    nextLabel: string,
-  ) => Promise<void>;
 }
 
 function ResourceRow({
   resource,
   localDaemonId,
-  canEdit,
   onRemove,
-  onRenameLocalDirectory,
 }: ResourceRowProps) {
   const { t } = useT("projects");
   if (isGithubRef(resource)) {
@@ -445,9 +406,7 @@ function ResourceRow({
       <LocalDirectoryRow
         resource={resource}
         localDaemonId={localDaemonId}
-        canEdit={canEdit}
         onRemove={onRemove}
-        onRename={onRenameLocalDirectory}
       />
     );
   }
@@ -472,20 +431,13 @@ function ResourceRow({
 interface LocalDirectoryRowProps {
   resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef };
   localDaemonId: string | null;
-  canEdit: boolean;
   onRemove: () => void;
-  onRename: (
-    resource: ProjectResource & { resource_ref: LocalDirectoryResourceRef },
-    nextLabel: string,
-  ) => Promise<void>;
 }
 
 function LocalDirectoryRow({
   resource,
   localDaemonId,
-  canEdit,
   onRemove,
-  onRename,
 }: LocalDirectoryRowProps) {
   const { t } = useT("projects");
   const ref = resource.resource_ref;
@@ -494,27 +446,9 @@ function LocalDirectoryRow({
   const isForeignDaemon =
     localDaemonId !== null && ref.daemon_id !== localDaemonId;
   const isLocalUnknown = localDaemonId === null;
-  // "disabled" in the spec sense — visual de-emphasis + no chat hint, and
-  // rename is hidden on foreign / unknown-daemon rows because the label
-  // belongs to the owning device. Delete stays available so the user can
-  // drop a stale registration from any device.
+  // "disabled" in the spec sense — visual de-emphasis + no chat hint. Delete
+  // stays available so the user can drop a stale registration from any device.
   const mismatch = isForeignDaemon || isLocalUnknown;
-
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(display);
-
-  const startEdit = () => {
-    setDraft(display);
-    setEditing(true);
-  };
-  const commit = async () => {
-    setEditing(false);
-    await onRename(resource, draft);
-  };
-  const cancel = () => {
-    setEditing(false);
-    setDraft(display);
-  };
 
   return (
     <div
@@ -523,55 +457,27 @@ function LocalDirectoryRow({
       }`}
     >
       <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
-      {editing ? (
-        <input
-          autoFocus
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => void commit()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              void commit();
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              cancel();
-            }
-          }}
-          className="flex-1 min-w-0 rounded-sm border bg-transparent px-1 py-0.5 text-caption outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          aria-label={t(($) => $.resources.local_rename_label)}
+      {/* The name is the folder's own (or whatever a label update stored);
+          there is deliberately no rename here. A folder is identified by its
+          path, and a pencil that only retitled the row read as a broken edit
+          action beside the branch and remove controls (MUL-7525). */}
+      <Tooltip>
+        <TooltipTrigger
+          render={<span className="truncate flex-1">{display}</span>}
         />
-      ) : (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className="truncate flex-1">{display}</span>
-            }
-          />
-          <TooltipContent side="top">
-            <div className="space-y-0.5 text-micro">
-              <div className="font-mono">{ref.local_path}</div>
-              {mismatch && (
-                <div className="text-muted-foreground">
-                  {isLocalUnknown
-                    ? t(($) => $.resources.local_no_daemon_tooltip)
-                    : t(($) => $.resources.local_other_machine_tooltip)}
-                </div>
-              )}
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      )}
-      {canEdit && !mismatch && !editing && (
-        <button
-          type="button"
-          onClick={startEdit}
-          className="opacity-0 group-hover:opacity-100 transition-opacity rounded-sm p-0.5 hover:bg-accent"
-          title={t(($) => $.resources.local_rename_tooltip)}
-        >
-          <Pencil className="size-3 text-muted-foreground" />
-        </button>
-      )}
+        <TooltipContent side="top">
+          <div className="space-y-0.5 text-micro">
+            <div className="font-mono">{ref.local_path}</div>
+            {mismatch && (
+              <div className="text-muted-foreground">
+                {isLocalUnknown
+                  ? t(($) => $.resources.local_no_daemon_tooltip)
+                  : t(($) => $.resources.local_other_machine_tooltip)}
+              </div>
+            )}
+          </div>
+        </TooltipContent>
+      </Tooltip>
       <button
         type="button"
         onClick={onRemove}
