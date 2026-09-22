@@ -517,7 +517,7 @@
       },
       "agent_activity": {
         "label": "Agent activity",
-        "description": "When an agent task completes or fails"
+        "description": "When an agent run fails"
       }
     },
     "system": {
