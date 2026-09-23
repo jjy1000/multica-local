@@ -13,16 +13,12 @@
 // property-panel PythiaPanel now becomes a 3-tab structure (继续推演 /
 // 历史·回放 / 追问); the live animation and report view move here.
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Loader2, Sparkles, ChevronDown } from "lucide-react";
 import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { usePythiaIssueLab } from "../../hooks/use-pythia-issue-lab";
-import {
-  PythiaRoundTimeline,
-  PythiaTrajectory,
-} from "./pythia-round-view";
-import { PythiaReportView } from "./pythia-report-view";
+import { PythiaRoundTimeline } from "./pythia-round-view";
 import { useT } from "../../../i18n";
 
 export function PythiaIssueEmbed({
@@ -36,22 +32,25 @@ export function PythiaIssueEmbed({
   const reduceMotion = useReducedMotion() ?? false;
   const lab = usePythiaIssueLab(wsId, issueId);
   const { stream, runs, hasLiveRun } = lab;
-  const latestRun = runs[0] ?? null;
-  // Prefer the stream render if it's for the most recent run row; otherwise
-  // pin to the persisted run's envelopes + report (terminal preview).
-  const reportRun = latestRun;
   const liveEnvelopes = stream.envelopes;
   const streamTarget = stream.runId ? runs.find((r) => r.id === stream.runId) : null;
   const useStream = streamTarget != null;
 
   const showLive = hasLiveRun && useStream;
-  const showReport = !showLive && !!reportRun;
-  const showHistory = !showLive && !showReport && runs.length > 0;
+  // 0.5.114: when a run completes the report is delivered to the issue
+  // timeline as a `pythia_runtime` comment (writeback path in
+  // pythiaWritebackReport). Rendering the full markdown inside the embed
+  // duplicates that comment — readers see the same content twice and the
+  // second copy fights the first for attention. Collapse the embed to
+  // null at that point: the comment owns the report, the header pill
+  // keeps the status indicator alive, the history fold stays open only
+  // when there is a previously-completed run the user can re-inspect.
+  const latestCompletedRun =
+    !showLive && runs.length > 0 ? runs[0] ?? null : null;
+  const showHistory = !showLive && latestCompletedRun != null;
 
-  // No run + no live + nothing in the stream → don't render anything
-  // (collapse to null). The header pill + property panel still surface state
-  // for the issue.
-  if (!showLive && !showReport && !showHistory) return null;
+  // No run + no live → don't render anything (collapse to null).
+  if (!showLive && !showHistory) return null;
 
   return (
     <div
@@ -80,10 +79,8 @@ export function PythiaIssueEmbed({
             reduceMotion={reduceMotion}
             emptyLabel={t(($) => $.pythia_lab.embed_empty)}
           />
-        ) : showReport ? (
-          <PythiaReportView run={reportRun} />
-        ) : showHistory && latestRun ? (
-          <HistoryEmbed run={latestRun} />
+        ) : showHistory ? (
+          <HistoryEmbed run={latestCompletedRun!} />
         ) : null}
       </div>
     </div>
@@ -111,10 +108,6 @@ function LiveEmbed({
         envelopes={envelopes}
         totalRounds={Math.max(totalRounds, envelopes.length)}
         running
-      />
-      <PythiaTrajectory
-        envelopes={envelopes}
-        totalRounds={Math.max(totalRounds, envelopes.length)}
       />
       {envelopes.length === 0 && (
         <p className="text-[11px] text-muted-foreground">{emptyLabel}</p>
@@ -146,8 +139,7 @@ function HistoryEmbed({
 }) {
   const { t } = useT("experimental");
   const [open, setOpen] = useState(false);
-  // Map the persisted run onto the same shape PythiaRoundTimeline expects.
-  const envelopes = useMemo(() => run.envelopes ?? [], [run.envelopes]);
+  const envelopes = run.envelopes ?? [];
   return (
     <div className="space-y-1.5" data-testid="pythia-embed-history">
       <button
