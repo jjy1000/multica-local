@@ -43,11 +43,12 @@ var _ experimental.Querier = (*fakeExperimentalQuerier)(nil)
 // panic. The value is arbitrary; the fake ignores it beyond capture.
 const guardTestUserID = "11111111-1111-1111-1111-111111111111"
 
-// guardFlagKey is any real catalog key. Every current flag has DefaultVal
-// false, so the catalog-default branch resolves to false and the only
-// way experimentalFlagEnabled can return true is an explicit stored
-// preference — exactly the per-user opt-in path this guard restores.
-const guardFlagKey = "pythia_oracle"
+// guardFlagKey is any real catalog key with DefaultVal false. pythia_oracle
+// and claude_science_lab both flipped to default-on in 0.5.114, so the
+// guard uses chat_pin_ui — provider_test.go pins its catalog default to
+// false, and the only way experimentalFlagEnabled can return true is an
+// explicit stored preference (the per-user opt-in path this guard restores).
+const guardFlagKey = "chat_pin_ui"
 
 func TestExperimentalFlagEnabled(t *testing.T) {
 	tests := []struct {
