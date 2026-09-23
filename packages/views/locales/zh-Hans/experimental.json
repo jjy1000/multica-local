@@ -278,5 +278,18 @@
     "pill_failed": "Pythia · 已失败",
     "pill_idle": "Pythia · 空闲",
     "tab_continue": "继续"
+  },
+    "claude_lab": {
+    "pill_running": "实验运行中",
+    "pill_queued": "排队中",
+    "pill_done": "已完成",
+    "pill_failed": "失败",
+    "pill_cancelled": "已取消",
+    "pill_idle": "待运行",
+    "embed_title": "Claude 科研实验室",
+    "embed_running": "实验进行中…",
+    "embed_status_done": "上一次实验已完成 — 完整报告见下方评论",
+    "embed_artifacts_empty": "暂无产物",
+    "embed_download": "下载"
   }
 }

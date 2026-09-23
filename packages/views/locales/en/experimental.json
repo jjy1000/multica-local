@@ -278,5 +278,18 @@
     "pill_failed": "Pythia · failed",
     "pill_idle": "Pythia · idle",
     "tab_continue": "continue"
+  },
+    "claude_lab": {
+    "pill_running": "Experiment running",
+    "pill_queued": "Queued",
+    "pill_done": "Done",
+    "pill_failed": "Failed",
+    "pill_cancelled": "Cancelled",
+    "pill_idle": "Idle",
+    "embed_title": "Claude Research Lab",
+    "embed_running": "Experiment in progress…",
+    "embed_status_done": "Last experiment finished — report in the comments below",
+    "embed_artifacts_empty": "No artifacts yet",
+    "embed_download": "Download"
   }
 }

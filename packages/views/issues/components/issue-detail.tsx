@@ -92,6 +92,8 @@ import { IssueLabsSection, labSourceRouteSuffix, AgentTrustCorrectButton } from 
 import { LabDeliverableSummary } from "../../experimental/components/lab-deliverable-summary";
 import { PythiaIssueEmbed } from "../../experimental/components/pythia/pythia-issue-embed";
 import { PythiaHeaderPill } from "../../experimental/components/pythia/pythia-header-pill";
+import { ClaudeIssueEmbed } from "../../experimental/components/claude-lab/claude-issue-embed";
+import { ClaudeHeaderPill } from "../../experimental/components/claude-lab/claude-header-pill";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -2508,6 +2510,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             {issue.lab_source === "pythia_oracle" && wsId && (
               <PythiaHeaderPill wsId={wsId} issueId={id} />
             )}
+            {/* 0.5.114: claude_science_lab gets the same issue-first
+                treatment — snapshot-driven (agent task queue), no SSE. */}
+            {issue.lab_source === "claude_science_lab" && wsId && (
+              <ClaudeHeaderPill wsId={wsId} issueId={id} />
+            )}
           </div>
 
           {parentIssue && (
@@ -2839,6 +2846,12 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                 write completes. */}
             {issue.lab_source === "pythia_oracle" && wsId && (
               <PythiaIssueEmbed wsId={wsId} issueId={id} />
+            )}
+            {/* 0.5.114: claude issue-first embed — status + artifact
+                stream; the run report stays in the timeline (standard
+                agent-task comment path), never duplicated here. */}
+            {issue.lab_source === "claude_science_lab" && wsId && (
+              <ClaudeIssueEmbed wsId={wsId} issueId={id} />
             )}
 
             {/* Bottom comment input — no avatar, full width */}

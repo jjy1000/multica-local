@@ -278,5 +278,18 @@
     "pill_failed": "Pythia · 失敗",
     "pill_idle": "Pythia · 待機",
     "tab_continue": "続行"
+  },
+    "claude_lab": {
+    "pill_running": "実験を実行中",
+    "pill_queued": "待機中",
+    "pill_done": "完了",
+    "pill_failed": "失敗",
+    "pill_cancelled": "キャンセル済み",
+    "pill_idle": "待機",
+    "embed_title": "Claude 研究ラボ",
+    "embed_running": "実験を実行中…",
+    "embed_status_done": "前回の実験が完了 — レポートは下のコメント欄に",
+    "embed_artifacts_empty": "成果物はまだありません",
+    "embed_download": "ダウンロード"
   }
 }
