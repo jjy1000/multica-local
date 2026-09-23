@@ -1652,6 +1652,14 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 	slog.Info("task completed", "task_id", util.UUIDToString(task.ID), "issue_id", util.UUIDToString(task.IssueID))
 	s.captureTaskCompleted(ctx, task)
 
+	// 0.5.114 claude_science_lab review gate: when a lab-bound issue's
+	// research task completes, hand the deliverable to the lab's
+	// critique reviewer as a fresh handoff task (synsci finalize-gate +
+	// aipoch reviewer loop, ported at concept level). Fail-soft: the
+	// research run must never fail because its review couldn't be
+	// scheduled. Loop-safe: critique's own completions early-return.
+	s.MaybeEnqueueClaudeLabCritique(ctx, task, result)
+
 	// 0.5.83 WL3 Tier A: outcome node + action --causes--> outcome.
 	// Reached only on the real terminal transition (the
 	// already-finalized fast path returned above). Best-effort; nil
@@ -3007,8 +3015,8 @@ func issueToMap(issue db.Issue, issuePrefix string) map[string]any {
 		// — clients localize those from the key — and a CUSTOM one is filled in
 		// by IssueToMapResolved, which has the catalog. Emitted unconditionally
 		// so this rendering cannot lose a key the HTTP one carries. (MUL-6749)
-		"status_name":      "",
-		"priority":         issue.Priority,
+		"status_name":     "",
+		"priority":        issue.Priority,
 		"assignee_type":   util.TextToPtr(issue.AssigneeType),
 		"assignee_id":     util.UUIDToPtr(issue.AssigneeID),
 		"creator_type":    issue.CreatorType,
@@ -3286,5 +3294,68 @@ func agentToMap(a db.Agent) map[string]any {
 		"updated_at":           util.TimestampToString(a.UpdatedAt),
 		"archived_at":          util.TimestampToPtr(a.ArchivedAt),
 		"archived_by":          util.UUIDToPtr(a.ArchivedBy),
+	}
+}
+
+// claudeLabCritiqueAgentName is the reviewer agent installed by the
+// claude_science_lab payload (vendor/claude-science-manifest/agents/
+// critique.txt). Keep in sync with the manifest.
+const claudeLabCritiqueAgentName = "critique"
+
+// MaybeEnqueueClaudeLabCritique schedules the claude_science_lab review
+// pass after a research task completes. Production caller:
+// CompleteTaskWithTransition, immediately after captureTaskCompleted.
+// Exported for the handler-package integration test (service has no DB
+// harness). Guards, in order:
+//   - issue-bound tasks only
+//   - issue still bound to claude_science_lab
+//   - completing agent is not critique itself (loop cut)
+//   - critique agent installed, unarchived, runtime-bound
+//   - no pending critique task for the issue (the unique index
+//     dedupes the race too)
+func (s *TaskService) MaybeEnqueueClaudeLabCritique(ctx context.Context, task db.AgentTaskQueue, result []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Warn("claude lab critique scheduling panicked (suppressed)",
+				"issue_id", util.UUIDToString(task.IssueID), "panic", r)
+		}
+	}()
+	if !task.IssueID.Valid {
+		return
+	}
+	issue, err := s.Queries.GetIssue(ctx, task.IssueID)
+	if err != nil || !issue.LabSource.Valid || issue.LabSource.String != "claude_science_lab" {
+		return
+	}
+	completing, err := s.Queries.GetAgent(ctx, task.AgentID)
+	if err == nil && completing.Name == claudeLabCritiqueAgentName {
+		return
+	}
+	critique, err := s.Queries.GetAgentByWorkspaceAndName(ctx, db.GetAgentByWorkspaceAndNameParams{
+		WorkspaceID: issue.WorkspaceID,
+		Name:        claudeLabCritiqueAgentName,
+	})
+	if err != nil || critique.ArchivedAt.Valid || !critique.RuntimeID.Valid {
+		return
+	}
+	pending, err := s.Queries.HasPendingTaskForIssueAndAgent(ctx, db.HasPendingTaskForIssueAndAgentParams{
+		IssueID: issue.ID,
+		AgentID: critique.ID,
+	})
+	if err != nil || pending {
+		return
+	}
+	output := ""
+	var payload protocol.TaskCompletedPayload
+	if json.Unmarshal(result, &payload) == nil {
+		output = payload.Output
+	}
+	if len(output) > 4000 {
+		output = output[:4000]
+	}
+	note := "Review the completed research run on this issue. Research output digest:\n\n" + output
+	if _, err := s.enqueueMentionTask(ctx, issue, critique.ID, pgtype.UUID{}, false, true, note, pgtype.UUID{}, pgtype.UUID{}); err != nil {
+		slog.Warn("claude lab critique enqueue failed (suppressed)",
+			"issue_id", util.UUIDToString(issue.ID), "error", err)
 	}
 }

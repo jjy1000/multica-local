@@ -1476,6 +1476,11 @@
       "category": "orchestration",
       "name": "autoscientists-long-running",
       "body_path": "skills/orchestration/autoscientists-long-running/SKILL.md"
+    },
+    {
+      "category": "research",
+      "name": "reproduce",
+      "body_path": "skills/research/reproduce/SKILL.md"
     }
   ],
   "agents": [
@@ -1503,6 +1508,11 @@
       "name": "write",
       "prompt_path": "agents/write.txt",
       "category": "subagent"
+    },
+    {
+      "name": "critique",
+      "prompt_path": "agents/critique.txt",
+      "category": "primary"
     }
   ],
   "squads": [
@@ -1556,8 +1566,8 @@
   "installed_at_build": true,
   "built_from": "../关于试验性功能开发参考/openscience-main",
   "counts": {
-    "skills": 294,
-    "agents": 5,
+    "skills": 295,
+    "agents": 6,
     "squads": 5
   }
 }

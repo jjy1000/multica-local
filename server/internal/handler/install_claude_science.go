@@ -648,6 +648,10 @@ func rebindLabAgentsToOnlineRuntime(
 // for the same reason).
 var labLeaderAgentNames = []string{
 	"research",
+	// 0.5.114: critique reviewer — installed by the payload (agents/
+	// critique.txt) and auto-enqueued after research completions; it
+	// needs the same runtime rebind as the workers.
+	"critique",
 	// 0.5.114: dropped 宪法智能体 (constitution_agent, retired 0.3.57)
 	// and 智能体优化专家 (agent_self_optimization, promoted to
 	// product-level 0.5.6). Their GetAgentByWorkspaceAndName lookups

@@ -193,6 +193,22 @@ Fields the renderer actually keys on:
 | `code_blocks[].filename`     | string | Optional. Shown above the fenced block.                             |
 | `code_blocks[].code`         | string | Raw source. Renderer truncates display at ~2000 chars; full source remains in the agent result. |
 
+## Research loop discipline (0.5.114)
+
+Three standing rules for every run on a lab-bound issue:
+
+1. **Freeze the target before you run.** Post a short admission comment
+   FIRST — the claim under test, inputs, method, and budget — and do not
+   revise it after results land. A reproduction that adjusts its target
+   after seeing the result is not a reproduction.
+2. **Deliver in the timeline.** The final synthesis is posted as a comment
+   on the issue; the issue-first embed carries artifacts; the timeline
+   carries conclusions.
+3. **Expect a review.** A `critique` reviewer agent audits every completed
+   run and posts a structured verdict (pass/warn/fail with findings).
+   Address BLOCKING findings in a follow-up comment — either a correction
+   or a reasoned rebuttal.
+
 ## Surface (this version)
 
 - Catalog flag: `claude_science_lab` (server/internal/experimental/catalog.go,
