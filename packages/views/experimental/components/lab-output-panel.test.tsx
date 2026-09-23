@@ -478,10 +478,29 @@ describe("LabOutputPanel", () => {
     expect(screen.getByRole("button", { name: "Check now" })).toBeDisabled();
   });
 
+  async function openHistoryTab() {
+    // The tabs are icon + label buttons with `aria-pressed`, not `aria-label`.
+    // Wait for the panel to leave the loading skeleton (those nodes have no
+    // `role="button"`), then find the tab by text content.
+    const historyTab = await waitFor(() =>
+        screen
+            .getAllByRole("button")
+            .find((b) => /history/i.test(b.textContent ?? "")) ??
+        null,
+      { timeout: 2000 },
+    );
+    if (!historyTab) throw new Error("history tab button not found");
+    historyTab.click();
+  }
+
   it("shows the empty state when pythia has no runs", async () => {
     mockRawRequest.mockResolvedValue(makeResponse(200, []));
     renderPythiaPanel();
 
+    // 0.5.113: live animation moved to the issue-main-pane embed; the
+    // property panel's history tab (the only run-scoped surface left)
+    // shows the empty hint when there are no runs.
+    openHistoryTab();
     await waitFor(() => expect(screen.getByText("No runs yet")).toBeInTheDocument());
   });
 
@@ -489,41 +508,70 @@ describe("LabOutputPanel", () => {
     mockRawRequest.mockResolvedValue(makeResponse(200, [pythiaRun]));
     renderPythiaPanel();
 
-    await waitFor(() => expect(screen.getByText(/Adoption grows/)).toBeInTheDocument());
-    // 0.5.111: the run-count line became the timeline progress label
-    // ("Rounds <done>/<total>") on the live tab.
-    expect(screen.getByText("Rounds 2/2")).toBeInTheDocument();
-    expect(screen.getByText("42%")).toBeInTheDocument();
-    expect(screen.getByText("Users double within a month")).toBeInTheDocument();
+    // 0.5.113: the property-panel history tab shows the run row's kind
+    // + rounds/source; the live animation (timelines, council, report
+    // markdown) moved to the issue-main-pane embed and is asserted there.
+    await openHistoryTab();
+    await waitFor(() =>
+      expect(screen.getByTestId("pythia-history-row")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("2 · oracle")).toBeInTheDocument();
   });
 
   it("marks a synthetic failover frame as mock data", async () => {
     mockRawRequest.mockResolvedValue(makeResponse(200, [pythiaRun]));
     renderPythiaPanel();
 
-    await waitFor(() => expect(screen.getByText("mock data")).toBeInTheDocument());
+    // 0.5.113: the synthetic failover flag rides on each per-round envelope,
+    // which now lives in the main-pane embed; the history row here only
+    // shows kind/status/rounds/source. Make sure the history row renders.
+    await openHistoryTab();
+    await waitFor(() =>
+      expect(screen.getByTestId("pythia-history-row")).toBeInTheDocument(),
+    );
   });
 
   it("shows the empty state when the pythia runs endpoint 404s", async () => {
     mockRawRequest.mockResolvedValue(makeResponse(404, { error: "not found" }));
     renderPythiaPanel();
 
+    await openHistoryTab();
     await waitFor(() => expect(screen.getByText("No runs yet")).toBeInTheDocument());
     expect(screen.queryByText("Failed to load lab output")).not.toBeInTheDocument();
   });
 
   it("shows an inline error bar and retries for pythia", async () => {
+    // The hook fires an initial fetch that errors; clicking the retry
+    // button re-runs the same queryFn. mockRawRequest resolves the *most
+    // recent* mock; queue success before the error so the first call
+    // lands on the error (LIFO) and the retry lands on success.
+    //
+    // 0.5.113 note: the panel no longer auto-renders run rows in the
+    // default tab — they live in the history tab. We don't wait for the
+    // row here because the hook's idle refetchInterval is 60 s; we just
+    // confirm the retry re-fetches (call count goes 1 → 2) and the error
+    // bar disappears.
+    mockRawRequest.mockResolvedValue(makeResponse(200, [pythiaRun]));
     mockRawRequest.mockRejectedValueOnce(new Error("boom"));
-    mockRawRequest.mockResolvedValueOnce(makeResponse(200, [pythiaRun]));
     renderPythiaPanel();
 
     await waitFor(() =>
       expect(screen.getByText("Failed to load lab output")).toBeInTheDocument(),
     );
+    expect(mockRawRequest).toHaveBeenCalledTimes(1);
 
     screen.getByRole("button", { name: "Retry" }).click();
 
-    await waitFor(() => expect(screen.getByText(/Adoption grows/)).toBeInTheDocument());
+    // After the retry click the panel re-renders from the same QueryClient
+    // entry; the running state of that entry cycles error → loading →
+    // success without us driving further clicks. The retry click itself
+    // synchronously fires runsQuery.refetch, which counts as the second
+    // call regardless of how long the resolved response takes to land.
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Failed to load lab output"),
+      ).not.toBeInTheDocument(),
+    );
     expect(mockRawRequest).toHaveBeenCalledTimes(2);
   });
 

@@ -267,6 +267,16 @@
     "chat_thinking": "思考中…",
     "chat_error": "回答に失敗しました — 再試行してください。",
     "chat_engine_down": "Pythia エンジンが起動していません。",
-    "empty_hint": "issue でこのラボを選択して最初の推演を開始するか、上のフォームから継続してください。"
+    "empty_hint": "issue でこのラボを選択して最初の推演を開始するか、上のフォームから継続してください。",
+    "embed_title": "Pythia 推論",
+    "embed_running": "推論中 · ラウンド {{round}}",
+    "embed_empty": "最初のラウンドを準備中…",
+    "embed_history_toggle": "前回の推論（{{time}}）",
+    "pill_running": "Pythia · ラウンド {{round}}",
+    "pill_done": "Pythia · {{rounds}} ラウンド完了",
+    "pill_aborted": "Pythia · 中止",
+    "pill_failed": "Pythia · 失敗",
+    "pill_idle": "Pythia · 待機",
+    "tab_continue": "続行"
   }
 }

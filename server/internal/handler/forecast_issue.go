@@ -865,19 +865,27 @@ func pythiaIssueForecastRuns(w http.ResponseWriter, r *http.Request) {
 
 // pythiaForecastMonitor serves
 // GET /api/experimental/pythia-oracle/forecast/monitor?limit=N — the
-// workspace-wide run listing behind the lab monitor page (0.5.112). The
-// /experimental/pythia surface is PASSIVE now: it lists every issue's runs
-// with live status and jumps INTO the issue; all interactive forecast
-// controls live on the issue property panel. Sweeps phantom running rows
-// workspace-wide before listing so a server restart never leaves a zombie
-// "running" entry on the monitor.
+// workspace-wide run listing behind the lab monitor page (0.5.112).
+//
+// The /experimental/pythia surface lives inside the auth-only group (no
+// workspace middleware); `ctxWorkspaceID` is therefore empty for this
+// route even when the caller is fully signed in. The renderer carries
+// `X-Workspace-ID` (set by api.rawRequest when getCurrentWsId() is known),
+// so we fall back to that header before rejecting the request — and only
+// 400 if both sources are empty. This is a per-call safety net; the same
+// workspace resolution lives in the issue-scoped handlers through
+// loadIssueForUser (DB-driven).
 func pythiaForecastMonitor(w http.ResponseWriter, r *http.Request) {
 	h, ok := forecastIssueHandlerFromCtx(r)
 	if !ok || h == nil || h.Queries == nil {
 		writeError(w, http.StatusInternalServerError, "handler unavailable")
 		return
 	}
-	wsUUID, ok := parseUUIDOrBadRequest(w, ctxWorkspaceID(r.Context()), "workspace id")
+	wsID := ctxWorkspaceID(r.Context())
+	if wsID == "" {
+		wsID = r.Header.Get("X-Workspace-ID")
+	}
+	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace id")
 	if !ok {
 		return
 	}

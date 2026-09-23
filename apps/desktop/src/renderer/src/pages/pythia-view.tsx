@@ -100,14 +100,10 @@ export function PythiaView({ issueId: _initialIssueId = null }: { issueId?: stri
     if (!url) return;
     let cancelled = false;
     const poll = async () => {
-      try {
-        const res = await window.experimentalAPI.pythia.proxy({
-          path: "/status",
-        });
-        if (!cancelled) setHealth(res.ok ? (res.body as EngineHealth) : null);
-      } catch {
-        if (!cancelled) setHealth(null);
-      }
+      const res = await window.experimentalAPI.pythia.proxy({
+        path: "/status",
+      });
+      if (!cancelled) setHealth(res.ok ? (res.body as EngineHealth) : null);
     };
     void poll();
     const timer = setInterval(poll, HEALTH_INTERVAL_MS);
@@ -129,8 +125,18 @@ export function PythiaView({ issueId: _initialIssueId = null }: { issueId?: stri
       const r = await api.rawRequest(
         "/api/experimental/pythia-oracle/forecast/monitor?limit=30",
       );
+      // 0.5.113: a 404 is the legitimate "flag off / no runs yet" signal — keep
+      // returning [] so the monitor page renders the empty hint instead of an
+      // error banner. Every other non-OK response (400 missing workspace, 500
+      // etc.) surfaces to the user as `runsQuery.error` instead of being
+      // silently swallowed to [] by the parseWithFallback fallback arg.
       if (r.status === 404) return [];
-      if (!r.ok) throw new Error(`pythia monitor ${r.status}`);
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        throw new Error(
+          `pythia monitor ${r.status}: ${errText.slice(0, 160) || r.statusText}`,
+        );
+      }
       const raw: unknown = await r.json();
       return parseWithFallback<PythiaMonitorRun[]>(
         raw,

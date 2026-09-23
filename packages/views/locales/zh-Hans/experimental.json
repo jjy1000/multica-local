@@ -267,6 +267,16 @@
     "chat_thinking": "思考中…",
     "chat_error": "回答失败，请重试。",
     "chat_engine_down": "Pythia 引擎未启动。",
-    "empty_hint": "从 issue 选择该实验室触发首轮推演，或在上方「继续推演」中启动。"
+    "empty_hint": "从 issue 选择该实验室触发首轮推演，或在上方「继续推演」中启动。",
+    "embed_title": "Pythia 推演",
+    "embed_running": "推演中 · 第 {{round}} 轮",
+    "embed_empty": "正在准备第一轮…",
+    "embed_history_toggle": "上次推演（{{time}}）",
+    "pill_running": "Pythia · 第 {{round}} 轮",
+    "pill_done": "Pythia · 已完成 {{rounds}} 轮",
+    "pill_aborted": "Pythia · 已中止",
+    "pill_failed": "Pythia · 已失败",
+    "pill_idle": "Pythia · 空闲",
+    "tab_continue": "继续"
   }
 }

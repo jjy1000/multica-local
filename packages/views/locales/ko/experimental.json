@@ -267,6 +267,16 @@
     "chat_thinking": "생각 중…",
     "chat_error": "답변 실패 — 다시 시도하세요.",
     "chat_engine_down": "Pythia 엔진이 꺼져 있습니다.",
-    "empty_hint": "이슈에서 이 실험실을 선택해 첫 추론을 시작하거나, 위 양식에서 계속하세요."
+    "empty_hint": "이슈에서 이 실험실을 선택해 첫 추론을 시작하거나, 위 양식에서 계속하세요.",
+    "embed_title": "Pythia 추론",
+    "embed_running": "추론 중 · {{round}}라운드",
+    "embed_empty": "첫 라운드 준비 중…",
+    "embed_history_toggle": "마지막 추론 ({{time}})",
+    "pill_running": "Pythia · {{round}}라운드",
+    "pill_done": "Pythia · {{rounds}}라운드 완료",
+    "pill_aborted": "Pythia · 중단됨",
+    "pill_failed": "Pythia · 실패",
+    "pill_idle": "Pythia · 대기",
+    "tab_continue": "계속"
   }
 }

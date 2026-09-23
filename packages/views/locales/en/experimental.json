@@ -267,6 +267,16 @@
     "chat_thinking": "Thinking…",
     "chat_error": "The answer failed — try again.",
     "chat_engine_down": "Pythia engine is down.",
-    "empty_hint": "Start the first deliberation by selecting this lab on the issue, or use the Continue form above."
+    "empty_hint": "Start the first deliberation by selecting this lab on the issue, or use the Continue form above.",
+    "embed_title": "Pythia deduction",
+    "embed_running": "Deducting · round {{round}}",
+    "embed_empty": "Preparing the first round…",
+    "embed_history_toggle": "Last deduction ({{time}})",
+    "pill_running": "Pythia · {{round}} round",
+    "pill_done": "Pythia · {{rounds}} rounds done",
+    "pill_aborted": "Pythia · aborted",
+    "pill_failed": "Pythia · failed",
+    "pill_idle": "Pythia · idle",
+    "tab_continue": "continue"
   }
 }

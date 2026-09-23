@@ -1,34 +1,24 @@
 "use client";
 
-// pythia-panel — the issue-side Pythia lab panel (0.5.111). Replaces the
-// 0.5.18 spinner-only reader with the SocialSim-aligned four-tab surface:
-//
-//   实时 (live)    — round timeline + probability trajectory + council
-//                    vote sheet of the round in flight, the stop button,
-//                    and the 继续推演 form (variables + optional rounds +
-//                    parent run).
-//   报告 (report)  — the LLM-synthesized conclusion report (live as it
-//                    lands; the mechanical digest is the honest fallback).
-//   历史 (history) — every persisted run with lineage badges; click one
-//                    to open the replay player.
-//   追问 (chat)    — Q&A against the deliberation, optionally in one
-//                    council persona's voice.
-//
-// Flag-off, loading, and error states mirror the 0.5.104 contract (a
-// disabled lab says so plainly; a 404 runs poll degrades to []).
+// pythia-panel — the issue-side Pythia panel (0.5.111 + 0.5.113).
+// 0.5.111 introduced 4 tabs (live / report / history / chat). 0.5.113 moves
+// live + report to the issue-main-pane embed (`pythia-issue-embed.tsx`)
+// + report-as-comment writeback; only three affordances stay on the
+// property panel:
+//   继续推演 — ContinueForm: variables + parent-run + rounds
+//   历史·回放 — PythiaReplayPlayer: replay a finished run round-by-round
+//   追问 — PythiaFollowUpChat: persona Q&A grounded in the latest run
 
 import { useState } from "react";
-import { History, Loader2, MessageCircle, Play, RefreshCw, ScrollText, Square, Waves } from "lucide-react";
+import { History, MessageCircle, Play } from "lucide-react";
 import { useExperimentalFlags } from "@multica/core/experimental";
-import type { PythiaForecastRun } from "@multica/core/types/api";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { usePythiaIssueLab } from "../../hooks/use-pythia-issue-lab";
 import { useT } from "../../../i18n";
-import { PythiaRoundTimeline, PythiaTrajectory } from "./pythia-round-view";
-import { PythiaReportView, PythiaReplayPlayer } from "./pythia-report-view";
+import { PythiaReplayPlayer } from "./pythia-report-view";
 import { PythiaFollowUpChat } from "./pythia-followup-chat";
 
-type PanelTab = "live" | "report" | "history" | "chat";
+type PanelTab = "continue" | "history" | "chat";
 
 function TabButton({
   active,
@@ -128,7 +118,11 @@ function ContinueForm({
           disabled={disabled || busy || !variables.trim()}
           className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md bg-purple-600 px-2 text-[11px] font-medium text-white hover:bg-purple-500 disabled:opacity-50"
         >
-          {busy ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <Play className="size-3" aria-hidden />}
+          {busy ? (
+            <span className="size-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+          ) : (
+            <Play className="size-3" aria-hidden />
+          )}
           {t(($) => $.pythia_lab.continue_submit)}
         </button>
       </div>
@@ -145,11 +139,9 @@ export function PythiaPanel({
 }: {
   wsId: string;
   issueId: string;
-  // 0.5.112: the old labViewHref prop is GONE — the /experimental/pythia
-  // page is a passive monitor, so the "view in lab" jump no longer exists.
 }) {
   const { t } = useT("experimental");
-  const [tab, setTab] = useState<PanelTab>("live");
+  const [tab, setTab] = useState<PanelTab>("continue");
   const [replayRunId, setReplayRunId] = useState<string | null>(null);
   const [startError, setStartError] = useState(false);
 
@@ -159,18 +151,13 @@ export function PythiaPanel({
   const flagEnabled = (flags ?? []).some((f) => f.key === "pythia_oracle" && f.enabled);
 
   const lab = usePythiaIssueLab(wsId, issueId);
-  const { stream, runs, hasLiveRun } = lab;
-
-  const latestRun = runs[0] ?? null;
-  const streamRun = stream.runId ? runs.find((r) => r.id === stream.runId) ?? null : null;
-  const reportRun: PythiaForecastRun | null = streamRun ?? latestRun;
-  const replayRun = replayRunId ? runs.find((r) => r.id === replayRunId) ?? null : null;
+  const { runs, hasLiveRun } = lab;
 
   const startRun = async (input: { variables?: string; rounds?: number; parentRunId?: string }) => {
     setStartError(false);
     const res = await lab.start(input);
     if (!res) setStartError(true);
-    else setTab("live");
+    else setTab("continue");
   };
 
   if (flagsLoaded && !flagEnabled) {
@@ -214,83 +201,53 @@ export function PythiaPanel({
     );
   }
 
-  const empty = runs.length === 0 && stream.status === "idle";
+  const replayRun = replayRunId ? runs.find((r) => r.id === replayRunId) ?? null : null;
 
   return (
     <div className="space-y-2" data-testid="lab-output-panel-pythia">
       <div className="flex flex-wrap items-center justify-between gap-1.5">
         <div className="flex items-center gap-0.5">
-          <TabButton active={tab === "live"} onClick={() => setTab("live")} label={t(($) => $.pythia_lab.tab_live)}>
-            <Waves className="size-3" aria-hidden />
+          <TabButton
+            active={tab === "continue"}
+            onClick={() => setTab("continue")}
+            label={t(($) => $.pythia_lab.tab_continue)}
+          >
+            <Play className="size-3" aria-hidden />
           </TabButton>
-          <TabButton active={tab === "report"} onClick={() => setTab("report")} label={t(($) => $.pythia_lab.tab_report)}>
-            <ScrollText className="size-3" aria-hidden />
-          </TabButton>
-          <TabButton active={tab === "history"} onClick={() => setTab("history")} label={t(($) => $.pythia_lab.tab_history)}>
+          <TabButton
+            active={tab === "history"}
+            onClick={() => setTab("history")}
+            label={t(($) => $.pythia_lab.tab_history)}
+          >
             <History className="size-3" aria-hidden />
             {runs.length > 0 && <span className="font-mono">{runs.length}</span>}
           </TabButton>
-          <TabButton active={tab === "chat"} onClick={() => setTab("chat")} label={t(($) => $.pythia_lab.tab_chat)}>
+          <TabButton
+            active={tab === "chat"}
+            onClick={() => setTab("chat")}
+            label={t(($) => $.pythia_lab.tab_chat)}
+          >
             <MessageCircle className="size-3" aria-hidden />
           </TabButton>
         </div>
-        <div className="flex items-center gap-1.5">
-          {hasLiveRun && (
-            <span className="flex items-center gap-1 text-[10px] font-medium text-purple-700 dark:text-purple-300">
-              <Loader2 className="size-3 animate-spin" aria-hidden />
-              {t(($) => $.pythia_lab.live_badge)}
-            </span>
-          )}
-          {hasLiveRun && (
-            <button
-              type="button"
-              aria-label={t(($) => $.lab_output_panel.pythia_stop_forecast)}
-              data-testid="lab-output-panel-pythia-stop"
-              onClick={lab.cancel}
-              className="rounded p-1 text-purple-700 transition-colors hover:bg-purple-500/10 dark:text-purple-300"
-            >
-              <Square className="size-3" aria-hidden />
-            </button>
-          )}
-        </div>
+        {hasLiveRun && (
+          <button
+            type="button"
+            aria-label={t(($) => $.lab_output_panel.pythia_stop_forecast)}
+            data-testid="lab-output-panel-pythia-stop"
+            onClick={lab.cancel}
+            className="rounded p-1 text-purple-700 transition-colors hover:bg-purple-500/10 dark:text-purple-300"
+          >
+            <span className="text-[10px] font-medium">{t(($) => $.pythia_lab.embed_running, { round: 0 })}</span>
+          </button>
+        )}
       </div>
 
-      {tab === "live" && (
-        <div className="space-y-2">
-          <PythiaRoundTimeline
-            envelopes={stream.status !== "idle" ? stream.envelopes : latestRun?.envelopes ?? []}
-            totalRounds={stream.status !== "idle" ? stream.totalRounds : latestRun?.rounds ?? 0}
-            running={hasLiveRun}
-          />
-          <PythiaTrajectory
-            envelopes={stream.status !== "idle" ? stream.envelopes : latestRun?.envelopes ?? []}
-            totalRounds={stream.status !== "idle" ? stream.totalRounds : latestRun?.rounds ?? 0}
-          />
-          {!hasLiveRun && (
-            <ContinueForm disabled={false} busy={false} onSubmit={startRun} />
-          )}
-          {startError && (
-            <p className="text-[10px] text-destructive">
-              {t(($) => $.pythia_lab.start_failed)}
-            </p>
-          )}
-          {hasLiveRun && stream.status === "running" && (
-            <button
-              type="button"
-              onClick={() => setTab("report")}
-              className="w-full rounded-md border border-purple-500/40 bg-purple-500/5 px-2 py-1 text-[11px] font-medium text-purple-700 hover:bg-purple-500/10 dark:text-purple-300"
-            >
-              {t(($) => $.pythia_lab.watch_report_hint)}
-            </button>
-          )}
-        </div>
+      {tab === "continue" && (
+        <ContinueForm disabled={false} busy={false} onSubmit={startRun} />
       )}
-
-      {tab === "report" && (
-        <PythiaReportView
-          run={reportRun}
-          liveReport={stream.status !== "idle" ? stream.report : undefined}
-        />
+      {startError && tab === "continue" && (
+        <p className="text-[10px] text-destructive">{t(($) => $.pythia_lab.start_failed)}</p>
       )}
 
       {tab === "history" && (
@@ -358,27 +315,10 @@ export function PythiaPanel({
               </button>
             ))
           )}
-          {!replayRun && runs.length > 0 && (
-            <button
-              type="button"
-              disabled={lab.isLoading}
-              onClick={() => startRun({ variables: "" })}
-              className="inline-flex items-center gap-1 rounded-md border border-purple-500/40 bg-purple-500/5 px-2 py-1 text-[11px] font-medium text-purple-700 hover:bg-purple-500/10 disabled:opacity-50 dark:text-purple-300"
-            >
-              <RefreshCw className="size-3" aria-hidden />
-              {t(($) => $.lab_output_panel.pythia_start, { rounds: 3 })}
-            </button>
-          )}
         </div>
       )}
 
       {tab === "chat" && <PythiaFollowUpChat issueId={issueId} />}
-
-      {empty && tab === "live" && (
-        <p className="text-[10px] leading-snug text-muted-foreground">
-          {t(($) => $.pythia_lab.empty_hint)}
-        </p>
-      )}
     </div>
   );
 }

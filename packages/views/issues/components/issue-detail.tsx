@@ -90,6 +90,8 @@ import { IssueCausalGraphIcon } from "./issue-causal-icon";
 import { IssueOpenMythosIcon } from "./issue-openmythos-icon";
 import { IssueLabsSection, labSourceRouteSuffix, AgentTrustCorrectButton } from "./issue-labs-section";
 import { LabDeliverableSummary } from "../../experimental/components/lab-deliverable-summary";
+import { PythiaIssueEmbed } from "../../experimental/components/pythia/pythia-issue-embed";
+import { PythiaHeaderPill } from "../../experimental/components/pythia/pythia-header-pill";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -2489,16 +2491,24 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           className="relative flex-1 overflow-y-auto"
         >
         <div className="w-full px-8 py-8">
-          <TitleEditor
-            key={`title-${id}`}
-            defaultValue={issue.title}
-            placeholder={t(($) => $.detail.title_placeholder)}
-            className="w-full text-display-sm font-bold leading-snug tracking-tight"
-            onBlur={(value) => {
-              const trimmed = value.trim();
-              if (trimmed && trimmed !== issue.title) handleUpdateField({ title: trimmed });
-            }}
-          />
+          <div className="flex items-start gap-3">
+            <TitleEditor
+              key={`title-${id}`}
+              defaultValue={issue.title}
+              placeholder={t(($) => $.detail.title_placeholder)}
+              className="min-w-0 flex-1 text-display-sm font-bold leading-snug tracking-tight"
+              onBlur={(value) => {
+                const trimmed = value.trim();
+                if (trimmed && trimmed !== issue.title) handleUpdateField({ title: trimmed });
+              }}
+            />
+            {/* 0.5.113: header pill — the agent-style "running" indicator that
+                mirrors an in-flight agent task. Same SSE bus as the main-pane
+                embed below (both subscribe to usePythiaIssueLab). */}
+            {issue.lab_source === "pythia_oracle" && wsId && (
+              <PythiaHeaderPill wsId={wsId} issueId={id} />
+            )}
+          </div>
 
           {parentIssue && (
             <AppLink
@@ -2815,6 +2825,20 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   ))}
                 </div>
               )
+            )}
+
+            {/* 0.5.113: pythia main-pane embed — live rounds / council /
+                trajectory + terminal report preview live INSIDE the issue
+                comment stream (BELOW timeline, ABOVE the composer), so the
+                deduction animation is visible without opening the property
+                panel. Shares the same usePythiaIssueLab hook as the header
+                pill, so both react to the same SSE round frames without
+                duplicate subscriptions. Reports also land as a
+                pythia_runtime comment below (writeback path), so the embed
+                doubles as an interactive preview before the writeback
+                write completes. */}
+            {issue.lab_source === "pythia_oracle" && wsId && (
+              <PythiaIssueEmbed wsId={wsId} issueId={id} />
             )}
 
             {/* Bottom comment input — no avatar, full width */}
