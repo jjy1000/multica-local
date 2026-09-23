@@ -25,11 +25,13 @@ configured `baseUrl`, injects Bearer/CSRF/workspace `authHeaders()`, sets
 `localhost:5173` (dev) / `file://` (packaged), not the bundled backend on
 `localhost:8090`, and desktop runs in token mode so cookies are never attached.
 
-Exception: `use-pythia-sse.ts` must **NOT** use `rawRequest` — its URL comes
-from `window.experimentalAPI.pythia.getURL()` and points at the loopback Python
-engine, not the Multica backend. Pythia loopback calls go through
-`window.experimentalAPI.pythia.proxy(path, init)` (allowlisted + rate-limited
-in `src/main/pythia-manager.ts`), never a bare `fetch()` to the loopback URL.
+Exception: Pythia loopback calls (0.5.112: the monitor page's `/status`
+health strip) must **NOT** use `rawRequest` — the loopback Python engine is
+not the Multica backend. They go through
+`window.experimentalAPI.pythia.proxy({ path, init })` (allowlisted +
+rate-limited in `src/main/pythia-manager.ts`), never a bare `fetch()` to the
+loopback URL. (The old `use-pythia-sse.ts` consumer was deleted 0.5.112
+along with the interactive deck — the loopback proxy rule itself stays.)
 
 See root `CLAUDE.md` → "Experimental tab network calls (0.3.30)".
 
