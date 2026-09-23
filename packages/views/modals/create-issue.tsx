@@ -692,11 +692,19 @@ export function ManualCreatePanel({
                 // panel, not the issue detail page. The "view issue"
                 // button now doubles as "open in lab" so the user
                 // sees the lab surface (Claude Lab Plan/Forecast/
-                // Code/Knowledge, Pythia report, Mythos swarm form)
-                // already pre-scoped to the just-created issue via
-                // the `?issue=<id>` URL param (parsed in each view's
+                // Code/Knowledge, Mythos swarm form) already
+                // pre-scoped to the just-created issue via the
+                // `?issue=<id>` URL param (parsed in each view's
                 // useSearchParams).
-                const labRoute = experimentalLabRouteFor(labSource);
+                //
+                // 0.5.112: pythia no longer redirects on create — all
+                // forecast interaction lives on the issue property
+                // panel, so a pythia-bound create lands on the issue
+                // detail like every non-lab issue.
+                const labRoute =
+                  labSource === "pythia_oracle"
+                    ? null
+                    : experimentalLabRouteFor(labSource);
                 if (labRoute) {
                   router.push(`${labRoute}?issue=${encodeURIComponent(issue.id)}`);
                 } else {
@@ -742,10 +750,15 @@ export function ManualCreatePanel({
                   className="ml-7 mt-2 text-body text-primary hover:underline cursor-pointer"
                   onClick={() => {
                     // Mirror the create-success path: a duplicate
-                    // lab-tagged issue should also land in the lab
-                    // panel. Falls back to issue detail for non-lab
-                    // issues (unchanged from 0.3.30).
-                    const labRoute = experimentalLabRouteFor(labSource);
+                    // lab-tagged issue lands in the lab panel — EXCEPT
+                    // pythia (0.5.112): its interaction lives on the
+                    // issue property panel, so land on issue detail.
+                    // Falls back to issue detail for non-lab issues
+                    // (unchanged from 0.3.30).
+                    const labRoute =
+                      labSource === "pythia_oracle"
+                        ? null
+                        : experimentalLabRouteFor(labSource);
                     if (labRoute) {
                       router.push(`${labRoute}?issue=${encodeURIComponent(dup.issue.id)}`);
                     } else {

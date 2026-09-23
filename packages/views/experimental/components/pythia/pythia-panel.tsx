@@ -22,7 +22,6 @@ import { History, Loader2, MessageCircle, Play, RefreshCw, ScrollText, Square, W
 import { useExperimentalFlags } from "@multica/core/experimental";
 import type { PythiaForecastRun } from "@multica/core/types/api";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
-import { AppLink } from "../../../navigation";
 import { usePythiaIssueLab } from "../../hooks/use-pythia-issue-lab";
 import { useT } from "../../../i18n";
 import { PythiaRoundTimeline, PythiaTrajectory } from "./pythia-round-view";
@@ -143,11 +142,11 @@ function ContinueForm({
 export function PythiaPanel({
   wsId,
   issueId,
-  labViewHref,
 }: {
   wsId: string;
   issueId: string;
-  labViewHref?: string;
+  // 0.5.112: the old labViewHref prop is GONE — the /experimental/pythia
+  // page is a passive monitor, so the "view in lab" jump no longer exists.
 }) {
   const { t } = useT("experimental");
   const [tab, setTab] = useState<PanelTab>("live");
@@ -252,15 +251,6 @@ export function PythiaPanel({
             >
               <Square className="size-3" aria-hidden />
             </button>
-          )}
-          {labViewHref && (
-            <AppLink
-              href={labViewHref}
-              className="text-[10px] text-muted-foreground hover:text-foreground"
-              aria-label={t(($) => $.lab_output_panel.view_in_lab)}
-            >
-              {t(($) => $.lab_output_panel.view_in_lab)} →
-            </AppLink>
           )}
         </div>
       </div>

@@ -32,6 +32,27 @@ func (q *Queries) AbandonStalePythiaForecastRuns(ctx context.Context, issueID pg
 	return result.RowsAffected(), nil
 }
 
+const abandonStalePythiaForecastRunsWorkspace = `-- name: AbandonStalePythiaForecastRunsWorkspace :execrows
+UPDATE pythia_forecast_run
+SET status = 'aborted',
+    updated_at = now()
+WHERE workspace_id = $1
+  AND status = 'running'
+  AND updated_at < now() - interval '15 minutes'
+`
+
+// Workspace-wide variant of AbandonStalePythiaForecastRuns (0.5.112): the
+// monitor endpoint sweeps phantom running rows for EVERY issue it lists,
+// so the passive view never shows a zombie "running" after a server
+// restart killed the runner goroutine.
+func (q *Queries) AbandonStalePythiaForecastRunsWorkspace(ctx context.Context, workspaceID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, abandonStalePythiaForecastRunsWorkspace, workspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createPythiaForecastRun = `-- name: CreatePythiaForecastRun :one
 
 INSERT INTO pythia_forecast_run (
@@ -200,6 +221,79 @@ func (q *Queries) ListPythiaForecastRunsByIssue(ctx context.Context, arg ListPyt
 			&i.Status,
 			&i.Report,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentPythiaForecastRuns = `-- name: ListRecentPythiaForecastRuns :many
+SELECT r.id, r.issue_id, r.rounds, r.source, r.created_at,
+       r.parent_run_id, r.run_kind, r.variables, r.status, r.report,
+       r.report_comment_id, r.updated_at,
+       i.title AS issue_title, i.number AS issue_number
+FROM pythia_forecast_run r
+JOIN issue i ON i.id = r.issue_id
+WHERE r.workspace_id = $1
+ORDER BY r.created_at DESC
+LIMIT $2
+`
+
+type ListRecentPythiaForecastRunsParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	Limit       int32       `json:"limit"`
+}
+
+type ListRecentPythiaForecastRunsRow struct {
+	ID              pgtype.UUID        `json:"id"`
+	IssueID         pgtype.UUID        `json:"issue_id"`
+	Rounds          int32              `json:"rounds"`
+	Source          string             `json:"source"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	ParentRunID     pgtype.UUID        `json:"parent_run_id"`
+	RunKind         string             `json:"run_kind"`
+	Variables       string             `json:"variables"`
+	Status          string             `json:"status"`
+	Report          string             `json:"report"`
+	ReportCommentID pgtype.UUID        `json:"report_comment_id"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	IssueTitle      string             `json:"issue_title"`
+	IssueNumber     int32              `json:"issue_number"`
+}
+
+// Workspace-wide monitor listing (0.5.112): newest runs across ALL issues
+// of the workspace, joined with the issue title/number for the passive lab
+// monitor page. Deliberately EXCLUDES the envelopes blob — the monitor
+// lists runs and jumps into issues; round detail lives on the issue panel.
+func (q *Queries) ListRecentPythiaForecastRuns(ctx context.Context, arg ListRecentPythiaForecastRunsParams) ([]ListRecentPythiaForecastRunsRow, error) {
+	rows, err := q.db.Query(ctx, listRecentPythiaForecastRuns, arg.WorkspaceID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRecentPythiaForecastRunsRow{}
+	for rows.Next() {
+		var i ListRecentPythiaForecastRunsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.IssueID,
+			&i.Rounds,
+			&i.Source,
+			&i.CreatedAt,
+			&i.ParentRunID,
+			&i.RunKind,
+			&i.Variables,
+			&i.Status,
+			&i.Report,
+			&i.ReportCommentID,
+			&i.UpdatedAt,
+			&i.IssueTitle,
+			&i.IssueNumber,
 		); err != nil {
 			return nil, err
 		}

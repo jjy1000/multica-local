@@ -3672,6 +3672,10 @@ func (h *Handler) CancelTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 0.5.112 termination closure: stopping the issue's agent task also
+	// aborts any in-flight Pythia forecast run on the issue (best-effort).
+	abortPythiaRunsForIssue(r.Context(), h, issue.ID)
+
 	slog.Info("task cancelled by user", "task_id", taskID, "issue_id", uuidToString(task.IssueID))
 	writeJSON(w, http.StatusOK, taskToResponse(*task, uuidToString(issue.WorkspaceID)))
 }

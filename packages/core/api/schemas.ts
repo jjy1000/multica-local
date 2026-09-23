@@ -1845,6 +1845,25 @@ export const PythiaForecastRunSchema = z.object({
 
 export const PythiaForecastRunListSchema = z.array(PythiaForecastRunSchema);
 
+// GET /api/experimental/pythia-oracle/forecast/monitor?limit=N (0.5.112) —
+// workspace-wide run rows behind the passive lab monitor page. Same lenient
+// discipline as the run schema; deliberately no envelopes field.
+export const PythiaMonitorRunSchema = z.object({
+  id: z.string(),
+  issue_id: z.string(),
+  issue_title: z.string().default(""),
+  issue_number: z.number().default(0),
+  rounds: z.number().default(0),
+  source: z.string().default(""),
+  run_kind: z.string().default("initial"),
+  status: z.string().default("completed"),
+  variables: z.string().default(""),
+  created_at: z.string().default(""),
+  updated_at: z.string().default(""),
+}).loose();
+
+export const PythiaMonitorRunListSchema = z.array(PythiaMonitorRunSchema);
+
 // POST /forecast/issue reply — the run executes in the background and the
 // client subscribes to .../runs/{run_id}/stream with this id.
 export const PythiaForecastStartSchema = z.object({
@@ -2119,3 +2138,17 @@ export const EMPTY_PLUGIN_ARTIFACT_SIGN_RESPONSE: PluginArtifactSignResponse = {
   url: "",
   exp: 0,
 };
+
+// GET /api/user-plugins/:slug/artifacts (0.5.112) — the plugin's run
+// deliverables, consumed by the issue-side UserPluginProgressCard. Only the
+// display fields the card needs are pinned; everything else stays loose.
+export const UserPluginArtifactMetaSchema = z.object({
+  id: z.string().default(""),
+  title: z.string().default(""),
+  type: z.string().default(""),
+  created_at: z.string().default(""),
+}).loose();
+
+export const UserPluginArtifactMetaListSchema = z.array(UserPluginArtifactMetaSchema);
+
+export type UserPluginArtifactMeta = z.infer<typeof UserPluginArtifactMetaSchema>;

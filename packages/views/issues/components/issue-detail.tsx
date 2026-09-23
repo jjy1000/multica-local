@@ -1951,7 +1951,11 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                   }
                   align="start"
                 />
+                {/* 0.5.112: pythia no longer links out — the interactive
+                    panel IS the issue property panel; /experimental/pythia
+                    is a passive monitor. Other labs keep the jump. */}
                 {issue.lab_source &&
+                  issue.lab_source !== "pythia_oracle" &&
                   labSourceRouteSuffix(issue.lab_source) && (
                     <AppLink
                       href={`/experimental/${labSourceRouteSuffix(issue.lab_source)!}${

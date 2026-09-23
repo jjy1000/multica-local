@@ -246,7 +246,7 @@ interface ExperimentalAPI {
     // Pythia subprocess via the main process. Returns the raw
     // response shape; renderer handles ok=false as a friendly error.
     proxy(req: {
-      path: "/whatif" | "/chat" | "/predict";
+      path: "/whatif" | "/chat" | "/predict" | "/status";
       method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
       body?: unknown;
       timeoutMs?: number;

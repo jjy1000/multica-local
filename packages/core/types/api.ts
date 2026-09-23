@@ -701,6 +701,23 @@ export interface PythiaForecastRun {
   report?: string;
 }
 
+/** One row of the workspace-wide forecast monitor (0.5.112) — the passive
+ *  /experimental/pythia page lists these and jumps INTO issues. No
+ *  envelopes: round detail lives on the issue property panel. */
+export interface PythiaMonitorRun {
+  id: string;
+  issue_id: string;
+  issue_title: string;
+  issue_number?: number;
+  rounds?: number;
+  source?: string;
+  run_kind?: PythiaForecastRunKind;
+  status?: PythiaForecastRunStatus;
+  variables?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 /** POST /forecast/issue response — the run executes in the background. */
 export interface PythiaForecastStart {
   run_id: string;

@@ -594,7 +594,9 @@
     "trust_correct_ok": "수정됨 — 현재 신뢰 점수 {{score}}(-0.5)",
     "trust_correct_failed": "수정 실패: {{msg}}",
     "trust_correct_note_placeholder": "메모: 무엇이 잘못됐는지(선택)",
-    "trust_correct_submit": "점수 차감 수정(-0.5)"
+    "trust_correct_submit": "점수 차감 수정(-0.5)",
+    "progress_plugin_summary": "산출물 {{count}}개 · 마지막 {{time}}",
+    "progress_plugin_idle": "활성화됨 · 산출물 없음"
   },
   "labels_panel": {
     "intro": "워크스페이스의 이슈를 분류할 라벨을 만들고 관리하세요.",

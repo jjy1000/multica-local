@@ -72,6 +72,33 @@ WHERE issue_id = $1
   AND status = 'running'
   AND updated_at < now() - interval '15 minutes';
 
+-- name: ListRecentPythiaForecastRuns :many
+-- Workspace-wide monitor listing (0.5.112): newest runs across ALL issues
+-- of the workspace, joined with the issue title/number for the passive lab
+-- monitor page. Deliberately EXCLUDES the envelopes blob — the monitor
+-- lists runs and jumps into issues; round detail lives on the issue panel.
+SELECT r.id, r.issue_id, r.rounds, r.source, r.created_at,
+       r.parent_run_id, r.run_kind, r.variables, r.status, r.report,
+       r.report_comment_id, r.updated_at,
+       i.title AS issue_title, i.number AS issue_number
+FROM pythia_forecast_run r
+JOIN issue i ON i.id = r.issue_id
+WHERE r.workspace_id = $1
+ORDER BY r.created_at DESC
+LIMIT $2;
+
+-- name: AbandonStalePythiaForecastRunsWorkspace :execrows
+-- Workspace-wide variant of AbandonStalePythiaForecastRuns (0.5.112): the
+-- monitor endpoint sweeps phantom running rows for EVERY issue it lists,
+-- so the passive view never shows a zombie "running" after a server
+-- restart killed the runner goroutine.
+UPDATE pythia_forecast_run
+SET status = 'aborted',
+    updated_at = now()
+WHERE workspace_id = $1
+  AND status = 'running'
+  AND updated_at < now() - interval '15 minutes';
+
 -- name: SetPythiaForecastRunReportComment :one
 -- 0.5.86: idempotency marker for the issue report writeback — the
 -- handler posts the report comment, then records its id here.

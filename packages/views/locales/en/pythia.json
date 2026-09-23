@@ -85,5 +85,18 @@
   "chat_whatif_prefix": "WHAT IF",
   "chat_whatif_badge": "what-if",
   "chat_hint_whatif": "Tip: prefix with `/whatif ` to branch a counterfactual scenario.",
-  "chat_personas_unavailable": "persona roster unavailable — verify engine is up."
+  "chat_personas_unavailable": "persona roster unavailable — verify engine is up.",
+  "monitor_title": "Pythia forecast monitor",
+  "monitor_subtitle": "Deduction runs across every issue — open an issue to continue the forecast",
+  "monitor_manager": "service",
+  "monitor_oracle": "oracle",
+  "monitor_osiris": "intel (Osiris)",
+  "monitor_on": "up",
+  "monitor_off": "down",
+  "monitor_rounds": "{{rounds}} rounds",
+  "monitor_empty": "No forecast runs yet",
+  "monitor_empty_hint": "Start a deduction from any issue's property panel; other agents can trigger one via `multica pythia issue-forecast`.",
+  "monitor_open_issue": "Open issue",
+  "monitor_kind_initial": "initial",
+  "monitor_kind_continuation": "continuation"
 }

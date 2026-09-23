@@ -418,12 +418,17 @@ export function AgentTrustCorrectButton({
             />
           )}
 
-          {suffix && labEnabled ? (
+          {suffix && labEnabled && labSource !== "pythia_oracle" ? (
             // 0.3.35: include ?issue=<id> so the lab panel opens
-            // pre-scoped to this issue (ClaudeLabView / PythiaView /
-            // MythosView all read the search param). Without it the
-            // user lands on the workspace-scoped empty state and has
-            // to re-pick the issue in the picker.
+            // pre-scoped to this issue (ClaudeLabView / MythosView
+            // read the search param). Without it the user lands on the
+            // workspace-scoped empty state and has to re-pick the
+            // issue in the picker.
+            //
+            // 0.5.112: pythia no longer gets an open-panel link — the
+            // interactive forecast panel IS the issue property panel
+            // now, and /experimental/pythia is a passive monitor. The
+            // issue→lab jump was dead weight in that direction.
             //
             // 0.5.81: user plugins (user_*) never set
             // hides_deliverable_in_issue_timeline (plugin_scanner.go

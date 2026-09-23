@@ -85,5 +85,18 @@
   "chat_whatif_prefix": "情景推演",
   "chat_whatif_badge": "情景推演",
   "chat_hint_whatif": "提示:以 `/whatif ` 开头即可发起情景反事实推演。",
-  "chat_personas_unavailable": "未获取到视角列表 — 检查引擎是否运行。"
+  "chat_personas_unavailable": "未获取到视角列表 — 检查引擎是否运行。",
+  "monitor_title": "Pythia 推演监控",
+  "monitor_subtitle": "跨 issue 的推演运行状态 — 点击进入问题查看过程与续推",
+  "monitor_manager": "服务",
+  "monitor_oracle": "推理引擎",
+  "monitor_osiris": "情报源 (Osiris)",
+  "monitor_on": "运行中",
+  "monitor_off": "未运行",
+  "monitor_rounds": "{{rounds}} 轮",
+  "monitor_empty": "暂无推演记录",
+  "monitor_empty_hint": "在任意 issue 的属性面板发起推演；其它 agent 也可通过 `multica pythia issue-forecast` 触发并交付结果。",
+  "monitor_open_issue": "打开问题",
+  "monitor_kind_initial": "首轮",
+  "monitor_kind_continuation": "续推"
 }

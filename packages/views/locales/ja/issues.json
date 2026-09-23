@@ -576,7 +576,9 @@
     "trust_correct_ok": "修正しました — 現在の信頼スコア {{score}}(-0.5)",
     "trust_correct_failed": "修正に失敗しました: {{msg}}",
     "trust_correct_note_placeholder": "メモ: 何が誤りか(任意)",
-    "trust_correct_submit": "減点修正(-0.5)"
+    "trust_correct_submit": "減点修正(-0.5)",
+    "progress_plugin_summary": "成果物 {{count}} 件 · 最終 {{time}}",
+    "progress_plugin_idle": "有効 · 成果物はまだありません"
   },
   "labels_panel": {
     "intro": "ワークスペース全体でイシューを分類するラベルを作成・管理します。",

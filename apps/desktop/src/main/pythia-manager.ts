@@ -365,6 +365,8 @@ const PYTHIA_PROXY_ALLOWLIST: ReadonlySet<string> = new Set([
   "/drift",
   "/alerts/feed",
   "/brief",
+  // 0.5.112: the passive monitor page polls engine/oracle/osiris health.
+  "/status",
 ]);
 
 // PythiaProxy rate limit: 30 req / min per source. The renderer's

@@ -19,6 +19,7 @@ import {
   EMPTY_LIST_ISSUE_STATUSES_RESPONSE,
   LabContextSchema,
   ListIssuesResponseSchema,
+  PythiaMonitorRunListSchema,
   RuntimeHourlyActivityListSchema,
   RuntimeUsageByAgentListSchema,
   RuntimeUsageByHourListSchema,
@@ -902,5 +903,42 @@ describe("issue status catalog schemas", () => {
       { endpoint: "POST /api/issue-statuses" },
     );
     expect(parsed).toEqual(EMPTY_ISSUE_STATUS_ENTRY);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PythiaMonitorRunListSchema (0.5.112) — the workspace-wide monitor listing
+// behind the passive /experimental/pythia page. Lenient by contract: a
+// server field drift must degrade the row's defaults, never crash the
+// monitor list.
+describe("PythiaMonitorRunListSchema wire shape", () => {
+  it("parses a well-formed monitor row", () => {
+    const parsed = PythiaMonitorRunListSchema.parse([
+      {
+        id: "run-1",
+        issue_id: "issue-1",
+        issue_title: "推演：汇率冲击",
+        issue_number: 42,
+        rounds: 3,
+        source: "oracle",
+        run_kind: "initial",
+        status: "running",
+        variables: "",
+        created_at: "2026-09-23T00:00:00Z",
+        updated_at: "2026-09-23T00:01:00Z",
+      },
+    ]);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]?.status).toBe("running");
+    expect(parsed[0]?.issue_title).toBe("推演：汇率冲击");
+  });
+
+  it("fills defaults on a partially-drifted row instead of failing the list", () => {
+    const parsed = PythiaMonitorRunListSchema.parse([
+      { id: "run-1", issue_id: "issue-1" },
+    ]);
+    expect(parsed[0]?.issue_title).toBe("");
+    expect(parsed[0]?.status).toBe("completed");
+    expect(parsed[0]?.run_kind).toBe("initial");
   });
 });

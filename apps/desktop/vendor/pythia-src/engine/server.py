@@ -599,6 +599,19 @@ async def forecast_issue(payload: dict = Body(...)):
     # real engine deduction. Pre-fix, a 200 with placeholder narrative was
     # indistinguishable from a genuine model answer.
     from .runtime import oracle
+    # 0.5.112 Osiris follow-call: ground the round on FRESH world intel, not
+    # whatever the startup refresh left behind. When the snapshot is missing
+    # or older than PYTHIA_WORLD_TTL seconds (default 600) re-run the cheap
+    # non-LLM sensing pass. Best-effort: a slow or failed intake falls back
+    # to the stale snapshot — intel must never block a forecast round.
+    try:
+        age = STATE.world_age_seconds()
+        ttl = float(os.getenv("PYTHIA_WORLD_TTL", "600") or 600)
+        if age is None or age > ttl:
+            from .pipeline import refresh_world
+            await refresh_world()
+    except Exception as e:  # noqa: BLE001 — intel refresh is optional
+        log.warning("forecast_issue world refresh skipped: %s", e)
     brief = STATE.world
     synthetic = False
     try:

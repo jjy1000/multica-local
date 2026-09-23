@@ -1067,7 +1067,10 @@ export function LabOutputPanel({ wsId, issueId, labSource, labMode }: LabOutputP
   if (!A_CLASS_LABS.has(labSource)) return null;
 
   if (labSource === "pythia_oracle") {
-    return <PythiaPanel wsId={wsId} issueId={issueId} labViewHref={labViewHref} />;
+    // 0.5.112: no labViewHref — the interactive panel lives on the issue;
+    // the /experimental/pythia page is a passive monitor, so the
+    // issue→lab jump link is gone.
+    return <PythiaPanel wsId={wsId} issueId={issueId} />;
   }
 
   if (labSource === "timesfm") {

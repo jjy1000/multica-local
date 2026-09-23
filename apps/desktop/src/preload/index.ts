@@ -381,7 +381,7 @@ const experimentalAPI = {
     // owns allowlist + rate limit; the renderer only sees ok + body.
     proxy: (
       req: {
-        path: "/whatif" | "/chat" | "/predict";
+        path: "/whatif" | "/chat" | "/predict" | "/status";
         method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
         body?: unknown;
         timeoutMs?: number;

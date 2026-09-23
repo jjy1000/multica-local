@@ -150,8 +150,28 @@ describe("IssueLabsSection → LabProgressCard wiring", () => {
 // not tell whether the run had started. These tests pin:
 //   enabled lab + known route → open-panel link, NO disabled box
 //   running snapshot task     → terminate control next to the indicator
+//
+// 0.5.112: pythia is REMOVED from the open-panel link — its interactive
+// panel IS the issue property panel now and /experimental/pythia is a
+// passive monitor. claude_science_lab carries the positive link pin;
+// a dedicated test pins pythia's link ABSENCE (and that it still does
+// not degrade to the disabled box).
 describe("IssueLabsSection → panel link honesty", () => {
   it("shows the open-panel link (not the disabled box) for an enabled lab with a route", () => {
+    mockFlags.value = [makeFlag("claude_science_lab", true)];
+    mockSnapshot.value = [];
+    const { container } = render(
+      <IssueLabsSection issueId="issue-1" labSource="claude_science_lab" />,
+      { wrapper: SectionWrapper },
+    );
+    const links = Array.from(container.querySelectorAll("a")).map((a) =>
+      a.getAttribute("href"),
+    );
+    expect(links).toContain("/experimental/claude-lab?issue=issue-1");
+    expect(container.textContent).not.toContain("Labs are off");
+  });
+
+  it("renders NO open-panel link for a pythia-bound issue (0.5.112 passive-monitor contract)", () => {
     mockFlags.value = [makeFlag("pythia_oracle", true)];
     mockSnapshot.value = [];
     const { container } = render(
@@ -161,8 +181,9 @@ describe("IssueLabsSection → panel link honesty", () => {
     const links = Array.from(container.querySelectorAll("a")).map((a) =>
       a.getAttribute("href"),
     );
-    expect(links).toContain("/experimental/pythia?issue=issue-1");
-    expect(container.textContent).not.toContain("Lab not enabled");
+    expect(links).not.toContain("/experimental/pythia?issue=issue-1");
+    // Absence of the link must NOT resurrect the misleading disabled box.
+    expect(container.textContent).not.toContain("Labs are off");
   });
 
   it("renders the terminate control while a lab task is running", async () => {

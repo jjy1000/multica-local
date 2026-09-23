@@ -2388,6 +2388,9 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				slog.Warn("cancel tasks for edited comment failed", "comment_id", uuidToString(existing.ID), "error", err)
 			}
+			// 0.5.112 termination closure: a stop-trigger comment also aborts
+			// the issue's in-flight Pythia forecast run (best-effort).
+			abortPythiaRunsForIssue(r.Context(), h, existing.IssueID)
 		}
 	}
 
@@ -2505,6 +2508,9 @@ func (h *Handler) DeleteComment(w http.ResponseWriter, r *http.Request) {
 	if cancelErr != nil {
 		slog.Warn("cancel tasks for deleted trigger comment failed", append(logger.RequestAttrs(r), "error", cancelErr, "comment_id", commentId)...)
 	}
+	// 0.5.112 termination closure: deleting the stop-trigger comment keeps
+	// the abort — the issue's in-flight Pythia forecast run stops too.
+	abortPythiaRunsForIssue(r.Context(), h, comment.IssueID)
 
 	if err := h.Queries.DeleteComment(r.Context(), db.DeleteCommentParams{
 		ID:          comment.ID,

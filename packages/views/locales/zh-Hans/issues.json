@@ -581,7 +581,9 @@
     "trust_correct_ok": "已纠正,当前信任分 {{score}}(-0.5)",
     "trust_correct_failed": "纠正失败:{{msg}}",
     "trust_correct_note_placeholder": "备注:哪里错了(可选)",
-    "trust_correct_submit": "扣分纠正(-0.5)"
+    "trust_correct_submit": "扣分纠正(-0.5)",
+    "progress_plugin_summary": "产物 {{count}} 份 · 最近 {{time}}",
+    "progress_plugin_idle": "已启用 · 暂无产物"
   },
   "labels_panel": {
     "intro": "创建和管理标签，用于在工作区内分类 issue。",

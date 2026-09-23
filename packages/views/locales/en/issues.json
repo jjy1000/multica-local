@@ -600,7 +600,9 @@
     "trust_correct_ok": "Corrected — trust score is now {{score}} (-0.5)",
     "trust_correct_failed": "Correction failed: {{msg}}",
     "trust_correct_note_placeholder": "Note: what went wrong (optional)",
-    "trust_correct_submit": "Downvote correction (-0.5)"
+    "trust_correct_submit": "Downvote correction (-0.5)",
+    "progress_plugin_summary": "{{count}} artifacts · last {{time}}",
+    "progress_plugin_idle": "enabled · no artifacts yet"
   },
   "labels_panel": {
     "intro": "Create and manage labels to categorize issues across your workspace.",

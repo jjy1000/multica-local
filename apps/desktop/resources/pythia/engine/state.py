@@ -14,6 +14,7 @@ class EngineState:
     def __init__(self) -> None:
         self.predictions: list[Prediction] = []     # current forecast set
         self.world: Optional[WorldBrief] = None
+        self.world_refreshed_ms: int = 0
         self.events: list = []                       # latest raw WorldEvents (for agents)
         # persona name -> model override (empty = use main model).
         # Seeded from SWARM_MODELS in .env, then saved UI picks win; persisted across restarts.
@@ -96,7 +97,16 @@ class EngineState:
 
     def set_world(self, brief: WorldBrief) -> None:
         self.world = brief
+        self.world_refreshed_ms = now_ms()
         self.publish("world", brief.model_dump())
+
+    def world_age_seconds(self) -> Optional[float]:
+        """Seconds since the last successful world refresh, or None when the
+        engine has never sensed a world snapshot (0.5.112 follow-call gate:
+        forecast rounds refresh stale intel before grounding on it)."""
+        if self.world is None or self.world_refreshed_ms <= 0:
+            return None
+        return max(0.0, (now_ms() - self.world_refreshed_ms) / 1000.0)
 
     def upsert_run(self, run: RunRecord) -> None:
         run.touch()

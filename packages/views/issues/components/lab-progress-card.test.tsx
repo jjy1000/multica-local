@@ -130,23 +130,35 @@ afterEach(() => {
 });
 
 describe("LabProgressCard — pythia_oracle", () => {
-  it("renders done with rounds + source summary and the run-scoped deep link", async () => {
+  it("renders done with rounds + source summary and NO deep link (0.5.112 passive monitor)", async () => {
     mockRawRequest.mockResolvedValue(makeResponse(200, [pythiaRun]));
     renderCard();
 
     await waitFor(() => expect(card().dataset.state).toBe("done"));
     expect(card().textContent).toContain("2 rounds");
     expect(card().textContent).toContain("oracle");
-    expect(cardHref()).toBe("/experimental/pythia?issue=issue-1&run=prun-1");
+    // 0.5.112: the /experimental/pythia page is a passive monitor — the
+    // card no longer deep-links into it.
+    expect(cardHref()).toBeNull();
   });
 
-  it("renders idle with the issue-scoped link when no runs exist and nothing was triggered", async () => {
+  it("renders a RUNNING card while the async run row is in flight (0.5.112)", async () => {
+    mockRawRequest.mockResolvedValue(
+      makeResponse(200, [{ ...pythiaRun, status: "running" }]),
+    );
+    renderCard();
+
+    await waitFor(() => expect(card().dataset.state).toBe("running"));
+    expect(cardHref()).toBeNull();
+  });
+
+  it("renders idle with NO issue-scoped link when no runs exist and nothing was triggered", async () => {
     mockRawRequest.mockResolvedValue(makeResponse(200, []));
     renderCard();
 
     await waitFor(() => expect(card().dataset.state).toBe("idle"));
     expect(card().textContent).toContain("Not run");
-    expect(cardHref()).toBe("/experimental/pythia?issue=issue-1");
+    expect(cardHref()).toBeNull();
   });
 
   it("renders running from the shared sessionStorage trigger heuristic (fresh trigger, no rows)", async () => {
@@ -315,8 +327,8 @@ describe("LabProgressCard — auxiliary + uncovered labs", () => {
     }
   });
 
-  it("renders nothing for swarm_topology (pill covers it) and code_canvas / user plugins", () => {
-    for (const lab of ["swarm_topology", "code_canvas", "user_my_plugin"]) {
+  it("renders nothing for swarm_topology (pill covers it) and code_canvas", () => {
+    for (const lab of ["swarm_topology", "code_canvas"]) {
       const { container } = render(
         <LabProgressCard
           issueId="issue-1"
@@ -329,6 +341,23 @@ describe("LabProgressCard — auxiliary + uncovered labs", () => {
       expect(container).toBeEmptyDOMElement();
       cleanup();
     }
+  });
+
+  it("renders the plugin card for user_* sources (0.5.112 property-panel integration)", async () => {
+    // The card polls the plugin's artifact index; a resolved (empty) list
+    // renders the idle plugin card instead of the old null.
+    mockRawRequest.mockResolvedValue(makeResponse(200, []));
+    render(
+      <LabProgressCard
+        issueId="issue-1"
+        workspaceId="ws-1"
+        labSource="user_my_plugin"
+        flagEnabled={true}
+      />,
+      { wrapper: Wrapper },
+    );
+    await waitFor(() => expect(screen.getByTestId("lab-progress-card").dataset.state).toBe("idle"));
+    expect(screen.getByTestId("lab-progress-card").textContent).toContain("enabled");
   });
 
   it("suppresses the click-through when the flag is disabled but still shows the state", async () => {

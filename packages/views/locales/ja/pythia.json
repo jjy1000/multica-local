@@ -85,5 +85,18 @@
   "chat_whatif_prefix": "WHAT IF",
   "chat_whatif_badge": "what-if",
   "chat_hint_whatif": "ヒント: `/whatif ` で始めると反事実シナリオを分岐できます。",
-  "chat_personas_unavailable": "視点リスト取得失敗 — エンジンの稼働を確認してください。"
+  "chat_personas_unavailable": "視点リスト取得失敗 — エンジンの稼働を確認してください。",
+  "monitor_title": "Pythia 推論モニター",
+  "monitor_subtitle": "全イシューの推論ラン状態 — イシューを開いて推論を続行",
+  "monitor_manager": "サービス",
+  "monitor_oracle": "推論エンジン",
+  "monitor_osiris": "インテリジェンス (Osiris)",
+  "monitor_on": "稼働中",
+  "monitor_off": "停止中",
+  "monitor_rounds": "{{rounds}} ラウンド",
+  "monitor_empty": "推論ランはまだありません",
+  "monitor_empty_hint": "任意のイシューのプロパティパネルから開始。他のエージェントも `multica pythia issue-forecast` で実行できます。",
+  "monitor_open_issue": "イシューを開く",
+  "monitor_kind_initial": "初回",
+  "monitor_kind_continuation": "継続"
 }

@@ -6,10 +6,11 @@
 //
 //   pythia_oracle      → GET /runs?limit=1 (shared cache key with
 //                        LabOutputPanel's PythiaPanel — zero extra
-//                        round-trips when both are mounted) + the 0.5.59
-//                        sessionStorage trigger heuristic, read through the
-//                        shared lab-run-heuristics.ts helpers so the card and
-//                        the panel can never disagree.
+//                        round-trips when both are mounted). 0.5.112: the
+//                        run ROW's own status drives the card (async runs
+//                        persist 'running' up-front) and the deep link is
+//                        GONE — /experimental/pythia is a passive monitor,
+//                        the issue panel below is the destination.
 //   timesfm            → useTimesfmForecastRuns (same hook/limit as
 //                        TimesfmPanel → same cache entry). Rows are written
 //                        synchronously AFTER the engine answers, so "running"
@@ -48,7 +49,9 @@ import { useTimesfmForecastRuns } from "@multica/core/experimental";
 import {
   MythosRunListSchema,
   PythiaForecastRunListSchema,
+  UserPluginArtifactMetaListSchema,
 } from "@multica/core/api/schemas";
+import type { UserPluginArtifactMeta } from "@multica/core/api/schemas";
 import type {
   MythosRunSummary,
   PythiaForecastRun,
@@ -163,6 +166,7 @@ function ProgressCardBody({
   runId,
   state,
   flagEnabled,
+  disableLink = false,
 }: {
   testId: string;
   labSource: string;
@@ -170,6 +174,9 @@ function ProgressCardBody({
   runId?: string | null;
   state: CardState;
   flagEnabled: boolean;
+  /** 0.5.112: pythia passes true — the /experimental/pythia page is a
+   *  passive monitor, so the card no longer deep-links into it. */
+  disableLink?: boolean;
 }) {
   const { t } = useT("issues");
   const reduceMotion = useReducedMotion() ?? false;
@@ -187,8 +194,9 @@ function ProgressCardBody({
 
   // Deep-link: run-scoped when a run id exists (all wired ?run= receivers
   // listed in lab-run-link.ts), otherwise issue-scoped. Suppressed when the
-  // flag is off — the section's no-flag hint below covers that case.
-  const href = flagEnabled ? labRunHref(labSource, issueId, runId) : undefined;
+  // flag is off — the section's no-flag hint below covers that case — and
+  // for labs whose lab surface is no longer a destination (pythia).
+  const href = flagEnabled && !disableLink ? labRunHref(labSource, issueId, runId) : undefined;
 
   const toneClass =
     state.kind === "failed"
@@ -334,7 +342,12 @@ function PythiaProgressCard({
     },
     refetchInterval: (query) => {
       const runs = query.state.data;
-      return runs && runs.length > 0 ? IDLE_INTERVAL_MS : POLL_INTERVAL_MS;
+      // 0.5.112: runs are async rows now — poll at the live cadence while
+      // ANY run is in flight (the pre-async heuristic idled as soon as one
+      // row existed, freezing the card mid-run).
+      return runs && runs.some((r) => r.status === "running")
+        ? POLL_INTERVAL_MS
+        : IDLE_INTERVAL_MS;
     },
   });
 
@@ -370,6 +383,15 @@ function PythiaProgressCard({
   const runTime = formatRunTime(latest?.created_at);
 
   if (latest) {
+    // 0.5.112: the row's own status drives the card (async runs persist a
+    // 'running' row BEFORE the first round lands). disableLink: the lab
+    // page is a passive monitor — the panel below IS the destination.
+    const kind: CardState["kind"] =
+      latest.status === "running"
+        ? "running"
+        : latest.status === "aborted" || latest.status === "failed"
+          ? "failed"
+          : "done";
     return (
       <ProgressCardBody
         testId="lab-progress-card"
@@ -377,8 +399,9 @@ function PythiaProgressCard({
         issueId={issueId}
         runId={latest.id}
         flagEnabled={flagEnabled}
+        disableLink
         state={{
-          kind: "done",
+          kind,
           summary: `${t(($) => $.lab_section.progress_pythia_rounds, { rounds: String(latest.rounds) })} · ${latest.source || "—"}${runTime ? ` · ${runTime}` : ""}`,
         }}
       />
@@ -393,6 +416,7 @@ function PythiaProgressCard({
         labSource="pythia_oracle"
         issueId={issueId}
         flagEnabled={flagEnabled}
+        disableLink
         state={{ kind: "running" }}
       />
     );
@@ -404,6 +428,7 @@ function PythiaProgressCard({
         labSource="pythia_oracle"
         issueId={issueId}
         flagEnabled={flagEnabled}
+        disableLink
         state={{ kind: "engine_down" }}
       />
     );
@@ -414,6 +439,7 @@ function PythiaProgressCard({
       labSource="pythia_oracle"
       issueId={issueId}
       flagEnabled={flagEnabled}
+      disableLink
       state={{ kind: "idle" }}
     />
   );
@@ -633,10 +659,99 @@ function ClaudeProgressCard({
   );
 }
 
+// ── User plugins (0.5.112) ────────────────────────────────────────────────
+
+// The plugin card generalizes the property-panel status integration to
+// runnable user_* plugins: an issue bound to a plugin shows its
+// enablement + last deliverable activity with the same motion vocabulary
+// as the built-in lab cards. Plugin runs are one-shot and NOT persisted
+// per-issue (no run table), so the honest card never fabricates a
+// "running" state — artifacts are the activity signal.
+function UserPluginProgressCard({
+  wsId,
+  issueId,
+  labSource,
+}: {
+  wsId: string;
+  issueId: string;
+  labSource: string;
+}) {
+  const { t } = useT("issues");
+  const slug = labSource.startsWith("user_") ? labSource.slice(5) : labSource;
+
+  const artifactsQuery = useQuery({
+    queryKey: ["lab-progress-card-plugin-artifacts", wsId, slug],
+    queryFn: async (): Promise<UserPluginArtifactMeta[]> => {
+      const r = await api.rawRequest(
+        `/api/user-plugins/${encodeURIComponent(slug)}/artifacts`,
+      );
+      if (r.status === 404) return [];
+      if (!r.ok) throw new Error(`plugin artifacts ${r.status}`);
+      const raw: unknown = await r.json();
+      return parseWithFallback<UserPluginArtifactMeta[]>(
+        raw,
+        UserPluginArtifactMetaListSchema,
+        [],
+        { endpoint: "GET /api/user-plugins/:slug/artifacts" },
+      );
+    },
+    refetchInterval: IDLE_INTERVAL_MS,
+  });
+
+  if (artifactsQuery.isLoading) return <LabProgressCardSkeleton />;
+  if (artifactsQuery.isError) {
+    return (
+      <ProgressCardBody
+        testId="lab-progress-card"
+        labSource={labSource}
+        issueId={issueId}
+        state={{ kind: "idle" }}
+        flagEnabled
+      />
+    );
+  }
+
+  const artifacts = [...(artifactsQuery.data ?? [])].sort((a, b) =>
+    (a.created_at ?? "") < (b.created_at ?? "") ? 1 : -1,
+  );
+  const last = artifacts[0] ?? null;
+  const lastTime = formatRunTime(last?.created_at);
+
+  if (last) {
+    return (
+      <ProgressCardBody
+        testId="lab-progress-card"
+        labSource={labSource}
+        issueId={issueId}
+        state={{
+          kind: "done",
+          summary: t(($) => $.lab_section.progress_plugin_summary, {
+            count: artifacts.length,
+            time: lastTime ?? "—",
+          }),
+        }}
+        flagEnabled
+      />
+    );
+  }
+  return (
+    <ProgressCardBody
+      testId="lab-progress-card"
+      labSource={labSource}
+      issueId={issueId}
+      state={{
+        kind: "idle",
+        summary: t(($) => $.lab_section.progress_plugin_idle),
+      }}
+      flagEnabled
+    />
+  );
+}
+
 /**
  * LabProgressCard — see file header. Returns null for labs already covered
  * by their own status surface (swarm_topology pill, code_canvas panel) and
- * for unknown / user-plugin sources.
+ * for unknown sources. user_* plugins render the 0.5.112 plugin card.
  */
 export function LabProgressCard({
   issueId,
@@ -647,6 +762,15 @@ export function LabProgressCard({
 }: LabProgressCardProps) {
   if (AUXILIARY_LAB_SOURCES.has(labSource)) {
     return <AuxiliaryRow />;
+  }
+  if (labSource.startsWith("user_")) {
+    return (
+      <UserPluginProgressCard
+        wsId={workspaceId}
+        issueId={issueId}
+        labSource={labSource}
+      />
+    );
   }
   if (labSource === "pythia_oracle") {
     return (

@@ -995,6 +995,12 @@ func (h *Handler) CancelTaskByUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 0.5.112 termination closure: the cancelled issue task also aborts any
+	// in-flight Pythia forecast run on that issue (best-effort).
+	if task.IssueID.Valid {
+		abortPythiaRunsForIssue(r.Context(), h, task.IssueID)
+	}
+
 	resp := CancelTaskByUserResponse{
 		AgentTaskResponse: taskToResponse(cancelled.Task, workspaceID),
 	}

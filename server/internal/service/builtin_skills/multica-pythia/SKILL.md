@@ -1,6 +1,6 @@
 ---
 name: multica-pythia
-description: "Use when the user asks about predictions, scenarios, world briefings, geopolitical risks, market forecasts, or \"what happens next\" questions across horizons (24h / week / month / year). Pythia is the bundled headless Python oracle that fuses a local swarm prediction engine (MiroFish) with a live global-intelligence feed (Osiris). Resolves a loopback URL via `multica --json pythia status` then calls one of the bundled verbs: `brief` (latest world brief), `predict` (run a forecast pass), `whatif` (counterfactual). Requires the `pythia_oracle` Labs flag enabled; the desktop must have the Pythia service running. Do not use it for chat / issues / Multica platform operations — that is what multica-mentioning / multica-working-on-issues cover."
+description: "Use when the user asks about predictions, scenarios, world briefings, geopolitical risks, market forecasts, or \"what happens next\" questions across horizons (24h / week / month / year). Pythia is the bundled headless Python oracle that fuses a local swarm prediction engine (MiroFish) with a live global-intelligence feed (Osiris). Resolves a loopback URL via `multica --json pythia status` then calls one of the bundled verbs: `brief` (latest world brief), `predict` (run a forecast pass), `whatif` (counterfactual); for issue-bound deliberations call `issue-forecast` (starts/continues the multi-round forecast on an issue — the conclusion report is delivered into the issue as a comment). Requires the `pythia_oracle` Labs flag enabled; the desktop must have the Pythia service running. Do not use it for chat / issues / Multica platform operations — that is what multica-mentioning / multica-working-on-issues cover."
 user-invocable: true
 allowed-tools: Bash(multica pythia *)
 ---
@@ -40,6 +40,7 @@ manager isolates its env from Multica's provider chain.
 | `multica pythia brief --topic <...>` | `GET /brief` | "What's happening in the world right now?" |
 | `multica pythia predict` | `POST /predict` | "Run a forecast pass now" — kicks the LOOP asynchronously |
 | `multica pythia whatif --scenario <...>` | `POST /whatif` | "What if X happens?" — counterfactual; never touches the ledger |
+| `multica pythia issue-forecast --issue <id> [--wait]` | `POST /api/experimental/pythia-oracle/forecast/issue` | Issue-bound multi-round deliberation — see the next section. Talks to the Multica SERVER (no `--url` needed) |
 
 All return JSON; pass `--output json` to keep machine-readable output intact
 (the default plain-text representation drops fields).
@@ -47,10 +48,40 @@ All return JSON; pass `--output json` to keep machine-readable output intact
 0.5.105 audit M6: this table previously listed `ask` / `events` /
 `predictions` / `view` / `scorecard` / `models` / `links` as well — those
 engine HTTP endpoints exist, but the CLI has never wrapped them, so the
-verbs were phantom. Only the four implemented verbs above are documented
+verbs were phantom. Only the five implemented verbs above are documented
 now (per the skills ↔ CLI contract). If an engine-only surface is genuinely
 needed, query the loopback URL from `status` with an explicit HTTP request
 and say so in the reply — do not pretend a `multica pythia` verb ran.
+
+## Issue-bound forecast — multi-agent handoff (0.5.112)
+
+When the forecast target IS an issue (方案推演 / 设想 / "推演一下这个方案"),
+do NOT scrape the loopback engine yourself — start the issue-bound
+deliberation so the result lands where every other agent can see it:
+
+```sh
+# initial run (rounds default: 3, or a natural-language "推演N轮" pin in
+# the issue text / variables; cap 10)
+multica pythia issue-forecast --issue <id-or-identifier>
+
+# continuation: inherit the parent run's round history + inject new variables
+multica pythia issue-forecast --issue <id> --parent-run <run_id> --variables "把汇率冲击调高到 20% 后重新推演"
+
+# block until terminal so you can quote the conclusion in your own reply
+multica pythia issue-forecast --issue <id> --wait
+```
+
+Delivery contract: the run executes in the background; when it finishes,
+the LLM-synthesized conclusion report is written INTO the issue as a
+`pythia_runtime` comment — that comment is the deliverable to every other
+agent on the issue (subscribers/mentions get it through the normal inbox
+path). Your job afterwards is the standard 0.3.27 B6 echo: summarize the
+conclusion in your reply; the report comment already covers the audit
+trail. With `--wait` the verb's JSON also carries the full `report` text.
+
+Termination: if the user stops the issue's agent task (or cancels/deletes
+the issue), any in-flight forecast run on that issue is aborted with it —
+never promise round results after a cancel.
 
 ## Hard rules
 

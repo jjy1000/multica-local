@@ -3550,6 +3550,9 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	// is a user-initiated terminal action that should stop execution.
 	if statusChanged && issue.Status == "cancelled" {
 		h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
+		// 0.5.112 termination closure: the cancelled issue also aborts any
+		// in-flight Pythia forecast run (best-effort).
+		abortPythiaRunsForIssue(r.Context(), h, issue.ID)
 	}
 
 	// Platform-driven parent notification: when this issue transitions into
@@ -3989,6 +3992,9 @@ func (h *Handler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
+	// 0.5.112 termination closure: a deleted issue aborts its in-flight
+	// Pythia forecast runs BEFORE the cascade removes them.
+	abortPythiaRunsForIssue(r.Context(), h, issue.ID)
 	// Fail any linked autopilot runs before delete (ON DELETE SET NULL clears issue_id).
 	h.Queries.FailAutopilotRunsByIssue(r.Context(), issue.ID)
 
@@ -4519,6 +4525,9 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		// Cancel active tasks when the issue is cancelled by a user.
 		if statusChanged && issue.Status == "cancelled" {
 			h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
+			// 0.5.112 termination closure (batch path): same abort of
+			// in-flight Pythia forecast runs as the single-issue PATCH.
+			abortPythiaRunsForIssue(r.Context(), h, issue.ID)
 		}
 
 		// Platform-driven parent notification, mirrored from UpdateIssue

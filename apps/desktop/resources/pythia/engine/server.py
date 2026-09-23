@@ -519,6 +519,16 @@ async def forecast_issue(payload: dict = Body(...)):
     Body:
       - question (str, required): the issue title (forecast target).
       - scenario_context (str): the title + body excerpt from Go.
+      - history (list): prior-round digests from earlier runs of the SAME
+        issue (continuation) — [{round, narrative, probability}]. Injected
+        into the prompt so a later round sharpens an earlier one instead of
+        starting from zero (0.5.111 continuation contract).
+      - variables (str): user-injected new variables for a continuation
+        round ("把汇率冲击调高到 20% 后重新推演…").
+      - council (bool, default True): run the FULL 4-persona swarm on the
+        round. Response then carries `council` (votes/consensus/spread/
+        split) and `base_probability` (the oracle's solo estimate that the
+        consensus is measured against).
       - issue_id / issue_number / horizon / persona / round / seed: echo
         fields that round out the envelope so the renderer can render a
         report row without a follow-up GET.
@@ -534,6 +544,21 @@ async def forecast_issue(payload: dict = Body(...)):
     scenario_context = str(payload.get("scenario_context") or "").strip()
     horizon = str(payload.get("horizon") or "week").strip().lower() or "week"
     persona = str(payload.get("persona") or "strategist").strip() or "strategist"
+    variables = str(payload.get("variables") or "").strip()
+    council = payload.get("council", True)
+    council = True if council is None else bool(council)
+    raw_history = payload.get("history")
+    if not isinstance(raw_history, list):
+        raw_history = []
+    history: list[dict] = []
+    for h in raw_history:
+        if isinstance(h, dict) and h.get("narrative"):
+            try:
+                history.append({"round": int(h.get("round") or 0),
+                                "narrative": str(h["narrative"])[:600],
+                                "probability": float(h.get("probability") or 0.0)})
+            except (TypeError, ValueError):
+                continue
     seed = payload.get("seed") or 0
     try:
         seed = int(seed)
@@ -547,6 +572,21 @@ async def forecast_issue(payload: dict = Body(...)):
     if rnd < 1:
         rnd = 1
 
+    # Continuation context: prior-round digest + the user's freshly injected
+    # variables ride into EVERY prompt (oracle + council) so round N is
+    # conditioned on rounds 1..N-1 and on what the user changed — the
+    # SocialSim "inherited baseline" idea, cut down to what an issue round
+    # can carry.
+    context_parts = [scenario_context] if scenario_context else []
+    if history:
+        lines = "\n".join(
+            f"第{h['round']}轮（概率 {round(h['probability'] * 100)}%）：{h['narrative']}"
+            for h in history)
+        context_parts.append(f"=== 历史推演轮次 ===\n{lines}")
+    if variables:
+        context_parts.append(f"=== 用户注入的新变量 ===\n{variables[:1200]}")
+    continuation_context = "\n\n".join(context_parts)
+
     # Use the existing whatif() oracle helper — it's a single-shot
     # counterfactual pass that already produces (narrative, predictions).
     # We re-use it so the LLM prompt + JSON parsing stay identical to
@@ -559,11 +599,24 @@ async def forecast_issue(payload: dict = Body(...)):
     # real engine deduction. Pre-fix, a 200 with placeholder narrative was
     # indistinguishable from a genuine model answer.
     from .runtime import oracle
+    # 0.5.112 Osiris follow-call: ground the round on FRESH world intel, not
+    # whatever the startup refresh left behind. When the snapshot is missing
+    # or older than PYTHIA_WORLD_TTL seconds (default 600) re-run the cheap
+    # non-LLM sensing pass. Best-effort: a slow or failed intake falls back
+    # to the stale snapshot — intel must never block a forecast round.
+    try:
+        age = STATE.world_age_seconds()
+        ttl = float(os.getenv("PYTHIA_WORLD_TTL", "600") or 600)
+        if age is None or age > ttl:
+            from .pipeline import refresh_world
+            await refresh_world()
+    except Exception as e:  # noqa: BLE001 — intel refresh is optional
+        log.warning("forecast_issue world refresh skipped: %s", e)
     brief = STATE.world
     synthetic = False
     try:
         scenario, narrative, preds = await oracle.what_if(
-            scenario=question if not scenario_context else f"{question}\n\n{scenario_context[:1200]}",
+            scenario=question if not continuation_context else f"{question}\n\n{continuation_context[:3000]}",
             brief=brief,
         )
     except Exception as e:  # noqa: BLE001 — fall back to a synthetic envelope rather than 500
@@ -579,7 +632,8 @@ async def forecast_issue(payload: dict = Body(...)):
     if preds:
         preds_sorted = sorted(preds, key=lambda p: p.probability, reverse=True)
         top = preds_sorted[0]
-        prob = float(top.probability)
+        base_probability = float(top.probability)
+        prob = base_probability
         scenario_out = top.statement or scenario
         reasoning = top.reasoning or ""
         narrative_out = f"{narrative}\n\n关键证据:{reasoning}" if reasoning else narrative
@@ -596,19 +650,109 @@ async def forecast_issue(payload: dict = Body(...)):
         # predictions. The module-level import at the top of the file is
         # the only one.
         synthetic = True
+        base_probability = None
         base = ((seed or 1) % 100) / 100.0
         drift = (rnd - 1) * 0.04
         prob = max(0.05, min(0.95, 0.45 + math.sin(base * 6.28 + rnd) * 0.18 + drift))
         scenario_out = question
         narrative_out = f"第 {rnd} 轮推演:目前证据有限,概率按种子序列生成,作为占位结果。" if not narrative else narrative
 
+    # 0.5.111 full-council contract: the consensus number IS the headline
+    # probability (so it can never disagree with the votes it summarizes);
+    # the oracle's solo estimate rides along as base_probability for the
+    # "oracle → council" delta, mirroring the deck flow. A council that
+    # lands zero usable voices leaves the solo number as the headline.
+    council_out = None
+    if council:
+        try:
+            from .swarm import deliberate_issue
+            council_out = await deliberate_issue(
+                oracle, question, continuation_context or scenario_context,
+                round_idx=rnd, total_rounds=int(payload.get("total_rounds") or rnd))
+            if council_out.get("consensus") is not None:
+                prob = float(council_out["consensus"])
+        except Exception as e:  # noqa: BLE001 — a stalled council shouldn't sink the round
+            log.warning("forecast_issue council skipped: %s", e)
+            council_out = None
+
     return {
         "scenario": scenario_out,
         "narrative": narrative_out,
         "probability": round(prob, 3),
+        "base_probability": round(base_probability, 3) if base_probability is not None else None,
         "confidence": round(min(0.95, 0.55 + abs(math.sin(seed or 1)) * 0.3), 3) if preds else round(0.5 + 0.05 * rnd, 3),
         "horizon": horizon,
         "persona": persona,
         "round": rnd,
         "synthetic": synthetic,
+        "council": council_out,
     }
+
+
+@app.post("/forecast/issue/report")
+async def forecast_issue_report(payload: dict = Body(...)):
+    """Synthesize the conclusion report for a completed per-issue run.
+
+    Body: {question, scenario_context, rounds: [{round, scenario, narrative,
+    probability, confidence}], variables?}. One LLM pass turns the whole
+    deliberation into the issue-first conclusion report — consensus
+    conclusion, per-persona stance comparison, key concerns, risks, and
+    recommendations (the SocialSim final-analysis shape, adapted to
+    forecasting). Freeform markdown; NOT JSON. `synthetic: true` marks a
+    failed synthesis so the Go layer can fall back to its mechanical
+    summary instead of passing an apology off as analysis.
+    """
+    payload = payload or {}
+    question = str(payload.get("question") or "").strip()
+    if not question:
+        raise HTTPException(400, "provide `question`")
+    scenario_context = str(payload.get("scenario_context") or "").strip()
+    variables = str(payload.get("variables") or "").strip()
+    raw_rounds = payload.get("rounds")
+    if not isinstance(raw_rounds, list) or not raw_rounds:
+        raise HTTPException(400, "provide `rounds` (at least one)")
+    round_lines = []
+    for i, r in enumerate(raw_rounds[:12]):
+        if not isinstance(r, dict):
+            continue
+        prob = r.get("probability")
+        try:
+            prob_txt = f"{round(float(prob) * 100)}%" if prob is not None else "?"
+        except (TypeError, ValueError):
+            prob_txt = "?"
+        narrative = str(r.get("narrative") or "").strip()
+        if not narrative:
+            continue
+        round_lines.append(f"第{r.get('round') or i + 1}轮 (概率 {prob_txt}):{narrative[:700]}")
+    if not round_lines:
+        raise HTTPException(400, "rounds carried no narratives")
+
+    from .runtime import oracle
+    sys = (
+        "你是 PYTHIA 的预测分析专家。用户刚刚对一个议题完成了多轮多视角推演"
+        "(4 个专家角色的 council:Strategist/Economist/Naturalist/Skeptic),"
+        "你要把全部轮次综合成一份中文结题报告。结构固定为:\n"
+        "## 共识结论\n(直接回答议题问题,给出 council 共识概率区间与一句话判断)\n"
+        "## 多视角立场\n(按角色对比分歧,谁更乐观/悲观、各自最关键的论据)\n"
+        "## 关键关切\n(推演中反复出现的核心变量或不确定性)\n"
+        "## 风险\n(最可能推翻结论的 2-3 条路径)\n"
+        "## 建议\n(基于推演的 2-3 条可执行建议;如有用户注入变量,评估其影响)\n"
+        "全部内容必须只依据给出的轮次记录,不得编造未出现的证据。直接输出 markdown,不要寒暄。"
+    )
+    parts = [f"=== 议题 ===\n{question}"]
+    if scenario_context:
+        parts.append(f"=== 场景背景 ===\n{scenario_context[:1200]}")
+    if variables:
+        parts.append(f"=== 用户注入的新变量 ===\n{variables[:1200]}")
+    parts.append("=== 推演轮次记录 ===\n" + "\n".join(round_lines))
+    try:
+        report = await oracle._complete(
+            [{"role": "system", "content": sys},
+             {"role": "user", "content": "\n\n".join(parts)}],
+            max_tokens=1600)
+        if not report.strip():
+            raise RuntimeError("empty report")
+        return {"report": report.strip()[:8000], "synthetic": False}
+    except Exception as e:  # noqa: BLE001 — Go falls back to the mechanical summary
+        log.warning("forecast_issue report synthesis failed: %s", e)
+        return {"report": "", "synthetic": True}

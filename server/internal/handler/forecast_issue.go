@@ -83,6 +83,9 @@ func RegisterPythiaIssueForecastRoutes(r chi.Router) {
 	r.Get("/api/experimental/pythia-oracle/forecast/issue/runs", pythiaIssueForecastRuns)
 	r.Get("/api/experimental/pythia-oracle/forecast/issue/runs/{runID}/stream", pythiaRunStream)
 	r.Post("/api/experimental/pythia-oracle/forecast/issue/runs/{runID}/cancel", pythiaRunCancel)
+	// 0.5.112: workspace-wide run listing behind the passive lab monitor
+	// page. Literal path — no {runID} subtree to collide with.
+	r.Get("/api/experimental/pythia-oracle/forecast/monitor", pythiaForecastMonitor)
 	r.Post("/api/experimental/pythia-oracle/chat", pythiaChat)
 }
 
@@ -411,8 +414,8 @@ func parentEnvelopesOf(row dbpkg.PythiaForecastRun, continuation bool) []forecas
 // context — the continuation history, the injected variables, and the
 // total round count (so prompts can say "round N of M").
 type issueRoundOpts struct {
-	history    []forecastHistoryRound
-	variables  string
+	history     []forecastHistoryRound
+	variables   string
 	totalRounds int
 }
 
@@ -720,7 +723,7 @@ func pythiaIssueReportContent(
 			}
 		}
 	}
-	b.WriteString("\n数据来源：" + pythiaSourceNoteZH(source) + "完整推演（实时过程 / 逐轮 council 票据 / 回放 / 追问）见实验室「Pythia 多视角预测」面板。")
+	b.WriteString("\n数据来源：" + pythiaSourceNoteZH(source) + "完整推演过程、逐轮 council 票据、回放与追问见本问题属性区的「Pythia 多视角预测」面板。")
 	return b.String()
 }
 
@@ -856,6 +859,73 @@ func pythiaIssueForecastRuns(w http.ResponseWriter, r *http.Request) {
 			summary.ParentRunID = &id
 		}
 		out = append(out, summary)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// pythiaForecastMonitor serves
+// GET /api/experimental/pythia-oracle/forecast/monitor?limit=N — the
+// workspace-wide run listing behind the lab monitor page (0.5.112). The
+// /experimental/pythia surface is PASSIVE now: it lists every issue's runs
+// with live status and jumps INTO the issue; all interactive forecast
+// controls live on the issue property panel. Sweeps phantom running rows
+// workspace-wide before listing so a server restart never leaves a zombie
+// "running" entry on the monitor.
+func pythiaForecastMonitor(w http.ResponseWriter, r *http.Request) {
+	h, ok := forecastIssueHandlerFromCtx(r)
+	if !ok || h == nil || h.Queries == nil {
+		writeError(w, http.StatusInternalServerError, "handler unavailable")
+		return
+	}
+	wsUUID, ok := parseUUIDOrBadRequest(w, ctxWorkspaceID(r.Context()), "workspace id")
+	if !ok {
+		return
+	}
+	limit := 30
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+	if _, err := h.Queries.AbandonStalePythiaForecastRunsWorkspace(r.Context(), wsUUID); err != nil {
+		slog.Warn("pythia monitor: workspace stale sweep failed", "error", err)
+	}
+	rows, err := h.Queries.ListRecentPythiaForecastRuns(r.Context(), dbpkg.ListRecentPythiaForecastRunsParams{
+		WorkspaceID: wsUUID,
+		Limit:       int32(limit),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list forecast runs: "+err.Error())
+		return
+	}
+	type monitorRun struct {
+		ID          string `json:"id"`
+		IssueID     string `json:"issue_id"`
+		IssueTitle  string `json:"issue_title"`
+		IssueNumber int32  `json:"issue_number"`
+		Rounds      int32  `json:"rounds"`
+		Source      string `json:"source"`
+		RunKind     string `json:"run_kind"`
+		Status      string `json:"status"`
+		Variables   string `json:"variables"`
+		CreatedAt   string `json:"created_at"`
+		UpdatedAt   string `json:"updated_at"`
+	}
+	out := make([]monitorRun, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, monitorRun{
+			ID:          util.UUIDToString(row.ID),
+			IssueID:     util.UUIDToString(row.IssueID),
+			IssueTitle:  row.IssueTitle,
+			IssueNumber: row.IssueNumber,
+			Rounds:      row.Rounds,
+			Source:      row.Source,
+			RunKind:     row.RunKind,
+			Status:      row.Status,
+			Variables:   row.Variables,
+			CreatedAt:   row.CreatedAt.Time.Format(time.RFC3339),
+			UpdatedAt:   row.UpdatedAt.Time.Format(time.RFC3339),
+		})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

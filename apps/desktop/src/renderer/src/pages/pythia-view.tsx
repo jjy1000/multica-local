@@ -1,43 +1,57 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, Loader2 } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { useExperimentalFlag } from "@multica/core/experimental";
+import { api, parseWithFallback } from "@multica/core/api";
+import { PythiaMonitorRunListSchema } from "@multica/core/api/schemas";
+import type { PythiaMonitorRun } from "@multica/core/types/api";
+import { getCurrentSlug, getCurrentWsId } from "@multica/core/platform";
+import { paths } from "@multica/core/paths";
+import { useNavigation } from "@multica/views/navigation";
 import { useT } from "@multica/views/i18n";
-import { IssueBreadcrumb } from "@multica/views/experimental/components";
 
-// PythiaView (0.3.18+)
+// PythiaView (0.3.18+, monitor rewrite 0.5.112)
 //
-// Two surfaces live here, picked at runtime via the `pythia_oracle`
-// Labs flag (server/internal/experimental/catalog.go):
+// The /experimental/pythia surface is a PASSIVE monitor now. The
+// interactive forecast panel lives on the ISSUE property panel
+// (packages/views/experimental/components/pythia/); this page lists the
+// workspace's deduction runs across every issue with live status and jumps
+// INTO the issue on click — it hosts no interactive forecast UI and no
+// world-brief/globe display. Osiris intelligence stays backend-side: the
+// engine grounds every forecast round on a freshly refreshed world
+// snapshot (vendor engine forecast_issue, PYTHIA_WORLD_TTL).
 //
-//   flag = off  → original informational shell: loopback URL, status,
-//                 CLI usage example. No forecast UI, no SSE, no imports
-//                 from components/pythia/. Hard constraint from the
-//                 Labs framework (0.3.6 memo): flag-off completely
-//                 bypass — no module init side effects.
+//   flag = off  → honest placeholder, no engine boot, no imports beyond
+//                 this file. Hard constraint from the Labs framework
+//                 (0.3.6 memo): flag-off completely bypass.
 //
-//   flag = on   → <PythiaReportSurface /> (lazy-loaded so the ~5KB of
-//                 report shell + interactive controls is fetched only
-//                 when the flag is actually on). 0.3.29 default is 1
-//                 round; user can extend to 3 via the horizon/persona
-//                 controls.
-//
-// The actual forecasting still happens through the multica-pythia Skill
-// (server/internal/service/builtin_skills/multica-pythia/SKILL.md).
-const PythiaReportSurface = lazy(() =>
-  import("../components/pythia/pythia-report-surface").then((m) => ({
-    default: m.PythiaReportSurface,
-  })),
-);
+//   flag = on   → boot the engine (ensureUp, same contract the old report
+//                 surface had — the 0.5.103 event-driven bring-up law),
+//                 then the service health strip + the run monitor.
 
-type Persona = "strategist" | "analyst" | "critic";
-type Horizon = "day" | "week" | "month" | "year";
+type ManagerStatus = string;
 
-export function PythiaView({ issueId: initialIssueId = null }: { issueId?: string | null } = {}) {
+interface EngineHealth {
+  engine: boolean;
+  osiris: boolean;
+  oracle: boolean;
+}
+
+const POLL_INTERVAL_MS = 5_000;
+const IDLE_INTERVAL_MS = 60_000;
+const HEALTH_INTERVAL_MS = 30_000;
+
+export function PythiaView({ issueId: _initialIssueId = null }: { issueId?: string | null } = {}) {
   const pythiaOracleEnabled = useExperimentalFlag("pythia_oracle", false);
   const { t } = useT("pythia");
+  const reduceMotion = useReducedMotion() ?? false;
+  const nav = useNavigation();
   const [url, setUrl] = useState<string | null>(null);
-  const [status, setStatus] = useState<string>("idle");
+  const [status, setStatus] = useState<ManagerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [health, setHealth] = useState<EngineHealth | null>(null);
 
   useEffect(() => {
     if (!pythiaOracleEnabled) return;
@@ -78,45 +92,66 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
     };
   }, [pythiaOracleEnabled]);
 
-  // Interactive state — owned at the page level so the lazy-loaded
-  // report surface receives stable props. The horizon + persona
-  // choices feed into /forecast/issue and the synthetic generator.
-  // When the parent passes an `issueId`, the report surface opens
-  // already-scoped to that issue instead of showing a "no issue
-  // bound" empty state. The user can still re-pick via the issue
-  // panel inside the surface.
-  const [searchParams] = useSearchParams();
-  const urlIssueId = searchParams.get("issue");
-  const [issueId, setIssueId] = useState<string | null>(initialIssueId ?? urlIssueId);
-  // 0.5.81: sync subsequent URL changes into issueId — same regression
-  // class claude-lab-view fixed in 0.3.43 (navigating ?issue=A → ?issue=B
-  // while this view is mounted left the report bound to A). The prop wins
-  // when both are set (inline-render path).
+  // Engine health strip (0.5.112): /status answers {engine, osiris, oracle}
+  // — the backend intel + oracle services the forecast rounds call. Loopback
+  // proxy IPC (allowlisted + rate-limited in pythia-manager.ts), NOT
+  // api.rawRequest — see apps/desktop/CLAUDE.md.
   useEffect(() => {
-    const next = initialIssueId ?? urlIssueId ?? null;
-    setIssueId((prev) => (prev === next ? prev : next));
-  }, [initialIssueId, urlIssueId]);
-  const [horizon, setHorizon] = useState<Horizon>("week");
-  const [persona, setPersona] = useState<Persona>("strategist");
-  const [subscribed, setSubscribed] = useState(true);
-  const [rounds, setRounds] = useState(1);
+    if (!url) return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await window.experimentalAPI.pythia.proxy({
+          path: "/status",
+        });
+        if (!cancelled) setHealth(res.ok ? (res.body as EngineHealth) : null);
+      } catch {
+        if (!cancelled) setHealth(null);
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, HEALTH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [url]);
 
-  const handleRegenerate = useCallback(() => {
-    // Bumping rounds forces the report surface to re-mount its
-    // SSE subscription; the surface filters out frames beyond
-    // `rounds` so this is just a refresh signal.
-    setRounds((r) => (r >= 3 ? 1 : r + 1));
-  }, []);
+  const wsId = getCurrentWsId() ?? "";
+  const slug = getCurrentSlug();
 
-  const handleSubmitScenario = useCallback((scenario: string) => {
-    // 0.3.29 close-the-loop: when the user submits a new scenario
-    // from the report surface, we bump the round count and feed
-    // it as `scenario_context` to the next /forecast/issue call.
-    // Phase 2 can persist this as a new Issue row; Phase 1 just
-    // rerenders with the new context.
-    if (scenario.trim().length === 0) return;
-    setRounds((r) => r + 1);
-  }, []);
+  // Workspace-wide run monitor. 5s poll while any run is live, 60s idle
+  // (Active Contract #1 cadence). The endpoint sweeps phantom running rows
+  // before listing, so a server restart self-heals here too.
+  const runsQuery = useQuery({
+    queryKey: ["pythia-monitor-runs", wsId],
+    queryFn: async (): Promise<PythiaMonitorRun[]> => {
+      const r = await api.rawRequest(
+        "/api/experimental/pythia-oracle/forecast/monitor?limit=30",
+      );
+      if (r.status === 404) return [];
+      if (!r.ok) throw new Error(`pythia monitor ${r.status}`);
+      const raw: unknown = await r.json();
+      return parseWithFallback<PythiaMonitorRun[]>(
+        raw,
+        PythiaMonitorRunListSchema,
+        [],
+        { endpoint: "GET /api/experimental/pythia-oracle/forecast/monitor" },
+      );
+    },
+    enabled: Boolean(pythiaOracleEnabled && wsId),
+    refetchInterval: (query) => {
+      const runs = query.state.data ?? [];
+      return runs.some((run) => run.status === "running")
+        ? POLL_INTERVAL_MS
+        : IDLE_INTERVAL_MS;
+    },
+  });
+
+  const openIssue = (issueId: string) => {
+    if (!slug) return;
+    nav.push(paths.workspace(slug).issueDetail(issueId));
+  };
 
   if (error) {
     return (
@@ -129,66 +164,227 @@ export function PythiaView({ issueId: initialIssueId = null }: { issueId?: strin
     );
   }
 
-  if (pythiaOracleEnabled) {
+  if (!pythiaOracleEnabled) {
     return (
-      <div className="flex h-full w-full flex-col">
-        {/* 0.3.54: when the user lands on the Pythia page without
-            pre-binding an issue, surface a one-line onboarding hint
-            that explains the issue-scoped prediction contract. The
-            hint shows above the report surface (which still renders
-            with its own issue picker below) so the user does not
-            think the page is empty when the report surface
-            "completes" without producing per-issue frames. */}
-        {!issueId && (
-          <div className="border-b border-border bg-muted/40 px-6 py-2 text-xs text-muted-foreground">
-            <span className="font-medium text-foreground/90">提示 · </span>
-            从「分配给」绑定的问题进入时,这里的报告会按 issue 出 10 轮多视角预测。
-            还没绑定?先到任务列表里给某个 issue 选 Pythia,再点上方「打开实验室面板」回来。
-          </div>
-        )}
-        {/* 0.5.81: replace the truncated-id-with-× strip with the shared
-            IssueBreadcrumb (reads ?issue=, resolves title via
-            issueDetailOptions, push()s back to the issue detail). The
-            bind-clearing "×" is gone — users unbind by navigating away
-            or clicking the breadcrumb, matching the other lab surfaces. */}
-        <div className="px-6 pt-3">
-          <IssueBreadcrumb />
-        </div>
-        <Suspense
-          fallback={
-            <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-              <span>
-                {t(($) => $.loading_dashboard)} (manager: {status})…
-              </span>
-            </div>
-          }
-        >
-          <PythiaReportSurface
-            issueId={issueId}
-            horizon={horizon}
-            persona={persona}
-            subscribed={subscribed}
-            rounds={rounds}
-            managerUrl={url}
-            onSelectIssue={setIssueId}
-            onChangeHorizon={setHorizon}
-            onChangePersona={setPersona}
-            onToggleSubscribe={() => setSubscribed((v) => !v)}
-            onRegenerate={handleRegenerate}
-            onSubmitScenario={handleSubmitScenario}
-          />
-        </Suspense>
+      <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+        <span>{t(($) => $.starting_pythia)} (status: {status})…</span>
       </div>
     );
   }
 
-  // Flag-off: bare placeholder. The Pythia prediction surface is
-  // gated behind `pythia_oracle`; without the flag there's nothing
-  // to render here.
+  const runs = runsQuery.data ?? [];
+  const hasLive = runs.some((run) => run.status === "running");
+
   return (
-    <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-      <span>{t(($) => $.starting_pythia)} (status: {status})…</span>
+    <div className="flex h-full w-full flex-col overflow-y-auto">
+      <div className="border-b border-border px-6 pb-3 pt-4">
+        <h1 className="text-base font-semibold text-foreground">
+          {t(($) => $.monitor_title)}
+        </h1>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          {t(($) => $.monitor_subtitle)}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+          <HealthChip
+            label={t(($) => $.monitor_manager)}
+            ok={status === "ready" || status === "running"}
+            pending={status === "starting" || status === "idle"}
+            okText={t(($) => $.monitor_on)}
+            offText={t(($) => $.monitor_off)}
+          />
+          <HealthChip
+            label={t(($) => $.monitor_oracle)}
+            ok={health?.oracle === true}
+            pending={health == null}
+            okText={t(($) => $.monitor_on)}
+            offText={t(($) => $.monitor_off)}
+          />
+          <HealthChip
+            label={t(($) => $.monitor_osiris)}
+            ok={health?.osiris === true}
+            pending={health == null}
+            okText={t(($) => $.monitor_on)}
+            offText={t(($) => $.monitor_off)}
+          />
+        </div>
+      </div>
+
+      <div className="flex-1 px-6 py-4">
+        {runsQuery.isLoading ? (
+          <div className="space-y-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-12 animate-pulse rounded-md bg-muted/50" />
+            ))}
+          </div>
+        ) : runsQuery.isError ? (
+          <p className="text-xs text-destructive">
+            {String(runsQuery.error ?? "monitor error")}
+          </p>
+        ) : runs.length === 0 ? (
+          <div className="rounded-md border border-dashed border-border/60 px-4 py-6 text-center">
+            <p className="text-sm font-medium text-foreground/85">
+              {t(($) => $.monitor_empty)}
+            </p>
+            <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
+              {t(($) => $.monitor_empty_hint)}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-1.5" data-testid="pythia-monitor-list">
+            {runs.map((run) => (
+              <MonitorRow
+                key={run.id}
+                run={run}
+                reduceMotion={reduceMotion}
+                onOpen={() => openIssue(run.issue_id)}
+                openLabel={t(($) => $.monitor_open_issue)}
+                kindLabel={
+                  run.run_kind === "continuation"
+                    ? t(($) => $.monitor_kind_continuation)
+                    : t(($) => $.monitor_kind_initial)
+                }
+                roundsLabel={t(($) => $.monitor_rounds, { rounds: String(run.rounds ?? 0) })}
+              />
+            ))}
+          </div>
+        )}
+        {hasLive && (
+          <p className="mt-3 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" aria-hidden />
+            live · {POLL_INTERVAL_MS / 1000}s
+          </p>
+        )}
+      </div>
     </div>
+  );
+}
+
+function HealthChip({
+  label,
+  ok,
+  pending,
+  okText,
+  offText,
+}: {
+  label: string;
+  ok: boolean;
+  pending: boolean;
+  okText: string;
+  offText: string;
+}) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-medium ${
+        pending
+          ? "border-border text-muted-foreground"
+          : ok
+            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+            : "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+      }`}
+    >
+      {pending ? (
+        <Loader2 className="size-2.5 animate-spin" aria-hidden />
+      ) : (
+        <span
+          className={`size-1.5 rounded-full ${ok ? "bg-emerald-500" : "bg-amber-500"}`}
+          aria-hidden
+        />
+      )}
+      {label} · {pending ? "…" : ok ? okText : offText}
+    </span>
+  );
+}
+
+function MonitorRow({
+  run,
+  reduceMotion,
+  onOpen,
+  openLabel,
+  kindLabel,
+  roundsLabel,
+}: {
+  run: PythiaMonitorRun;
+  reduceMotion: boolean;
+  onOpen: () => void;
+  openLabel: string;
+  kindLabel: string;
+  roundsLabel: string;
+}) {
+  const status = run.status ?? "unknown";
+  const tone =
+    status === "running"
+      ? "text-purple-700 dark:text-purple-300"
+      : status === "completed"
+        ? "text-emerald-600 dark:text-emerald-400"
+        : status === "aborted" || status === "failed"
+          ? "text-red-600 dark:text-red-400"
+          : "text-muted-foreground";
+
+  const statusContent = (
+    <span className={`inline-flex shrink-0 items-center gap-1 font-medium ${tone}`}>
+      {status === "running" ? (
+        <Loader2 className="size-3 animate-spin" aria-hidden />
+      ) : (
+        <span
+          className={`size-1.5 rounded-full ${
+            status === "completed"
+              ? "bg-emerald-500"
+              : status === "aborted" || status === "failed"
+                ? "bg-red-500"
+                : "bg-muted-foreground/40"
+          }`}
+          aria-hidden
+        />
+      )}
+      {status}
+    </span>
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`${openLabel}: ${run.issue_title || run.issue_id}`}
+      data-testid="pythia-monitor-row"
+      className="flex w-full items-center gap-2 rounded-md border border-border bg-card/50 px-3 py-2 text-left transition-colors hover:bg-accent/50"
+    >
+      <span className="rounded bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+        {kindLabel}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/90">
+        {run.issue_title || run.issue_id}
+      </span>
+      {run.variables ? (
+        <span className="hidden max-w-40 truncate text-[10px] text-foreground/60 md:inline">
+          {run.variables}
+        </span>
+      ) : null}
+      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+        {roundsLabel}
+      </span>
+      {reduceMotion ? (
+        statusContent
+      ) : (
+        <AnimatePresence initial={false} mode="wait">
+          <motion.span
+            key={status}
+            className="inline-flex"
+            initial={{ opacity: 0 }}
+            animate={{
+              opacity: 1,
+              transition: { duration: UI_MOTION_DURATION.fast, ease: UI_EASE_OUT },
+            }}
+            exit={{
+              opacity: 0,
+              transition: { duration: UI_MOTION_DURATION.micro, ease: UI_EASE_OUT },
+            }}
+          >
+            {statusContent}
+          </motion.span>
+        </AnimatePresence>
+      )}
+      <ArrowRight className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+    </button>
   );
 }
 
@@ -211,7 +407,3 @@ function humanizeBootError(err: unknown): string {
   }
   return "failed to start Pythia manager";
 }
-
-// silence unused-warning for hooks that Phase 1 leaves unwired.
-const _useRefHook = useRef;
-void _useRefHook;

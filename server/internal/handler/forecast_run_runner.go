@@ -31,11 +31,11 @@ import (
 // pythiaForecastJob is everything the runner needs, resolved before the
 // goroutine starts.
 type pythiaForecastJob struct {
-	RunID     string       // string form of RunUUID (bus key + logs)
+	RunID     string // string form of RunUUID (bus key + logs)
 	RunUUID   pgtype.UUID
 	IssueID   string
 	Workspace string
-	RunKind   string       // "initial" | "continuation" (comment header)
+	RunKind   string // "initial" | "continuation" (comment header)
 	Ifc       *issueForecastContext
 	Rounds    int
 	History   []forecastHistoryRound
@@ -179,6 +179,50 @@ func pythiaWritebackReport(ctx context.Context, h *Handler, job pythiaForecastJo
 				"run_id", job.RunID, "error", err)
 		}
 	}
+}
+
+// abortPythiaRunsForIssue aborts every RUNNING forecast run of the issue
+// (0.5.112 termination-closure contract: the user stops the issue's agent
+// task / cancels / deletes the issue → the in-flight deliberation stops
+// with it). Same semantics as the cancel endpoint: a live runner observes
+// the bus CancelFunc between rounds and finalizes its own row + publishes
+// the status frame; a dead runner (server restarted mid-run) falls back to
+// a direct DB status write. Returns the number of runs signalled.
+// Best-effort by design — callers invoke it on THEIR success path, and an
+// abort failure must never fail the cancel/delete that triggered it.
+func abortPythiaRunsForIssue(ctx context.Context, h *Handler, issueID pgtype.UUID) int {
+	if h == nil || h.Queries == nil || !issueID.Valid {
+		return 0
+	}
+	rows, err := h.Queries.ListPythiaForecastRunsByIssue(ctx, dbpkg.ListPythiaForecastRunsByIssueParams{
+		IssueID: issueID,
+		Limit:   25,
+	})
+	if err != nil {
+		slog.Warn("pythia cancel-link: run lookup failed", "issue_id", util.UUIDToString(issueID), "error", err)
+		return 0
+	}
+	signalled := 0
+	for _, row := range rows {
+		if row.Status != "running" {
+			continue
+		}
+		runID := util.UUIDToString(row.ID)
+		if pythiaForecastBus.cancelRun(runID) {
+			signalled++
+			continue
+		}
+		if _, err := h.Queries.SetPythiaForecastRunStatus(ctx, dbpkg.SetPythiaForecastRunStatusParams{
+			ID:     row.ID,
+			Status: "aborted",
+		}); err != nil {
+			slog.Warn("pythia cancel-link: direct abort failed", "run_id", runID, "error", err)
+			continue
+		}
+		pythiaForecastBus.publish(runID, pythiaRunEvent{Type: "status", Status: "aborted"})
+		signalled++
+	}
+	return signalled
 }
 
 // pythiaFinalizeStatus flips the row to a terminal status without a
