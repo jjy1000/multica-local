@@ -41,4 +41,16 @@ SocialSim-explorer(MiroFish 本地化, **只借设计未搬 AGPL 代码**); coun
 
 ## Ship 结果
 
-(待补)
+- `bash scripts/ship-mac.sh --yes` 全链 PASS(2026-09-23 12:20-12:23, ~3min):
+  snapshot(app .bak 816M + PG dump 39M + profiles 99 文件 + KB rsync) →
+  migrate up(290 已应用, no-op) → bundle-cli(vendor Pythia 引擎刷进
+  resources/pythia/engine, go binaries version=0.5.111, 553 migrations) →
+  electron-vite build → index.html OK(798B) → electron-builder --dir →
+  asar rawRequest 202 处 → asar canary 字节比对 OK → 安装 /Applications →
+  嵌套二进制签名+exec 验证 → 冷启 PASS ~6s(server PID :8090, /health=ok)。
+- 数据完整性: 8 workspace / 471 issue / 20 pythia_forecast_run 行无损,
+  migration 290 五新列齐。verify 脚本 Row parity 报 psql-unavailable(脚本
+  环境无凭据), 已用 DATABASE_URL 直连补测, 行数对得上。
+- 回滚点: `/Applications/Multica.app.0.5.110.pre-update-20260923-122043.bak`
+  + `~/.multica/backups/pre-update-20260923-122043`(pg_dump)。
+- 提交: feat c7f6e70bc(29 文件 +4160/-1161) + chore(release) 87723a200。
