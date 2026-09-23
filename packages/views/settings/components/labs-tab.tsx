@@ -219,6 +219,41 @@ export function LabsTab() {
 
   const brokenByKey = new Map(broken.map((e) => [e.flag_key, e]));
 
+  // 0.5.114: resolve the per-flag usage-hint copy for the active locale.
+  // Lives inside the component so t's `$` narrows to the settings
+  // namespace. Every built-in catalog key gets an explicit case; unknown
+  // keys (a new flag that shipped without its hint) return null and the
+  // hint row is skipped — same silent-noop convention as
+  // FLAG_ROUTE_SUFFIX in issue-labs-section.tsx: a catalog addition
+  // without its case is invisible until someone enables the flag, so
+  // add the case + 4 locale keys in the same commit as the new flag.
+  const usageHint = (key: string): string | null => {
+    switch (key) {
+      case "chat_pin_ui":
+        return t(($) => $.labs.usage_chat_pin_ui);
+      case "claude_science_lab":
+        return t(($) => $.labs.usage_claude_science_lab);
+      case "pythia_oracle":
+        return t(($) => $.labs.usage_pythia_oracle);
+      case "mythos_swarm":
+        return t(($) => $.labs.usage_mythos_swarm);
+      case "swarm_topology":
+        return t(($) => $.labs.usage_swarm_topology);
+      case "llm_wiki_bridge":
+        return t(($) => $.labs.usage_llm_wiki_bridge);
+      case "code_canvas":
+        return t(($) => $.labs.usage_code_canvas);
+      case "semantica":
+        return t(($) => $.labs.usage_semantica);
+      case "timesfm":
+        return t(($) => $.labs.usage_timesfm);
+      case "causal_graph":
+        return t(($) => $.labs.usage_causal_graph);
+      default:
+        return null;
+    }
+  };
+
   const handleRestore = async (flagKey: string) => {
     const ok = await clearBrokenFlag(flagKey);
     if (!ok) {
@@ -376,6 +411,25 @@ export function LabsTab() {
                     ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">{description}</p>
+                  {/* 0.5.114: usage hint. Once a flag is enabled the card
+                      explains HOW to actually use it (where to bind, where
+                      the deliverable lands). Copy is per-flag from the
+                      settings locale namespace; a key without a case in
+                      usageHintText renders nothing (same silent-noop
+                      convention as FLAG_ROUTE_SUFFIX in
+                      issue-labs-section.tsx — add the case + 4 locale
+                      keys in the same commit as the new flag). */}
+                  {flag.enabled && !brokenEntry ? (
+                    <p
+                      className="text-xs text-muted-foreground"
+                      data-testid={`labs-flag-usage-${flag.key}`}
+                    >
+                      {(() => {
+                        const hint = usageHint(flag.key);
+                        return hint ? `${t(($) => $.labs.usage_hint_label)}${hint}` : null;
+                      })()}
+                    </p>
+                  ) : null}
                   {/* 0.5.86: frozen-lab banner. The server marks a lab
                       frozen when it has been superseded (swarm_topology →
                       mythos_swarm) — the successor's display label is

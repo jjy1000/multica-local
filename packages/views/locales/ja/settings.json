@@ -639,7 +639,18 @@
     "side_panel_status_off": "オフ",
     "interaction_model_assignee": "独立作業型",
     "interaction_model_auxiliary": "補助連携型",
-    "frozen_banner": "凍結中 — 後継は {{successor}} です"
+    "frozen_banner": "凍結中 — 後継は {{successor}} です",
+    "usage_hint_label": "使い方:",
+    "usage_chat_pin_ui": "有効にすると、チャットセッション一覧のピンボタンでセッションを先頭に固定できます。",
+    "usage_claude_science_lab": "issue の「実験プラグイン」でバインドすると、リサーチリーダー agent が自動で引き継ぎ研究レポートを作成します。サイドバーのワークベンチから直接研究を開始することもできます。",
+    "usage_pythia_oracle": "issue の「実験プラグイン」でバインドし、issue プロパティパネルまたはメインペインからマルチラウンド推論を開始します。レポートはコメントとして issue に書き戻されます。サイドバーページは監視コンソールです。",
+    "usage_mythos_swarm": "担当 agent/チームと一緒に issue にバインドします:スウォームが計画・反復収束・戦略蒸留を行い、担当者に引き渡します。単独実行は廃止済みです。",
+    "usage_swarm_topology": "凍結済み — 新規バインドは受け付けません。過去にバインドされた issue は引き続き解決されます。新規は OpenMythos 外ループをご利用ください。",
+    "usage_llm_wiki_bridge": "有効にすると、すべての agent がローカル LLM Wiki 検索(MCP ツール)を自動的に利用できます。issue での選択は不要です。書き込み後はベクトル索引を手動で再構築してください。",
+    "usage_code_canvas": "内部パイプライン検証用スタブで、ユーザー向け機能はありません。Labs プラットフォームの E2E 検証専用です。",
+    "usage_semantica": "issue にバインドして意思決定アドバイスを委任できます。終了 issue は意思決定レコードを自動同期します。/experimental/semantica-explorer でグラフを閲覧できます。",
+    "usage_timesfm": "issue にバインドすると、agent が multica-timesfm スキルで数値系列を予測し、分位数結果をコメントとして書き戻します。重み未配置時は季節単純系で応答します。",
+    "usage_causal_graph": "有効にすると、実行/決定/結果が因果グラフに自動集約されます。issue ヘッダーからサブグラフを、/experimental/causal-graph から全体グラフを開けます。LLM 提案は人間の確認後に反映されます。"
   },
   "github": {
     "page_description": "GitHub App を接続し、Pull request が Multica 内でどう表示されるかを制御し、エージェントがコミット履歴に残す情報を設定します。",

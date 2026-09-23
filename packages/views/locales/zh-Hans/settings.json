@@ -639,7 +639,18 @@
     "side_panel_status_off": "未启用",
     "interaction_model_assignee": "独立工作型",
     "interaction_model_auxiliary": "辅助协作型",
-    "frozen_banner": "已冻结 — 由 {{successor}} 接替"
+    "frozen_banner": "已冻结 — 由 {{successor}} 接替",
+    "usage_hint_label": "使用:",
+    "usage_chat_pin_ui": "启用后在聊天会话列表点击置顶按钮,即可把会话固定在列表顶部。",
+    "usage_claude_science_lab": "在 issue 的「实验插件」绑定后,研究员 agent 自动接手并产出研究报告;也可从侧边栏进入工作台直接发起研究。",
+    "usage_pythia_oracle": "在 issue 的「实验插件」绑定后,于 issue 属性面板或主任务区发起多轮推演;推演报告自动以评论写回该 issue;侧边栏页面为运行监控台。",
+    "usage_mythos_swarm": "与承办 agent/团队搭配绑定到 issue:蜂群先规划、迭代收敛并蒸馏策略,再交给承办者执行;不能独立运行。",
+    "usage_swarm_topology": "已冻结,不再接受新绑定;历史绑定的 issue 仍可解析。新建请改用 OpenMythos 外循环。",
+    "usage_llm_wiki_bridge": "启用后所有智能体自动获得本地 LLM Wiki 检索能力(MCP 工具),无需在 issue 上选择;写入落盘后需手动重建向量索引。",
+    "usage_code_canvas": "内部链路验证 stub,无用户可见功能;仅用于 Labs 平台端到端自检。",
+    "usage_semantica": "在 issue 绑定后可委托决策建议;终态 issue 自动同步决策记录;/experimental/semantica-explorer 查看知识图谱。",
+    "usage_timesfm": "在 issue 绑定后,智能体通过 multica-timesfm 技能对数值序列做预测,分位数结果以评论写回;权重未放置时以季节性朴素回退应答。",
+    "usage_causal_graph": "启用后自动把 issue 运行/决策/结果汇成因果图;issue 头部入口查看子图,/experimental/causal-graph 查看全图;LLM 提议需人工确认后生效。"
   },
   "github": {
     "page_description": "连接 GitHub App、控制 Pull Request 如何出现在 Multica 中，并决定智能体在 commit 记录里留下哪些痕迹。",

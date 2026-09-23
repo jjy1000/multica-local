@@ -8,6 +8,9 @@ import userEvent from "@testing-library/user-event";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
 import enSettings from "../../locales/en/settings.json";
+import zhSettings from "../../locales/zh-Hans/settings.json";
+import jaSettings from "../../locales/ja/settings.json";
+import koSettings from "../../locales/ko/settings.json";
 
 const mockFlags: { refetch: ReturnType<typeof vi.fn>; data: unknown[] } = vi.hoisted(() => ({
   refetch: vi.fn(() => Promise.resolve({ data: [] })),
@@ -140,5 +143,51 @@ describe("LabsTab — install-all + per-flag cache invalidation", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+  });
+});
+
+// 0.5.114 usage-hint contract. Every built-in catalog flag must carry a
+// `usage_<flag_key>` entry (all 4 locales) + LabsTab must render the hint
+// row for an enabled flag. Mirrors the FLAG_ROUTE_SUFFIX full-mapping
+// assertion in issue-labs-section.test.tsx — adding a catalog entry
+// without its usage key (or without the switch case in labs-tab.tsx)
+// fails here.
+describe("LabsTab — usage hints (0.5.114)", () => {
+  // Keep in sync with server/internal/experimental/catalog.go Catalog.
+  const CATALOG_KEYS = [
+    "chat_pin_ui",
+    "claude_science_lab",
+    "pythia_oracle",
+    "mythos_swarm",
+    "swarm_topology",
+    "llm_wiki_bridge",
+    "code_canvas",
+    "semantica",
+    "timesfm",
+    "causal_graph",
+  ];
+
+  it("every built-in catalog flag has a non-empty usage_* key in all 4 locales", () => {
+    const dicts = {
+      en: enSettings.labs,
+      "zh-Hans": zhSettings.labs,
+      ja: jaSettings.labs,
+      ko: koSettings.labs,
+    } as const;
+    for (const [lang, dict] of Object.entries(dicts)) {
+      for (const key of CATALOG_KEYS) {
+        const hint = (dict as Record<string, unknown>)[`usage_${key}`];
+        expect(hint, `${lang}.labs.usage_${key}`).toBeTruthy();
+        expect(String(hint).length).toBeGreaterThan(10);
+      }
+      expect((dict as Record<string, unknown>).usage_hint_label).toBeTruthy();
+    }
+  });
+
+  it("renders the hint row for an enabled flag (pythia_oracle mock)", () => {
+    render(<LabsTab />, { wrapper: I18nWrapper });
+    const row = screen.getByTestId("labs-flag-usage-pythia_oracle");
+    expect(row.textContent).toContain("Usage:");
+    expect(row.textContent).toContain(enSettings.labs.usage_pythia_oracle);
   });
 });
