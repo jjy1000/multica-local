@@ -1707,6 +1707,23 @@ export const SemanticaDecisionListResponseSchema = z.object({
   items: z.array(SemanticaDecisionSummarySchema),
 }).loose();
 
+// 0.5.114 issue-first embed: metadata stub for a sandbox artifact
+// listed by issue. Mirrors the Go RuntimeArtifactStub — bytes stay
+// behind the per-artifact endpoint. Array-level parseWithFallback so a
+// drifted gated response degrades to "no artifacts", never a crash.
+export const LabArtifactStubSchema = z.object({
+  id: z.string(),
+  session_id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  bytes: z.number(),
+  sha256: z.string(),
+  url: z.string(),
+});
+export type LabArtifactStub = z.infer<typeof LabArtifactStubSchema>;
+export const LabArtifactStubListSchema = z.array(LabArtifactStubSchema);
+export const EMPTY_LAB_ARTIFACT_STUBS: LabArtifactStub[] = [];
+
 export const EMPTY_LAB_CONTEXT: LabContext = {
   issue: {
     id: "",

@@ -149,6 +149,7 @@ import { type Logger, noopLogger } from "../logger";
 import { createRequestId } from "../utils";
 import { getCurrentSlug } from "../platform/workspace-storage";
 import { parseWithFallback } from "./schema";
+import type { LabArtifactStub } from "./schemas";
 import {
   AgentTemplateSchema,
   AgentTemplateSummaryListSchema,
@@ -187,6 +188,7 @@ import {
   EMPTY_SQUAD,
   EMPTY_SQUAD_LIST,
   EMPTY_SQUAD_MEMBER_STATUS_LIST,
+  EMPTY_LAB_ARTIFACT_STUBS,
   EMPTY_TIMELINE_ENTRIES,
   EMPTY_USER,
   EMPTY_LIST_WEBHOOK_DELIVERIES_RESPONSE,
@@ -196,6 +198,7 @@ import {
   GroupedIssuesResponseSchema,
   IssueSchema,
   IssueStatusEntrySchema,
+  LabArtifactStubListSchema,
   LabContextSchema,
   ListAutopilotsResponseSchema,
   EMPTY_LIST_AUTOPILOTS_RESPONSE,
@@ -748,6 +751,26 @@ export class ApiClient {
     const raw: unknown = await r.json();
     return parseWithFallback(raw, LabContextSchema, EMPTY_LAB_CONTEXT, {
       endpoint: "GET /api/experimental/claude-science-lab/issues/:id/context",
+    });
+  }
+
+  // 0.5.114 issue-first embed: newest sandbox artifacts across a
+  // lab-bound issue's runtime sessions (metadata only). rawRequest for
+  // the same reason as getLabContext — flag-gated route, a generic 404
+  // must not masquerade as "no artifacts".
+  async listClaudeScienceArtifactsByIssue(
+    issueId: string,
+    workspaceId: string,
+  ): Promise<LabArtifactStub[]> {
+    const r = await this.rawRequest(
+      `/api/experimental/claude-science-runtime/issues/${encodeURIComponent(issueId)}/artifacts?workspace_id=${encodeURIComponent(workspaceId)}`,
+    );
+    if (!r.ok) {
+      throw new Error(`listClaudeScienceArtifactsByIssue ${r.status}`);
+    }
+    const raw: unknown = await r.json();
+    return parseWithFallback(raw, LabArtifactStubListSchema, EMPTY_LAB_ARTIFACT_STUBS, {
+      endpoint: "GET /api/experimental/claude-science-runtime/issues/:id/artifacts",
     });
   }
 

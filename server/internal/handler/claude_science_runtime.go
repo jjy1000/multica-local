@@ -163,7 +163,56 @@ func RegisterClaudeScienceRuntimeRoutes(r chi.Router, h *Handler) {
 		r.Get("/sessions/{sessionID}/artifacts", h.ListClaudeScienceRuntimeArtifacts)
 		r.Get("/artifacts/{artifactID}", h.GetClaudeScienceRuntimeArtifactBytes)
 		r.Delete("/sessions/{sessionID}", h.DeleteClaudeScienceRuntimeSession)
+		r.Get("/issues/{issueID}/artifacts", h.ListClaudeScienceRuntimeArtifactsByIssue)
 	})
+}
+
+// ListClaudeScienceRuntimeArtifactsByIssue returns the newest artifact
+// stubs across a lab-bound issue's sandbox sessions (0.5.114, issue-
+// first embed). Metadata only — bytes stay behind /artifacts/{id}.
+// Workspace scoping mirrors GetClaudeLabContext: explicit query param,
+// membership-checked.
+func (h *Handler) ListClaudeScienceRuntimeArtifactsByIssue(w http.ResponseWriter, r *http.Request) {
+	wsRaw := r.URL.Query().Get("workspace_id")
+	if wsRaw == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workspace_id is required"})
+		return
+	}
+	wsID, err := util.ParseUUID(wsRaw)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "workspace_id is not a valid UUID"})
+		return
+	}
+	if _, ok := h.workspaceMember(w, r, wsID.String()); !ok {
+		return
+	}
+	issueID, err := util.ParseUUID(chi.URLParam(r, "issueID"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "issueID is not a valid UUID"})
+		return
+	}
+	artifacts, err := h.Queries.ListExperimentalRuntimeArtifactsByIssue(r.Context(), db.ListExperimentalRuntimeArtifactsByIssueParams{
+		WorkspaceID: wsID,
+		IssueID:     issueID,
+		Limit:       100,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	stubs := make([]RuntimeArtifactStub, 0, len(artifacts))
+	for _, a := range artifacts {
+		stubs = append(stubs, RuntimeArtifactStub{
+			ID:        a.ID.String(),
+			SessionID: a.SessionID.String(),
+			Name:      a.Name,
+			Kind:      a.Kind,
+			Bytes:     int(a.Bytes),
+			SHA256:    a.Sha256,
+			URL:       fmt.Sprintf("/api/experimental/claude-science-runtime/artifacts/%s", a.ID.String()),
+		})
+	}
+	writeJSON(w, http.StatusOK, runtimeArtifactsResponse{Artifacts: stubs, Total: len(stubs)})
 }
 
 // PostClaudeScienceRuntimeExecute is the entry point invoked by the
@@ -402,6 +451,7 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 		row, ierr := h.Queries.InsertExperimentalRuntimeArtifact(r.Context(), db.InsertExperimentalRuntimeArtifactParams{
 			SessionID:   inserted.ID,
 			WorkspaceID: wsID,
+			IssueID:     issueID,
 			Name:        a.Name,
 			Kind:        a.Kind,
 			Bytes:       int32(a.Bytes),

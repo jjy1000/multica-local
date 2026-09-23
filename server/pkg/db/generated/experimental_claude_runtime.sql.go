@@ -126,14 +126,15 @@ func (q *Queries) InsertExperimentalClaudeRuntimeSession(ctx context.Context, ar
 
 const insertExperimentalRuntimeArtifact = `-- name: InsertExperimentalRuntimeArtifact :one
 INSERT INTO experimental_runtime_artifact
-  (session_id, workspace_id, name, kind, bytes, sha256, path)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+  (session_id, workspace_id, issue_id, name, kind, bytes, sha256, path)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING id, session_id, workspace_id, name, kind, bytes, sha256, path, created_at, lab_id, lab_source, issue_id
 `
 
 type InsertExperimentalRuntimeArtifactParams struct {
 	SessionID   pgtype.UUID `json:"session_id"`
 	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	IssueID     pgtype.UUID `json:"issue_id"`
 	Name        string      `json:"name"`
 	Kind        string      `json:"kind"`
 	Bytes       int32       `json:"bytes"`
@@ -141,10 +142,16 @@ type InsertExperimentalRuntimeArtifactParams struct {
 	Path        string      `json:"path"`
 }
 
+// 0.5.114: write the mig-156 issue_id column — it shipped for exactly
+// this "filter artifacts by issue without joining" purpose but the
+// INSERT never wired it (dead column audit). Sessions carry the
+// originating issue; the handler passes it through so the issue-first
+// embed lists a run's artifacts with one workspace-scoped query.
 func (q *Queries) InsertExperimentalRuntimeArtifact(ctx context.Context, arg InsertExperimentalRuntimeArtifactParams) (ExperimentalRuntimeArtifact, error) {
 	row := q.db.QueryRow(ctx, insertExperimentalRuntimeArtifact,
 		arg.SessionID,
 		arg.WorkspaceID,
+		arg.IssueID,
 		arg.Name,
 		arg.Kind,
 		arg.Bytes,
@@ -310,6 +317,55 @@ func (q *Queries) ListExperimentalClaudeRuntimeSessionsExpired(ctx context.Conte
 			&i.ExpiresAt,
 			&i.LabID,
 			&i.LabSource,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExperimentalRuntimeArtifactsByIssue = `-- name: ListExperimentalRuntimeArtifactsByIssue :many
+SELECT id, session_id, workspace_id, name, kind, bytes, sha256, path, created_at, lab_id, lab_source, issue_id FROM experimental_runtime_artifact
+WHERE workspace_id = $1 AND issue_id = $2
+ORDER BY created_at DESC
+LIMIT $3
+`
+
+type ListExperimentalRuntimeArtifactsByIssueParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	IssueID     pgtype.UUID `json:"issue_id"`
+	Limit       int32       `json:"limit"`
+}
+
+// 0.5.114 issue-first embed: newest artifacts across a lab-bound
+// issue's sandbox sessions. Workspace-scoped (defense-in-depth; the
+// router gates membership) with an explicit LIMIT budget.
+func (q *Queries) ListExperimentalRuntimeArtifactsByIssue(ctx context.Context, arg ListExperimentalRuntimeArtifactsByIssueParams) ([]ExperimentalRuntimeArtifact, error) {
+	rows, err := q.db.Query(ctx, listExperimentalRuntimeArtifactsByIssue, arg.WorkspaceID, arg.IssueID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ExperimentalRuntimeArtifact{}
+	for rows.Next() {
+		var i ExperimentalRuntimeArtifact
+		if err := rows.Scan(
+			&i.ID,
+			&i.SessionID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Kind,
+			&i.Bytes,
+			&i.Sha256,
+			&i.Path,
+			&i.CreatedAt,
+			&i.LabID,
+			&i.LabSource,
+			&i.IssueID,
 		); err != nil {
 			return nil, err
 		}

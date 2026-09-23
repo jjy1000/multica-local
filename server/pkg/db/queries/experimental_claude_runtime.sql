@@ -60,10 +60,24 @@ ORDER BY expires_at ASC
 LIMIT 100;
 
 -- name: InsertExperimentalRuntimeArtifact :one
+-- 0.5.114: write the mig-156 issue_id column — it shipped for exactly
+-- this "filter artifacts by issue without joining" purpose but the
+-- INSERT never wired it (dead column audit). Sessions carry the
+-- originating issue; the handler passes it through so the issue-first
+-- embed lists a run's artifacts with one workspace-scoped query.
 INSERT INTO experimental_runtime_artifact
-  (session_id, workspace_id, name, kind, bytes, sha256, path)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+  (session_id, workspace_id, issue_id, name, kind, bytes, sha256, path)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
+
+-- name: ListExperimentalRuntimeArtifactsByIssue :many
+-- 0.5.114 issue-first embed: newest artifacts across a lab-bound
+-- issue's sandbox sessions. Workspace-scoped (defense-in-depth; the
+-- router gates membership) with an explicit LIMIT budget.
+SELECT * FROM experimental_runtime_artifact
+WHERE workspace_id = $1 AND issue_id = $2
+ORDER BY created_at DESC
+LIMIT $3;
 
 -- name: ListExperimentalRuntimeArtifactsBySession :many
 SELECT * FROM experimental_runtime_artifact
