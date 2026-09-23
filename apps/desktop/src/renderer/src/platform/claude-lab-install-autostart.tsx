@@ -41,8 +41,21 @@ export function ClaudeLabInstallAutoStart() {
           "/api/experimental-resources/claude_science_lab/status",
         );
         if (!status.ok) throw new Error("status " + status.status);
-        const body: { installed?: boolean } = await status.json();
-        if (!cancelled && body.installed !== true) {
+        const body: {
+          installed?: boolean;
+          counts?: Array<{ resource_type?: string; total?: number }>;
+        } = await status.json();
+        // installed=true is not sufficient: a workspace that installed
+        // before the payload GREW (0.5.114 added the critique agent,
+        // agents 5→6) would otherwise never pick up new resources —
+        // the payload is only provisioned by install. Re-install when
+        // the agent lock count lags the bundled manifest (see vendor/
+        // claude-science-manifest/LOCAL-OVERRIDES.md; 6 agents today).
+        const agentCount = body.counts?.find(
+          (x) => x.resource_type === "agent",
+        )?.total;
+        const stale = typeof agentCount === "number" && agentCount < 6;
+        if (!cancelled && (body.installed !== true || stale)) {
           const res = await api.rawRequest(
             "/api/experimental-resources/claude_science_lab/install",
             { method: "POST" },

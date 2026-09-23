@@ -75,6 +75,32 @@ describe("ClaudeLabInstallAutoStart — 0.5.114 default-on ensure-install", () =
     ).toBe(false);
   });
 
+  it("POSTs install when installed but the agent payload is stale (<6)", async () => {
+    state.enabled = true;
+    state.wsId = "ws-stale";
+    rawRequestSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            installed: true,
+            counts: [{ resource_type: "agent", total: 5 }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    render(<ClaudeLabInstallAutoStart />);
+    await waitFor(() => {
+      expect(
+        rawRequestSpy.mock.calls.some(
+          (c) =>
+            String(c[0]).endsWith("/install") &&
+            (c[1] as RequestInit | undefined)?.method === "POST",
+        ),
+      ).toBe(true);
+    });
+  });
+
   it("POSTs the idempotent install when status reports not-installed", async () => {
     state.enabled = true;
     state.wsId = "ws-fresh";
