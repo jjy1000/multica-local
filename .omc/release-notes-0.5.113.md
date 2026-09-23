@@ -21,4 +21,23 @@ Feature commit: `18212c285` (11 files, +463/−151). 用户驱动的第二轮 py
 
 ## Ship 结果
 
-(待补)
+## Ship 结果
+
+- **时间**: 2026-09-23 15:36-15:36 CST, 全链 ~3 分钟, ship 日志 `/tmp/ship-0.5.113.log`.
+- **前置状态**: 0.5.112 app 仍在跑 (PID 83694, server PID 84234 :8090 监听), 我用 0.5.108 教训手动 `pg_ctl -w start` 起了 bundled PG (舰中 ship-mac step 7 `pkill` 旧 app + 冷启新 app, 新 app adopt 现存 PG)。
+- 7 步全 PASS:
+  | 步骤 | 结果 |
+  |---|---|
+  | 1/7 snapshot | `Multica.app.0.5.112.pre-update-20260923-153617.bak` + `~/.multica/backups/pre-update-20260923-153617/` (pgdata dump) |
+  | 2/7 migrate | 553 条全 skip(no-op), 290 已应用 (本版无新迁移) |
+  | 3/7 bundle-cli | Go binaries version=0.5.113; vendor pythia 引擎(0.5.112 跟随刷新版,本版未改)刷进 resources/pythia |
+  | 4/4a build | electron-vite OK; index.html 631B 首字节 `<` |
+  | 5/5a/5b package | asar 安装后 rawRequest **203 行/238 处**; canary byte-identical |
+  | 6/6a install+签名 | 覆盖 /Applications; app + multica/server/migrate 三嵌套二进制 ad-hoc 重签; nested 'multica' exec 验证无 137 |
+  | 7/7 冷启 | PASS ~8s; server PID 39223 :8090; `/health=ok`; Info.plist=0.5.113 |
+- **数据核对** (DATABASE_URL 直连): 8 workspace / 471 issue / **pythia_forecast_run 18 行** (0.5.112 ship 后为 19; 期间 -1 行属 issue/test 级联 ON DELETE, 正常数据流动非 ship 损伤; 舰前状态冻结在 pre-update-20260923-153617 dump). migration 290 五列(parent_run_id/run_kind/variables/status/report)全部在位.
+- **提交**: `18212c285`(feat, 11 文件 +463/−151) → `3a6f783c9`(chore release prep) → 本 docs 提交.
+- **回滚点**: `/Applications/Multica.app.0.5.112.pre-update-20260923-153617.bak` + `~/.multica/backups/pre-update-20260923-153617/`.
+- **备注**: ⚠ 本舰的 PG 仍为手动 pg_ctl 实例, app 启动时 adopt(external) (0.5.108 形态). app 运行期间勿 pg_ctl stop; 恢复 = pg_ctl -w start, daemon 一个心跳内自愈.
+
+(Ship 结果由舰后回填)
