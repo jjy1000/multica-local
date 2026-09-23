@@ -80,5 +80,8 @@
   "knowledge_search_placeholder": "Search skills (name or category)…",
   "knowledge_all_categories": "All categories",
   "knowledge_detail_error": "Failed to load skill body",
-  "knowledge_files": "Supporting files"
+  "knowledge_files": "Supporting files",
+  "plan_run_count": "{count, plural, one {# run} other {# runs}}",
+  "plan_audit_count": "{count, plural, one {# audit entry} other {# audit entries}}",
+  "artifact_sessions_count": "{count, plural, one {# session} other {# sessions}}"
 }

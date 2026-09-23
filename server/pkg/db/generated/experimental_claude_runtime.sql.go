@@ -419,3 +419,22 @@ func (q *Queries) UpdateExperimentalClaudeRuntimeSessionFinished(ctx context.Con
 	)
 	return i, err
 }
+
+const updateExperimentalClaudeRuntimeSessionSummary = `-- name: UpdateExperimentalClaudeRuntimeSessionSummary :exec
+UPDATE experimental_claude_runtime_session
+SET summary = $2
+WHERE id = $1
+`
+
+type UpdateExperimentalClaudeRuntimeSessionSummaryParams struct {
+	ID      pgtype.UUID `json:"id"`
+	Summary pgtype.Text `json:"summary"`
+}
+
+// 0.5.114: migration 151 shipped the summary column but no writer ever
+// filled it (audit gap). Best-effort digest write after the artifact
+// comment composes, so workspace session lists stay one-line readable.
+func (q *Queries) UpdateExperimentalClaudeRuntimeSessionSummary(ctx context.Context, arg UpdateExperimentalClaudeRuntimeSessionSummaryParams) error {
+	_, err := q.db.Exec(ctx, updateExperimentalClaudeRuntimeSessionSummary, arg.ID, arg.Summary)
+	return err
+}

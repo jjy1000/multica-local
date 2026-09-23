@@ -74,7 +74,7 @@ Manifest is **declarative metadata only** — it does NOT provision DB rows. Pro
 | Key | RuntimeKind | ProxyPrefix | Loopback | Installable | Picker-hidden |
 |---|---|---|---|---|---|
 | chat_pin_ui | none | — | — | no | no |
-| claude_science_lab | inline | — | — | **yes** | no (AutoDispatch=false since 0.5.22) |
+| claude_science_lab | inline | — | — | **yes** | no (auto-dispatch since 0.5.81 — the 0.5.22 opt-out was reverted, see catalog.go §P4) |
 | pythia_oracle | subprocess | /experimental/pythia | pythia_oracle | **yes** | no |
 | mythos_swarm | headless | — | — | **yes** | no (sole-mode mutex w/ assignee) |
 | swarm_topology | headless | — | — | retired 0.5.105 | Frozen tombstone only; new binds 400 (audit H3) |

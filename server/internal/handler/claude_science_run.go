@@ -1,11 +1,12 @@
-// Package handler — claude_science_run.go (0.5.22)
+// Package handler — claude_science_run.go (0.5.22; header re-documented
+// 0.5.114 — the 0.5.22 "only path" claim described the opt-out era).
 //
 // POST /api/experimental/claude-science/issues/{issueID}/run — manual
-// "Run research" trigger for issue-bound labs whose catalog opts out of
-// the service-layer auto-dispatch path (currently only claude_science_lab).
-// The endpoint is the ONLY path that can start an agent task for that
-// lab, so the workbench's "Run research" button gets a single source of
-// truth.
+// "Run research" re-trigger for claude_science_lab issues. Since 0.5.81
+// the catalog entry does NOT opt out of auto-dispatch (catalog.go §P4
+// comment): a lab_source flip enqueues the research task through the
+// standard 0.3.46 contract, so this endpoint is the workbench's manual
+// retry / mid-flight kick surface, not the sole enqueue path.
 //
 // Hard rules:
 //

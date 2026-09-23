@@ -994,7 +994,7 @@ function LabAgentFromIssue({
             <span className="font-medium">{resolvedName}</span>
           ) : (
             <span className="text-muted-foreground">
-              {t(($) => $.agent_lock_no_assignee_hint) ?? "请先在 issue 面板选择「实验插件」以指派实验 leader"}
+              {t(($) => $.agent_lock_no_assignee_hint)}
             </span>
           )}
         </span>
@@ -1126,7 +1126,7 @@ function PlanTab({
         <div className="inline-flex items-center gap-2">
           <Sparkles className="size-4" aria-hidden />
           <span className="font-medium text-foreground">{t(($) => $.title_plan)}</span>
-          <span>· {rows.length} 条</span>
+          <span>· {t(($) => $.plan_run_count, { count: rows.length })}</span>
           {auditCount > 0 && (
             <label className="ml-2 inline-flex cursor-pointer items-center gap-1 text-[10px]">
               <input
@@ -1135,7 +1135,7 @@ function PlanTab({
                 onChange={(e) => setShowAudit(e.target.checked)}
                 className="size-3 accent-primary"
               />
-              <span>含 {auditCount} 条 audit</span>
+              <span>{t(($) => $.plan_audit_count, { count: auditCount })}</span>
             </label>
           )}
         </div>
@@ -1275,7 +1275,7 @@ function ArtifactTab({
           <span className="font-medium text-foreground">
             {t(($) => $.artifact_sessions_header)}
           </span>
-          <span>· {sessions.data?.total ?? 0} 条</span>
+          <span>· {t(($) => $.artifact_sessions_count, { count: sessions.data?.total ?? 0 })}</span>
         </header>
         {sessions.isLoading ? (
           <LoadingHint title="" />
@@ -1608,8 +1608,7 @@ function CodeTab({
               aria-busy={runState === "running"}
               title={
                 !agentId
-                  ? (t(($) => $.agent_lock_no_assignee_hint) ??
-                    "请先在 issue 面板选择「实验插件」以指派实验 leader")
+                  ? (t(($) => $.agent_lock_no_assignee_hint))
                   : runState === "running"
                     ? t(($) => $.code_run_running)
                     : t(($) => $.code_run_button)
@@ -1645,8 +1644,7 @@ function CodeTab({
         </p>
         {!agentId ? (
           <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">
-            {t(($) => $.agent_lock_no_assignee_hint) ??
-              "请先在 issue 面板选择「实验插件」以指派实验 leader"}
+            {t(($) => $.agent_lock_no_assignee_hint)}
           </p>
         ) : null}
         {runState === "done" ? (

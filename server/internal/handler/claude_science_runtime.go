@@ -434,8 +434,8 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 	// Why a single comment: lab comments can be reviewed at a glance,
 	// and editing the comment later is not a feature the issue UI
 	// exposes.
+	commentBody := composeArtifactSummary(stubs, req.Code, res.exit, durationMs)
 	if issueID.Valid {
-		commentBody := composeArtifactSummary(stubs, req.Code, res.exit, durationMs)
 		if commentBody != "" {
 			_, cerr := h.Queries.CreateComment(r.Context(), db.CreateCommentParams{
 				IssueID:    issueID,
@@ -450,6 +450,18 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 			// the inline summary.
 			_ = cerr
 		}
+	}
+
+	// 0.5.114 hygiene: migration 151 shipped
+	// experimental_claude_runtime_session.summary but no writer ever
+	// filled it. Persist the same digest the artifact comment uses —
+	// best-effort, a summary loss never fails the execute call.
+	if err := h.Queries.UpdateExperimentalClaudeRuntimeSessionSummary(r.Context(), db.UpdateExperimentalClaudeRuntimeSessionSummaryParams{
+		ID:      inserted.ID,
+		Summary: pgtype.Text{String: commentBody, Valid: commentBody != ""},
+	}); err != nil {
+		slog.Warn("claude science runtime: session summary write failed",
+			"session_id", inserted.ID, "error", err)
 	}
 
 	writeJSON(w, http.StatusOK, RuntimeExecuteResponse{

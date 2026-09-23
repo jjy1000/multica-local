@@ -80,5 +80,8 @@
   "knowledge_search_placeholder": "搜索技能（名称或分类）…",
   "knowledge_all_categories": "全部分类",
   "knowledge_detail_error": "加载技能正文失败",
-  "knowledge_files": "配套文件"
+  "knowledge_files": "配套文件",
+  "plan_run_count": "{count, plural, other {# 条}}",
+  "plan_audit_count": "{count, plural, other {含 # 条 audit}}",
+  "artifact_sessions_count": "{count, plural, other {# 个 session}}"
 }

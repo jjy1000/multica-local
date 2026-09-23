@@ -80,5 +80,8 @@
   "knowledge_search_placeholder": "스킬 검색(이름 또는 분류)…",
   "knowledge_all_categories": "모든 분류",
   "knowledge_detail_error": "스킬 본문을 불러오지 못했습니다",
-  "knowledge_files": "참조 파일"
+  "knowledge_files": "참조 파일",
+  "plan_run_count": "{count, plural, other {#건}}",
+  "plan_audit_count": "{count, plural, other {감사 기록 #건}}",
+  "artifact_sessions_count": "{count, plural, other {#개 세션}}"
 }

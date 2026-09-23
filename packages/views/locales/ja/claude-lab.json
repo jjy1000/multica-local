@@ -80,5 +80,8 @@
   "knowledge_search_placeholder": "スキルを検索（名前・カテゴリ）…",
   "knowledge_all_categories": "すべてのカテゴリ",
   "knowledge_detail_error": "スキル本文の読み込みに失敗しました",
-  "knowledge_files": "関連ファイル"
+  "knowledge_files": "関連ファイル",
+  "plan_run_count": "{count, plural, other {# 件}}",
+  "plan_audit_count": "{count, plural, other {監査レコード # 件}}",
+  "artifact_sessions_count": "{count, plural, other {# セッション}}"
 }

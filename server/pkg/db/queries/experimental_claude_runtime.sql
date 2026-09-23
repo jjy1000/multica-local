@@ -17,6 +17,14 @@ SET
 WHERE id = $1
 RETURNING *;
 
+-- name: UpdateExperimentalClaudeRuntimeSessionSummary :exec
+-- 0.5.114: migration 151 shipped the summary column but no writer ever
+-- filled it (audit gap). Best-effort digest write after the artifact
+-- comment composes, so workspace session lists stay one-line readable.
+UPDATE experimental_claude_runtime_session
+SET summary = $2
+WHERE id = $1;
+
 -- name: GetExperimentalClaudeRuntimeSession :one
 SELECT * FROM experimental_claude_runtime_session
 WHERE id = $1;

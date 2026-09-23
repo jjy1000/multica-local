@@ -37,9 +37,11 @@ import (
 )
 
 // allowedClaudeLabSources is the closed set of lab_source values the
-// Claude Lab tab accepts. Bumping the list requires updating the
-// catalog (server/internal/experimental/catalog.go) AND the migration
-// that widens the issue.lab_source CHECK — both intentional friction.
+// Claude Lab tab accepts. Bumping the list requires a catalog entry in
+// server/internal/experimental/catalog.go — intentional friction.
+// (Pre-0.5.114 this comment also claimed a CHECK-widening migration was
+// needed; issue.lab_source is a plain TEXT column since mig 155 and has
+// never carried a CHECK.)
 var allowedClaudeLabSources = map[string]struct{}{
 	"claude_science_lab": {},
 	"mythos_swarm":      {},
