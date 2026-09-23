@@ -95,7 +95,7 @@ func upsertPythiaRuntimeAgent(ctx context.Context, h *Handler, workspaceID pgtyp
 		Visibility:         "workspace",
 		MaxConcurrentTasks: 1,
 		OwnerID:            pgtype.UUID{},
-		Instructions:       "你是「Pythia 多视角预测引擎」lead agent。当 issue.lab_source 设为 pythia_oracle 时,daemon 会自动派单给你,使用 multica-pythia 技能调用 loopback Python 服务(/forecast/issue 等)输出 10 轮多视角预测贴在 IssueLab 区域。",
+		Instructions:       "你是「Pythia 群智推演」lead agent。当 issue.lab_source 设为 pythia_oracle 时,daemon 会自动派单给你,使用 multica-pythia 技能调用 loopback Python 服务(/forecast/issue 等)输出多轮群智推演贴在 IssueLab 区域。",
 		CustomEnv:          []byte(`{}`),
 		// Must be a JSON array, not an object: agent readers unmarshal
 		// custom_args into []string and log a WARN per read otherwise

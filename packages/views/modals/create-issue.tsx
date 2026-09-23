@@ -323,7 +323,7 @@ function LabPickerRow({
 
 const LAB_DISPLAY_LABELS: Record<string, string> = {
   mythos_swarm: "Mythos 蜂群",
-  pythia_oracle: "Pythia 多视角预测",
+  pythia_oracle: "Pythia 群智推演",
   claude_science_lab: "Claude 科研实验室",
   llm_wiki_bridge: "LLM Wiki",
   code_canvas: "代码画布",

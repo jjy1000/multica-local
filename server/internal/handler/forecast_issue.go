@@ -723,7 +723,7 @@ func pythiaIssueReportContent(
 			}
 		}
 	}
-	b.WriteString("\n数据来源：" + pythiaSourceNoteZH(source) + "完整推演过程、逐轮 council 票据、回放与追问见本问题属性区的「Pythia 多视角预测」面板。")
+	b.WriteString("\n数据来源：" + pythiaSourceNoteZH(source) + "完整推演过程、逐轮 council 票据、回放与追问见本问题属性区的「Pythia 群智推演」面板。")
 	return b.String()
 }
 

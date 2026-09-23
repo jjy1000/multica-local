@@ -40,7 +40,7 @@
     "configure_group": "設定",
     "experimental_group": "実験的機能",
     "experimental_claude_science": "Claude サイエンス",
-    "experimental_pythia": "Pythia 多視点予測",
+    "experimental_pythia": "Pythia 集合知推論",
     "unread_overflow": "99+",
     "discord_card": {
       "title": "Discord に参加",

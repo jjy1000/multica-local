@@ -84,8 +84,8 @@ const LAB_BADGES: Record<string, LabBadgeSpec> = {
     toneDarkClassName:
       "dark:border-violet-700/60 dark:text-violet-300",
     tooltip:
-      "Pythia 多视角预测已绑定。本任务接收 10 轮多角色联合预测,生成情景与概率分布。",
-    ariaLabel: "Pythia 多视角预测已绑定",
+      "Pythia 群智推演已绑定。本任务由多角色 council 分轮推演,生成情景与概率分布,结论以评论写回。",
+    ariaLabel: "Pythia 群智推演已绑定",
   },
   claude_science_lab: {
     label: "Claude Lab",

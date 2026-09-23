@@ -263,11 +263,16 @@ var Catalog = []Flag{
 		// IS the manual opt-in. Leader-rewrite semantics unchanged.
 	},
 	{
-		Key:        "pythia_oracle",
-		DefaultVal: false,
+		Key: "pythia_oracle",
+		// 0.5.114: flipped false → true by user decision — the lab is
+		// stable enough to ship enabled (PythiaEngineAutoStart brings the
+		// subprocess up on boot). A user who explicitly turned the flag
+		// off keeps their pref row; only never-touched installs get the
+		// new default.
+		DefaultVal: true,
 		Title: LocalizedString{
-			En: "Pythia Multi-Perspective Forecasting",
-			Zh: "Pythia 多视角预测",
+			En: "Pythia Multi-Perspective Deliberation",
+			Zh: "Pythia 群智推演",
 		},
 		Description: LocalizedString{
 			En: "Headless local Python service that fuses a swarm prediction engine with a live global-intelligence feed. Multica agents call it via the multica-pythia Skill for forecasts, what-if scenarios, and global briefs.",
