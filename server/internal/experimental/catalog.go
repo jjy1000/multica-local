@@ -235,7 +235,13 @@ var Catalog = []Flag{
 	},
 	{
 		Key:        "claude_science_lab",
-		DefaultVal: false,
+		// 0.5.114: flipped false → true by user decision (mirrors the
+		// pythia_oracle flip). The runtime is inline/server-side, so
+		// default-on only needs the install payload — the desktop
+		// ClaudeLabInstallAutoStart ensure-installs it once per
+		// session. Explicit-off pref rows are untouched; only
+		// never-touched installs get the new default.
+		DefaultVal: true,
 		Title: LocalizedString{
 			En: "Claude Research Lab",
 			Zh: "Claude 科研实验室",

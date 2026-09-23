@@ -13,21 +13,23 @@ import (
 // shape of TestLabCatalogHasFlag in visibility_test.go.
 func TestCatalog_RuntimeAndBridgeFlagsAreKnown(t *testing.T) {
 	t.Parallel()
+	// 0.5.114: claude_science_lab flipped false → true (user decision,
+	// mirrors pythia_oracle); llm_wiki_bridge stays default-off.
 	want := map[string]bool{
-		"claude_science_lab": false,
+		"claude_science_lab": true,
 		"llm_wiki_bridge":    false,
 	}
 	for _, f := range Catalog {
-		if _, ok := want[f.Key]; ok && f.DefaultVal != false {
-			t.Fatalf("flag %q must default to false per the Labs constraint", f.Key)
+		if expected, ok := want[f.Key]; ok && f.DefaultVal != expected {
+			t.Fatalf("flag %q DefaultVal = %v; want %v", f.Key, f.DefaultVal, expected)
 		}
 	}
-	for key := range want {
+	for key, expected := range want {
 		if !IsKnownKey(key) {
 			t.Fatalf("catalog missing flag %q", key)
 		}
-		if DefaultFor(key) {
-			t.Fatalf("DefaultFor(%q) returned true; catalog DefaultVal must be false", key)
+		if DefaultFor(key) != expected {
+			t.Fatalf("DefaultFor(%q) returned %v; want %v", key, DefaultFor(key), expected)
 		}
 	}
 }

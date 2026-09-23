@@ -19,13 +19,18 @@ import (
 // IsKnownKey + DefaultFor chain only.
 func TestSmoke_ExperimentalFlagsCatalogSeesRuntimeAndBridge(t *testing.T) {
 	t.Parallel()
-	for _, key := range []string{"claude_science_lab", "llm_wiki_bridge"} {
+	for _, key := range []string{"llm_wiki_bridge"} {
 		if !experimental.IsKnownKey(key) {
 			t.Fatalf("catalog missing flag %q", key)
 		}
 		if experimental.DefaultFor(key) {
 			t.Fatalf("DefaultFor(%q) = true; catalog must default to false", key)
 		}
+	}
+	// 0.5.114: claude_science_lab flipped to default-on (mirror of the
+	// pythia_oracle flip) — pin it so a silent revert is caught here.
+	if !experimental.DefaultFor("claude_science_lab") {
+		t.Fatalf("DefaultFor(claude_science_lab) = false; 0.5.114 flipped the default to true")
 	}
 }
 

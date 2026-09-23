@@ -26,6 +26,7 @@ import { useTabStore } from "./stores/tab-store";
 import { useWindowOverlayStore } from "./stores/window-overlay-store";
 import { useDaemonIPCBridge } from "./platform/daemon-ipc-bridge";
 import { PythiaEngineAutoStart } from "./platform/pythia-engine-autostart";
+import { ClaudeLabInstallAutoStart } from "./platform/claude-lab-install-autostart";
 import { createDesktopLocaleAdapter } from "./platform/i18n-adapter";
 import { captureEvent } from "@multica/core/analytics";
 import { RESOURCES } from "@multica/views/locales";
@@ -349,7 +350,14 @@ function AppContent() {
       <DesktopAuthSessionBridge />
       <PageviewTracker />
       <PythiaEngineAutoStart />
-      {user ? <DesktopShell /> : <DesktopLoginPage />}
+      {user ? (
+        <>
+          <ClaudeLabInstallAutoStart />
+          <DesktopShell />
+        </>
+      ) : (
+        <DesktopLoginPage />
+      )}
     </>
   );
 }

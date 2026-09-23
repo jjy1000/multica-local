@@ -15,3 +15,13 @@ export function useWorkspaceId(): string {
   if (!ws) throw new Error("useWorkspaceId: no workspace selected — ensure component renders inside a workspace route");
   return ws.id;
 }
+
+/**
+ * Nullable sibling of useWorkspaceId for surfaces that legitimately
+ * render outside a workspace route (App root / boot-time components).
+ * Returns null instead of throwing when no workspace is selected.
+ */
+export function useCurrentWorkspaceId(): string | null {
+  const ws = useCurrentWorkspace();
+  return ws?.id ?? null;
+}
