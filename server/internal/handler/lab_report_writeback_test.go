@@ -104,6 +104,11 @@ func TestLabReportWriteback(t *testing.T) {
 			Rounds:      2,
 			Source:      "oracle",
 			Envelopes:   []byte("[]"),
+			// Migration 290 added NOT NULL CHECKed columns; the defaults
+			// live in DDL, but sqlc passes explicit inserts through, so
+			// the test must carry the legal values.
+			RunKind: "initial",
+			Status:  "completed",
 		})
 		if err != nil {
 			t.Fatalf("CreatePythiaForecastRun: %v", err)

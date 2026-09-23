@@ -490,7 +490,9 @@ describe("LabOutputPanel", () => {
     renderPythiaPanel();
 
     await waitFor(() => expect(screen.getByText(/Adoption grows/)).toBeInTheDocument());
-    expect(screen.getByText("2 runs")).toBeInTheDocument();
+    // 0.5.111: the run-count line became the timeline progress label
+    // ("Rounds <done>/<total>") on the live tab.
+    expect(screen.getByText("Rounds 2/2")).toBeInTheDocument();
     expect(screen.getByText("42%")).toBeInTheDocument();
     expect(screen.getByText("Users double within a month")).toBeInTheDocument();
   });

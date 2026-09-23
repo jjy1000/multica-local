@@ -653,6 +653,19 @@ export interface MythosSuperviseState {
   abort_reason?: string;
 }
 
+export interface PythiaCouncilVote {
+  persona: string;
+  probability: number;
+  note: string;
+}
+
+export interface PythiaCouncil {
+  votes: PythiaCouncilVote[];
+  consensus: number | null;
+  spread: number;
+  split: boolean;
+}
+
 export interface PythiaForecastEnvelope {
   id: string;
   scenario: string;
@@ -663,7 +676,15 @@ export interface PythiaForecastEnvelope {
   persona: string;
   lab_source: string;
   synthetic_oracle_failover?: boolean;
+  /** 0.5.111 full-council contract: the oracle's SOLO estimate; the
+   *  headline probability is the council consensus. */
+  base_probability?: number | null;
+  /** Per-round council vote sheet (votes / consensus / spread / split). */
+  council?: PythiaCouncil | null;
 }
+
+export type PythiaForecastRunStatus = "running" | "completed" | "aborted" | "failed";
+export type PythiaForecastRunKind = "initial" | "continuation";
 
 export interface PythiaForecastRun {
   id: string;
@@ -671,6 +692,21 @@ export interface PythiaForecastRun {
   source: string;
   created_at: string;
   envelopes: PythiaForecastEnvelope[];
+  /** 0.5.111 continuation contract (migration 290). */
+  parent_run_id?: string | null;
+  run_kind?: PythiaForecastRunKind;
+  variables?: string;
+  status?: PythiaForecastRunStatus;
+  /** LLM-synthesized conclusion report ("" when synthesis fell back). */
+  report?: string;
+}
+
+/** POST /forecast/issue response — the run executes in the background. */
+export interface PythiaForecastStart {
+  run_id: string;
+  rounds: number;
+  status: string;
+  run_kind: PythiaForecastRunKind;
 }
 
 // TimesFM per-issue forecast run (0.5.82 WL2) — mirrors the wire shape of

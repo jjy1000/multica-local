@@ -1038,6 +1038,12 @@ type PythiaForecastRun struct {
 	Envelopes       []byte             `json:"envelopes"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	ReportCommentID pgtype.UUID        `json:"report_comment_id"`
+	ParentRunID     pgtype.UUID        `json:"parent_run_id"`
+	RunKind         string             `json:"run_kind"`
+	Variables       string             `json:"variables"`
+	Status          string             `json:"status"`
+	Report          string             `json:"report"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
 type RuntimeProfile struct {

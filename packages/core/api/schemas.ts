@@ -1796,6 +1796,19 @@ export const EMPTY_MYTHOS_SUPERVISE_STATE: MythosSuperviseState = {
 // summary uses snake `created_at`, the envelope element uses camel
 // `createdAt` (historical legacy — do not unify).
 
+export const PythiaCouncilVoteSchema = z.object({
+  persona: z.string().default(""),
+  probability: z.number().default(0),
+  note: z.string().default(""),
+});
+
+export const PythiaCouncilSchema = z.object({
+  votes: z.array(PythiaCouncilVoteSchema).default([]),
+  consensus: z.number().nullable().default(null),
+  spread: z.number().default(0),
+  split: z.boolean().default(false),
+});
+
 export const PythiaForecastEnvelopeSchema = z.object({
   id: z.string().default(""),
   scenario: z.string().default(""),
@@ -1806,7 +1819,14 @@ export const PythiaForecastEnvelopeSchema = z.object({
   persona: z.string().default(""),
   lab_source: z.string().default(""),
   synthetic_oracle_failover: z.boolean().optional(),
+  // 0.5.111 full-council contract (migration 290 era).
+  base_probability: z.number().nullable().optional(),
+  council: PythiaCouncilSchema.nullable().optional(),
 }).loose();
+
+/** Array form for the run-stream snapshot replay (views cannot import zod
+ *  directly — core owns the schema objects). */
+export const PythiaForecastEnvelopeListSchema = z.array(PythiaForecastEnvelopeSchema);
 
 export const PythiaForecastRunSchema = z.object({
   id: z.string(),
@@ -1814,9 +1834,31 @@ export const PythiaForecastRunSchema = z.object({
   source: z.string().default(""),
   created_at: z.string().default(""),
   envelopes: z.array(PythiaForecastEnvelopeSchema).default([]),
+  // 0.5.111 continuation contract — defaults keep pre-290 installed
+  // builds parsing old rows unchanged.
+  parent_run_id: z.string().nullable().default(null),
+  run_kind: z.string().default("initial"),
+  variables: z.string().default(""),
+  status: z.string().default("completed"),
+  report: z.string().default(""),
 }).loose();
 
 export const PythiaForecastRunListSchema = z.array(PythiaForecastRunSchema);
+
+// POST /forecast/issue reply — the run executes in the background and the
+// client subscribes to .../runs/{run_id}/stream with this id.
+export const PythiaForecastStartSchema = z.object({
+  run_id: z.string().default(""),
+  rounds: z.number().default(0),
+  status: z.string().default("running"),
+  run_kind: z.string().default("initial"),
+}).loose();
+
+// POST /api/experimental/pythia-oracle/chat reply (follow-up tab).
+export const PythiaChatAnswerSchema = z.object({
+  answer: z.string().default(""),
+  persona: z.string().nullable().default(null),
+}).loose();
 
 // ---------------------------------------------------------------------------
 // TimesFM per-issue forecast run schemas (0.5.82 WL2)

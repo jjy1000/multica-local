@@ -1,14 +1,11 @@
-// Package handler — forecast_issue_test.go (0.3.29+)
+// Package handler — forecast_issue_test.go (0.3.29+, refactored 0.5.111)
 //
-// Smoke test for the per-issue Pythia forecast SSE handler. We invoke
-// pythiaIssueForecastStream against the same captureWriter shim used
-// by claude_lab_forecast_test.go so we can assert the wire shape
-// (including the new `issue_id` and `scenario_context` envelope
-// fields) without racing a real network connection.
-//
-// The test does not need a live *Handler — pythiaIssueForecastStream
-// reads its inputs from the request context (issueForecastContextKey),
-// so we plumb the context directly.
+// Covers the per-issue Pythia forecast surface after the 0.5.111 async
+// refactor: rounds resolution (explicit → natural-language → per-kind
+// default), the synthetic envelope contract, the continuation history
+// digest, the report comment assembly, the run bus, and the DB-backed
+// end-to-end flow (POST → run row → per-round persist → comment
+// writeback → SSE stream snapshot).
 
 package handler
 
@@ -21,12 +18,18 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+
+	"github.com/multica-ai/multica/server/internal/util"
+	dbpkg "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// TestClampIssueForecastRounds covers the rounds contract: a caller
-// omitting `rounds` gets the 3-round default (0.5.104 — the 0.3.30.3
-// 10-round auto-run was retired for latency + LLM budget reasons); a
+// TestClampIssueForecastRounds covers the explicit-rounds contract: a
 // caller explicitly requesting N above the cap gets clamped down to 10.
+// (Zero/negative now means "caller didn't say" and is resolved by
+// resolveIssueForecastRounds, so the clamp keeps the 3-round initial
+// default for that input.)
 func TestClampIssueForecastRounds(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -52,12 +55,71 @@ func TestClampIssueForecastRounds(t *testing.T) {
 	}
 }
 
+// TestParseForecastRoundsFromText pins the Go port of the client-side
+// natural-language round parser (forecast-rounds.ts). Tight adjacency:
+// "分3轮讨论" / "第一轮" must NOT hijack the count just because the
+// keyword appears elsewhere in the text.
+func TestParseForecastRoundsFromText(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"keyword first 推演5轮", "对纸质方案进行推演5轮的验证", 5},
+		{"keyword with colon 推演：3轮", "推演：3轮", 3},
+		{"count first 3轮推演", "请3轮推演这个方案", 3},
+		{"模拟 8 轮", "模拟 8 轮", 8},
+		{"预测12轮 clamps to 10", "预测12轮", 10},
+		{"no pin", "推演这个方案，分3轮讨论", 0},
+		{"ordinal round ignored", "第一轮先做A", 0},
+		{"empty", "", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseForecastRoundsFromText(tc.in); got != tc.want {
+				t.Errorf("parseForecastRoundsFromText(%q) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveIssueForecastRounds covers the 0.5.111 resolution order:
+// explicit caller value wins, then a natural-language pin (variables text
+// scanned before the issue text), then the per-kind default — 3 for
+// initial runs, 6 for continuations (the user contract: 5-8 to save
+// tokens).
+func TestResolveIssueForecastRounds(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name         string
+		explicit     int
+		continuation bool
+		texts        []string
+		want         int
+	}{
+		{"explicit wins over continuation default", 4, true, nil, 4},
+		{"initial default", 0, false, nil, 3},
+		{"continuation default 6", 0, true, nil, 6},
+		{"variables pin wins over initial default", 0, false, []string{"重新推演7轮", "标题"}, 7},
+		{"issue text pin", 0, false, []string{"", "推演4轮验证纸质方案"}, 4},
+		{"explicit above cap clamps", 99, false, nil, 10},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveIssueForecastRounds(tc.explicit, tc.continuation, tc.texts...)
+			if got != tc.want {
+				t.Errorf("resolveIssueForecastRounds(%d, %v, %v) = %d, want %d",
+					tc.explicit, tc.continuation, tc.texts, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestQueryOracleIssueSyntheticRelabel pins the 0.5.104 honesty fix:
 // when the engine answers 200 with `synthetic: true` (its internal LLM
 // bridge call failed and it emitted placeholder narrative), the envelope
 // MUST carry lab_source=synthetic_oracle_failover instead of "oracle".
-// Pre-fix, a placeholder round was indistinguishable from a genuine
-// deduction and runs reported "真实引擎推演" for pure filler data.
 func TestQueryOracleIssueSyntheticRelabel(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -88,7 +150,7 @@ func TestQueryOracleIssueSyntheticRelabel(t *testing.T) {
 			env, err := queryOracleIssue(context.Background(), srv.URL, &issueForecastContext{
 				IssueID: "00000000-0000-0000-0000-000000000001",
 				Title:   "模拟推演方案",
-			}, 42, 1)
+			}, 42, 1, issueRoundOpts{totalRounds: 3})
 			if err != nil {
 				t.Fatalf("queryOracleIssue returned error: %v", err)
 			}
@@ -96,6 +158,67 @@ func TestQueryOracleIssueSyntheticRelabel(t *testing.T) {
 				t.Errorf("LabSource = %q, want %q (synthetic=%v)", env.LabSource, tc.wantLabSrc, tc.synthetic)
 			}
 		})
+	}
+}
+
+// TestQueryOracleIssueParsesCouncil pins the 0.5.111 wire addition: an
+// engine response carrying base_probability + a council vote sheet lands
+// on the envelope untouched, so the panel can render the council view.
+func TestQueryOracleIssueParsesCouncil(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The request must carry the continuation contract fields.
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["council"] != true {
+			t.Errorf("payload council = %v, want true", body["council"])
+		}
+		if _, ok := body["history"].([]any); !ok {
+			t.Errorf("payload history missing: %v", body["history"])
+		}
+		w.Header().Set("Content-Type", "application/json")
+		consensus := 0.62
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"scenario":         "scenario",
+			"narrative":        "narrative",
+			"probability":      consensus,
+			"base_probability": 0.71,
+			"confidence":       0.55,
+			"horizon":          "week",
+			"persona":          "strategist",
+			"round":            2,
+			"synthetic":        false,
+			"council": map[string]any{
+				"votes": []map[string]any{
+					{"persona": "Strategist", "probability": 0.7, "note": "supply holds"},
+					{"persona": "Skeptic", "probability": 0.45, "note": "base rates say no"},
+				},
+				"consensus": consensus,
+				"spread":    0.25,
+				"split":     false,
+			},
+		})
+	}))
+	defer srv.Close()
+
+	env, err := queryOracleIssue(context.Background(), srv.URL, &issueForecastContext{
+		IssueID: "00000000-0000-0000-0000-000000000001",
+		Title:   "模拟推演方案",
+	}, 42, 2, issueRoundOpts{
+		history:    []forecastHistoryRound{{Round: 1, Narrative: "第一轮", Probability: 0.5}},
+		totalRounds: 3,
+	})
+	if err != nil {
+		t.Fatalf("queryOracleIssue returned error: %v", err)
+	}
+	if env.Council == nil {
+		t.Fatalf("envelope council is nil, want the parsed vote sheet")
+	}
+	if len(env.Council.Votes) != 2 {
+		t.Errorf("council votes = %d, want 2", len(env.Council.Votes))
+	}
+	if env.BaseProbability == nil || *env.BaseProbability != 0.71 {
+		t.Errorf("base_probability = %v, want 0.71", env.BaseProbability)
 	}
 }
 
@@ -128,13 +251,10 @@ func TestForecastRunSource(t *testing.T) {
 	}
 }
 
-// TestIssueForecastStreamEmitsEnvelopeWithIssueID confirms the SSE
-// handler emits at least one `prediction` event whose JSON envelope
-// carries `issue_id`, `scenario_context`, and `lab_source` fields.
-// This is the contract change for 0.3.29 — pre-0.3.29 the envelope
-// didn't bind a forecast to an Issue, so the renderer couldn't
-// correlate SSE frames with the Issue that triggered them.
-func TestIssueForecastStreamEmitsEnvelopeWithIssueID(t *testing.T) {
+// TestSyntheticIssueEnvelopeCarriesIssueContext pins the 0.3.29 contract
+// in its 0.5.111 shape: the fallback envelope binds the forecast to the
+// issue (issue_id + scenario_context) and keeps the probability in [0,1].
+func TestSyntheticIssueEnvelopeCarriesIssueContext(t *testing.T) {
 	t.Parallel()
 
 	ifc := &issueForecastContext{
@@ -145,55 +265,10 @@ func TestIssueForecastStreamEmitsEnvelopeWithIssueID(t *testing.T) {
 		LabSource:   "pythia_oracle",
 		WorkspaceID: "22222222-2222-2222-2222-222222222222",
 	}
-	ctx := withIssueForecastContext(context.Background(), ifc)
-	rounds := 1
-
-	w := &captureWriter{}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"/api/experimental/pythia-oracle/forecast/issue?seed=42",
-		nil)
+	env, err := syntheticIssueForecast(context.Background(), 42, ifc, 1, issueRoundOpts{totalRounds: 3})
 	if err != nil {
-		t.Fatalf("build req: %v", err)
+		t.Fatalf("syntheticIssueForecast: %v", err)
 	}
-
-	done := make(chan struct{})
-	go func() {
-		pythiaIssueForecastStream(w, req, rounds)
-		close(done)
-	}()
-
-	// Wait for the first frame to land — synthetic path emits
-	// immediately on Enter, oracle path after the upstream call.
-	deadline := time.Now().Add(3 * time.Second)
-	var snapshot string
-	var flushed int
-	for {
-		w.mu.Lock()
-		snapshot = string(w.body)
-		flushed = w.flushed
-		w.mu.Unlock()
-		if flushed > 0 && strings.Contains(snapshot, "\n\n") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for first frame; body=%q", snapshot)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	idx := strings.Index(snapshot, "\n\n")
-	frame := snapshot[:idx+2]
-	if !strings.HasPrefix(frame, "event: prediction\ndata: ") {
-		t.Fatalf("missing prediction prefix: %q", frame)
-	}
-	payload := strings.TrimPrefix(frame, "event: prediction\ndata: ")
-	var env forecastEnvelope
-	if err := json.Unmarshal([]byte(payload), &env); err != nil {
-		t.Fatalf("decode frame: %v (payload=%q)", err, payload)
-	}
-
-	// New 0.3.29 contract: issue_id is populated, scenario_context
-	// echoes the bound issue's title + body.
 	if env.IssueID != ifc.IssueID {
 		t.Errorf("env.IssueID = %q, want %q", env.IssueID, ifc.IssueID)
 	}
@@ -201,20 +276,16 @@ func TestIssueForecastStreamEmitsEnvelopeWithIssueID(t *testing.T) {
 		t.Errorf("env.ScenarioContext missing title: %q", env.ScenarioContext)
 	}
 	if env.LabSource == "" {
-		t.Errorf("env.LabSource empty, want at least \"synthetic\" or \"oracle\"")
+		t.Errorf("env.LabSource empty")
 	}
 	if env.Probability < 0 || env.Probability > 1 {
 		t.Errorf("probability out of [0,1]: %f", env.Probability)
 	}
-
-	// End-of-rounds marker should land after the round 1 frame for
-	// rounds=1 (no inter-round wait, single emit).
-	_ = sync.Mutex{}
 }
 
 // TestBuildIssueForecastContextTruncatesBody verifies the 280-char
 // truncation contract for the body field, so an embedded Issue
-// description doesn't blow up the SSE frame.
+// description doesn't blow up the wire frame.
 func TestBuildIssueForecastContextTruncatesBody(t *testing.T) {
 	t.Parallel()
 
@@ -245,18 +316,348 @@ func buildIssueForecastContextForTest(title, body, lab string) *issueForecastCon
 	}
 }
 
+// TestHistoryFromEnvelopes covers the continuation digest: rounds are
+// numbered from 1, narratives are rune-capped, and the digest keeps at
+// most the LAST 12 rounds.
+func TestHistoryFromEnvelopes(t *testing.T) {
+	t.Parallel()
+
+	envelopes := make([]forecastEnvelope, 0, 14)
+	for i := 0; i < 14; i++ {
+		envelopes = append(envelopes, forecastEnvelope{
+			Narrative:   strings.Repeat("n", 600),
+			Probability: float64(i) / 14,
+		})
+	}
+	hist := historyFromEnvelopes(envelopes)
+	if len(hist) != forecastHistoryMaxRounds {
+		t.Fatalf("history length = %d, want %d (capped at last 12)", len(hist), forecastHistoryMaxRounds)
+	}
+	if hist[0].Round != 3 {
+		t.Errorf("first kept round = %d, want 3 (14 rounds capped to last 12)", hist[0].Round)
+	}
+	for i, h := range hist {
+		if len([]rune(h.Narrative)) > forecastHistoryNarrativeCap+1 { // +1 for the … sentinel
+			t.Errorf("round %d narrative not capped: %d runes", i, len([]rune(h.Narrative)))
+		}
+	}
+	if len(historyFromEnvelopes(nil)) != 0 {
+		t.Errorf("nil envelopes should produce an empty digest")
+	}
+}
+
+// TestPythiaIssueReportContent covers the comment assembly: a synthesized
+// report IS the body (with the continuation header + variable echo), and
+// the mechanical digest is the fallback. The honesty source note always
+// lands.
+func TestPythiaIssueReportContent(t *testing.T) {
+	t.Parallel()
+
+	ifc := &issueForecastContext{Title: "纸质方案可行性"}
+	envelopes := []forecastEnvelope{{Scenario: "s", Narrative: "n", Probability: 0.6, Confidence: 0.5, Persona: "strategist", Horizon: "week"}}
+
+	synth := pythiaIssueReportContent(ifc, envelopes, "oracle", "continuation", "把汇率冲击调到 20%", "## 共识结论\n概率区间 55-65%。")
+	for _, want := range []string{"续推", "把汇率冲击调到 20%", "## 共识结论", "数据来源"} {
+		if !strings.Contains(synth, want) {
+			t.Errorf("synthesized comment missing %q:\n%s", want, synth)
+		}
+	}
+	if strings.Contains(synth, "概率 60%") {
+		t.Errorf("synthesized comment should not include the mechanical digest")
+	}
+
+	mech := pythiaIssueReportContent(ifc, envelopes, "synthetic", "initial", "", "")
+	for _, want := range []string{"轮数：1", "本地回退数据", "非真实推演"} {
+		if !strings.Contains(mech, want) {
+			t.Errorf("mechanical comment missing %q:\n%s", want, mech)
+		}
+	}
+}
+
+// TestPythiaRunBus covers subscribe/publish fan-out, unsubscribe, and the
+// cancel registration. Publishes to a full buffer must drop, not block.
+func TestPythiaRunBus(t *testing.T) {
+	t.Parallel()
+
+	b := newPythiaRunBus()
+	ch, unsub := b.subscribe("run-1")
+	b.publish("run-1", pythiaRunEvent{Type: "round", Index: 0})
+	ev := <-ch
+	if ev.Type != "round" || ev.Index != 0 {
+		t.Errorf("got %+v, want round/0", ev)
+	}
+
+	// Cancel registration round-trip.
+	if b.cancelRun("run-1") {
+		t.Errorf("cancelRun should report false with no runner registered")
+	}
+	called := false
+	b.registerCancel("run-1", func() { called = true })
+	if !b.cancelRun("run-1") || !called {
+		t.Errorf("cancelRun did not invoke the registered cancel")
+	}
+
+	unsub()
+	unsub() // double-unsubscribe must be a no-op
+	b.publish("run-1", pythiaRunEvent{Type: "status", Status: "completed"})
+	select {
+	case ev := <-ch:
+		t.Errorf("received event after unsubscribe: %+v", ev)
+	default:
+	}
+}
+
+// ── DB-backed end-to-end tests ────────────────────────────────────────────
+
+// newForecastTestRequest builds a POST against the forecast surface with
+// the handler stashed in the request context (the route group's
+// middleware does this in production).
+func newForecastTestRequest(method, path string, body any) *http.Request {
+	req := newRequest(method, path, body)
+	return req.WithContext(context.WithValue(req.Context(), forecastIssueHandlerCtxKey{}, testHandler))
+}
+
+// waitForRunTerminal polls pythia_forecast_run until the row leaves
+// 'running' (the synthetic-path runner completes in well under a second)
+// and returns the final row's status + report_comment_id.
+func waitForRunTerminal(t *testing.T, runID string) (string, bool) {
+	t.Helper()
+	deadline := time.Now().Add(8 * time.Second)
+	var status string
+	var commentID *string
+	for {
+		err := testPool.QueryRow(context.Background(),
+			`SELECT status, report_comment_id FROM pythia_forecast_run WHERE id = $1`, runID,
+		).Scan(&status, &commentID)
+		if err != nil {
+			t.Fatalf("load run row: %v", err)
+		}
+		if status != "running" || time.Now().After(deadline) {
+			return status, commentID != nil
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestPythiaForecastStartEndToEnd pins the 0.5.111 async contract end to
+// end: POST returns a run_id immediately, the detached runner persists
+// the row per round, flips it to completed, and writes the report comment
+// (system-author fallback when the leader agent is absent).
+func TestPythiaForecastStartEndToEnd(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	issue := createIssueForTest(t, map[string]any{
+		"title": "pythia-async-e2e",
+	})
+
+	w := httptest.NewRecorder()
+	req := newForecastTestRequest("POST", "/api/experimental/pythia-oracle/forecast/issue", map[string]any{
+		"issue_id": issue.ID,
+		"rounds":   1,
+	})
+	pythiaIssueForecast(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST forecast: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var start issueForecastStartResponse
+	if err := json.NewDecoder(w.Body).Decode(&start); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+	if start.RunID == "" || start.Status != "running" || start.RunKind != "initial" {
+		t.Fatalf("unexpected start response: %+v", start)
+	}
+	if start.Rounds != 1 {
+		t.Errorf("resolved rounds = %d, want 1", start.Rounds)
+	}
+
+	status, hasComment := waitForRunTerminal(t, start.RunID)
+	if status != "completed" {
+		t.Fatalf("run ended with status %q, want completed", status)
+	}
+	var rounds int
+	var envelopes json.RawMessage
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT rounds, envelopes FROM pythia_forecast_run WHERE id = $1`, start.RunID,
+	).Scan(&rounds, &envelopes); err != nil {
+		t.Fatalf("load run: %v", err)
+	}
+	if rounds != 1 {
+		t.Errorf("persisted rounds = %d, want 1 (per-round persistence contract)", rounds)
+	}
+	var parsed []map[string]any
+	if err := json.Unmarshal(envelopes, &parsed); err != nil || len(parsed) != 1 {
+		t.Errorf("envelopes = %s (err=%v), want exactly 1 round", envelopes, err)
+	}
+	if !hasComment {
+		t.Errorf("report comment writeback did not land (report_comment_id still NULL)")
+	}
+}
+
+// insertForecastRunForTest inserts a pythia_forecast_run row directly
+// (status 'completed', parent NULL) so continuation-validation tests can
+// stage parents with/without envelopes without running the engine.
+func insertForecastRunForTest(t *testing.T, workspaceID, issueID, envelopes string) (string, pgtype.UUID) {
+	t.Helper()
+	issueUUID, err := util.ParseUUID(issueID)
+	if err != nil {
+		t.Fatalf("parse issue id %q: %v", issueID, err)
+	}
+	wsUUID, err := util.ParseUUID(workspaceID)
+	if err != nil {
+		t.Fatalf("parse workspace id: %v", err)
+	}
+	row, err := testHandler.Queries.CreatePythiaForecastRun(context.Background(), dbpkg.CreatePythiaForecastRunParams{
+		WorkspaceID: wsUUID,
+		IssueID:     issueUUID,
+		Rounds:      0,
+		Source:      "synthetic",
+		Envelopes:   []byte(envelopes),
+		RunKind:     "initial",
+		Status:      "completed",
+	})
+	if err != nil {
+		t.Fatalf("insert forecast run: %v", err)
+	}
+	return util.UUIDToString(row.ID), row.ID
+}
+
+// TestPythiaForecastContinuationValidation pins the parent-run gates:
+// unknown parent → 404; parent of a DIFFERENT issue → 400; parent with no
+// rounds → 400. A valid parent resolves the 6-round continuation default.
+func TestPythiaForecastContinuationValidation(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	issueA := createIssueForTest(t, map[string]any{"title": "pythia-cont-a"})
+	issueB := createIssueForTest(t, map[string]any{"title": "pythia-cont-b"})
+
+	oneEnvelope := `[{"id":"e1","scenario":"s","narrative":"n","probability":0.5,"confidence":0.5,"horizon":"week","persona":"strategist","lab_source":"synthetic"}]`
+	runB, _ := insertForecastRunForTest(t, testWorkspaceID, issueB.ID, oneEnvelope)
+	runEmpty, _ := insertForecastRunForTest(t, testWorkspaceID, issueA.ID, `[]`)
+
+	cases := []struct {
+		name    string
+		issueID string
+		parent  string
+		want    int
+	}{
+		{"unknown parent", issueA.ID, "00000000-0000-0000-0000-00000000000f", http.StatusNotFound},
+		{"parent of another issue", issueA.ID, runB, http.StatusBadRequest},
+		{"parent with no rounds", issueA.ID, runEmpty, http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := newForecastTestRequest("POST", "/api/experimental/pythia-oracle/forecast/issue", map[string]any{
+				"issue_id":      tc.issueID,
+				"rounds":        1,
+				"parent_run_id": tc.parent,
+			})
+			pythiaIssueForecast(w, req)
+			if w.Code != tc.want {
+				t.Fatalf("expected %d, got %d: %s", tc.want, w.Code, w.Body.String())
+			}
+		})
+	}
+
+	// Happy path: continuation defaults to 6 rounds and stores lineage +
+	// variables.
+	parentIDStr, parentUUID := insertForecastRunForTest(t, testWorkspaceID, issueA.ID, oneEnvelope)
+	w := httptest.NewRecorder()
+	req := newForecastTestRequest("POST", "/api/experimental/pythia-oracle/forecast/issue", map[string]any{
+		"issue_id":      issueA.ID,
+		"parent_run_id": parentIDStr,
+		"variables":     "把汇率冲击调到 20%",
+	})
+	pythiaIssueForecast(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("continuation POST: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var start issueForecastStartResponse
+	if err := json.NewDecoder(w.Body).Decode(&start); err != nil {
+		t.Fatalf("decode start: %v", err)
+	}
+	if start.RunKind != "continuation" {
+		t.Errorf("run_kind = %q, want continuation", start.RunKind)
+	}
+	if start.Rounds != defaultContinuationRounds {
+		t.Errorf("continuation default rounds = %d, want %d", start.Rounds, defaultContinuationRounds)
+	}
+	var variables string
+	var parentID *string
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT variables, parent_run_id FROM pythia_forecast_run WHERE id = $1`, start.RunID,
+	).Scan(&variables, &parentID); err != nil {
+		t.Fatalf("load continuation row: %v", err)
+	}
+	if variables != "把汇率冲击调到 20%" {
+		t.Errorf("variables = %q", variables)
+	}
+	if parentID == nil || *parentID != parentIDStr {
+		t.Errorf("parent_run_id = %v, want %s", parentID, parentIDStr)
+	}
+	_ = parentUUID
+}
+
+// TestPythiaRunStreamSnapshotAndTerminal pins the stream contract for a
+// FINISHED run: one snapshot frame (meta + envelopes) then a terminal
+// status frame, no live tail.
+func TestPythiaRunStreamSnapshotAndTerminal(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	issue := createIssueForTest(t, map[string]any{"title": "pythia-stream-e2e"})
+	w := httptest.NewRecorder()
+	req := newForecastTestRequest("POST", "/api/experimental/pythia-oracle/forecast/issue", map[string]any{
+		"issue_id": issue.ID,
+		"rounds":   1,
+	})
+	pythiaIssueForecast(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST forecast: %d: %s", w.Code, w.Body.String())
+	}
+	var start issueForecastStartResponse
+	if err := json.NewDecoder(w.Body).Decode(&start); err != nil {
+		t.Fatalf("decode start: %v", err)
+	}
+	status, _ := waitForRunTerminal(t, start.RunID)
+	if status != "completed" {
+		t.Fatalf("run status %q, want completed", status)
+	}
+
+	sw := httptest.NewRecorder()
+	sreq := withURLParam(newForecastTestRequest("GET", "/api/experimental/pythia-oracle/forecast/issue/runs/"+start.RunID+"/stream", nil), "runID", start.RunID)
+	pythiaRunStream(sw, sreq)
+	body := sw.Body.String()
+	if !strings.Contains(body, "event: snapshot") {
+		t.Fatalf("stream missing snapshot frame:\n%s", body)
+	}
+	if !strings.Contains(body, `"run_kind":"initial"`) {
+		t.Errorf("snapshot missing run_kind:\n%s", body)
+	}
+	if !strings.Contains(body, "event: status") || !strings.Contains(body, `"status":"completed"`) {
+		t.Errorf("stream missing terminal status frame:\n%s", body)
+	}
+}
+
 // TestPythiaForecastHandlerFallbackPopulates verifies that the
 // package-level fallback handler stash is populated by
 // setPythiaForecastHandlerFallback (called from
 // AttachPythiaIssueForecastMiddleware) and read by
 // pythiaForecastHandler().
-//
-// 0.5.59 — the chi ctx-key propagation through r.WithContext was
-// observed to drop the forecastIssueHandlerCtxKey in some SSE
-// defer paths, producing zero-row persists despite a successful
-// 200 + 45s SSE stream. The fallback closes that gap. This test
-// pins both directions so a future chi update / middleware refactor
-// can't silently regress.
 func TestPythiaForecastHandlerFallbackPopulates(t *testing.T) {
 	t.Parallel()
 
@@ -281,8 +682,7 @@ func TestPythiaForecastHandlerFallbackPopulates(t *testing.T) {
 
 // TestPythiaForecastHandlerFallbackConcurrencySpawnsReaders fires N
 // goroutines that all read pythiaForecastHandler() concurrently while
-// a writer mutates the stash. The RWMutex must keep readers safe;
-// pre-0.5.59 this would race on the unsynchronised package var.
+// a writer mutates the stash. The RWMutex must keep readers safe.
 func TestPythiaForecastHandlerFallbackConcurrencySpawnsReaders(t *testing.T) {
 	t.Parallel()
 
@@ -321,62 +721,4 @@ func TestPythiaForecastHandlerFallbackConcurrencySpawnsReaders(t *testing.T) {
 
 	close(stop)
 	wg.Wait()
-}
-
-// TestIssueForecastStreamPersistsCollectedRounds — 0.5.60 root-cause pin.
-// Pre-0.5.60 the deferred persist was wired as
-// `defer persistIssueForecastRun(r, ifc, collected)` — Go evaluates
-// deferred-call arguments at the defer statement, capturing the EMPTY
-// slice header; the later appends updated the local variable, never the
-// captured header, so every successful run (200, frames emitted) persisted
-// zero rows. The 0.5.59 diagnostics made the skip visible; this test pins
-// the closure fix end-to-end against the DB-backed handler: run the real
-// stream, then assert the pythia_forecast_run row landed.
-func TestIssueForecastStreamPersistsCollectedRounds(t *testing.T) {
-	if testHandler == nil {
-		t.Skip("database not available")
-	}
-	if testWorkspaceID == "" {
-		t.Skip("workspace fixture not initialized")
-	}
-
-	issue := createIssueForTest(t, map[string]any{
-		"title": "pythia-persist-e2e",
-	})
-	t.Cleanup(func() {
-		_, _ = testPool.Exec(context.Background(),
-			`DELETE FROM pythia_forecast_run WHERE issue_id = $1`, issue.ID)
-	})
-
-	ifc := &issueForecastContext{
-		IssueID:     issue.ID,
-		IssueNumber: issue.Identifier,
-		Title:       "pythia-persist-e2e",
-		LabSource:   "pythia_oracle",
-		WorkspaceID: testWorkspaceID,
-	}
-	ctx := withIssueForecastContext(context.Background(), ifc)
-	ctx = context.WithValue(ctx, forecastIssueHandlerCtxKey{}, testHandler)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"/api/experimental/pythia-oracle/forecast/issue?seed=7", nil)
-	if err != nil {
-		t.Fatalf("build req: %v", err)
-	}
-
-	w := &captureWriter{}
-	pythiaIssueForecastStream(w, req, 1)
-
-	if !strings.Contains(string(w.body), "event: prediction") {
-		t.Fatalf("stream emitted no prediction frame; body=%q", string(w.body))
-	}
-
-	var count int
-	if err := testPool.QueryRow(context.Background(),
-		`SELECT count(*) FROM pythia_forecast_run WHERE issue_id = $1`, issue.ID,
-	).Scan(&count); err != nil {
-		t.Fatalf("count run rows: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("expected exactly 1 pythia_forecast_run row for the emitted round, got %d (pre-0.5.60 defer-capture bug = 0)", count)
-	}
 }

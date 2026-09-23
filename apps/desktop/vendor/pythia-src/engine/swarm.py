@@ -192,3 +192,94 @@ async def deliberate(oracle, brief: WorldBrief | None, predictions: list[Predict
     STATE.set_deliberation(dict(delib))
     log.info("swarm deliberated %d/%d forecasts across %d personas", enriched, len(subset), len(active))
     return predictions
+
+
+# ---------------------------------------------------------------------------
+# Issue-bound council (0.5.111) — the per-issue forecast loop asks the FULL
+# council to weigh in on ONE scenario (the issue), not on the global
+# prediction deck. Deliberately separate from deliberate(): the deck flow
+# scores N candidate predictions per voice; here every voice scores the SAME
+# single question, so the response shape is one vote per persona instead of
+# a scored index map. Continuation context (prior rounds + user-injected
+# variables) flows through the prompt, not through any persistent state.
+# ---------------------------------------------------------------------------
+
+_ISSUE_SPLIT_SPREAD = 0.30   # max-min probability gap that counts as real disagreement
+
+
+def _issue_persona_messages(name: str, lens: str, question: str,
+                            context_text: str, round_idx: int, total_rounds: int) -> list[dict]:
+    system = (
+        f"You are the {name}, one specialist on PYTHIA's issue-forecasting council. "
+        f"Your expertise is {lens} — use it as your evidence base AND your blind-spot check. "
+        f"A scenario is being rehearsed in {total_rounds} deliberation rounds; this is round {round_idx}. "
+        f"Estimate the probability (0-100) that the scenario's central question resolves positively "
+        f"as stated, THEN make your case in your own voice: 1-2 sentences citing the specific signals, "
+        f"prior-round developments, or base rates that drive your number. Later rounds should sharpen, "
+        f"not parrot, earlier rounds. "
+        f'Return ONLY a JSON object: {{"p": <0-100>, "note": "<your 1-2 sentence argument>"}}. '
+        f"No prose, no markdown."
+    )
+    user = (
+        f"=== ISSUE QUESTION ===\n{question.strip()[:600]}\n\n"
+        f"=== SCENARIO CONTEXT (incl. prior rounds + user-injected variables) ===\n{context_text[:2400]}\n\n"
+        f"Score the question from your lens for round {round_idx}. JSON object only."
+    )
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+async def deliberate_issue(oracle, question: str, context_text: str,
+                           round_idx: int = 1, total_rounds: int = 1) -> dict:
+    """Run the full 4-persona council on ONE issue-bound question.
+
+    Returns {"votes": [{"persona", "probability", "note"}], "consensus": <p>,
+    "spread": <max-min>, "split": <bool>}. Consensus is the Brier-weighted
+    mean of the votes that landed (equal weights until a persona has a
+    resolved track record); `split` flags genuine disagreement so the report
+    can show it instead of averaging it away. A voice that errors twice is
+    recorded as silent and excluded — the council never blocks on one lens.
+    """
+    active = PERSONAS
+    sem = asyncio.Semaphore(max(1, CONFIG.swarm_concurrency))
+
+    async def _voice(n: str, l: str):
+        async with sem:
+            persona_model = STATE.swarm_models.get(n) or None
+            for attempt in (0, 1):
+                try:
+                    text = await oracle._complete(
+                        _issue_persona_messages(n, l, question, context_text, round_idx, total_rounds),
+                        max_tokens=CONFIG.swarm_max_tokens, model=persona_model)
+                except Exception as e:  # noqa: BLE001 — a transient hiccup shouldn't drop the voice
+                    log.warning("issue council %s errored (%s: %r)", n, type(e).__name__, e)
+                    continue
+                for chunk in oracle._extract_objects(text):
+                    try:
+                        o = json.loads(chunk)
+                    except (ValueError, TypeError):
+                        continue
+                    if not isinstance(o, dict) or "p" not in o:
+                        continue
+                    try:
+                        p = float(o.get("p", 50))
+                    except (TypeError, ValueError):
+                        continue
+                    p = max(0.0, min(1.0, p / 100.0 if p > 1 else p))
+                    return {"persona": n, "probability": round(p, 2),
+                            "note": str(o.get("note", "")).strip()[:320]}
+        return {"persona": n, "probability": None, "note": ""}   # silent voice
+
+    results = await asyncio.gather(*[_voice(n, l) for n, l in active])
+    votes = [v for v in results if v["probability"] is not None]
+
+    weights = _persona_weights()
+    if not votes:
+        return {"votes": [], "consensus": None, "spread": 0.0, "split": False}
+    ps = [v["probability"] for v in votes]
+    ws = [weights.get(v["persona"], 1.0) for v in votes]
+    consensus = round(sum(w * p for w, p in zip(ws, ps)) / sum(ws), 3)
+    spread = round(max(ps) - min(ps), 3)
+    split = spread >= _ISSUE_SPLIT_SPREAD
+    log.info("issue council round %d: %d/%d voices, consensus %.2f spread %.2f split=%s",
+             round_idx, len(votes), len(active), consensus, spread, split)
+    return {"votes": votes, "consensus": consensus, "spread": spread, "split": split}

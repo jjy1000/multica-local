@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, FlaskConical, Loader2, RefreshCw, Square, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FlaskConical, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { api, parseWithFallback } from "@multica/core/api";
-import { useTimesfmForecastRuns, useExperimentalFlags } from "@multica/core/experimental";
+import { useTimesfmForecastRuns } from "@multica/core/experimental";
 import {
   CodeCanvasArtifactListSchema,
   CodeCanvasArtifactSchema,
@@ -13,7 +13,6 @@ import {
   LabContextSchema,
   MythosRunListSchema,
   MythosSuperviseStateSchema,
-  PythiaForecastRunListSchema,
 } from "@multica/core/api/schemas";
 import type {
   CodeCanvasArtifact,
@@ -25,35 +24,22 @@ import type {
   MythosCodaConclusion,
   MythosRunSummary,
   MythosSuperviseState,
-  PythiaForecastEnvelope,
-  PythiaForecastRun,
 } from "@multica/core/types/api";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { ArtifactRenderer, type Artifact } from "./artifact-renderer";
 import { InteractiveChartEnvelope } from "./interactive-chart-envelope";
 import { AppLink } from "../../navigation";
 import { labSourceRouteSuffix } from "../../issues/components/issue-labs-section";
-import {
-  cancelPythiaIssueForecast,
-  registerPythiaForecastController,
-  unregisterPythiaForecastController,
-} from "../../issues/utils/pythia-forecast-trigger";
 import { LabRunLink, labRunHref } from "./lab-run-link";
-import {
-  PYTHIA_IN_PROGRESS_WINDOW_MS,
-  derivePythiaTriggerState,
-  markPythiaTriggered,
-  readPythiaTriggeredAt,
-} from "./lab-run-heuristics";
 import { useT } from "../../i18n";
+import { PythiaPanel } from "./pythia/pythia-panel";
 
 // 0.5.18 M1-M4: unified output panel for the four A-class issue-bound labs.
 // claude_science_lab (M1), mythos_swarm (M2), and pythia_oracle (M3) are
-// read-side only — they poll existing endpoints (no backend changes).
-// code_canvas (M4) is the exception: it adds backend persistence (migration
-// 239 code_canvas_artifact) with a render+persist POST and a history GET, and
-// the panel renders the persisted artifacts in sandboxed iframes (see
-// .omc/plans/lab-output-panel-design.md §2.3).
+// read-side pollers; code_canvas (M4) adds backend persistence (migration
+// 239 code_canvas_artifact). 0.5.111: the pythia reader moved to
+// ./pythia/pythia-panel.tsx (live SSE stream + continuation + report tabs;
+// it now owns server-side run state instead of polling a static row).
 
 const POLL_INTERVAL_MS = 5_000;
 const IDLE_INTERVAL_MS = 60_000;
@@ -728,352 +714,6 @@ function MythosPanel({
       </div>
 
       {labMode === "enhancer" && <MythosSuperviseSection runID={latest.run_id} />}
-    </div>
-  );
-}
-
-// ── Pythia Oracle (M3) ────────────────────────────────────────────────────
-
-// Each persisted run's `envelopes` array holds the deliberation frames in
-// order; the envelope element carries no `round` field (see the wire shape in
-// forecast_issue.go / claude_lab_forecast.go), so the display round is the
-// array index + 1.
-function PythiaFrames({
-  envelopes,
-  labViewHref,
-}: {
-  envelopes: PythiaForecastEnvelope[];
-  labViewHref?: string;
-}) {
-  const { t } = useT("experimental");
-
-  if (envelopes.length === 0) {
-    return <p className="text-xs text-muted-foreground">{t(($) => $.lab_output_panel.empty)}</p>;
-  }
-
-  return (
-    <div className="space-y-1.5">
-      <p className="text-[11px] font-medium text-muted-foreground">
-        {t(($) => $.lab_output_panel.pythia_frames_label)}
-      </p>
-      {envelopes.map((e, i) => (
-        <div key={e.id || i} className="space-y-0.5">
-          <div className="flex items-baseline justify-between gap-2 text-[11px]">
-            <span className="truncate text-foreground/90">
-              R{i + 1} · {e.scenario}
-            </span>
-            <span className="shrink-0 font-medium text-foreground">
-              {Math.round(clamp01(e.probability) * 100)}%
-            </span>
-          </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-purple-500"
-              style={{ width: `${Math.round(clamp01(e.probability) * 100)}%` }}
-            />
-          </div>
-          {e.narrative && (
-            <p className="line-clamp-2 whitespace-pre-wrap text-[10px] leading-relaxed text-foreground/70">
-              {e.narrative}
-            </p>
-          )}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
-            <span className="font-mono">{e.horizon}</span>
-            <span className="font-mono">{e.persona}</span>
-            <span>
-              {t(($) => $.lab_output_panel.pythia_confidence_label)}{" "}
-              {Math.round(clamp01(e.confidence) * 100)}%
-            </span>
-            {e.synthetic_oracle_failover === true && (
-              <span className="rounded bg-amber-500/10 px-1 py-0.5 text-amber-600 dark:text-amber-400">
-                {t(($) => $.lab_output_panel.pythia_synthetic_hint)}
-              </span>
-            )}
-          </div>
-          {labViewHref && (
-            <div className="flex justify-end">
-              <AppLink
-                href={labViewHref}
-                className="text-[10px] text-muted-foreground hover:text-foreground"
-                aria-label={t(($) => $.lab_output_panel.view_in_lab)}
-              >
-                {t(($) => $.lab_output_panel.view_in_lab)} →
-              </AppLink>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PythiaPanel({
-  wsId,
-  issueId,
-  labViewHref,
-}: {
-  wsId: string;
-  issueId: string;
-  labViewHref?: string;
-}) {
-  const { t } = useT("experimental");
-
-  // 0.5.104: flag-off honesty. When the pythia_oracle flag is disabled
-  // the server's RequireExperimentalFlag guard 404s BOTH the runs poll
-  // and the forecast POST (experimental_guard.go — off-flag callers must
-  // not distinguish a gated surface from a nonexistent one). That used
-  // to render as the stuck "引擎未启动" panel with a retry button whose
-  // clicks silently 404'd. Resolve the flag here and say plainly that
-  // the lab is disabled instead.
-  const { data: flags } = useExperimentalFlags();
-  const flagsLoaded = flags != null;
-  const flagEnabled = (flags ?? []).some((f) => f.key === "pythia_oracle" && f.enabled);
-
-  // 0.5.59: track when the user last triggered a forecast so the panel
-  // can show "推演进行中..." for the SSE-loop window instead of an empty
-  // placeholder that reads as "no data / broken". Without this, an
-  // oracle still warming up looks identical to "oracle never ran"
-  // and the user has no signal that work is happening.
-  //
-  // Persisted in sessionStorage so a navigate-away-and-back cycle
-  // doesn't reset the timer. The sessionStorage write is fire-and-
-  // forget — when the mutation resolves we re-read the timestamp.
-  // 0.5.86: the read/write/state helpers moved to lab-run-heuristics.ts
-  // so the issue-side LabProgressCard derives the SAME signal.
-  const [triggeredAt, setTriggeredAt] = useState<number | null>(() =>
-    readPythiaTriggeredAt(wsId, issueId),
-  );
-
-  const triggerForecast = useMutation({
-    mutationFn: async (rounds: number) => {
-      // 0.5.104: the in-flight request registers with the shared cancel
-      // registry so the stop button below (and the create/update path's
-      // runs) abort the SAME issue's forecast. The SSE round loop on the
-      // server honours the disconnect and persists whatever rounds
-      // already completed.
-      const controller = new AbortController();
-      registerPythiaForecastController(wsId, issueId, controller);
-      try {
-        const r = await api.rawRequest(
-          "/api/experimental/pythia-oracle/forecast/issue",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ issue_id: issueId, rounds }),
-            signal: controller.signal,
-          },
-        );
-        if (!r.ok && r.status !== 200) {
-          throw new Error(`forecast trigger ${r.status}`);
-        }
-        return rounds;
-      } finally {
-        unregisterPythiaForecastController(wsId, issueId, controller);
-      }
-    },
-    onMutate: (rounds) => {
-      const now = Date.now();
-      markPythiaTriggered(wsId, issueId, now);
-      setTriggeredAt(now);
-      return { rounds };
-    },
-    onSettled: () => {
-      runsQuery.refetch();
-    },
-  });
-
-  const runsQuery = useQuery({
-    queryKey: ["lab-output-panel-pythia-runs", wsId, issueId],
-    queryFn: async (): Promise<PythiaForecastRun[]> => {
-      const r = await api.rawRequest(
-        `/api/experimental/pythia-oracle/forecast/issue/runs?issue_id=${encodeURIComponent(issueId)}&limit=1`,
-      );
-      if (r.status === 404) return [];
-      if (!r.ok) throw new Error(`pythia forecast runs ${r.status}`);
-      const raw: unknown = await r.json();
-      return parseWithFallback<PythiaForecastRun[]>(
-        raw,
-        PythiaForecastRunListSchema,
-        [],
-        { endpoint: "GET /api/experimental/pythia-oracle/forecast/issue/runs" },
-      );
-    },
-    refetchInterval: (query) => {
-      const runs = query.state.data;
-      return runs && runs.length > 0 ? IDLE_INTERVAL_MS : POLL_INTERVAL_MS;
-    },
-  });
-
-  // 0.5.59: derive "in progress" state from the trigger timestamp.
-  // The Python oracle takes ~45s for 10 rounds; we give it a 90s
-  // grace before flipping to "无响应". Once rows arrive, the
-  // timestamp is ignored (we have data).
-  const now = Date.now();
-  const hasRuns = (runsQuery.data?.length ?? 0) > 0;
-  const triggerState = derivePythiaTriggerState(triggeredAt, hasRuns, now);
-  const isInProgress = triggerState === "in_progress";
-  const isStuck = triggerState === "stuck";
-
-  if (flagsLoaded && !flagEnabled) {
-    return (
-      <div
-        className="space-y-1 rounded-md border border-dashed border-border/60 px-2 py-1.5"
-        data-testid="lab-output-panel-pythia-flag-off"
-      >
-        <p className="text-[11px] font-medium text-muted-foreground">
-          {t(($) => $.lab_output_panel.pythia_flag_off)}
-        </p>
-        <p className="text-[10px] leading-snug text-muted-foreground">
-          {t(($) => $.lab_output_panel.pythia_flag_off_hint)}
-        </p>
-      </div>
-    );
-  }
-
-  if (runsQuery.isLoading) {
-    return (
-      <div className="space-y-2" data-testid="lab-output-panel-loading">
-        <Skeleton className="h-3 w-1/2" />
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="h-3 w-2/3" />
-      </div>
-    );
-  }
-
-  if (runsQuery.isError) {
-    return (
-      <div className="flex items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
-        <p className="text-[11px] text-destructive">{t(($) => $.lab_output_panel.error)}</p>
-        <button
-          type="button"
-          onClick={() => runsQuery.refetch()}
-          className="shrink-0 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted"
-        >
-          {t(($) => $.lab_output_panel.retry)}
-        </button>
-      </div>
-    );
-  }
-
-  // 0.5.59: in-progress UI — spinner + the round budget is shown so
-  // the user sees work happening. The retry button is intentionally
-  // NOT shown here (oracle is still running; clicking it would
-  // stack a second 10-round run on top of the first).
-  //
-  // 0.5.104: a stop button joins the spinner. Aborts the in-flight SSE
-  // (panel-triggered OR create/update-path auto-launch — shared
-  // registry); the server persists whatever rounds already completed,
-  // so the panel flips to the partial result instead of spinning to
-  // the natural end.
-  if (isInProgress) {
-    const elapsed = Math.floor((now - (triggeredAt ?? now)) / 1000);
-    const budgetSec = Math.floor(PYTHIA_IN_PROGRESS_WINDOW_MS / 1000);
-    return (
-      <div
-        className="space-y-1.5 rounded-md border border-purple-500/40 bg-purple-500/5 px-2 py-1.5"
-        data-testid="lab-output-panel-pythia-in-progress"
-      >
-        <div className="flex items-center gap-1.5 text-[11px] font-medium text-purple-700 dark:text-purple-300">
-          <Loader2 className="size-3 animate-spin" aria-hidden />
-          <span className="min-w-0 flex-1">
-            {t(($) => $.lab_output_panel.pythia_in_progress, { elapsed, budget: budgetSec })}
-          </span>
-          <button
-            type="button"
-            aria-label={t(($) => $.lab_output_panel.pythia_stop_forecast)}
-            title={t(($) => $.lab_output_panel.pythia_stop_forecast)}
-            data-testid="lab-output-panel-pythia-stop"
-            onClick={() => {
-              cancelPythiaIssueForecast(wsId, issueId);
-              runsQuery.refetch();
-            }}
-            className="inline-flex shrink-0 items-center justify-center rounded p-1 text-purple-700 transition-colors hover:bg-purple-500/10 dark:text-purple-300"
-          >
-            <Square className="size-3" aria-hidden />
-          </button>
-        </div>
-        <p className="text-[10px] leading-snug text-muted-foreground">
-          {triggerForecast.isPending
-            ? t(($) => $.lab_output_panel.pythia_stream_requesting)
-            : t(($) => $.lab_output_panel.pythia_stream_cost_hint)}
-        </p>
-      </div>
-    );
-  }
-
-  // 0.5.59: stuck UI — triggered but no rows after 90s. Surface a
-  // concrete retry path so the user never sits on a silent empty
-  // panel again (the pre-0.5.59 failure mode).
-  if (isStuck) {
-    return (
-      <div
-        className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-500/5 px-2 py-1.5"
-        data-testid="lab-output-panel-pythia-stuck"
-      >
-        <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
-          {t(($) => $.lab_output_panel.pythia_stuck_title)}
-        </p>
-        <p className="text-[10px] leading-snug text-muted-foreground">
-          {t(($) => $.lab_output_panel.pythia_stuck_detail)}
-        </p>
-        <button
-          type="button"
-          disabled={triggerForecast.isPending}
-          onClick={() => triggerForecast.mutate(3)}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-500/40 bg-background px-2 py-1 text-[11px] font-medium text-foreground hover:bg-amber-500/10 disabled:opacity-50"
-        >
-          <RefreshCw className="size-3" aria-hidden />
-          {triggerForecast.isPending
-            ? t(($) => $.lab_output_panel.pythia_requesting)
-            : t(($) => $.lab_output_panel.pythia_retry, { rounds: 3 })}
-        </button>
-        {triggerForecast.isError && (
-          <p className="text-[10px] text-destructive">
-            {triggerForecast.error instanceof Error
-              ? triggerForecast.error.message
-              : t(($) => $.lab_output_panel.pythia_retry_failed)}
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  const runs = runsQuery.data ?? [];
-  const latest = runs[0] ?? null;
-
-  if (!latest) {
-    return (
-      <div className="space-y-1.5" data-testid="lab-output-panel-pythia-empty">
-        <p className="text-xs text-muted-foreground">
-          {t(($) => $.lab_output_panel.empty)}
-        </p>
-        <button
-          type="button"
-          disabled={triggerForecast.isPending}
-          onClick={() => triggerForecast.mutate(3)}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-purple-500/40 bg-purple-500/5 px-2 py-1 text-[11px] font-medium text-purple-700 hover:bg-purple-500/10 disabled:opacity-50 dark:text-purple-300"
-        >
-          <RefreshCw className="size-3" aria-hidden />
-          {triggerForecast.isPending
-            ? t(($) => $.lab_output_panel.pythia_requesting)
-            : t(($) => $.lab_output_panel.pythia_start, { rounds: 3 })}
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] text-muted-foreground">
-          {t(($) => $.lab_output_panel.run_count, { runs: String(latest.rounds) })}
-        </p>
-        <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
-          <span className="rounded bg-muted px-1 py-0.5">{latest.source}</span>
-        </span>
-      </div>
-
-      <PythiaFrames envelopes={latest.envelopes} labViewHref={labViewHref} />
     </div>
   );
 }

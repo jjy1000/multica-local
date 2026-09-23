@@ -119,7 +119,31 @@ type forecastEnvelope struct {
 	// after a real oracle call failed. The renderer renders a "mock
 	// 数据" hint on true. Same additive + omitempty contract.
 	SyntheticOracleFailover bool `json:"synthetic_oracle_failover,omitempty"`
-	CreatedAt               string `json:"createdAt"`
+	// 0.5.111 per-issue full-council contract (pythia issue path only —
+	// the claude-lab stream never sets them). BaseProbability is the
+	// oracle's SOLO estimate; the headline Probability is the council
+	// consensus. Council carries the vote sheet (per-persona votes,
+	// spread, split flag) for the panel's council view.
+	BaseProbability *float64       `json:"base_probability,omitempty"`
+	Council         *pythiaCouncil `json:"council,omitempty"`
+	CreatedAt       string         `json:"createdAt"`
+}
+
+// pythiaCouncil is one round's council verdict. Consensus is the
+// Brier-weighted mean of the votes; spread = max-min; split flags genuine
+// disagreement (spread ≥ 0.30) so the UI shows the dissent instead of
+// averaging it away.
+type pythiaCouncil struct {
+	Votes     []pythiaCouncilVote `json:"votes"`
+	Consensus *float64            `json:"consensus"`
+	Spread    float64             `json:"spread"`
+	Split     bool                `json:"split"`
+}
+
+type pythiaCouncilVote struct {
+	Persona     string  `json:"persona"`
+	Probability float64 `json:"probability"`
+	Note        string  `json:"note"`
 }
 
 const (

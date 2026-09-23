@@ -1,107 +1,113 @@
-// Package handler — forecast_issue.go (0.3.29+)
+// Package handler — forecast_issue.go (0.3.29+, refactored 0.5.111)
 //
 // POST /api/experimental/pythia-oracle/forecast/issue
 //
-// Closes the loop on the 0.3.29 "labs 闭环实验" task. The Claude Lab
-// <ForecastTab /> already streams generic predictions from
-// /forecast/stream; this new endpoint takes an Issue id and returns a
-// bound forecast envelope (or a one-shot SSE stream) for that Issue.
+// 0.5.111 continuation contract: the per-issue Pythia deliberation moved
+// from a synchronous SSE loop to an ASYNC background run. The POST now
+// validates, creates the pythia_forecast_run row (status='running'), and
+// returns {"run_id": ...} immediately; the rounds execute in a detached
+// goroutine that persists EVERY round as it lands (crash-safe), publishes
+// to the in-memory run bus, and finishes with an LLM-synthesized conclusion
+// report. Clients watch GET .../runs/{runID}/stream (see
+// forecast_run_stream.go). A continuation run carries parent_run_id +
+// variables: the parent's envelopes become the round history injected into
+// every prompt, so "原问题 + 历史报告 + 新变量 → 新轮次" works end to end.
 //
 // Wire shape (POST application/json):
 //
-//   {"issue_id": "uuid-or-identifier", "rounds": 1}
+//	{"issue_id": "uuid-or-identifier", "rounds": 3,
+//	 "variables": "把汇率冲击调高到 20% 后重新推演",       // optional
+//	 "parent_run_id": "uuid-of-parent-run"}                // optional → continuation
 //
-// Response: SSE stream of `prediction` events with the same envelope
-// shape used by the Claude Lab forecast SSE handler, augmented with
-// `issue_id`, `scenario_context` (truncated issue title + first 280
-// chars of body), and `lab_source` (the issue's `lab_source` column,
-// e.g. "pythia_oracle"). When the oracle loopback URL has not been
-// registered yet, envelopes fall back to a synthetic generator
-// marked lab_source="synthetic" instead of lab_source="oracle".
+// Response: {"run_id": "...", "rounds": N, "status": "running"}.
+// Errors: 400 bad request (missing issue / bad parent), 404 foreign issue.
 //
-// Hard rules (matching the existing forecast handler):
+// Hard rules (unchanged from the SSE era):
 //
-//   1. Route is gated by experimental.DefaultFor("pythia_oracle") in
-//      router.go. When the flag is off the route physically doesn't
-//      exist — chi doesn't register a 404 handler so off-flag callers
-//      see a connection error rather than a misleading 200.
-//
-//   2. The handler resolves the issue through loadIssueForUser so it
-//      goes through the same identifier-or-UUID + workspace-membership
-//      scope the rest of the issue surface uses. A foreign-workspace
-//      UUID returns 404, never leaks issue data.
-//
-//   3. The handler does NOT spawn the oracle subprocess — the desktop
-//      main process owns the manager. When the oracle loopback URL is
-//      not registered we emit synthetic envelopes marked
-//      lab_source="synthetic"; the wire shape stays stable so the
-//      renderer doesn't have to branch.
-//
-//   4. `rounds` defaults to 3 (0.5.104; the 0.3.30.3-era default of 10
-//      was retired for latency + LLM budget reasons) and is capped at
-//      10. Each round emits one envelope.
+//  1. Route is gated by experimental.DefaultFor("pythia_oracle") in
+//     router.go. When the flag is off the route physically doesn't exist.
+//  2. The handler resolves the issue through loadIssueForUser so
+//     identifier-or-UUID + workspace-membership scope stays consistent
+//     with the rest of the issue surface.
+//  3. The handler does NOT spawn the oracle subprocess — the desktop
+//     main process owns the manager. When the oracle loopback URL is not
+//     registered, rounds fall back to synthetic envelopes labelled
+//     lab_source="synthetic" (honesty law: the label rides on every
+//     envelope AND the report comment).
+//  4. `rounds` defaults to 3 for initial runs / 6 for continuations
+//     (0.5.111; the user contract caps continuation rounds at 5-8 to
+//     save tokens) and is clamped at 10. Natural-language pins in the
+//     issue text or the variables text ("推演5轮") are parsed
+//     server-side now — previously only the client parsed them.
 
 package handler
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/multica-ai/multica/server/internal/util"
 	dbpkg "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// RegisterPythiaIssueForecastRoutes wires the per-issue SSE endpoint
+// RegisterPythiaIssueForecastRoutes wires the per-issue forecast surface
 // onto the supplied chi router. The caller MUST gate this call on
 // experimental.DefaultFor("pythia_oracle") — when the flag is off the
-// route physically disappears.
+// routes physically disappear.
 //
-// Two routes:
-//   - POST /forecast/issue        — run a deliberation, stream rounds,
-//     and (0.3.55) persist the completed run so it survives unmount.
-//   - GET  /forecast/issue/runs   — list persisted runs for an issue,
-//     newest first. Registered as a literal path (no {param}) so chi
-//     can never mis-route it onto the POST route (0.3.45.8 ordering
-//     lesson: literal before param).
+// Five routes (literal paths registered BEFORE any {runID} subtree —
+// 0.3.45.8 chi ordering lesson):
+//   - POST /forecast/issue                  — start an async deliberation
+//     (initial or continuation), returns {run_id} immediately.
+//   - GET  /forecast/issue/runs             — list persisted runs for an
+//     issue, newest first.
+//   - GET  /forecast/issue/runs/{runID}/stream — SSE: snapshot (meta +
+//     envelopes so far) → live round/report/status frames → close.
+//   - POST /forecast/issue/runs/{runID}/cancel — abort a running run.
+//   - POST /chat                            — issue-grounded Q&A proxy to
+//     the engine's /chat (council persona or oracle).
 func RegisterPythiaIssueForecastRoutes(r chi.Router) {
 	r.Post("/api/experimental/pythia-oracle/forecast/issue", pythiaIssueForecast)
 	r.Get("/api/experimental/pythia-oracle/forecast/issue/runs", pythiaIssueForecastRuns)
+	r.Get("/api/experimental/pythia-oracle/forecast/issue/runs/{runID}/stream", pythiaRunStream)
+	r.Post("/api/experimental/pythia-oracle/forecast/issue/runs/{runID}/cancel", pythiaRunCancel)
+	r.Post("/api/experimental/pythia-oracle/chat", pythiaChat)
 }
 
-// defaultIssueForecastRounds is the default number of forecast
-// rounds a caller gets when they don't pass `rounds`. 0.3.30.3 raised
-// the default from 1 → 10 for the "issue creation triggers a 10-round
-// Pythia deliberation" contract; 0.5.104 lowers it to 3 — the 10-round
-// auto-run multiplied latency (~45s) and LLM spend for marginal report
-// value. Clients that want more rounds pass `rounds` explicitly (the
-// issue body may pin them, e.g. "推演5轮"); the hard cap below is
-// unchanged.
+// defaultIssueForecastRounds is the default number of forecast rounds an
+// INITIAL run gets when the caller passes no rounds and no natural-language
+// pin. 3 since 0.5.104 (the 0.3.30.3-era default of 10 was retired for
+// latency + LLM budget reasons).
 const defaultIssueForecastRounds = 3
 
-// maxIssueForecastRounds caps a single SSE call at 10 rounds. Each
-// round blocks on a /forecast/issue upstream POST (~3-5 s with a
-// live LLM); 10 rounds × 5 s = 50 s of work per call. Anything
-// longer would starve the LLM proxy budget (60 req/min global) and
-// keep SSE handlers pinned across multiple concurrent users.
+// defaultContinuationRounds is the default for CONTINUATION runs
+// (0.5.111). The user contract: "如果用户没有指定,为节省 token 轮次默认
+// 5-8" — 6 sits mid-band. A continuation already has history context, so
+// fewer rounds still sharpen the forecast.
+const defaultContinuationRounds = 6
+
+// maxIssueForecastRounds caps a single run at 10 rounds. With the 0.5.111
+// full-council contract each round is 1 oracle pass + 4 persona votes, so
+// 10 rounds ≈ 50 LLM calls — the hard ceiling defends the LLM proxy
+// budget (60 req/min global).
 const maxIssueForecastRounds = 10
 
-// clampIssueForecastRounds normalises the caller-supplied round
-// count. Defaults to 10 when omitted; clamps at 10 so a single
-// request can't burn the proxy budget. Exported as a small pure
-// function so the round-count behaviour can be unit-tested without
-// touching SSE plumbing.
+// clampIssueForecastRounds normalises an explicit caller-supplied round
+// count. Zero/negative means "caller didn't say" (the caller's default is
+// resolved by resolveIssueForecastRounds); anything above the cap is
+// clamped so a single request can't burn the proxy budget.
 func clampIssueForecastRounds(req int) int {
 	if req <= 0 {
 		return defaultIssueForecastRounds
@@ -112,14 +118,80 @@ func clampIssueForecastRounds(req int) int {
 	return req
 }
 
-// issueForecastRequest is the wire shape for the new endpoint.
+// Natural-language round pins, ported byte-for-byte from
+// packages/views/issues/utils/forecast-rounds.ts (KEYWORD_FIRST /
+// COUNT_FIRST). Tight adjacency on purpose: "分3轮讨论" or "第一轮" must
+// NOT hijack the count just because 推演 appears elsewhere — a false
+// positive silently spends more LLM rounds than the user asked for.
+var (
+	forecastKeywordFirst = regexp.MustCompile(`(?:推演|预测|模拟|预演)\s*[：:]?\s*(\d{1,2})\s*轮`)
+	forecastCountFirst   = regexp.MustCompile(`(\d{1,2})\s*轮\s*(?:推演|预测|模拟|预演)`)
+)
+
+// parseForecastRoundsFromText extracts a natural-language round pin from
+// the given texts (scanned in order; first match wins). Returns 0 when
+// nothing pins a count. Unit-pinned in forecast_issue_test.go.
+func parseForecastRoundsFromText(texts ...string) int {
+	for _, text := range texts {
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		m := forecastKeywordFirst.FindStringSubmatch(text)
+		if m == nil {
+			m = forecastCountFirst.FindStringSubmatch(text)
+		}
+		if len(m) < 2 {
+			continue
+		}
+		n, err := strconv.Atoi(m[1])
+		if err != nil || n <= 0 {
+			continue
+		}
+		return min(n, maxIssueForecastRounds)
+	}
+	return 0
+}
+
+// resolveIssueForecastRounds picks the round count for a run: an explicit
+// caller value wins, then a natural-language pin in the variables text or
+// the issue title/body, then the per-kind default (continuation 6 /
+// initial 3).
+func resolveIssueForecastRounds(explicit int, continuation bool, texts ...string) int {
+	if explicit > 0 {
+		return clampIssueForecastRounds(explicit)
+	}
+	if n := parseForecastRoundsFromText(texts...); n > 0 {
+		return n
+	}
+	if continuation {
+		return defaultContinuationRounds
+	}
+	return defaultIssueForecastRounds
+}
+
+// issueForecastRequest is the wire shape for the POST endpoint.
 type issueForecastRequest struct {
 	IssueID string `json:"issue_id"`
-	// Rounds controls how many forecast envelopes to emit before
-	// closing the stream. Defaults to 3 (0.5.104 — was 10 under the
-	// retired 0.3.30.3 "推演 10 轮" contract). Capped at 10 so a single
-	// request can never starve the LLM proxy budget (60 req/min global).
+	// Rounds is the explicit round count. 0 = resolve from natural
+	// language, else the per-kind default. Clamped at 10.
 	Rounds int `json:"rounds,omitempty"`
+	// Variables is the user-injected continuation text ("修正方案:…").
+	// Non-empty continuation input rides into every round prompt AND the
+	// report synthesis prompt.
+	Variables string `json:"variables,omitempty"`
+	// ParentRunID turns the request into a CONTINUATION of a prior run:
+	// the parent's envelopes become the round history. Must reference a
+	// run of the SAME issue with at least one envelope.
+	ParentRunID string `json:"parent_run_id,omitempty"`
+}
+
+// issueForecastStartResponse is the POST reply. The run executes in the
+// background; clients subscribe to the stream route with run_id.
+type issueForecastStartResponse struct {
+	RunID   string `json:"run_id"`
+	Rounds  int    `json:"rounds"`
+	Status  string `json:"status"`
+	RunKind string `json:"run_kind"`
 }
 
 // issueForecastContextKey carries the derived per-issue view through
@@ -127,9 +199,8 @@ type issueForecastRequest struct {
 // claude_lab_forecast.go.
 type issueForecastContextKey struct{}
 
-// issueForecastContext is the derived view of the bound issue that
-// flows into each envelope's `scenario_context` field. Pre-computed
-// once at open time so the per-tick source loop stays cheap.
+// issueForecastContext is the derived view of the bound issue that flows
+// into each envelope's `scenario_context` field.
 type issueForecastContext struct {
 	IssueID     string
 	IssueNumber string
@@ -151,9 +222,49 @@ func issueForecastContextFromCtx(ctx context.Context) (*issueForecastContext, bo
 	return v, ok
 }
 
+// forecastHistoryRound is one prior-round digest injected into the round
+// prompts of a continuation run (and mirrored into the engine's history
+// payload). Narrative is truncated at 400 runes per round, 12 rounds max
+// — enough signal to condition round N on rounds 1..N-1 without blowing
+// the engine's context budget.
+type forecastHistoryRound struct {
+	Round       int     `json:"round"`
+	Narrative   string  `json:"narrative"`
+	Probability float64 `json:"probability"`
+}
+
+const (
+	forecastHistoryMaxRounds    = 12
+	forecastHistoryNarrativeCap = 400
+)
+
+// historyFromEnvelopes converts a parent run's envelopes into the digest
+// injected into continuation prompts. Round numbers reflect the parent
+// run's ORIGINAL positions (a parent with 14 rounds yields rounds 3-14),
+// so continuation prompts can reference earlier rounds unambiguously.
+func historyFromEnvelopes(envelopes []forecastEnvelope) []forecastHistoryRound {
+	if len(envelopes) == 0 {
+		return nil
+	}
+	offset := 0
+	if len(envelopes) > forecastHistoryMaxRounds {
+		offset = len(envelopes) - forecastHistoryMaxRounds
+		envelopes = envelopes[offset:]
+	}
+	out := make([]forecastHistoryRound, 0, len(envelopes))
+	for i, e := range envelopes {
+		out = append(out, forecastHistoryRound{
+			Round:       offset + i + 1,
+			Narrative:   truncateReportRunes(e.Narrative, forecastHistoryNarrativeCap),
+			Probability: e.Probability,
+		})
+	}
+	return out
+}
+
 // pythiaIssueForecast serves POST /api/experimental/pythia-oracle/forecast/issue.
-// Resolves the bound issue first; missing / foreign-workspace issue is
-// a 4xx before the SSE handshake.
+// Resolves the bound issue, validates continuation inputs, creates the
+// running row, spawns the detached runner, and replies with the run_id.
 func pythiaIssueForecast(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "POST required")
@@ -169,20 +280,16 @@ func pythiaIssueForecast(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "issue_id is required")
 		return
 	}
-	if req.Rounds <= 0 {
-		// 0.5.104: 3 rounds is the default (was 10 under the retired
-		// 0.3.30.3 contract). Callers override by passing `rounds: N`.
-		req.Rounds = defaultIssueForecastRounds
-	}
-	if req.Rounds > maxIssueForecastRounds {
-		req.Rounds = maxIssueForecastRounds
+	req.Variables = strings.TrimSpace(req.Variables)
+	if len(req.Variables) > 2000 {
+		req.Variables = truncateReportRunes(req.Variables, 2000)
 	}
 
 	// Use the standard issue loader so identifier (JIA-42) and
 	// workspace-scope checks stay consistent with the rest of the
 	// issue surface.
 	h, ok := forecastIssueHandlerFromCtx(r)
-	if !ok {
+	if !ok || h == nil {
 		writeError(w, http.StatusInternalServerError, "handler unavailable")
 		return
 	}
@@ -190,227 +297,382 @@ func pythiaIssueForecast(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
 	ifc := buildIssueForecastContext(issue)
-	ctx := withIssueForecastContext(r.Context(), ifc)
-	pythiaIssueForecastStream(w, r.WithContext(ctx), req.Rounds)
-}
 
-// pythiaIssueForecastStream runs the per-issue SSE loop on the
-// resolved request context. Emits `prediction` events with the
-// augmented envelope shape and closes the stream after Rounds frames.
-func pythiaIssueForecastStream(w http.ResponseWriter, r *http.Request, rounds int) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			// SSE streams can't have WriteHeader re-issued, so
-			// recover locally rather than letting chi's
-			// Recoverer try to render an error page on top of
-			// an open stream.
-			return
-		}
-	}()
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-
-	ifc, ok := issueForecastContextFromCtx(r.Context())
-	if !ok {
-		http.Error(w, "missing issue context", http.StatusInternalServerError)
-		return
-	}
-
-	seed := time.Now().UnixNano()
-	if raw := r.URL.Query().Get("seed"); raw != "" {
-		if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
-			seed = n
-		}
-	}
-
-	source := sourceForForecast(issueForecastContextLabSource(ifc), ifc)
-
-	collected := make([]forecastEnvelope, 0, rounds)
-	// 0.3.55: persist the deliberation so the lab view can surface it
-	// after the fact (pre-0.3.55 the rounds were SSE-live only and
-	// vanished on unmount). Deferred so every termination path —
-	// normal completion, upstream error, client disconnect — writes
-	// whatever rounds actually landed. A zero-round result is skipped
-	// inside the helper.
-	//
-	// 0.5.60 — THIS MUST STAY A CLOSURE. Go evaluates deferred-call
-	// arguments at the defer statement, so the pre-0.5.60 form
-	// `defer persistIssueForecastRun(r, ifc, collected)` captured the
-	// EMPTY slice header (len 0); the subsequent appends updated the
-	// local variable, never the captured header — every successful run
-	// persisted zero rows ("推演成功但 UI 无数据"). The closure reads
-	// the variable at call time. Regression-pinned by
-	// TestIssueForecastStreamPersistsCollectedRounds.
-	defer func() { persistIssueForecastRun(r, ifc, collected) }()
-
-	emit := func(round int) error {
-		env, err := source(r.Context(), seed, ifc, round)
+	// Continuation validation: the parent must exist, belong to the SAME
+	// issue, and carry at least one envelope (else there is no history to
+	// inherit and the run would silently behave like an initial run).
+	var parentRow dbpkg.PythiaForecastRun
+	continuation := false
+	if req.ParentRunID != "" {
+		parentUUID, err := util.ParseUUID(req.ParentRunID)
 		if err != nil {
-			return err
-		}
-		collected = append(collected, env)
-		return emitForecastFrameIssue(w, flusher, env)
-	}
-
-	for i := 1; i <= rounds; i++ {
-		if err := emit(i); err != nil {
+			writeError(w, http.StatusBadRequest, "parent_run_id is not a UUID")
 			return
 		}
-		if i < rounds {
-			select {
-			case <-r.Context().Done():
-				return
-			case <-time.After(forecastInterval):
-			}
-		}
-	}
-
-	if _, err := io.WriteString(w, ": end-of-rounds\n\n"); err != nil {
-		return
-	}
-	flusher.Flush()
-}
-
-// persistIssueForecastRun writes the completed (or partial, on early
-// exit) per-issue deliberation to pythia_forecast_run. Non-fatal: a
-// persistence failure logs and returns without affecting the SSE
-// response, which has already been streamed to the client.
-//
-// The write uses a detached context (context.WithoutCancel + a short
-// timeout) because the originating request context is frequently
-// already cancelled by the time the stream finishes — the client has
-// its frames and moved on — but the row must still land so the lab
-// view has a finished result to read.
-// persistIssueForecastRun writes the completed (or partial, on early
-// exit) per-issue deliberation to pythia_forecast_run. Non-fatal: a
-// persistence failure logs and returns without affecting the SSE
-// response, which has already been streamed to the client.
-//
-// 0.5.59 — every silent early-return now logs a WRN so a missing
-// row in pythia_forecast_run is diagnosable from the server log.
-// The pre-0.5.59 code returned without any signal when the handler
-// context was lost (chi middleware propagation gap), which produced
-// the "推演成功但 UI 无数据" symptom — see ship log.
-//
-// The write uses a detached context (context.WithoutCancel + a short
-// timeout) because the originating request context is frequently
-// already cancelled by the time the stream finishes — the client has
-// its frames and moved on — but the row must still land so the lab
-// view has a finished result to read.
-func persistIssueForecastRun(r *http.Request, ifc *issueForecastContext, envelopes []forecastEnvelope) {
-	issueIDStr := ""
-	wsIDStr := ""
-	if ifc != nil {
-		issueIDStr = ifc.IssueID
-		wsIDStr = ifc.WorkspaceID
-	}
-	if len(envelopes) == 0 {
-		slog.Warn("pythia forecast: persist skipped — zero envelopes",
-			"issue_id", issueIDStr, "workspace_id", wsIDStr,
-			"reason", "the stream finished with no envelopes collected (every round errored before emit)")
-		return
-	}
-	if ifc == nil {
-		slog.Warn("pythia forecast: persist skipped — nil issue context")
-		return
-	}
-	h, ok := forecastIssueHandlerFromCtx(r)
-	if !ok || h == nil {
-		// 0.5.59 — package-level fallback. The chi middleware sets
-		// the per-request ctx key, but the SSE defer path sometimes
-		// loses it (observed pre-0.5.59: every run produced zero DB
-		// rows even though the SSE stream emitted 10 frames). The
-		// ctx-miss WRN above still fires so the underlying chi
-		// issue stays visible in logs.
-		if fb := pythiaForecastHandler(); fb != nil {
-			h = fb
-		} else {
-			slog.Warn("pythia forecast: persist skipped — no handler in ctx AND no package-level fallback",
-				"issue_id", issueIDStr,
-				"hint", "AttachPythiaIssueForecastMiddleware was never called for this route")
+		row, err := h.Queries.GetPythiaForecastRun(r.Context(), parentUUID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "parent run not found")
 			return
 		}
+		if row.IssueID != issue.ID {
+			writeError(w, http.StatusBadRequest, "parent run belongs to a different issue")
+			return
+		}
+		var parentEnvelopes []forecastEnvelope
+		if err := json.Unmarshal(row.Envelopes, &parentEnvelopes); err != nil || len(parentEnvelopes) == 0 {
+			writeError(w, http.StatusBadRequest, "parent run has no rounds to continue from")
+			return
+		}
+		parentRow = row
+		continuation = true
 	}
-	if h.Queries == nil {
-		slog.Warn("pythia forecast: persist skipped — handler.Queries is nil",
-			"issue_id", issueIDStr)
-		return
+
+	rounds := resolveIssueForecastRounds(req.Rounds, continuation,
+		req.Variables, ifc.Title, ifc.Body)
+
+	// Self-heal: a 'running' row untouched for >15 minutes belongs to a
+	// dead server goroutine. Sweep it so the runs list never accumulates
+	// phantom in-flight entries.
+	if _, err := h.Queries.AbandonStalePythiaForecastRuns(r.Context(), issue.ID); err != nil {
+		slog.Warn("pythia forecast: stale-run sweep failed", "issue_id", ifc.IssueID, "error", err)
 	}
-	issueUUID, err := util.ParseUUID(ifc.IssueID)
-	if err != nil {
-		slog.Warn("pythia forecast: persist skipped — issue UUID parse failed",
-			"issue_id_str", ifc.IssueID, "error", err)
-		return
+
+	// Create the row UPFRONT with status='running' (0.5.111). source is a
+	// placeholder until the first round lands and forecastRunSource can
+	// compute the real provenance. "synthetic" is the CHECK-conservative
+	// neutral value and matches the pre-landing wire default.
+	parentID := pgtypeZeroUUID()
+	if continuation {
+		parentID = parentRow.ID
 	}
-	wsUUID, err := util.ParseUUID(ifc.WorkspaceID)
-	if err != nil {
-		slog.Warn("pythia forecast: persist skipped — workspace UUID parse failed",
-			"workspace_id_str", ifc.WorkspaceID, "error", err)
-		return
-	}
-	payload, err := json.Marshal(envelopes)
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
-	defer cancel()
-	run, err := h.Queries.CreatePythiaForecastRun(ctx, dbpkg.CreatePythiaForecastRunParams{
-		WorkspaceID: wsUUID,
-		IssueID:     issueUUID,
-		Rounds:      int32(len(envelopes)),
-		Source:      forecastRunSource(envelopes),
-		Envelopes:   payload,
+	variables := req.Variables
+	runRow, err := h.Queries.CreatePythiaForecastRun(r.Context(), dbpkg.CreatePythiaForecastRunParams{
+		WorkspaceID: issue.WorkspaceID,
+		IssueID:     issue.ID,
+		Rounds:      0,
+		Source:      "synthetic",
+		Envelopes:   []byte("[]"),
+		ParentRunID: parentID,
+		RunKind:     pythiaRunKindLabel(continuation),
+		Variables:   variables,
+		Status:      "running",
 	})
 	if err != nil {
-		slog.Warn("pythia forecast: persist run failed",
-			"issue_id", ifc.IssueID,
-			"workspace_id", ifc.WorkspaceID,
-			"rounds", len(envelopes),
-			"source", forecastRunSource(envelopes),
-			"error", err)
+		writeError(w, http.StatusInternalServerError, "failed to create forecast run: "+err.Error())
 		return
 	}
-	slog.Info("pythia forecast: persist run OK",
-		"issue_id", ifc.IssueID,
-		"workspace_id", ifc.WorkspaceID,
-		"rounds", len(envelopes),
-		"source", forecastRunSource(envelopes))
 
-	// 0.5.86 issue-delivery batch: the text report lands IN the issue
-	// as the pythia_runtime leader's comment (migration 282
-	// report_comment_id is the idempotency marker). Best-effort — a
-	// failed writeback must never fail the run. Auxiliary/trace labs
-	// never reach this path (InteractionModelAssignee contract).
-	wbCtx, wbCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 6*time.Second)
-	defer wbCancel()
-	content := pythiaIssueReportContent(ifc, envelopes, forecastRunSource(envelopes))
-	if commentID := postLabRunReportComment(wbCtx, h, issueUUID, wsUUID, "pythia_runtime", content); commentID.Valid {
-		if _, err := h.Queries.SetPythiaForecastRunReportComment(wbCtx, dbpkg.SetPythiaForecastRunReportCommentParams{
-			ID:              run.ID,
-			ReportCommentID: commentID,
-		}); err != nil {
-			slog.Warn("pythia forecast: report_comment_id update failed",
-				"run_id", util.UUIDToString(run.ID), "error", err)
+	startPythiaForecastJob(h, pythiaForecastJob{
+		RunID:     util.UUIDToString(runRow.ID),
+		RunUUID:   runRow.ID,
+		IssueID:   ifc.IssueID,
+		Workspace: ifc.WorkspaceID,
+		RunKind:   pythiaRunKindLabel(continuation),
+		Ifc:       ifc,
+		Rounds:    rounds,
+		History:   historyFromEnvelopes(parentEnvelopesOf(parentRow, continuation)),
+		Variables: variables,
+		Seed:      time.Now().UnixNano(),
+	})
+
+	writeJSON(w, http.StatusOK, issueForecastStartResponse{
+		RunID:   util.UUIDToString(runRow.ID),
+		Rounds:  rounds,
+		Status:  "running",
+		RunKind: pythiaRunKindLabel(continuation),
+	})
+}
+
+// pgtypeZeroUUID is the NULL parent_run_id value.
+func pgtypeZeroUUID() pgtype.UUID { return pgtype.UUID{} }
+
+// pythiaRunKindLabel maps the continuation flag onto the migration 290
+// CHECK vocabulary.
+func pythiaRunKindLabel(continuation bool) string {
+	if continuation {
+		return "continuation"
+	}
+	return "initial"
+}
+
+// parentEnvelopesOf decodes the parent row's envelopes (already validated
+// non-empty in pythiaIssueForecast; safe to return nil here on re-entry).
+func parentEnvelopesOf(row dbpkg.PythiaForecastRun, continuation bool) []forecastEnvelope {
+	if !continuation {
+		return nil
+	}
+	var envelopes []forecastEnvelope
+	_ = json.Unmarshal(row.Envelopes, &envelopes)
+	return envelopes
+}
+
+// issueRoundOpts carries everything a round needs beyond the issue
+// context — the continuation history, the injected variables, and the
+// total round count (so prompts can say "round N of M").
+type issueRoundOpts struct {
+	history    []forecastHistoryRound
+	variables  string
+	totalRounds int
+}
+
+// issueRoundSource produces one round envelope for the run.
+type issueRoundSource func(
+	ctx context.Context,
+	seed int64,
+	ifc *issueForecastContext,
+	round int,
+	opts issueRoundOpts,
+) (forecastEnvelope, error)
+
+// oracleLoopbackURL reads the pythia_oracle loopback URL from the
+// desktop-registered upstream registry, or "" when the engine is down.
+func oracleLoopbackURL() string {
+	experimentalLoopback.RLock()
+	reg := experimentalLoopback.registry
+	experimentalLoopback.RUnlock()
+	if reg == nil {
+		return ""
+	}
+	return reg.LoopbackURL("pythia_oracle")
+}
+
+// issueRoundSourceFor routes between the live oracle (when the
+// pythia_oracle subprocess has registered its loopback URL) and the
+// in-process synthetic generator. Mirrors the old sourceForForecast
+// contract: an oracle transport failure falls back to the synthetic
+// envelope RELABELLED synthetic_oracle_failover so the UI never mistakes
+// a mock for a live model answer (0.3.45.2 P1#5).
+func issueRoundSourceFor(ifc *issueForecastContext) issueRoundSource {
+	url := oracleLoopbackURL()
+	if url == "" {
+		return syntheticIssueForecast
+	}
+	return func(ctx context.Context, seed int64, ifc *issueForecastContext, round int, opts issueRoundOpts) (forecastEnvelope, error) {
+		env, err := queryOracleIssue(ctx, url, ifc, seed, round, opts)
+		if err != nil {
+			env, _ = syntheticIssueForecast(ctx, seed, ifc, round, opts)
+			env.LabSource = "synthetic_oracle_failover"
+			return env, nil
 		}
+		return env, nil
 	}
 }
 
-// pythiaIssueReportContent renders the issue-first text report from the
-// run's envelopes. Chinese-first (the workspace owner reads zh); the
-// provenance line keeps the honesty law — synthetic / failover / mixed
-// runs are labeled as such instead of passing as engine output.
-func pythiaIssueReportContent(ifc *issueForecastContext, envelopes []forecastEnvelope, source string) string {
+// syntheticIssueForecast is the in-process fallback. The envelope's
+// `scenario` field is derived from the issue title + body so the output
+// reads as a coherent (if synthetic) reflection of what a live model call
+// would have answered. Round index widens the probability band slightly to
+// telegraph "this is round N".
+func syntheticIssueForecast(
+	_ context.Context,
+	_ int64,
+	ifc *issueForecastContext,
+	round int,
+	_ issueRoundOpts,
+) (forecastEnvelope, error) {
+	return forecastEnvelope{
+		ID:        fmt.Sprintf("p_issue_%d_r%d", forecastSeq.Add(1), round),
+		IssueID:   ifc.IssueID,
+		Scenario:  ifc.Title,
+		Narrative: scenarioContextFor(ifc),
+		// Clamp at 0.97: the band-widening formula crosses 1.0 at round ≥ 9
+		// (0.42 + 9*0.07 = 1.05), which the renderer then displays as
+		// "105%" — an impossible probability that screams fake data even
+		// to readers who missed the source note. (0.5.103)
+		Probability:     math.Min(0.97, 0.42+float64(round)*0.07),
+		Confidence:      0.55,
+		Horizon:         "week",
+		Persona:         "strategist",
+		LabSource:       "synthetic",
+		ScenarioContext: scenarioContextFor(ifc),
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
+// queryOracleIssue posts a /forecast/issue call against the running
+// pythia_oracle subprocess. 0.5.111: the payload carries the continuation
+// history, the injected variables, and the full-council flag; the response
+// may carry base_probability + the council vote sheet, which ride on the
+// envelope for the panel's council view.
+func queryOracleIssue(
+	ctx context.Context,
+	baseURL string,
+	ifc *issueForecastContext,
+	seed int64,
+	round int,
+	opts issueRoundOpts,
+) (forecastEnvelope, error) {
+	payload, err := json.Marshal(map[string]any{
+		"question":         ifc.Title,
+		"issue_id":         ifc.IssueID,
+		"issue_number":     ifc.IssueNumber,
+		"scenario_context": scenarioContextFor(ifc),
+		"history":          opts.history,
+		"variables":        opts.variables,
+		"council":          true,
+		"total_rounds":     opts.totalRounds,
+		"horizon":          "week",
+		"persona":          "strategist",
+		"round":            round,
+		"seed":             seed,
+	})
+	if err != nil {
+		return forecastEnvelope{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(baseURL, "/")+"/forecast/issue", strings.NewReader(string(payload)))
+	if err != nil {
+		return forecastEnvelope{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Multica-Embedded", "1")
+	// One real round now costs an oracle pass PLUS a 4-persona council
+	// (5 LLM calls; personas run with bounded concurrency). 180s matches
+	// the engine's own httpx budget per call and keeps a hung engine from
+	// pinning the run forever — the runner's own ctx still wins.
+	cli := &http.Client{Timeout: 180 * time.Second}
+	resp, err := cli.Do(req)
+	if err != nil {
+		return forecastEnvelope{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return forecastEnvelope{}, fmt.Errorf("oracle http %d", resp.StatusCode)
+	}
+	var raw struct {
+		Scenario    string  `json:"scenario"`
+		Narrative   string  `json:"narrative"`
+		Probability float64 `json:"probability"`
+		// BaseProbability is the oracle's SOLO estimate; the headline
+		// probability is the council consensus when a council landed.
+		BaseProbability *float64       `json:"base_probability"`
+		Confidence      float64        `json:"confidence"`
+		Horizon         string         `json:"horizon"`
+		Persona         string         `json:"persona"`
+		Round           int            `json:"round"`
+		Synthetic       bool           `json:"synthetic"`
+		Council         *pythiaCouncil `json:"council"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return forecastEnvelope{}, err
+	}
+	if raw.Probability == 0 && raw.Confidence == 0 && raw.Scenario == "" {
+		return forecastEnvelope{}, fmt.Errorf("oracle empty body")
+	}
+	if raw.Confidence == 0 {
+		raw.Confidence = 0.5
+	}
+	horizon := raw.Horizon
+	if horizon == "" {
+		horizon = "week"
+	}
+	persona := raw.Persona
+	if persona == "" {
+		persona = "strategist"
+	}
+	labSource := "oracle"
+	if raw.Synthetic {
+		// Engine-reported fallback relabels to the failover provenance so
+		// the report comment's 数据来源 note and the renderer's "模拟数据"
+		// badge stay truthful. Transport-level failures get the same label
+		// from issueRoundSourceFor's error path.
+		labSource = "synthetic_oracle_failover"
+	}
+	return forecastEnvelope{
+		ID:              fmt.Sprintf("p_issue_%d-ora_r%d", forecastSeq.Add(1), round),
+		IssueID:         ifc.IssueID,
+		Scenario:        raw.Scenario,
+		Narrative:       raw.Narrative,
+		Probability:     raw.Probability,
+		BaseProbability: raw.BaseProbability,
+		Council:         raw.Council,
+		Confidence:      raw.Confidence,
+		Horizon:         horizon,
+		Persona:         persona,
+		LabSource:       labSource,
+		ScenarioContext: scenarioContextFor(ifc),
+		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
+// queryOracleIssueReport asks the engine to synthesize the conclusion
+// report for a completed run (one LLM pass over all rounds). Returns
+// ("", true) when the engine is unreachable or the synthesis fails — the
+// caller falls back to the mechanical summary and keeps the honesty label.
+func queryOracleIssueReport(
+	ctx context.Context,
+	baseURL string,
+	ifc *issueForecastContext,
+	envelopes []forecastEnvelope,
+	variables string,
+) (string, bool) {
+	if baseURL == "" || len(envelopes) == 0 {
+		return "", true
+	}
+	rounds := make([]map[string]any, 0, len(envelopes))
+	for i, e := range envelopes {
+		rounds = append(rounds, map[string]any{
+			"round":       i + 1,
+			"scenario":    e.Scenario,
+			"narrative":   truncateReportRunes(e.Narrative, 700),
+			"probability": e.Probability,
+			"confidence":  e.Confidence,
+		})
+	}
+	payload, err := json.Marshal(map[string]any{
+		"question":         ifc.Title,
+		"scenario_context": scenarioContextFor(ifc),
+		"variables":        variables,
+		"rounds":           rounds,
+	})
+	if err != nil {
+		return "", true
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(baseURL, "/")+"/forecast/issue/report", strings.NewReader(string(payload)))
+	if err != nil {
+		return "", true
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Multica-Embedded", "1")
+	cli := &http.Client{Timeout: 180 * time.Second}
+	resp, err := cli.Do(req)
+	if err != nil {
+		return "", true
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", true
+	}
+	var raw struct {
+		Report    string `json:"report"`
+		Synthetic bool   `json:"synthetic"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return "", true
+	}
+	if raw.Synthetic || strings.TrimSpace(raw.Report) == "" {
+		return "", true
+	}
+	return raw.Report, false
+}
+
+// pythiaIssueReportContent renders the issue-first comment for a finished
+// run. 0.5.111: when the engine synthesized a conclusion report it IS the
+// comment body (the SocialSim "第一个文字报告" contract); the mechanical
+// per-round digest is the fallback. Continuation runs echo the injected
+// variables so the issue timeline shows what changed. The provenance line
+// keeps the honesty law — synthetic / failover / mixed runs are labeled as
+// such instead of passing as engine output.
+func pythiaIssueReportContent(
+	ifc *issueForecastContext,
+	envelopes []forecastEnvelope,
+	source string,
+	runKind string,
+	variables string,
+	report string,
+) string {
 	title := ""
 	if ifc != nil {
 		title = ifc.Title
@@ -420,34 +682,45 @@ func pythiaIssueReportContent(ifc *issueForecastContext, envelopes []forecastEnv
 	if title != "" {
 		b.WriteString(" ·《" + title + "》")
 	}
+	if runKind == "continuation" {
+		b.WriteString("（续推）")
+	}
 	b.WriteString("\n\n")
-	b.WriteString("轮数：" + strconv.Itoa(len(envelopes)) + " · 来源：" + pythiaSourceLabelZH(source) + "\n")
-	for i, e := range envelopes {
-		if i >= 10 {
-			b.WriteString("\n（仅展示前 10 轮，完整结果见实验室面板）\n")
-			break
-		}
-		b.WriteString("\n**" + strconv.Itoa(i+1) + ". " + e.Scenario + "**")
-		details := ""
-		if e.Persona != "" {
-			details += "视角 " + e.Persona
-		}
-		if e.Horizon != "" {
-			if details != "" {
-				details += " · "
-			}
-			details += "时间尺度 " + e.Horizon
-		}
-		if details != "" {
-			b.WriteString("（" + details + "）")
-		}
+	if variables != "" {
+		b.WriteString("**注入新变量：**" + truncateReportRunes(variables, 300) + "\n\n")
+	}
+	if trimmed := strings.TrimSpace(report); trimmed != "" {
+		b.WriteString(trimmed)
 		b.WriteString("\n")
-		b.WriteString("概率 " + strconv.FormatFloat(e.Probability*100, 'f', 0, 64) + "% · 置信度 " + strconv.FormatFloat(e.Confidence*100, 'f', 0, 64) + "%\n")
-		if n := truncateReportRunes(e.Narrative, 140); n != "" {
-			b.WriteString(n + "\n")
+	} else {
+		b.WriteString("轮数：" + strconv.Itoa(len(envelopes)) + " · 来源：" + pythiaSourceLabelZH(source) + "\n")
+		for i, e := range envelopes {
+			if i >= 10 {
+				b.WriteString("\n（仅展示前 10 轮，完整结果见实验室面板）\n")
+				break
+			}
+			b.WriteString("\n**" + strconv.Itoa(i+1) + ". " + e.Scenario + "**")
+			details := ""
+			if e.Persona != "" {
+				details += "视角 " + e.Persona
+			}
+			if e.Horizon != "" {
+				if details != "" {
+					details += " · "
+				}
+				details += "时间尺度 " + e.Horizon
+			}
+			if details != "" {
+				b.WriteString("（" + details + "）")
+			}
+			b.WriteString("\n")
+			b.WriteString("概率 " + strconv.FormatFloat(e.Probability*100, 'f', 0, 64) + "% · 置信度 " + strconv.FormatFloat(e.Confidence*100, 'f', 0, 64) + "%\n")
+			if n := truncateReportRunes(e.Narrative, 140); n != "" {
+				b.WriteString(n + "\n")
+			}
 		}
 	}
-	b.WriteString("\n数据来源：" + pythiaSourceNoteZH(source) + "完整推演（世界视图 / 校准记录 / 对话推演）见实验室「Pythia 多视角预测」面板。")
+	b.WriteString("\n数据来源：" + pythiaSourceNoteZH(source) + "完整推演（实时过程 / 逐轮 council 票据 / 回放 / 追问）见实验室「Pythia 多视角预测」面板。")
 	return b.String()
 }
 
@@ -521,12 +794,12 @@ func forecastRunSource(envelopes []forecastEnvelope) string {
 // pythiaIssueForecastRuns serves
 // GET /api/experimental/pythia-oracle/forecast/issue/runs?issue_id=<id>&limit=N.
 // Returns persisted deliberations for the bound issue, newest first.
-// The issue is resolved through loadIssueForUser so workspace-membership
-// scope stays identical to the POST route — a foreign-workspace issue
-// is a 404, never a leak.
+// 0.5.111: each summary now carries the continuation lineage (parent_run_id,
+// run_kind, variables), the live status, and the synthesized report so the
+// panel tabs read without a second fetch.
 func pythiaIssueForecastRuns(w http.ResponseWriter, r *http.Request) {
 	h, ok := forecastIssueHandlerFromCtx(r)
-	if !ok {
+	if !ok || h == nil {
 		writeError(w, http.StatusInternalServerError, "handler unavailable")
 		return
 	}
@@ -554,21 +827,35 @@ func pythiaIssueForecastRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type runSummary struct {
-		ID        string          `json:"id"`
-		Rounds    int32           `json:"rounds"`
-		Source    string          `json:"source"`
-		CreatedAt string          `json:"created_at"`
-		Envelopes json.RawMessage `json:"envelopes"`
+		ID          string          `json:"id"`
+		Rounds      int32           `json:"rounds"`
+		Source      string          `json:"source"`
+		CreatedAt   string          `json:"created_at"`
+		Envelopes   json.RawMessage `json:"envelopes"`
+		ParentRunID *string         `json:"parent_run_id"`
+		RunKind     string          `json:"run_kind"`
+		Variables   string          `json:"variables"`
+		Status      string          `json:"status"`
+		Report      string          `json:"report"`
 	}
 	out := make([]runSummary, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, runSummary{
+		summary := runSummary{
 			ID:        util.UUIDToString(row.ID),
 			Rounds:    row.Rounds,
 			Source:    row.Source,
 			CreatedAt: row.CreatedAt.Time.Format(time.RFC3339),
 			Envelopes: json.RawMessage(row.Envelopes),
-		})
+			RunKind:   row.RunKind,
+			Variables: row.Variables,
+			Status:    row.Status,
+			Report:    row.Report,
+		}
+		if row.ParentRunID.Valid {
+			id := util.UUIDToString(row.ParentRunID)
+			summary.ParentRunID = &id
+		}
+		out = append(out, summary)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -620,7 +907,7 @@ func buildIssueForecastContext(issue dbpkg.Issue) *issueForecastContext {
 //
 // When the workspace prefix lookup fails the function falls back to
 // the literal UUID — losing visual context is better than failing
-// the SSE stream.
+// the stream.
 func identifierFor(issue dbpkg.Issue) string {
 	idStr := util.UUIDToString(issue.ID)
 	if idStr == "" {
@@ -644,184 +931,6 @@ func issueForecastContextLabSource(ifc *issueForecastContext) string {
 	return "synthetic"
 }
 
-// forecast source function shape for the per-issue endpoint.
-type issueForecastSource func(
-	ctx context.Context,
-	seed int64,
-	ifc *issueForecastContext,
-	round int,
-) (forecastEnvelope, error)
-
-// sourceForForecast routes between the live oracle (when the
-// pythia_oracle subprocess has registered its loopback URL) and the
-// in-process synthetic generator. Mirrors forecastSourceFor in
-// claude_lab_forecast.go so the SSE envelope shape is identical
-// across the two endpoints.
-func sourceForForecast(_ string, ifc *issueForecastContext) issueForecastSource {
-	experimentalLoopback.RLock()
-	reg := experimentalLoopback.registry
-	experimentalLoopback.RUnlock()
-	url := ""
-	if reg != nil {
-		url = reg.LoopbackURL("pythia_oracle")
-	}
-	if url == "" {
-		return syntheticIssueForecast
-	}
-	return func(ctx context.Context, seed int64, ifc *issueForecastContext, round int) (forecastEnvelope, error) {
-		env, err := queryOracleIssue(ctx, url, ifc, seed, round)
-		if err != nil {
-			// 0.3.45.2 bug fix (P1#5): oracle failure fell back to the
-			// synthetic envelope but did NOT relabel it, so the UI
-			// showed the same data shape and the user could not tell
-			// whether they were reading a live model answer or a
-			// mock. Force the LabSource to "synthetic_oracle_failover"
-			// so the renderer can tag it "此为 mock 数据" / "oracle
-			// failed, used local fallback".
-			env, _ = syntheticIssueForecast(ctx, seed, ifc, round)
-			env.LabSource = "synthetic_oracle_failover"
-			return env, nil
-		}
-		return env, nil
-	}
-}
-
-// syntheticIssueForecast is the in-process fallback. The envelope's
-// `scenario` field is derived from the issue title + body so the
-// output reads as a coherent (if synthetic) reflection of what a
-// live model call would have answered. Round index widens the
-// probability band slightly to telegraph "this is round N".
-func syntheticIssueForecast(
-	_ context.Context,
-	_ int64,
-	ifc *issueForecastContext,
-	round int,
-) (forecastEnvelope, error) {
-	return forecastEnvelope{
-		ID:        fmt.Sprintf("p_issue_%d_r%d", forecastSeq.Add(1), round),
-		IssueID:   ifc.IssueID,
-		Scenario:  ifc.Title,
-		Narrative: scenarioContextFor(ifc),
-		// Clamp at 0.97: the band-widening formula crosses 1.0 at round ≥ 9
-		// (0.42 + 9*0.07 = 1.05), which the renderer then displays as
-		// "105%" — an impossible probability that screams fake data even
-		// to readers who missed the source note. (0.5.103)
-		Probability:     math.Min(0.97, 0.42+float64(round)*0.07),
-		Confidence:      0.55,
-		Horizon:         "week",
-		Persona:         "strategist",
-		LabSource:       "synthetic",
-		ScenarioContext: scenarioContextFor(ifc),
-		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
-	}, nil
-}
-
-// queryOracleIssue posts a /forecast/issue call against the running
-// pythia_oracle subprocess with the bound issue's title as
-// `question`. Mirrors queryOracle in claude_lab_forecast.go but
-// uses the issue context to derive the question + lab_source, and
-// hits the engine's issue-bound endpoint instead of the global
-// /predict (which only kicks off the prediction loop asynchronously
-// — it returns {"status": "started"} rather than an envelope).
-func queryOracleIssue(
-	ctx context.Context,
-	baseURL string,
-	ifc *issueForecastContext,
-	seed int64,
-	round int,
-) (forecastEnvelope, error) {
-	payload, err := json.Marshal(map[string]any{
-		"question":         ifc.Title,
-		"issue_id":         ifc.IssueID,
-		"issue_number":     ifc.IssueNumber,
-		"scenario_context": scenarioContextFor(ifc),
-		"horizon":          "week",
-		"persona":          "strategist",
-		"round":            round,
-		"seed":             seed,
-	})
-	if err != nil {
-		return forecastEnvelope{}, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		strings.TrimRight(baseURL, "/")+"/forecast/issue", bytes.NewReader(payload))
-	if err != nil {
-		return forecastEnvelope{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Multica-Embedded", "1")
-	// 0.5.104: 4s assumed the engine answered each round near-instantly
-	// (its fast-fail placeholder path). With the engine bridge actually
-	// working — env fix + PAT acceptance — one real LLM round takes
-	// 25–60s through /api/runtime/llm-call (measured live). 4s cut every
-	// genuine round off and degraded the run to failover. 120s leaves
-	// headroom under the engine's own 180s httpx budget while keeping a
-	// hung engine from pinning the SSE round for the full horizon.
-	cli := &http.Client{Timeout: 120 * time.Second}
-	resp, err := cli.Do(req)
-	if err != nil {
-		return forecastEnvelope{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return forecastEnvelope{}, fmt.Errorf("oracle http %d", resp.StatusCode)
-	}
-	var raw struct {
-		Scenario    string  `json:"scenario"`
-		Narrative   string  `json:"narrative"`
-		Probability float64 `json:"probability"`
-		Confidence  float64 `json:"confidence"`
-		Horizon     string  `json:"horizon"`
-		Persona     string  `json:"persona"`
-		Round       int     `json:"round"`
-		// Synthetic is the engine's own honesty flag (0.5.104): true when
-		// the round's narrative came from the engine's internal fallback
-		// (LLM bridge call failed or the model JSON was unparseable)
-		// rather than a genuine model answer. Pre-0.5.104 a 200 carrying
-		// placeholder text was indistinguishable from a real deduction,
-		// so runs reported "真实引擎推演" while every round was filler.
-		Synthetic bool `json:"synthetic"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return forecastEnvelope{}, err
-	}
-	if raw.Probability == 0 && raw.Confidence == 0 && raw.Scenario == "" {
-		return forecastEnvelope{}, fmt.Errorf("oracle empty body")
-	}
-	if raw.Confidence == 0 {
-		raw.Confidence = 0.5
-	}
-	horizon := raw.Horizon
-	if horizon == "" {
-		horizon = "week"
-	}
-	persona := raw.Persona
-	if persona == "" {
-		persona = "strategist"
-	}
-	labSource := "oracle"
-	if raw.Synthetic {
-		// Engine-reported fallback relabels to the failover provenance so
-		// the report comment's 数据来源 note and the renderer's "模拟数据"
-		// badge stay truthful. Transport-level failures get the same label
-		// from sourceForForecast's error path below.
-		labSource = "synthetic_oracle_failover"
-	}
-	return forecastEnvelope{
-		ID:              fmt.Sprintf("p_issue_%d-ora_r%d", forecastSeq.Add(1), round),
-		IssueID:         ifc.IssueID,
-		Scenario:        raw.Scenario,
-		Narrative:       raw.Narrative,
-		Probability:     raw.Probability,
-		Confidence:      raw.Confidence,
-		Horizon:         horizon,
-		Persona:         persona,
-		LabSource:       labSource,
-		ScenarioContext: scenarioContextFor(ifc),
-		CreatedAt:       time.Now().UTC().Format(time.RFC3339),
-	}, nil
-}
-
 // scenarioContextFor produces the user-visible "scenario context"
 // field that flows into both the synthetic and the oracle envelope.
 // Falls back to the title when the body is empty so the field is
@@ -834,26 +943,6 @@ func scenarioContextFor(ifc *issueForecastContext) string {
 		return ifc.Title
 	}
 	return ifc.Title + "\n\n" + ifc.Body
-}
-
-// emitForecastFrameIssue writes one `prediction` envelope onto the
-// SSE stream. Identical to emitForecastFrame in claude_lab_forecast.go
-// except the prefix is "prediction" so downstream consumers can use
-// the same event name across both endpoints.
-func emitForecastFrameIssue(
-	w http.ResponseWriter,
-	flusher http.Flusher,
-	env forecastEnvelope,
-) error {
-	payload, err := json.Marshal(env)
-	if err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(w, "event: prediction\ndata: %s\n\n", payload); err != nil {
-		return err
-	}
-	flusher.Flush()
-	return nil
 }
 
 // MountPythiaIssueForecastMiddleware attaches the *Handler to incoming
@@ -874,17 +963,16 @@ func MountPythiaIssueForecastMiddleware(h *Handler) func(http.Handler) http.Hand
 // so the wiring is one line at the call site.
 func AttachPythiaIssueForecastMiddleware(r chi.Router, h *Handler) {
 	// 0.5.59 — stash the handler in a package-level fallback so the
-	// SSE defer in persistIssueForecastRun can still recover it even
-	// if chi drops the context key along the r.WithContext chain
-	// (observed pre-0.5.59: ctx lookup returned false → silent return
-	// → DB never received the row → "推演无反馈"). Diagnostic WRN
-	// above still fires so the real chi bug, if any, is visible.
+	// runner goroutine can still reach it even if the request context
+	// is gone by the time persistence runs (observed pre-0.5.59: ctx
+	// lookup returned false → silent return → DB never received the
+	// row → "推演无反馈").
 	setPythiaForecastHandlerFallback(h)
 	r.Use(MountPythiaIssueForecastMiddleware(h))
 }
 
 // setPythiaForecastHandlerFallback stores the *Handler that
-// persistIssueForecastRun falls back to when the chi request context
+// the runner goroutine falls back to when the chi request context
 // is missing forecastIssueHandlerCtxKey. Exposed (rather than writing
 // the package var directly) so tests don't have to instantiate a
 // chi.Router to exercise the stash path.
@@ -896,10 +984,10 @@ func setPythiaForecastHandlerFallback(h *Handler) {
 
 // pythiaForecastHandlerFallback is the package-level mirror of the
 // per-request middleware-attached *Handler. It exists ONLY as a
-// safety net for the SSE defer path. Populated by
+// safety net for the runner's persistence path. Populated by
 // AttachPythiaIssueForecastMiddleware at router boot; never mutated
-// afterwards. Protected by a Mutex so concurrent reads (during
-// SSE defers) see a stable value.
+// afterwards. Protected by a Mutex so concurrent reads see a stable
+// value.
 var (
 	pythiaForecastHandlerMu       sync.RWMutex
 	pythiaForecastHandlerFallback *Handler

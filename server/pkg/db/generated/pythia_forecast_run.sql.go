@@ -11,14 +11,37 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const abandonStalePythiaForecastRuns = `-- name: AbandonStalePythiaForecastRuns :execrows
+UPDATE pythia_forecast_run
+SET status = 'aborted',
+    updated_at = now()
+WHERE issue_id = $1
+  AND status = 'running'
+  AND updated_at < now() - interval '15 minutes'
+`
+
+// Self-heal sweep: a 'running' row untouched for >15 minutes belongs to a
+// goroutine that died with its server (crash / restart mid-run). Mark it
+// aborted when a new run starts on the same issue so the runs list never
+// shows a phantom "running" entry.
+func (q *Queries) AbandonStalePythiaForecastRuns(ctx context.Context, issueID pgtype.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, abandonStalePythiaForecastRuns, issueID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const createPythiaForecastRun = `-- name: CreatePythiaForecastRun :one
 
 INSERT INTO pythia_forecast_run (
-    workspace_id, issue_id, rounds, source, envelopes
+    workspace_id, issue_id, rounds, source, envelopes,
+    parent_run_id, run_kind, variables, status
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4, $5,
+    $6, $7, $8, $9
 )
-RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id
+RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id, parent_run_id, run_kind, variables, status, report, updated_at
 `
 
 type CreatePythiaForecastRunParams struct {
@@ -27,12 +50,20 @@ type CreatePythiaForecastRunParams struct {
 	Rounds      int32       `json:"rounds"`
 	Source      string      `json:"source"`
 	Envelopes   []byte      `json:"envelopes"`
+	ParentRunID pgtype.UUID `json:"parent_run_id"`
+	RunKind     string      `json:"run_kind"`
+	Variables   string      `json:"variables"`
+	Status      string      `json:"status"`
 }
 
-// 0.3.55: Pythia per-issue forecast persistence. Backs
-// POST /api/experimental/pythia-oracle/forecast/issue persisting each
-// completed deliberation, and the report surface's per-issue history
-// list. Mirrors the agent_self_opt_run query shapes.
+// Pythia per-issue forecast persistence (0.3.55) + continuation contract
+// (0.5.111, migration 290). Backs POST
+// /api/experimental/pythia-oracle/forecast/issue (now async: the row is
+// created UPFRONT with status='running' and updated per round, so the
+// panel stream can replay + live-tail), the per-issue history list, and
+// the continuation lineage (parent_run_id).
+//
+// Mirrors the agent_self_opt_run query shapes.
 func (q *Queries) CreatePythiaForecastRun(ctx context.Context, arg CreatePythiaForecastRunParams) (PythiaForecastRun, error) {
 	row := q.db.QueryRow(ctx, createPythiaForecastRun,
 		arg.WorkspaceID,
@@ -40,6 +71,10 @@ func (q *Queries) CreatePythiaForecastRun(ctx context.Context, arg CreatePythiaF
 		arg.Rounds,
 		arg.Source,
 		arg.Envelopes,
+		arg.ParentRunID,
+		arg.RunKind,
+		arg.Variables,
+		arg.Status,
 	)
 	var i PythiaForecastRun
 	err := row.Scan(
@@ -51,12 +86,57 @@ func (q *Queries) CreatePythiaForecastRun(ctx context.Context, arg CreatePythiaF
 		&i.Envelopes,
 		&i.CreatedAt,
 		&i.ReportCommentID,
+		&i.ParentRunID,
+		&i.RunKind,
+		&i.Variables,
+		&i.Status,
+		&i.Report,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const finalizePythiaForecastRun = `-- name: FinalizePythiaForecastRun :one
+UPDATE pythia_forecast_run
+SET report = $2,
+    status = $3,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id, parent_run_id, run_kind, variables, status, report, updated_at
+`
+
+type FinalizePythiaForecastRunParams struct {
+	ID     pgtype.UUID `json:"id"`
+	Report string      `json:"report"`
+	Status string      `json:"status"`
+}
+
+// Terminal write (0.5.111): stores the synthesized conclusion report and
+// flips the row to its terminal status (completed | failed).
+func (q *Queries) FinalizePythiaForecastRun(ctx context.Context, arg FinalizePythiaForecastRunParams) (PythiaForecastRun, error) {
+	row := q.db.QueryRow(ctx, finalizePythiaForecastRun, arg.ID, arg.Report, arg.Status)
+	var i PythiaForecastRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.IssueID,
+		&i.Rounds,
+		&i.Source,
+		&i.Envelopes,
+		&i.CreatedAt,
+		&i.ReportCommentID,
+		&i.ParentRunID,
+		&i.RunKind,
+		&i.Variables,
+		&i.Status,
+		&i.Report,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const getPythiaForecastRun = `-- name: GetPythiaForecastRun :one
-SELECT id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id
+SELECT id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id, parent_run_id, run_kind, variables, status, report, updated_at
 FROM pythia_forecast_run
 WHERE id = $1
 `
@@ -73,12 +153,18 @@ func (q *Queries) GetPythiaForecastRun(ctx context.Context, id pgtype.UUID) (Pyt
 		&i.Envelopes,
 		&i.CreatedAt,
 		&i.ReportCommentID,
+		&i.ParentRunID,
+		&i.RunKind,
+		&i.Variables,
+		&i.Status,
+		&i.Report,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const listPythiaForecastRunsByIssue = `-- name: ListPythiaForecastRunsByIssue :many
-SELECT id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id
+SELECT id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id, parent_run_id, run_kind, variables, status, report, updated_at
 FROM pythia_forecast_run
 WHERE issue_id = $1
 ORDER BY created_at DESC
@@ -108,6 +194,12 @@ func (q *Queries) ListPythiaForecastRunsByIssue(ctx context.Context, arg ListPyt
 			&i.Envelopes,
 			&i.CreatedAt,
 			&i.ReportCommentID,
+			&i.ParentRunID,
+			&i.RunKind,
+			&i.Variables,
+			&i.Status,
+			&i.Report,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -123,7 +215,7 @@ const setPythiaForecastRunReportComment = `-- name: SetPythiaForecastRunReportCo
 UPDATE pythia_forecast_run
 SET report_comment_id = COALESCE(report_comment_id, $2)
 WHERE id = $1
-RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id
+RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id, parent_run_id, run_kind, variables, status, report, updated_at
 `
 
 type SetPythiaForecastRunReportCommentParams struct {
@@ -148,6 +240,96 @@ func (q *Queries) SetPythiaForecastRunReportComment(ctx context.Context, arg Set
 		&i.Envelopes,
 		&i.CreatedAt,
 		&i.ReportCommentID,
+		&i.ParentRunID,
+		&i.RunKind,
+		&i.Variables,
+		&i.Status,
+		&i.Report,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const setPythiaForecastRunStatus = `-- name: SetPythiaForecastRunStatus :one
+UPDATE pythia_forecast_run
+SET status = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id, parent_run_id, run_kind, variables, status, report, updated_at
+`
+
+type SetPythiaForecastRunStatusParams struct {
+	ID     pgtype.UUID `json:"id"`
+	Status string      `json:"status"`
+}
+
+// Cancel / sweep write (0.5.111): flips the row to 'aborted' without
+// touching report content.
+func (q *Queries) SetPythiaForecastRunStatus(ctx context.Context, arg SetPythiaForecastRunStatusParams) (PythiaForecastRun, error) {
+	row := q.db.QueryRow(ctx, setPythiaForecastRunStatus, arg.ID, arg.Status)
+	var i PythiaForecastRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.IssueID,
+		&i.Rounds,
+		&i.Source,
+		&i.Envelopes,
+		&i.CreatedAt,
+		&i.ReportCommentID,
+		&i.ParentRunID,
+		&i.RunKind,
+		&i.Variables,
+		&i.Status,
+		&i.Report,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updatePythiaForecastRunProgress = `-- name: UpdatePythiaForecastRunProgress :one
+UPDATE pythia_forecast_run
+SET rounds = $2,
+    source = $3,
+    envelopes = $4,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, workspace_id, issue_id, rounds, source, envelopes, created_at, report_comment_id, parent_run_id, run_kind, variables, status, report, updated_at
+`
+
+type UpdatePythiaForecastRunProgressParams struct {
+	ID        pgtype.UUID `json:"id"`
+	Rounds    int32       `json:"rounds"`
+	Source    string      `json:"source"`
+	Envelopes []byte      `json:"envelopes"`
+}
+
+// Per-round progress write (0.5.111): called after EVERY landed round so a
+// mid-run crash / restart leaves the completed rounds readable (the SocialSim
+// "轮完成即时持久化" law — reconnect must not lose rounds).
+func (q *Queries) UpdatePythiaForecastRunProgress(ctx context.Context, arg UpdatePythiaForecastRunProgressParams) (PythiaForecastRun, error) {
+	row := q.db.QueryRow(ctx, updatePythiaForecastRunProgress,
+		arg.ID,
+		arg.Rounds,
+		arg.Source,
+		arg.Envelopes,
+	)
+	var i PythiaForecastRun
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.IssueID,
+		&i.Rounds,
+		&i.Source,
+		&i.Envelopes,
+		&i.CreatedAt,
+		&i.ReportCommentID,
+		&i.ParentRunID,
+		&i.RunKind,
+		&i.Variables,
+		&i.Status,
+		&i.Report,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
