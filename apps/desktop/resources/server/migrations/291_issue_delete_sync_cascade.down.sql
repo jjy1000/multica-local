@@ -1,0 +1,3 @@
+ALTER TABLE experimental_runtime_artifact DROP CONSTRAINT IF EXISTS fk_experimental_runtime_artifact_issue;
+ALTER TABLE experimental_claude_runtime_session DROP CONSTRAINT IF EXISTS fk_experimental_claude_runtime_session_issue;
+ALTER TABLE experimental_runtime_artifact DROP CONSTRAINT IF EXISTS fk_experimental_runtime_artifact_session;
