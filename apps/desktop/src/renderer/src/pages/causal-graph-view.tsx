@@ -21,7 +21,7 @@ import {
   CausalGraphCanvas,
   CAUSAL_NODE_TYPE_COLORS,
 } from "@multica/views/experimental/components";
-import { buildGraphDigest } from "@multica/views/experimental/components/causal-graph-digest";
+import { buildGraphDigest } from "@multica/views/experimental/components";
 import { AppLink } from "@multica/views/navigation";
 import type { CausalPositionOverride } from "@multica/views/experimental/components";
 

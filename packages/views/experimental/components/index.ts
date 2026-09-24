@@ -25,7 +25,7 @@ export {
 } from "./lab-attachment-sanitize";
 // 0.5.105 (audit H3): SwarmTopologyGraph / SwarmInterruptBar removed
 // with the swarm_topology runtime retirement.
-export { SemanticaModeBanner, type SemanticaMode } from "./semantica-mode-banner";
 export { CausalMinimap, CAUSAL_NODE_TYPE_COLORS } from "./causal-minimap";
 export type { CausalPositionOverride, CausalViewportTransform } from "./causal-minimap";
 export { CausalGraphCanvas } from "./causal-graph-canvas";
+export { buildGraphDigest } from "./causal-graph-digest";
