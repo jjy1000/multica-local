@@ -205,7 +205,7 @@ func TestQueryOracleIssueParsesCouncil(t *testing.T) {
 		IssueID: "00000000-0000-0000-0000-000000000001",
 		Title:   "模拟推演方案",
 	}, 42, 2, issueRoundOpts{
-		history:    []forecastHistoryRound{{Round: 1, Narrative: "第一轮", Probability: 0.5}},
+		history:     []forecastHistoryRound{{Round: 1, Narrative: "第一轮", Probability: 0.5}},
 		totalRounds: 3,
 	})
 	if err != nil {
@@ -721,4 +721,68 @@ func TestPythiaForecastHandlerFallbackConcurrencySpawnsReaders(t *testing.T) {
 
 	close(stop)
 	wg.Wait()
+}
+
+// 0.5.115 monitor workspace resolution: the monitor route lives on the
+// bare authed router (no workspace middleware) and api.rawRequest never
+// sends X-Workspace-ID, so the 0.5.113 header fallback matched nothing —
+// every renderer load 400'd. Pins the explicit workspace_id query-param
+// contract (GetClaudeLabContext pattern) plus the degraded fallbacks.
+func TestPythiaForecastMonitorWorkspaceResolution(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	const monitorPath = "/api/experimental/pythia-oracle/forecast/monitor"
+
+	t.Run("explicit workspace_id query param returns 200", func(t *testing.T) {
+		req := newForecastTestRequest("GET", monitorPath+"?limit=30&workspace_id="+testWorkspaceID, nil)
+		rec := httptest.NewRecorder()
+		pythiaForecastMonitor(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("query-param request: expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var runs []map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &runs); err != nil {
+			t.Fatalf("unmarshal monitor body: %v", err)
+		}
+	})
+
+	t.Run("no workspace anywhere is 400", func(t *testing.T) {
+		req := newForecastTestRequest("GET", monitorPath+"?limit=30", nil)
+		// newRequest stamps the shared fixture workspace header; strip it so
+		// this subtest really exercises the both-sources-empty rejection.
+		req.Header.Del("X-Workspace-ID")
+		req.Header.Del("X-Workspace-Slug")
+		rec := httptest.NewRecorder()
+		pythiaForecastMonitor(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("no-workspace request: expected 400, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if body := rec.Body.String(); !strings.Contains(body, "invalid workspace id") {
+			t.Fatalf("body %q should name the missing workspace id", body)
+		}
+	})
+
+	t.Run("non-uuid workspace_id is 400", func(t *testing.T) {
+		req := newForecastTestRequest("GET", monitorPath+"?workspace_id=not-a-uuid", nil)
+		rec := httptest.NewRecorder()
+		pythiaForecastMonitor(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("bad-uuid request: expected 400, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("X-Workspace-ID header alone still works as degraded fallback", func(t *testing.T) {
+		req := newForecastTestRequest("GET", monitorPath+"?limit=30", nil)
+		req.Header.Set("X-Workspace-ID", testWorkspaceID)
+		rec := httptest.NewRecorder()
+		pythiaForecastMonitor(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("header fallback: expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
 }

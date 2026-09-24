@@ -122,8 +122,11 @@ export function PythiaView({ issueId: _initialIssueId = null }: { issueId?: stri
   const runsQuery = useQuery({
     queryKey: ["pythia-monitor-runs", wsId],
     queryFn: async (): Promise<PythiaMonitorRun[]> => {
+      // rawRequest never sends X-Workspace-ID (only the slug header), and
+      // the monitor route carries no workspace middleware — pass the id
+      // explicitly (0.5.115; GetClaudeLabContext query-param contract).
       const r = await api.rawRequest(
-        "/api/experimental/pythia-oracle/forecast/monitor?limit=30",
+        `/api/experimental/pythia-oracle/forecast/monitor?limit=30&workspace_id=${encodeURIComponent(wsId)}`,
       );
       // 0.5.113: a 404 is the legitimate "flag off / no runs yet" signal — keep
       // returning [] so the monitor page renders the empty hint instead of an

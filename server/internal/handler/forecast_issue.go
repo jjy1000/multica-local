@@ -864,29 +864,39 @@ func pythiaIssueForecastRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 // pythiaForecastMonitor serves
-// GET /api/experimental/pythia-oracle/forecast/monitor?limit=N — the
-// workspace-wide run listing behind the lab monitor page (0.5.112).
+// GET /api/experimental/pythia-oracle/forecast/monitor?limit=N&workspace_id=<uuid>
+// — the workspace-wide run listing behind the lab monitor page (0.5.112).
 //
-// The /experimental/pythia surface lives inside the auth-only group (no
-// workspace middleware); `ctxWorkspaceID` is therefore empty for this
-// route even when the caller is fully signed in. The renderer carries
-// `X-Workspace-ID` (set by api.rawRequest when getCurrentWsId() is known),
-// so we fall back to that header before rejecting the request — and only
-// 400 if both sources are empty. This is a per-call safety net; the same
-// workspace resolution lives in the issue-scoped handlers through
-// loadIssueForUser (DB-driven).
+// This route is registered on the bare authed router (no workspace
+// middleware), so ctxWorkspaceID is always empty here. The renderer cannot
+// rescue that with a header: api.rawRequest sends X-Workspace-Slug, never
+// X-Workspace-ID (the auth middleware stamps that header only on mat_
+// task-token requests). The 0.5.113 "header fallback" therefore matched
+// nothing — every monitor load 400'd, invisible until 0.5.113 started
+// surfacing client errors. 0.5.115 fixes it the GetClaudeLabContext way:
+// explicit workspace_id query param, membership-checked, with ctx/header
+// kept as degraded fallbacks for non-renderer callers (CLI, task tokens).
 func pythiaForecastMonitor(w http.ResponseWriter, r *http.Request) {
 	h, ok := forecastIssueHandlerFromCtx(r)
 	if !ok || h == nil || h.Queries == nil {
 		writeError(w, http.StatusInternalServerError, "handler unavailable")
 		return
 	}
-	wsID := ctxWorkspaceID(r.Context())
+	wsID := r.URL.Query().Get("workspace_id")
+	if wsID == "" {
+		wsID = ctxWorkspaceID(r.Context())
+	}
 	if wsID == "" {
 		wsID = r.Header.Get("X-Workspace-ID")
 	}
 	wsUUID, ok := parseUUIDOrBadRequest(w, wsID, "workspace id")
 	if !ok {
+		return
+	}
+	// Membership gate mirrors GetClaudeLabContext: the workspace UUID in
+	// the query param is caller-supplied, so verify it before the stale
+	// sweep + listing touch the DB.
+	if _, ok := h.workspaceMember(w, r, wsUUID.String()); !ok {
 		return
 	}
 	limit := 30
