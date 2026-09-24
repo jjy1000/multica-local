@@ -8,9 +8,7 @@
 import { describe, it, expect } from "vitest";
 import {
   PYTHIA_IN_PROGRESS_WINDOW_MS,
-  TIMESFM_RECENT_RUN_WINDOW_MS,
   derivePythiaTriggerState,
-  isTimesfmRunRecent,
   pythiaTriggerKey,
   readPythiaTriggeredAt,
   markPythiaTriggered,
@@ -60,20 +58,3 @@ describe("derivePythiaTriggerState", () => {
   });
 });
 
-describe("isTimesfmRunRecent", () => {
-  it("is true inside the 2-minute recency window", () => {
-    const now = 1_000_000;
-    const iso = (ms: number) => new Date(ms).toISOString();
-    expect(isTimesfmRunRecent(iso(now - TIMESFM_RECENT_RUN_WINDOW_MS + 1), now)).toBe(true);
-    expect(isTimesfmRunRecent(iso(now - 1), now)).toBe(true);
-  });
-
-  it("is false outside the window, for garbage input, and for far-future timestamps", () => {
-    const now = 1_000_000;
-    const iso = (ms: number) => new Date(ms).toISOString();
-    expect(isTimesfmRunRecent(iso(now - TIMESFM_RECENT_RUN_WINDOW_MS - 1), now)).toBe(false);
-    expect(isTimesfmRunRecent("not-a-timestamp", now)).toBe(false);
-    expect(isTimesfmRunRecent(undefined, now)).toBe(false);
-    expect(isTimesfmRunRecent(iso(now + 10 * 60_000), now)).toBe(false);
-  });
-});

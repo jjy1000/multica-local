@@ -215,26 +215,7 @@ type SidebarRow struct {
 // one headless API.
 var Catalog = []Flag{
 	{
-		Key:        "chat_pin_ui",
-		DefaultVal: false,
-		Title: LocalizedString{
-			En: "Chat pin button",
-			Zh: "聊天置顶按钮",
-		},
-		Description: LocalizedString{
-			En: "Show the pin button in the chat session list. Pinned sessions stay at the top. Off by default — enable to try.",
-			Zh: "在聊天会话列表显示置顶按钮。置顶的会话会排在最上方。默认关闭,开启后即可试用。",
-		},
-		ManifestPath: "experiments/chat_pin_ui/manifest.json",
-		RuntimeKind:  "none",
-		// 0.5.60 (audit P2-6): chat_pin_ui is a pure UI toggle with no
-		// leader agent and no dispatch path — binding it to an issue is
-		// a dead lab_source that nothing ever reads. Hide it from the
-		// per-issue LabPicker like the other infrastructure flags.
-		HideFromIssueLabPicker: true,
-	},
-	{
-		Key:        "claude_science_lab",
+		Key: "claude_science_lab",
 		// 0.5.114: flipped false → true by user decision (mirrors the
 		// pythia_oracle flip). The runtime is inline/server-side, so
 		// default-on only needs the install payload — the desktop
@@ -290,9 +271,9 @@ var Catalog = []Flag{
 		// experimental_proxy.go via __experimental/upstream. Agents
 		// reach the API through the same Multica origin so the
 		// renderer can call /experimental/pythia/* same-origin.
-		RuntimeKind:                     "subprocess",
-		ProxyPrefix:                     "/experimental/pythia",
-		LoopbackService:                 "pythia_oracle",
+		RuntimeKind:     "subprocess",
+		ProxyPrefix:     "/experimental/pythia",
+		LoopbackService: "pythia_oracle",
 		// 0.5.86: flipped from true → false. The forecast run now
 		// writes its text report back to the issue as the
 		// pythia_runtime leader's comment (handler/forecast_issue.go,
@@ -315,101 +296,6 @@ var Catalog = []Flag{
 		// this gate). Leader-rewrite still applies so the assignee stays
 		// = the pythia lab agent and IssueLabsSection keeps rendering.
 		AutoDispatch: ptrBool(false),
-	},
-	{
-		// mythos_swarm: 0.3.16+ multi-agent topology inspired by OpenMythos
-		// Recurrent-Depth Transformer. A prelude agent plans the work,
-		// parallel loop agents iterate until convergence (cosine ≥ 0.95
-		// between successive turns) or max_loop_iters, and a coda agent
-		// synthesizes. Each loop turn may invoke Claude Science skills
-		// from the experimental_resource_lock catalogue.
-		//
-		// 0.5.90 rebrand: the user-visible name is OpenMythos (Outer
-		// Loop) — consistent with the upstream reference project and the
-		// 0.3.22 boost-badge label. The flag KEY stays `mythos_swarm`
-		// (VERBATIM duplication law). The lab is enhancer-only: sole
-		// runs are rejected for new bindings (issue.go gate + the run
-		// API), and the distilled strategy is delivered to the target
-		// assignee via a system comment + the claim-time briefing.
-		//
-		// Off by default. The Mythos install handler provisions a
-		// dedicated `mythos-swarm` workspace + 5 Mythos agents + 1
-		// squad; user squads are NOT mutated (preserves the user's
-		// existing roster).
-		Key:        "mythos_swarm",
-	DefaultVal: false,
-	Title: LocalizedString{
-		En: "OpenMythos (Outer Loop)",
-		Zh: "OpenMythos 外循环",
-	},
-	Description: LocalizedString{
-		En: "OpenMythos outer loop: bind it to an issue together with a target agent or squad — the swarm plans, iterates to convergence, and distills a strategy, then hands it to the assignee to execute. Standalone runs are retired. Off by default.",
-		Zh: "OpenMythos 外循环:与某个承办 agent/团队搭配绑定到 issue——蜂群先规划、迭代收敛并蒸馏策略,再交给承办者执行。独立运行已停用。默认关闭。",
-	},
-		ManifestPath: "experiments/mythos_swarm/manifest.json",
-		// headless: Mythos runs entirely inside the agent runtime. The
-		// RDT three-stage runner (prelude / loop / coda) is invoked
-		// by the Skill adapter, not by a subprocess. No proxy.
-		RuntimeKind: "headless",
-		// 0.5.86: the mythos coda report is already written back to the
-		// issue (mythos runner coda → CreateComment), so the timeline
-		// hide stays true — the reflection panel owns the deep view.
-		HidesDeliverableInIssueTimeline: true,
-		// 0.5.86: 独立工作型 — the RDT roster owns the issue (sole-mode
-		// mutex keeps the manual assignee empty; enhancer keeps its
-		// target). Classification is declared for the client so the
-		// Labs UI groups it with the independent-worker family; the
-		// leader-based assignee lock does NOT apply (mythos has no
-		// single leader — defaultLabLeaderForKey returns ("", false)).
-		InteractionModel: InteractionModelAssignee,
-	},
-	{
-		// 0.5.21 swarm_topology: multi-agent role-graph topology. The
-		// orchestrator runs in-process as a server-owned goroutine
-		// (Service.StartOrchestrator + runOrchestratorLoop); no
-		// subprocess, no proxy. The HTTP surface at
-		// /api/experimental/swarm-topology/* is gated by this flag —
-		// off-flag callers get a uniform 404 (indistinguishable from a
-		// nonexistent route, per experimental_guard.go).
-		//
-		// 0.5.22: description refreshed to match the orchestrator's
-		// 3-phase lifecycle contract (multica-creating-swarms
-		// bootstrap → execute → cleanup). 0.5.86: that per-issue
-		// picker contract is retired — see the consolidation note at
-		// HideFromIssueLabPicker below.
-		Key:        "swarm_topology",
-		DefaultVal: false,
-		Title: LocalizedString{
-			En: "Swarm Topology",
-			Zh: "蜂群拓扑",
-		},
-		Description: LocalizedString{
-			En: "Self-organising multi-agent system. The leader authors role-agents + skills + a coordinating squad on bootstrap, then walks a 5-phase machine. Off by default.",
-			Zh: "自组织多智能体系统。leader 在启动时创建角色 agents + skills + 协调 squad,运行 5 阶段机器。默认关闭。",
-		},
-		ManifestPath: "experiments/swarm_topology/manifest.json",
-		RuntimeKind:  "headless",
-		// 0.5.86 swarm consolidation: FROZEN for new bindings. The
-		// orchestrator's topology_spec has no server-side writer (all
-		// runs stall in preparing/research — migration 283 fails the
-		// zombies), so the lab no longer appears in the issue
-		// LabPicker; the sidebar entry point was removed from the
-		// manifest in the same release. The flag literal, routes, and
-		// view stay (forward-only law; legacy bound issues keep
-		// resolving, /experimental/swarm-topology shows a deprecation
-		// banner pointing at /experimental/mythos). mythos_swarm is
-		// the single 蜂群 lab from 0.5.86 on.
-		HideFromIssueLabPicker: true,
-		// 0.5.86: 独立工作型 (legacy binding kept working: the
-		// swarm_coordinator leader owns the assignee via the existing
-		// mutex gate).
-		InteractionModel: InteractionModelAssignee,
-		// 0.5.88: the 0.5.86 consolidation is now machine-readable.
-		// Frozen stops the delegation briefing (and any future
-		// enumeration) from advertising the lab; mythos_swarm is the
-		// successor. Toggle behavior unchanged.
-		Frozen:       true,
-		SuccessorKey: "mythos_swarm",
 	},
 	{
 		// llm_wiki_bridge: connects Multica agents to the locally-installed
@@ -444,124 +330,6 @@ var Catalog = []Flag{
 		// 0.5.86: 辅助协作型 — the bridge works alongside the normal
 		// agents (knowledge retrieval); never an assignee.
 		InteractionModel: InteractionModelAuxiliary,
-	},
-	{
-		// code_canvas: 0.3.19 P9 internal lab, graduated to a real
-		// service in 0.5.18. A subprocess experiment that spawns
-		// vendor/code-canvas/run.sh (stdlib-only GET /health +
-		// GET|POST /render syntax-highlight service) so the desktop IPC
-		// pipeline exercises a genuine loopback backend end-to-end.
-		Key:        "code_canvas",
-		DefaultVal: false,
-		Title: LocalizedString{
-			En: "Code Canvas (internal lab)",
-			Zh: "代码画布（内部实验）",
-		},
-		Description: LocalizedString{
-			En: "Internal P9 pilot: a stub subprocess wired through every Labs platform layer. Off by default. Used to verify the manifest → catalog → registry → IPC pipeline end-to-end before real labs are added.",
-			Zh: "内部 P9 试点：通过 Labs 平台所有层的 stub 子进程。默认关闭。在真实实验加入前用于端到端验证 manifest → catalog → registry → IPC 链路。",
-		},
-		ManifestPath:                    "experiments/code_canvas/manifest.json",
-		RuntimeKind:                     "subprocess",
-		ProxyPrefix:                     "/experimental/code-canvas",
-		LoopbackService:                 "code_canvas",
-		HidesDeliverableInIssueTimeline: true,
-	},
-	{
-		// semantica: 0.5.22 Semantica × Multica Phase 2 integration.
-		//
-		// Phase 1 (0.5.22 dev cycle) shipped the catalog entry, vendor
-		// run.sh, REST API bridge, and the `multica-semantica` curl skill.
-		// Phase 2 adds: semantica_decision_advisor leader agent (installable,
-		// hidden when flag is off), terminal-issue decision sync via the
-		// events bus, a Labs-tab iframe view at /experimental/semantica-explorer,
-		// and `multica lab delegate semantica "<task>"` (resolved by the
-		// `resolveLabFlagKey` pass-through fix in cmd_lab.go).
-		//
-		// The subprocess path is unchanged from Phase 1 — semantica uses the
-		// GENERIC subprocess-manager (resolveGenericSubprocessManager)
-		// because it needs no env injection beyond SEMANTICA_REPO_PATH,
-		// which the run.sh script reads from process.env directly.
-		Key:        "semantica",
-		DefaultVal: false,
-		Title: LocalizedString{
-			En: "Semantica Knowledge Graph",
-			Zh: "Semantica 知识图谱",
-		},
-		Description: LocalizedString{
-			En: "Local subprocess that bridges Semantica (knowledge graph + decision records) into Multica. Phase 2 adds the semantica_decision_advisor agent for delegation, terminal-issue decision sync, and a Labs-tab iframe. Off by default.",
-			Zh: "本地子进程,把 Semantica(知识图谱 + 决策记录)桥接到 Multica。Phase 2 新增 semantica_decision_advisor agent 支持委托、终态 issue 自动同步决策、Labs 标签页 iframe。默认关闭。",
-		},
-		ManifestPath:    "experiments/semantica/manifest.json",
-		RuntimeKind:     "subprocess",
-		ProxyPrefix:     "/experimental/semantica",
-		LoopbackService: "semantica",
-		// Phase 2: opt into the issue LabPicker so users can bind
-		// lab_source=semantica per-issue (mirrors pythia_oracle /
-		// claude_science_lab). The decision-sync listener and the iframe
-		// tab together make semantica a first-class issue-bound lab.
-		HideFromIssueLabPicker:          false,
-		HidesDeliverableInIssueTimeline: true,
-		// 0.5.86: 独立工作型 — the semantica_decision_advisor leader
-		// owns the bound issue (delegate flow + decision sync).
-		InteractionModel: InteractionModelAssignee,
-		// Sidebar entry is owned by the manifest's
-		// spec.entry_points.sidebar (apps/desktop/resources/experiments/semantica/manifest.json).
-		// Route must be /experimental/semantica-explorer — the bare
-		// /experimental/semantica path is reserved for the REST proxy
-		// used by the agent subprocess. Single source of truth: edit the
-		// manifest, not this catalog literal.
-	},
-	{
-		// timesfm: 0.5.82 WL2 — TimesFM 2.5 local forecasting lab.
-		// A vendored torch-stack Python engine (source-of-record
-		// apps/desktop/vendor/timesfm-src/, spawned generically by the
-		// desktop manager-factory from resources/timesfm/run.sh) serves
-		// POST /forecast on loopback; the Go server reverse-proxies it
-		// at /experimental/timesfm (auto-mounted from this entry — no
-		// manual proxy code) and persists per-issue runs into
-		// timesfm_forecast_run (migration 275).
-		//
-		// Issue-task-first: runs fire from issues via the leader agent
-		// `timesfm_oracle` + the multica-timesfm skill; the lab view is
-		// a read-only record (manifest spec.entry_points.sidebar is
-		// EMPTY per ICP-1). Off by default.
-		Key:        "timesfm",
-		DefaultVal: false,
-		Title: LocalizedString{
-			En: "TimesFM Forecasting Lab",
-			Zh: "TimesFM 预测实验室",
-		},
-		Description: LocalizedString{
-			En: "Local TimesFM 2.5 forecasting engine (offline torch runtime). Agents forecast numeric series from issue data via the multica-timesfm skill; quantile-band results persist per issue. Weights are user-seeded — without them a seasonal-naive fallback answers. Off by default.",
-			Zh: "本地 TimesFM 2.5 预测引擎(离线 torch 运行时)。智能体通过 multica-timesfm 技能对 issue 数据中的数值序列做预测,分位数区间结果按 issue 持久化。权重由用户手动放置 — 未放置时以季节性朴素回退应答。默认关闭。",
-		},
-		ManifestPath: "experiments/timesfm/manifest.json",
-		// subprocess: the desktop manager-factory spawns a real Python
-		// process on a free loopback port (generic manifest-driven
-		// manager, semantica style) and registers the URL with
-		// experimental_proxy.go via __experimental/upstream. Agents
-		// reach POST /forecast through the same Multica origin.
-		RuntimeKind:     "subprocess",
-		ProxyPrefix:     "/experimental/timesfm",
-		LoopbackService: "timesfm",
-		// CPU inference takes seconds-minutes per call (report R5/R6);
-		// runs stay manual/retry-driven — pinned by
-		// TestCatalogAutoDispatchContract in catalog_test.go.
-		AutoDispatch: ptrBool(false),
-		// 0.5.86: 独立工作型 — timesfm_oracle owns the issue assignee
-		// slot (leader rows added to handler/service tables in the
-		// same release; previously the lab bound without ever
-		// auto-assigning its engine agent). The forecast report is
-		// written back to the issue as the leader's comment
-		// (handler/timesfm_forecast.go, report_comment_id dedupe);
-		// engine-down 503s stay silent (honesty law).
-		InteractionModel: InteractionModelAssignee,
-		// HideFromIssueLabPicker deliberately NOT set: the lab is
-		// per-issue bindable (lab_source=timesfm) like pythia_oracle /
-		// semantica. HidesDeliverableInIssueTimeline deliberately NOT
-		// set: the agent's forecast comment IS the issue-first
-		// deliverable and must stay visible in the plain timeline.
 	},
 	{
 		// 0.5.83 WL3: issue causal graph — Tier A/B/C/D decision

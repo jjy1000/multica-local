@@ -30,7 +30,7 @@ export function isAssigneeLabLocked(
   if (flag.interaction_model === "auxiliary") return false;
   // Legacy server (no interaction_model in the payload): keep the
   // 0.3.33 hardcoded mutex behavior.
-  return labSource === "mythos_swarm" || labSource === "swarm_topology";
+  return labSource === "mythos_swarm";
 }
 
 /**

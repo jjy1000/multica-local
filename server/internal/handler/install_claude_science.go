@@ -656,11 +656,9 @@ var labLeaderAgentNames = []string{
 	// and 智能体优化专家 (agent_self_optimization, promoted to
 	// product-level 0.5.6). Their GetAgentByWorkspaceAndName lookups
 	// silently no-oped here since those rows stopped existing.
-	// pythia_oracle / timesfm (AutoDispatch=false forecast labs)
+	// pythia_oracle (AutoDispatch=false forecast lab)
 	"pythia_runtime",
-	"timesfm_oracle",
-	// code_canvas / semantica issue-bound leaders
-	"code_canvas_worker",
+	// semantica issue-bound leader
 	"semantica_decision_advisor",
 	// causal_graph's hidden trio (AutoDispatch=false memory lab)
 	"causal_graph_curator",

@@ -74,16 +74,7 @@ SELECT cs.*,
        )::int AS unread_count
 FROM chat_session cs
 WHERE cs.workspace_id = $1 AND cs.creator_id = $2 AND cs.status = 'active'
-ORDER BY (cs.pinned_at IS NULL) ASC, cs.pinned_at DESC, cs.updated_at DESC;
-
--- name: PinChatSession :exec
--- Toggles chat_session.pinned_at to mark a session as user-pinned.
-UPDATE chat_session SET pinned_at = now(), updated_at = now()
-WHERE id = $1;
-
--- name: UnpinChatSession :exec
-UPDATE chat_session SET pinned_at = NULL, updated_at = now()
-WHERE id = $1;
+ORDER BY cs.updated_at DESC;
 
 -- name: SetChatSessionAgentIntro :exec
 -- Sets chat_session.is_agent_intro = TRUE so the frontend renders the

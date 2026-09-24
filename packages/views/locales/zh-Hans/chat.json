@@ -60,8 +60,6 @@
     "row_stop_aria": "停止当前运行",
     "row_pin_aria": "置顶到聊天列表",
     "row_unpin_aria": "取消置顶",
-    "pin_tooltip": "置顶",
-    "unpin_tooltip": "取消置顶",
     "stop_action": "停止",
     "row_subtitle": {
       "working": "运行中",

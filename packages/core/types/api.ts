@@ -614,45 +614,6 @@ export interface LabCommentBrief {
   created_at: string;
 }
 
-// Mythos Swarm durable run + supervise envelopes (0.5.18 M2 LabOutputPanel).
-// The durable `GET /api/issues/{id}/mythos-runs` row carries `problem` (the
-// run's problem statement) + `coda_conclusions` (structured takeaways) — the
-// free-text `coda_summary` is NOT persisted to `mythos_run`; it only exists
-// in the ephemeral POST /run response. The supervise envelope mirrors
-// `MythosSuperviseStateResponse` in server/internal/handler/mythos_supervise.go.
-export interface MythosCodaConclusion {
-  key: string;
-  value: string;
-  confidence?: number | null;
-  actionable?: boolean | null;
-}
-
-export interface MythosRunSummary {
-  run_id: string;
-  status: string;
-  mode: string;
-  started_at: string;
-  problem: string;
-  iterations: number;
-  completed_at?: string | null;
-  final_issue_id?: string | null;
-  coda_conclusions: MythosCodaConclusion[];
-}
-
-export interface MythosSuperviseState {
-  run_id: string;
-  phase: string;
-  started_at?: string;
-  last_check_at?: string;
-  last_tick_duration_ms: number;
-  total_ticks: number;
-  sub_tasks_total: number;
-  sub_tasks_done: number;
-  latest_reflection?: string;
-  latest_reflection_iter?: number;
-  abort_reason?: string;
-}
-
 export interface PythiaCouncilVote {
   persona: string;
   probability: number;
@@ -724,48 +685,6 @@ export interface PythiaForecastStart {
   rounds: number;
   status: string;
   run_kind: PythiaForecastRunKind;
-}
-
-// TimesFM per-issue forecast run (0.5.82 WL2) — mirrors the wire shape of
-// GET /api/experimental/timesfm/forecast/issue/runs (a timesfm_forecast_run
-// row, migration 275). `result` is the engine's raw JSONB answer; the
-// quantile map keys are the engine's band labels.
-export interface TimesfmQuantiles {
-  lower_90: number[];
-  lower_80: number[];
-  median: number[];
-  upper_80: number[];
-  upper_90: number[];
-}
-
-export interface TimesfmSeriesPoint {
-  point: number[];
-  quantiles?: TimesfmQuantiles;
-  provenance: string;
-  dates?: string[];
-}
-
-export interface TimesfmForecastResult {
-  series: TimesfmSeriesPoint[];
-  provenance: string;
-  model_present: boolean;
-  horizon: number;
-}
-
-export interface TimesfmForecastRun {
-  id: string;
-  horizons: number;
-  provenance: string;
-  created_at: string;
-  result?: TimesfmForecastResult;
-}
-
-export interface CodeCanvasArtifact {
-  id: string;
-  code: string;
-  language: string;
-  html: string;
-  created_at: string;
 }
 
 // Issue causal graph wire shapes (0.5.83 WL3) — mirror the handler

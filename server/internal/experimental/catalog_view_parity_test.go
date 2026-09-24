@@ -28,15 +28,9 @@ func TestCatalogFlagViewParity(t *testing.T) {
 		// (packages/views/issues/components/issue-labs-section.tsx),
 		// web LABS, and desktop routes.tsx when this changes.
 		"causal_graph",
-		"chat_pin_ui",
 		"claude_science_lab",
-		"code_canvas",
 		"llm_wiki_bridge",
-		"mythos_swarm",
 		"pythia_oracle",
-		"semantica",
-		"swarm_topology", // Frozen tombstone only (0.5.105, audit H3)
-		"timesfm",
 	}
 
 	got := make([]string, 0, len(Catalog))

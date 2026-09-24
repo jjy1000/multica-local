@@ -541,13 +541,7 @@
       "tag_only_hint": "Tag only · no auto-dispatch",
       "dispatcher_hint": "Will be picked up by a lab agent",
       "placeholder": "Lab",
-      "picker_none": "None",
-      "mode_group_label": "Swarm mode",
-      "mode_sole": "Standalone",
-      "mode_enhancer": "Enhancer",
-      "mode_sole_hint": "Mythos owns the issue end-to-end · clears the assignee",
-      "mode_enhancer_hint": "Mythos plans first · hands off to your agent/squad",
-      "mode_sole_retired": "Legacy standalone binding · switch to enhancer"
+      "picker_none": "None"
     }
   },
   "lab_section": {
@@ -563,7 +557,6 @@
     "trust_correct_button": "Correct agent",
     "progress_view": "View in lab",
     "progress_pythia_rounds": "{{rounds}} rounds",
-    "progress_mythos_loop": "iteration {{loop}}",
     "section_title": "Labs running on this issue",
     "open_panel": "Open labs panel",
     "running_indicator": "Running",
@@ -584,19 +577,6 @@
     "lab_visualization_hint": "Results produced by this lab land below. Switch tabs to inspect the active run.",
     "lab_visualization_loading": "Loading lab workspace",
     "no_flag_hint": "Turn on an experimental flag in Settings → Labs to dispatch agents from this issue.",
-    "mythos_enhancer_section_title": "Swarm supervision",
-    "mythos_enhancer_phase_preparing": "Preparing",
-    "mythos_enhancer_phase_planning": "Swarm planning",
-    "mythos_enhancer_phase_supervising": "Supervising",
-    "mythos_enhancer_phase_done": "Done",
-    "mythos_enhancer_phase_aborted": "Aborted",
-    "mythos_enhancer_phase_degraded": "Degraded",
-    "mythos_enhancer_phase_unknown": "Unknown",
-    "mythos_enhancer_check_now": "Check now",
-    "mythos_enhancer_subtask_progress": "Sub-tasks {{done}}/{{total}}",
-    "mythos_enhancer_latest_reflection": "Latest reflection",
-    "mythos_enhancer_latest_reflection_none": "No reflection yet",
-    "mythos_enhancer_ticks": "{{count}} ticks · last {{ms}}ms",
     "trust_correct_ok": "Corrected — trust score is now {{score}} (-0.5)",
     "trust_correct_failed": "Correction failed: {{msg}}",
     "trust_correct_note_placeholder": "Note: what went wrong (optional)",
@@ -634,14 +614,5 @@
     "row_backlog_hint": "keeps the agent paused",
     "row_todo_label": "Todo",
     "row_todo_hint": "starts the agent"
-  },
-  "openmythos": {
-    "icon_tooltip": "OpenMythos outer loop",
-    "panel_title": "OpenMythos outer loop",
-    "panel_hint": "The swarm plans and converges first, then hands the strategy to this issue's assignee.",
-    "iterations": "iterations: {count}",
-    "target_required": "Assign this issue to an agent or squad first",
-    "start": "Start outer loop",
-    "rerun": "Re-run outer loop"
   }
 }

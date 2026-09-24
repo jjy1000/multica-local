@@ -241,10 +241,10 @@ func TestAutoDispatchFlagBehavior(t *testing.T) {
 // race against the temp-dir override. Pattern matches
 // TestAutoDispatchFlagBehavior above.
 func TestSidebarEntriesLogsAndReturnsEmptyOnParseError(t *testing.T) {
-	// Use chat_pin_ui — its catalog ManifestPath is fixed and
+	// Use claude_science_lab — its catalog ManifestPath is fixed and
 	// well-known, so the corrupt-manifest fixture only needs to
 	// write to one specific temp path.
-	const flagKey = "chat_pin_ui"
+	const flagKey = "claude_science_lab"
 
 	tmpDir := t.TempDir()
 	manifestDir := filepath.Join(tmpDir, "experiments", flagKey)

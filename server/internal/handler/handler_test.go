@@ -92,10 +92,6 @@ func TestMain(m *testing.M) {
 			func(userID, workspaceID string) error {
 				return testHandler.InstallClaudeScience(context.Background(), experimental.SourceClaudeScience, userID, workspaceID)
 			})
-		testHandler.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceMythosSwarm),
-			func(userID, workspaceID string) error {
-				return testHandler.InstallMythos(context.Background(), userID, workspaceID)
-			})
 	}
 	testPool = pool
 

@@ -27,9 +27,7 @@ import type usage from "../locales/en/usage.json";
 import type squads from "../locales/en/squads.json";
 import type billing from "../locales/en/billing.json";
 import type pythia from "../locales/en/pythia.json";
-import type mythos from "../locales/en/mythos.json";
 import type claudeLab from "../locales/en/claude-lab.json";
-import type timesfm from "../locales/en/timesfm.json";
 import type causalGraph from "../locales/en/causal-graph.json";
 // 0.5.4: experimental namespace now hosts user_plugins /
 // forecast_stream. The agent_creation_studio creator page was
@@ -78,9 +76,7 @@ declare global {
     squads: typeof squads;
     billing: typeof billing;
     pythia: typeof pythia;
-    mythos: typeof mythos;
     "claude-lab": typeof claudeLab;
-    timesfm: typeof timesfm;
     "causal-graph": typeof causalGraph;
     experimental: typeof experimental;
   }

@@ -125,7 +125,7 @@ func TestInstallClaudeScience_SeedsVisibility(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	userID, workspaceID := installCodeCanvasFresh(t, ctx, "cs-vis")
+	userID, workspaceID := installLabTestFresh(t, ctx, "cs-vis")
 	cleanupVisibilityRows(t, workspaceID)
 	defer withTestManifestEnv(t)()
 

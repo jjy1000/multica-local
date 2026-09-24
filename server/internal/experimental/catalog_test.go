@@ -44,16 +44,6 @@ func TestCatalogAutoDispatchContract(t *testing.T) {
 			wantReason: "0.5.81 P4: claude_science_lab must follow the default 0.3.46 auto-dispatch contract (assignee rewrite + enqueue)",
 		},
 		{
-			// 0.5.82 WL2: timesfm pins BOTH the AutoDispatch *false and
-			// (below) the verbatim flag-key literal "timesfm" per the
-			// flag-key string duplication law — the same literal is
-			// hand-copied into install_timesfm.go, router.go, the
-			// manifest, run_loopback wiring, and migration 275's CHECK.
-			key:        "timesfm",
-			wantFalse:  true,
-			wantReason: "0.5.82 WL2: timesfm CPU inference takes seconds-minutes per call; runs stay manual/retry-driven, never auto-fired on a lab_source flip",
-		},
-		{
 			// 0.5.83 WL3: causal_graph is opt-in the same way — the Tier
 			// A/B recorders cost writes on every enqueue/complete once
 			// enabled, so they must never wake from a lab_source flip.
@@ -161,79 +151,6 @@ func TestAllFlagKeysReturnsFreshSlice(t *testing.T) {
 // inline SidebarRow literal into the manifest's spec.entry_points.sidebar
 // (single source of truth). The catalog literal must be empty so any
 // future change goes through the manifest, not a Go code edit.
-func TestSemanticaCatalogNoInlineSidebar(t *testing.T) {
-	for _, f := range Catalog {
-		if f.Key != "semantica" {
-			continue
-		}
-		if len(f.Sidebar) != 0 {
-			t.Fatalf("semantica catalog entry still carries %d inline SidebarRow(s); want 0 (sidebar is manifest-owned): %+v",
-				len(f.Sidebar), f.Sidebar)
-		}
-		return
-	}
-	t.Fatal("semantica catalog entry not found")
-}
-
-// TestSemanticaSidebarFromManifest pins the wire-shape contract:
-// Registry.SidebarEntries("semantica") must return exactly the row
-// the manifest's spec.entry_points.sidebar declares, with the same
-// Key/LabelKey/Route the previous inline SidebarRow carried. This is
-// a byte-equal regression pin for the PR-6 inline-to-manifest
-// migration — if the manifest key/label_key/route drift, the GET
-// /api/experimental-flags response shifts and the renderer's nav hook
-// breaks.
-//
-// NOT t.Parallel(): setManifestRootForTest mutates the loader's root,
-// and TestLoadManifestResolvesAllFlags in manifest_test.go writes to
-// the same package-global. Pattern matches the other manifest-loading
-// tests in this package.
-func TestSemanticaSidebarFromManifest(t *testing.T) {
-	const flagKey = "semantica"
-
-	prev := setManifestRootForTest(t, devResourcesRoot(t))
-	t.Cleanup(prev)
-
-	r := NewRegistry()
-	got := r.SidebarEntries(flagKey)
-	if len(got) != 1 {
-		t.Fatalf("SidebarEntries(%q) returned %d entries, want 1: %+v", flagKey, len(got), got)
-	}
-	e := got[0]
-	if e.Key != "experimental_semantica" {
-		t.Errorf("SidebarEntries(%q).Key = %q, want %q", flagKey, e.Key, "experimental_semantica")
-	}
-	if e.FlagKey != flagKey {
-		t.Errorf("SidebarEntries(%q).FlagKey = %q, want %q", flagKey, e.FlagKey, flagKey)
-	}
-	if e.LabelKey != "experimental_semantica" {
-		t.Errorf("SidebarEntries(%q).LabelKey = %q, want %q", flagKey, e.LabelKey, "experimental_semantica")
-	}
-	if e.Route != "/experimental/semantica-explorer" {
-		t.Errorf("SidebarEntries(%q).Route = %q, want %q", flagKey, e.Route, "/experimental/semantica-explorer")
-	}
-}
-
-// TestCatalogInteractionModelContract (0.5.86) pins the 独立工作型 vs
-// 辅助协作型 classification literals. The same strings are consumed by
-// handler/issue.go's create/update assignee-lock gates (via
-// IsAssigneeModelLab) and mirrored to the client through
-// ExperimentalFlagResponse.interaction_model →
-// packages/core/types/experimental.ts — an accidental reclassification
-// here would silently re-allow (or hard-block) manual assignees on
-// every bound issue.
-//
-// Pins:
-//   - assignee (独立工作型): the lab's leader owns the assignee slot.
-//   - auxiliary (辅助协作型): trace/visualize-only, never an assignee.
-//   - swarm_topology keeps InteractionModelAssignee for legacy bound
-//     issues even though HideFromIssueLabPicker freezes NEW bindings
-//     (0.5.86 swarm consolidation — mythos_swarm is the single 蜂群 lab).
-//   - chat_pin_ui / code_canvas / user plugins stay unclassified
-//     (legacy coexist behavior — no lock, no auxiliary semantics).
-//
-// NOT t.Parallel(): reads the package-global Catalog directly, matching
-// the other catalog tests in this file.
 func TestCatalogInteractionModelContract(t *testing.T) {
 	byKey := make(map[string]string, len(Catalog))
 	for _, f := range Catalog {
@@ -250,8 +167,7 @@ func TestCatalogInteractionModelContract(t *testing.T) {
 	}
 
 	assigneeWant := []string{
-		"claude_science_lab", "pythia_oracle", "mythos_swarm",
-		"swarm_topology", "semantica", "timesfm",
+		"claude_science_lab", "pythia_oracle",
 	}
 	for _, key := range assigneeWant {
 		if got := byKey[key]; got != InteractionModelAssignee {
@@ -277,19 +193,6 @@ func TestCatalogInteractionModelContract(t *testing.T) {
 		}
 	}
 
-	legacyWant := []string{"chat_pin_ui", "code_canvas"}
-	for _, key := range legacyWant {
-		if got := byKey[key]; got != "" {
-			t.Errorf("Catalog[%q].InteractionModel = %q, want \"\" (legacy coexist — unclassified labs keep manual assignees)", key, got)
-		}
-	}
-
-	// 0.5.86 swarm consolidation: frozen for NEW bindings while the
-	// legacy mutex keeps protecting existing ones.
-	if !byKeyExists(byKey, "swarm_topology") {
-		t.Fatal("swarm_topology literal removed from catalog — forward-only law violation")
-	}
-
 	// Unknown keys and the dynamic user-plugin layer fall through to
 	// the empty (legacy) model.
 	if got := InteractionModelOf("no_such_flag"); got != "" {
@@ -302,57 +205,3 @@ func byKeyExists(byKey map[string]string, key string) bool {
 	return ok
 }
 
-// TestCatalogFrozenContract (0.5.88) pins the machine-readable swarm
-// freeze. The 0.5.86 consolidation removed swarm_topology from the
-// LabPicker and the sidebar, but the freeze was prose + hardcoded UI
-// state; Frozen/SuccessorKey turn it into catalog data the delegation
-// briefing (service/causal_graph delegate_brief.go) and the wire
-// payload (GET /api/experimental-flags) can read.
-//
-//   - swarm_topology → Frozen=true AND SuccessorKey="mythos_swarm"
-//     (mythos_swarm is the single 蜂群 lab from 0.5.86 on).
-//   - NO other built-in flag carries Frozen — a second frozen entry
-//     needs a deliberate catalog edit, not an accident.
-//
-// The verbatim literals "swarm_topology" / "mythos_swarm" follow the
-// flag-key duplication law (same literals as catalog.go / leader
-// tables / the deprecation banner route).
-func TestCatalogFrozenContract(t *testing.T) {
-	f, ok := findCatalogEntry("swarm_topology")
-	if !ok {
-		t.Fatal("swarm_topology literal removed from catalog — forward-only law violation")
-	}
-	if !f.Frozen {
-		t.Fatal("swarm_topology must stay Frozen=true — 0.5.86 consolidation froze it for new bindings")
-	}
-	if f.SuccessorKey != "mythos_swarm" {
-		t.Fatalf("swarm_topology SuccessorKey = %q, want \"mythos_swarm\"", f.SuccessorKey)
-	}
-	// The successor must itself be a live catalog key, otherwise the
-	// pointer dangles and the delegation briefing would skip a frozen
-	// lab without ever advertising the replacement.
-	if _, ok := findCatalogEntry(f.SuccessorKey); !ok {
-		t.Fatalf("SuccessorKey %q is not a catalog entry", f.SuccessorKey)
-	}
-
-	for _, entry := range Catalog {
-		if entry.Key == "swarm_topology" {
-			continue
-		}
-		if entry.Frozen {
-			t.Errorf("Catalog[%q].Frozen = true; only swarm_topology may be frozen", entry.Key)
-		}
-		if entry.SuccessorKey != "" {
-			t.Errorf("Catalog[%q].SuccessorKey = %q; a successor without Frozen is meaningless", entry.Key, entry.SuccessorKey)
-		}
-	}
-
-	// FlagByKey resolves the built-in layer (the read-side helper the
-	// delegation briefing uses) and unknown keys fall through.
-	if got, ok := FlagByKey("swarm_topology"); !ok || !got.Frozen {
-		t.Fatalf("FlagByKey(swarm_topology) = (%+v, %v), want the frozen entry", got, ok)
-	}
-	if _, ok := FlagByKey("no_such_flag"); ok {
-		t.Fatal("FlagByKey(unknown) must return ok=false")
-	}
-}

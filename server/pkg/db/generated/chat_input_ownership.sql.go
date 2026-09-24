@@ -164,7 +164,7 @@ SELECT cs.id, cs.workspace_id, cs.agent_id, cs.creator_id, cs.title, cs.session_
        )::int AS unread_count
 FROM chat_session cs
 WHERE cs.workspace_id = $1 AND cs.creator_id = $2 AND cs.status = 'active'
-ORDER BY (cs.pinned_at IS NULL) ASC, cs.pinned_at DESC, cs.updated_at DESC
+ORDER BY cs.updated_at DESC
 `
 
 type ListChatSessionsByCreatorWithUnreadCountParams struct {
@@ -255,17 +255,6 @@ func (q *Queries) MarkChatMessageNoResponse(ctx context.Context, id pgtype.UUID)
 	return err
 }
 
-const pinChatSession = `-- name: PinChatSession :exec
-UPDATE chat_session SET pinned_at = now(), updated_at = now()
-WHERE id = $1
-`
-
-// Toggles chat_session.pinned_at to mark a session as user-pinned.
-func (q *Queries) PinChatSession(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, pinChatSession, id)
-	return err
-}
-
 const setChatSessionAgentIntro = `-- name: SetChatSessionAgentIntro :exec
 UPDATE chat_session SET is_agent_intro = TRUE
 WHERE id = $1
@@ -287,15 +276,5 @@ WHERE id = $1
 // path so the IM-style unread count derives against the new cursor.
 func (q *Queries) TouchChatSessionLastRead(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, touchChatSessionLastRead, id)
-	return err
-}
-
-const unpinChatSession = `-- name: UnpinChatSession :exec
-UPDATE chat_session SET pinned_at = NULL, updated_at = now()
-WHERE id = $1
-`
-
-func (q *Queries) UnpinChatSession(ctx context.Context, id pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, unpinChatSession, id)
 	return err
 }

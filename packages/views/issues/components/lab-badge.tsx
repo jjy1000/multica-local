@@ -2,13 +2,10 @@
 
 import {
   FlaskConical,
-  Network,
   TestTubes,
   Sparkles,
-  Code2,
   ClipboardList,
   Wrench,
-  Pin,
 } from "lucide-react";
 import { cn } from "@multica/ui/lib/utils";
 import {
@@ -33,11 +30,10 @@ export interface LabBadgeProps {
  *
  *   1. Persistence wins. The badge fires purely off the persisted
  *      `issue.lab_source` column — NOT off the runtime flag.
- *      A workspace that disables `mythos_swarm` after issuing
- *      tagged issues would otherwise lose every "this is a swarm
- *      run" hint on the list / board, which is a regression of
- *      perceived state. Same contract for pythia / claude-lab /
- *      llm-wiki / code-canvas / etc.
+ *      A workspace that disables a lab after issuing tagged issues
+ *      would otherwise lose every "this is a lab run" hint on the
+ *      list / board, which is a regression of perceived state.
+ *      Same contract for pythia / claude-lab / llm-wiki / etc.
  *
  *   2. Hard rule #1 (flag-off fully bypass) still holds for the
  *      NEW-issue path: the LabPicker refuses to write a flag-off
@@ -69,15 +65,6 @@ interface LabBadgeSpec {
  * server-side gate (`experimental.IsKnownKey()`) accepts.
  */
 const LAB_BADGES: Record<string, LabBadgeSpec> = {
-  mythos_swarm: {
-    label: "OpenMythos",
-    toneClassName: "border-emerald-300/70 text-emerald-700",
-    toneDarkClassName:
-      "dark:border-emerald-700/60 dark:text-emerald-300",
-    tooltip:
-      "OpenMythos 外循环已激活。蜂群先规划并迭代收敛,再把蒸馏策略交给本任务的承办智能体执行。",
-    ariaLabel: "OpenMythos 外循环运行中",
-  },
   pythia_oracle: {
     label: "Pythia",
     toneClassName: "border-violet-300/70 text-violet-700",
@@ -105,14 +92,6 @@ const LAB_BADGES: Record<string, LabBadgeSpec> = {
       "LLM Wiki 本地桥接已绑定。本任务的上下文通过本地桥接同步至 LLM Wiki 知识库。",
     ariaLabel: "LLM Wiki 本地桥接已绑定",
   },
-  code_canvas: {
-    label: "Code Canvas",
-    toneClassName: "border-rose-300/70 text-rose-700",
-    toneDarkClassName:
-      "dark:border-rose-700/60 dark:text-rose-300",
-    tooltip: "代码画布已绑定。本任务的可视化代码工作区同步到本地画布视图。",
-    ariaLabel: "代码画布已绑定",
-  },
   agent_self_optimization: {
     label: "Self-Opt",
     toneClassName: "border-teal-300/70 text-teal-700",
@@ -124,14 +103,6 @@ const LAB_BADGES: Record<string, LabBadgeSpec> = {
   },
   // (0.3.57: constitution_agent entry removed alongside the lab
   // retirement in migration 165.)
-  chat_pin_ui: {
-    label: "Chat Pin",
-    toneClassName: "border-slate-300/70 text-slate-700",
-    toneDarkClassName:
-      "dark:border-slate-700/60 dark:text-slate-300",
-    tooltip: "聊天置顶 UI 已绑定。本任务的会话固定在聊天面板顶部。",
-    ariaLabel: "聊天置顶 UI 已绑定",
-  },
 };
 
 /**
@@ -141,33 +112,24 @@ const LAB_BADGES: Record<string, LabBadgeSpec> = {
  * the user can spot which lab an issue is wired up to without
  * reading the label:
  *
- *   mythos_swarm            → Network     multi-agent graph topology
  *   claude_science_lab      → TestTubes   wet-lab research / sci sandbox
  *   pythia_oracle           → Sparkles    stochastic prediction / oracle
  *   llm_wiki_bridge         → ClipboardList knowledge bridge / catalog
- *   code_canvas             → Code2       developer canvas / REPL
  *   agent_self_optimization → Wrench     policy tuning / balance
- *   chat_pin_ui             → Pin         pinned chat session
  *
  * Unmapped future labs fall back to FlaskConical so the row stays
  * renderable instead of crashing on an unknown key.
  */
 function labIcon(key: string) {
   switch (key) {
-    case "mythos_swarm":
-      return Network;
     case "claude_science_lab":
       return TestTubes;
     case "pythia_oracle":
       return Sparkles;
     case "llm_wiki_bridge":
       return ClipboardList;
-    case "code_canvas":
-      return Code2;
     case "agent_self_optimization":
       return Wrench;
-    case "chat_pin_ui":
-      return Pin;
     default:
       return FlaskConical;
   }
@@ -197,10 +159,6 @@ export function LabBadge({ labSource, className }: LabBadgeProps) {
             "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium",
             spec.toneClassName,
             spec.toneDarkClassName,
-            // 0.3.32: keep the breathing halo for mythos only —
-            // other labs are static pills to avoid the user's eye
-            // chasing a moving target across the issue list.
-            labSource === "mythos_swarm" ? "mythos-boost-pulse" : "",
             className,
           )}
         >

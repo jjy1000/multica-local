@@ -149,16 +149,15 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   ".well-known",
 
   // Experimental labs (0.3.15+)
-  // Legacy lab workspace slugs. Pre-0.3.25 the claude_science / mythos_swarm /
-  // code_canvas labs created a dedicated reserved-slug workspace on install;
-  // 0.3.25 removed that — labs now write into the user's active workspace and
-  // are isolated by experimental_resource_lock + visibility rows (see
-  // install_claude_science.go / install_mythos.go). These slugs stay reserved so
-  // a new user cannot claim a name that a legacy install may still occupy. Do
-  // not treat them as active lab-created workspaces.
+  // Legacy lab workspace slugs. Pre-0.3.25 the claude_science / mythos_swarm
+  // labs created a dedicated reserved-slug workspace on install; 0.3.25 removed
+  // that — labs now write into the user's active workspace and are isolated by
+  // experimental_resource_lock + visibility rows (see install_claude_science.go
+  // / install_mythos.go). These slugs stay reserved so a new user cannot claim a
+  // name that a legacy install may still occupy. Do not treat them as active
+  // lab-created workspaces.
   "claude-science",
   "pythia-oracle",
-  "code-canvas",
 
   // Pre-workspace lab routes (0.5.72+)
   // `experimental` and `plugin` are pre-workspace route namespaces

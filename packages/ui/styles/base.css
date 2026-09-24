@@ -325,19 +325,11 @@
   }
 }
 
-@keyframes mythos-boost-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-  50% { box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.35); }
-}
-.mythos-boost-pulse {
-  animation: mythos-boost-pulse 2.4s ease-in-out infinite;
-}
 @media (prefers-reduced-motion: reduce) {
-  .mythos-boost-pulse { animation: none; }
   /* 0.3.58 cherry-pick from upstream 0.4.0: app-level keyframe animations
      all opt out under reduced-motion so motion-sensitive users get
-     static rendering. The mythos pulse above is a fork-local Lab addition
-     and stays independent. */
+     static rendering. (The former mythos-boost-pulse, a fork-local Lab
+     addition, was removed with the mythos_swarm lab.) */
   .animate-entrance-spin,
   .animate-onboarding-enter,
   .animate-welcome-emoji-pop,

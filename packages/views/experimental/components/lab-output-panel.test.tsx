@@ -94,33 +94,7 @@ const dataContext = {
   server_time: "2026-08-14T00:00:00Z",
 };
 
-const mythosRun = {
-  run_id: "run-1",
-  status: "completed",
-  mode: "enhancer",
-  started_at: "2026-08-14T00:00:00Z",
-  problem: "How do we grow?",
-  iterations: 3,
-  completed_at: null,
-  final_issue_id: null,
-  coda_conclusions: [
-    { key: "verdict", value: "ship it" },
-    { key: "risk", value: "low", confidence: 0.9 },
-  ],
-};
-
-const superviseState = {
-  run_id: "run-1",
-  phase: "supervising",
-  started_at: "2026-08-14T00:00:00Z",
-  last_check_at: "2026-08-14T00:00:00Z",
-  last_tick_duration_ms: 120,
-  total_ticks: 5,
-  sub_tasks_total: 4,
-  sub_tasks_done: 2,
-  latest_reflection: "on track",
-  latest_reflection_iter: 2,
-};
+const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 const pythiaRun = {
   id: "prun-1",
@@ -155,8 +129,6 @@ const pythiaRun = {
 };
 
 function Wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  // ClaudePanel renders a <LabRunLink /> (0.5.81 C2) whose AppLink calls
   // useNavigation(); the adapter stub here mirrors the active-route query
   // string shape without needing react-router in the tree.
   const nav: NavigationAdapter = {
@@ -183,17 +155,6 @@ function renderPanel() {
   );
 }
 
-function renderMythosPanel(labMode?: "sole" | "enhancer") {
-  return render(
-    <LabOutputPanel
-      wsId="ws-1"
-      issueId="issue-1"
-      labSource="mythos_swarm"
-      labMode={labMode}
-    />,
-    { wrapper: Wrapper },
-  );
-}
 
 function renderPythiaPanel() {
   return render(
@@ -202,12 +163,6 @@ function renderPythiaPanel() {
   );
 }
 
-function renderCodeCanvasPanel() {
-  return render(
-    <LabOutputPanel wsId="ws-1" issueId="issue-1" labSource="code_canvas" />,
-    { wrapper: Wrapper },
-  );
-}
 
 beforeEach(() => {
   mockRawRequest.mockReset();
@@ -304,105 +259,9 @@ describe("LabOutputPanel", () => {
     expect(screen.queryByText("No runs yet")).not.toBeInTheDocument();
   });
 
-  it("shows the code_canvas input and empty history state", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(200, []));
-    renderCodeCanvasPanel();
 
-    await waitFor(() =>
-      expect(
-        screen.getByText("No saved artifacts yet — render some code above."),
-      ).toBeInTheDocument(),
-    );
-    expect(screen.getByRole("button", { name: "Render & save" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Code")).toBeInTheDocument();
-    expect(screen.getByLabelText("Language")).toBeInTheDocument();
-  });
 
-  it("renders saved code_canvas artifacts as sandboxed iframes", async () => {
-    const artifacts = [
-      {
-        id: "a-1",
-        code: "print(1)",
-        language: "python",
-        html: "<html><body>one</body></html>",
-        created_at: "2026-08-14T00:00:00Z",
-      },
-    ];
-    mockRawRequest.mockResolvedValue(makeResponse(200, artifacts));
-    renderCodeCanvasPanel();
 
-    await waitFor(() =>
-      expect(screen.getByTitle("python · 2026-08-14T00:00:00Z")).toBeInTheDocument(),
-    );
-    const iframe = screen.getByTitle("python · 2026-08-14T00:00:00Z");
-    expect(iframe).toHaveAttribute("sandbox", "");
-    expect(iframe.getAttribute("srcDoc")).toContain("<body>one</body>");
-  });
-
-  it("renders and persists a code_canvas artifact, then refreshes history", async () => {
-    const artifact = {
-      id: "a-1",
-      code: "print(1)",
-      language: "python",
-      html: "<html><body>one</body></html>",
-      created_at: "2026-08-14T00:00:00Z",
-    };
-    let saved = false;
-    mockRawRequest.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (path === "/experimental/code-canvas/render") {
-        return makeResponse(200, "<html><body>one</body></html>");
-      }
-      if (init?.method === "POST") {
-        saved = true;
-        return makeResponse(201, artifact);
-      }
-      return makeResponse(200, saved ? [artifact] : []);
-    });
-    renderCodeCanvasPanel();
-
-    await waitFor(() =>
-      expect(
-        screen.getByText("No saved artifacts yet — render some code above."),
-      ).toBeInTheDocument(),
-    );
-
-    screen.getByRole("button", { name: "Render & save" }).click();
-
-    await waitFor(() =>
-      expect(screen.getByTitle("python · 2026-08-14T00:00:00Z")).toBeInTheDocument(),
-    );
-
-    expect(mockRawRequest).toHaveBeenCalledWith(
-      "/experimental/code-canvas/render",
-      expect.objectContaining({ method: "POST" }),
-    );
-    expect(mockRawRequest).toHaveBeenCalledWith(
-      "/api/experimental/code-canvas/issues/issue-1/artifacts",
-      expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining("fibonacci"),
-      }),
-    );
-  });
-
-  it("shows an inline error bar and retries for code_canvas history", async () => {
-    mockRawRequest.mockRejectedValueOnce(new Error("boom"));
-    mockRawRequest.mockResolvedValueOnce(makeResponse(200, []));
-    renderCodeCanvasPanel();
-
-    await waitFor(() =>
-      expect(screen.getByText("Failed to load lab output")).toBeInTheDocument(),
-    );
-
-    screen.getByRole("button", { name: "Retry" }).click();
-
-    await waitFor(() =>
-      expect(
-        screen.getByText("No saved artifacts yet — render some code above."),
-      ).toBeInTheDocument(),
-    );
-    expect(mockRawRequest).toHaveBeenCalledTimes(2);
-  });
 
   it("returns null for a non-A-class lab source", () => {
     const { container } = render(
@@ -414,69 +273,10 @@ describe("LabOutputPanel", () => {
     expect(mockRawRequest).not.toHaveBeenCalled();
   });
 
-  it("shows the latest mythos run problem and conclusions", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(200, [mythosRun]));
-    renderMythosPanel("sole");
 
-    await waitFor(() => expect(screen.getByText("How do we grow?")).toBeInTheDocument());
-    expect(screen.getByText("Problem")).toBeInTheDocument();
-    expect(screen.getByText("Conclusions")).toBeInTheDocument();
-    expect(screen.getByText("verdict:")).toBeInTheDocument();
-    expect(screen.getByText("ship it")).toBeInTheDocument();
-    expect(screen.getByText("1 runs")).toBeInTheDocument();
-  });
 
-  it("shows the empty state when mythos has no runs", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(200, []));
-    renderMythosPanel();
 
-    // Mythos renders its own never-started copy (mythos_never_started),
-    // not the generic lab_output_panel.empty string.
-    await waitFor(() =>
-      expect(screen.getByText(/No Mythos runs yet/)).toBeInTheDocument(),
-    );
-  });
 
-  it("renders the supervise section in enhancer mode and POSTs a tick", async () => {
-    mockRawRequest.mockImplementation((path: string) => {
-      if (path.includes("/mythos-runs")) return Promise.resolve(makeResponse(200, [mythosRun]));
-      return Promise.resolve(makeResponse(200, superviseState));
-    });
-    renderMythosPanel("enhancer");
-
-    await waitFor(() => expect(screen.getByText("supervising")).toBeInTheDocument());
-    expect(screen.getByText("2/4")).toBeInTheDocument();
-    expect(screen.getByText("on track")).toBeInTheDocument();
-
-    screen.getByRole("button", { name: "Check now" }).click();
-
-    await waitFor(() =>
-      expect(mockRawRequest).toHaveBeenCalledWith(
-        expect.stringContaining("/tick"),
-        expect.objectContaining({ method: "POST" }),
-      ),
-    );
-  });
-
-  it("shows a fallback when the latest run has no problem text", async () => {
-    const runNoProblem = { ...mythosRun, problem: "" };
-    mockRawRequest.mockResolvedValue(makeResponse(200, [runNoProblem]));
-    renderMythosPanel("sole");
-
-    await waitFor(() => expect(screen.getByText("No problem description")).toBeInTheDocument());
-    expect(screen.queryByText(mythosRun.run_id)).not.toBeInTheDocument();
-  });
-
-  it("disables the check button when the supervise phase is terminal", async () => {
-    mockRawRequest.mockImplementation((path: string) => {
-      if (path.includes("/mythos-runs")) return Promise.resolve(makeResponse(200, [mythosRun]));
-      return Promise.resolve(makeResponse(200, { ...superviseState, phase: "done" }));
-    });
-    renderMythosPanel("enhancer");
-
-    await waitFor(() => expect(screen.getByText("done")).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: "Check now" })).toBeDisabled();
-  });
 
   async function openHistoryTab() {
     // The tabs are icon + label buttons with `aria-pressed`, not `aria-label`.
@@ -580,106 +380,9 @@ describe("LabOutputPanel", () => {
   // strings but reads through useTimesfmForecastRuns (limit=10, 404→[],
   // ICP-1: no manual trigger button anywhere).
 
-  const timesfmRun = {
-    id: "run-1",
-    horizons: 24,
-    provenance: "model",
-    created_at: "2026-08-27T10:00:00Z",
-    result: {
-      horizon: 24,
-      provenance: "model",
-      model_present: true,
-      series: [
-        {
-          point: [10, 11, 12],
-          quantiles: {
-            lower_90: [9, 10, 11],
-            lower_80: [9.5, 10.5, 11.5],
-            median: [10, 11, 12],
-            upper_80: [10.5, 11.5, 12.5],
-            upper_90: [11, 12, 13],
-          },
-          provenance: "model",
-        },
-      ],
-    },
-  };
 
-  function renderTimesfmPanel() {
-    return render(
-      <LabOutputPanel wsId="ws-1" issueId="issue-1" labSource="timesfm" />,
-      { wrapper: Wrapper },
-    );
-  }
 
-  it("renders the timesfm run count, provenance badge, and a deep link to the newest run", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(200, [timesfmRun]));
-    renderTimesfmPanel();
 
-    await waitFor(() =>
-      expect(screen.getByTestId("lab-output-panel-timesfm")).toBeInTheDocument(),
-    );
-    expect(screen.getByText("1 runs")).toBeInTheDocument();
-    expect(screen.getAllByText("model").length).toBeGreaterThan(0);
-    // No fallback banner while the model weights answered.
-    expect(
-      screen.queryByText(/seasonal-naive fallback/),
-    ).not.toBeInTheDocument();
-    // ICP-3 emitter: the jump link targets the timesfm-lab view with the
-    // newest run pre-scoped (FLAG_ROUTE_SUFFIX timesfm → timesfm-lab).
-    const link = screen.getByRole("link", { name: /view full record in lab/i });
-    expect(link).toHaveAttribute(
-      "href",
-      "/experimental/timesfm-lab?issue=issue-1&run=run-1",
-    );
-    // ICP-1: records-only — no trigger button in the panel.
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-  });
 
-  it("shows the timesfm empty state with the assignee hint when no runs exist", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(200, []));
-    renderTimesfmPanel();
 
-    await waitFor(() =>
-      expect(screen.getByTestId("lab-output-panel-timesfm-empty")).toBeInTheDocument(),
-    );
-    expect(screen.getByText("No runs yet")).toBeInTheDocument();
-    expect(
-      screen.getByText(/timesfm_oracle/),
-    ).toBeInTheDocument();
-  });
-
-  it("shows the fallback banner when the newest run answered without model weights", async () => {
-    mockRawRequest.mockResolvedValue(
-      makeResponse(200, [
-        {
-          ...timesfmRun,
-          provenance: "seasonal_naive",
-          result: { ...timesfmRun.result, model_present: false },
-        },
-      ]),
-    );
-    renderTimesfmPanel();
-
-    await waitFor(() =>
-      expect(screen.getByText(/seasonal-naive fallback/)).toBeInTheDocument(),
-    );
-  });
-
-  it("shows an inline error bar and retries for timesfm on a 503", async () => {
-    mockRawRequest.mockResolvedValueOnce(makeResponse(503, { error: "down" }));
-    mockRawRequest.mockResolvedValueOnce(makeResponse(200, [timesfmRun]));
-    renderTimesfmPanel();
-
-    await waitFor(() =>
-      expect(screen.getByText("Failed to load lab output")).toBeInTheDocument(),
-    );
-
-    screen.getByRole("button", { name: "Retry" }).click();
-
-    await waitFor(() =>
-      expect(screen.getByTestId("lab-output-panel-timesfm")).toBeInTheDocument(),
-    );
-    expect(mockRawRequest).toHaveBeenCalledTimes(2);
-  });
 });

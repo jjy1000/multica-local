@@ -90,7 +90,7 @@ func TestInstallClaudeScience_SkillBodyContentRepaired(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	userID, workspaceID := installCodeCanvasFresh(t, ctx, "cs-skill-body")
+	userID, workspaceID := installLabTestFresh(t, ctx, "cs-skill-body")
 	cleanupVisibilityRows(t, workspaceID)
 	defer withTestManifestEnv(t)()
 
@@ -137,7 +137,7 @@ func TestClaudeScienceSkillsEndpoints(t *testing.T) {
 		t.Skip("database not available")
 	}
 	ctx := context.Background()
-	userID, workspaceID := installCodeCanvasFresh(t, ctx, "cs-skills-api")
+	userID, workspaceID := installLabTestFresh(t, ctx, "cs-skills-api")
 	cleanupVisibilityRows(t, workspaceID)
 
 	// Temp resources tree: nested-layout skill WITH a references file.
@@ -265,7 +265,7 @@ func TestClaudeScienceRuntime_SessionContinuation(t *testing.T) {
 		t.Skipf("python3 not available: %v", err)
 	}
 	ctx := context.Background()
-	userID, workspaceID := installCodeCanvasFresh(t, ctx, "cs-runtime-cont")
+	userID, workspaceID := installLabTestFresh(t, ctx, "cs-runtime-cont")
 	agentID := "00000000-0000-0000-0000-0000000000aa"
 
 	r := chi.NewRouter()
@@ -387,7 +387,7 @@ func TestClaudeScienceRuntime_ExecEnvIsSanitized(t *testing.T) {
 	t.Setenv("MULTICA_TEST_SECRET", "sentinel-must-not-leak")
 
 	ctx := context.Background()
-	userID, workspaceID := installCodeCanvasFresh(t, ctx, "cs-runtime-env")
+	userID, workspaceID := installLabTestFresh(t, ctx, "cs-runtime-env")
 	agentID := "00000000-0000-0000-0000-0000000000aa"
 
 	r := chi.NewRouter()

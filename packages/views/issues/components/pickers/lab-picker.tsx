@@ -14,24 +14,10 @@
 //     extra agents beyond the canonical 5-agent roster, on top of
 //     the lab's locked baseline roster.
 //
-// 0.3.31 dual-mode:
-//   - When the picked lab is mythos_swarm, the user picks a *mode*
-//     in addition to the lab. "sole" preserves the 0.3.30 behaviour
-//     (mythos owns the issue end-to-end). "enhancer" lets the user
-//     keep a manual assignee on the issue; mythos preludes +
-//     supervises, the assignee executes.
-//   - The mode picker is a second-level TabsList rendered BELOW
-//     the lab list when labSource === "mythos_swarm" + non-null.
-//   - The clear-assignee side effect is gated: sole mode triggers
-//     it (lab owns the roster), enhancer mode does NOT (the user
-//     must keep their assignee).
-//
-// 0.5.90 OpenMythos: the sole/enhancer mode choice is retired. Sole is
-// disabled server-side for new bindings (issue.go + the run API), so
-// the picker always binds lab_mode="enhancer" and mythos renders a
-// static enhancer info panel; legacy sole-bound issues get a one-click
-// switch affordance. The assignee is never cleared for mythos — it is
-// the outer loop's execution target.
+// 0.3.31 dual-mode (mythos_swarm sole/enhancer): REMOVED alongside the
+// mythos_swarm lab retirement — the picker no longer renders mode tabs
+// and always writes lab_mode="sole" for non-mythos labs (unchanged
+// wire behavior).
 //
 //
 // 0.5.6: the lab picker is now a thin wrapper over the remaining
@@ -76,16 +62,11 @@ export type LabMode = "sole" | "enhancer";
 interface LabPickerProps {
   /** Current lab_source value on the issue. null/undefined = no lab. */
   labSource: string | null | undefined;
-  /** Current lab_mode value on the issue. null/undefined = no mode.
-   *  Only meaningful when labSource === "mythos_swarm"; the picker
-   *  ignores it for any other lab (and for "no lab"). */
-  labMode?: LabMode | null;
-  /** Called when the user picks a lab (or clears it), or changes
-   *  the mythos mode. The next `lab_source` and (if changed)
-   *  `lab_mode` are populated; the picker is responsible for
-   *  deciding what to do with the existing assignee (typically
-   *  the caller wants `assignee_type` and `assignee_id` cleared
-   *  whenever the new value is non-null AND mode !== "enhancer"). */
+  /** Called when the user picks a lab (or clears it). The next
+   * `lab_source` and (if changed) `lab_mode` are populated; the picker
+   * is responsible for deciding what to do with the existing assignee
+   * (typically the caller wants `assignee_type` and `assignee_id`
+   * cleared whenever the new value is non-null AND mode !== "enhancer"). */
   onUpdate: (next: {
     lab_source: string | null;
     lab_mode?: LabMode | null;
@@ -118,14 +99,9 @@ interface LabPickerProps {
  * Picker surface — visually matches status / priority / label picker.
  * Renders the picker trigger as a small chip showing the localized
  * lab title when a lab is set, and a "None" hint when it is not.
- *
- * When the selected lab is mythos_swarm, the popover body appends
- * a second-level TabsList for sole / enhancer. The current mode
- * defaults to 'sole' if the caller never set one explicitly.
  */
 export function LabPicker({
   labSource,
-  labMode,
   onUpdate,
   onClearAssignee,
   align = "start",
@@ -202,20 +178,10 @@ export function LabPicker({
     return out;
   }, [flags, t]);
 
-  // The picked lab + mode determine what the popover body shows.
-  // 0.5.90 OpenMythos: the sole/enhancer tab pair is retired — sole is
-  // disabled server-side for new bindings, so mythos renders a static
-  // enhancer info panel instead of a mode choice.
-  const showModeTabs = labSource === "mythos_swarm";
-  // Legacy sole-bound issues (bound before 0.5.90) show the
-  // switch-to-enhancer affordance; fresh binds default to enhancer.
-  const effectiveMode: LabMode = labMode ?? "enhancer";
-
   // Commit the picked lab (or clear it). Assignee clearing is decided
   // here: assignee-model labs take over the assignee slot; everything
   // else keeps the current assignee — the server's leader rewrite only
-  // fills an EMPTY assignee field. OpenMythos (enhancer-only) keeps the
-  // assignee too: it IS the outer loop's execution target.
+  // fills an EMPTY assignee field.
   const commitSelection = (nextLab: string | null, mode: LabMode) => {
     if (nextLab === null) {
       // Clearing the lab also clears the mode so the next
@@ -223,15 +189,7 @@ export function LabPicker({
       onUpdate({ lab_source: null, lab_mode: null });
       return;
     }
-    if (nextLab === "mythos_swarm") {
-      // 0.5.90: always bind enhancer; never clear the assignee
-      // (it is the outer loop's execution target).
-      onUpdate({ lab_source: "mythos_swarm", lab_mode: "enhancer" });
-      return;
-    }
-    // Only mutex labs (swarm_topology here — mythos_swarm
-    // is handled above with its sole/enhancer nuance)
-    // clear the assignee. Non-mutex labs keep the
+    // Only mutex labs clear the assignee. Non-mutex labs keep the
     // current assignee: lab + assignee coexist by
     // contract, and the server's leader rewrite only
     // fills an EMPTY assignee field.
@@ -285,44 +243,13 @@ export function LabPicker({
                     setOpen(false);
                     return;
                   }
-                  const mode: LabMode =
-                    nextLab === "mythos_swarm" ? "enhancer" : "sole";
-                  commitSelection(nextLab, mode);
+                  commitSelection(nextLab, "sole");
                   setOpen(false);
                 }}
               >
                 {entry.title}
               </PickerItem>
             ))}
-
-            {/* 0.5.90 OpenMythos: the 0.3.31 sole/enhancer tab pair is
-                retired — sole is disabled server-side for new bindings.
-                mythos_swarm now renders a static enhancer info panel;
-                a legacy sole-bound issue gets a one-click switch. */}
-            {showModeTabs && (
-              <div className="mt-1.5 border-t border-border/60 pt-1.5">
-                <div className="rounded-md bg-purple-500/10 px-2 py-1.5">
-                  <div className="text-xs font-medium text-purple-700 dark:text-purple-300">
-                    {t(($) => $.pickers.lab.mode_enhancer) ?? "Enhancer"}
-                  </div>
-                  <div className="mt-0.5 text-[10px] leading-tight text-muted-foreground">
-                    {t(($) => $.pickers.lab.mode_enhancer_hint) ?? "Mythos plans first · hands off to your agent/squad"}
-                  </div>
-                </div>
-                {effectiveMode !== "enhancer" && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onUpdate({ lab_source: "mythos_swarm", lab_mode: "enhancer" });
-                      setOpen(false);
-                    }}
-                    className="mt-1 w-full rounded-md px-2 py-1 text-left text-[10px] leading-tight text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
-                  >
-                    {t(($) => $.pickers.lab.mode_sole_retired) ?? "Legacy standalone binding · switch to enhancer"}
-                  </button>
-                )}
-              </div>
-            )}
       </div>
     </PropertyPicker>
   );

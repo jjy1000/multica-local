@@ -23,7 +23,6 @@ import type {
   ListIssueStatusesResponse,
   ListIssuesResponse,
   ListWebhookDeliveriesResponse,
-  MythosSuperviseState,
   SearchIssuesResponse,
   SearchProjectsResponse,
   Squad,
@@ -1660,52 +1659,6 @@ export const LabContextSchema = z.object({
   server_time: z.string().default(""),
 }).loose();
 
-// SemanticaDecisionRecordSchema (0.5.30 P1-2 — synthesizer Round 7)
-// is the wire shape for POST /experimental/semantica/api/decisions,
-// consumed by decision_sync.go::buildSemanticaDecision. Mirrors the
-// Go-side `semanticaDecision` struct exactly; the server-side tag
-// list ("multica", "lab:semantica") is stable so Semantica queries
-// can filter the corpus. The Provenance envelope is required
-// (source/issue_id/workspace_id/actor_type/occurred_at are non-null;
-// actor_id may be empty when the system fires the sync).
-export const SemanticaDecisionProvenanceSchema = z.object({
-  source: z.string(),
-  issue_id: z.string(),
-  workspace_id: z.string(),
-  actor_type: z.string(),
-  actor_id: z.string().optional().default(""),
-  occurred_at: z.string(),
-}).loose();
-
-export const SemanticaDecisionRecordSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string().default(""),
-  status: z.string(),
-  outcome: z.string(),
-  tags: z.array(z.string()).default([]),
-  visibility: z.string().optional(),
-  provenance: SemanticaDecisionProvenanceSchema,
-}).loose();
-
-// 0.5.56 P4: ACL row mirror for the fork-side list endpoint at
-// GET /api/experimental/semantica/decisions. Visibility values are
-// pinned to the migration 273 CHECK; the schema defaults to "" so a
-// pre-P4 server (no Visibility field yet) still parses cleanly.
-export const SemanticaDecisionSummarySchema = z.object({
-  id: z.string(),
-  workspace_id: z.string(),
-  actor_type: z.string(),
-  actor_id: z.string().optional().default(""),
-  visibility: z.string().optional().default(""),
-  created_at: z.string(),
-}).loose();
-
-export const SemanticaDecisionListResponseSchema = z.object({
-  count: z.number().int().nonnegative(),
-  mode: z.enum(["individual", "team"]),
-  items: z.array(SemanticaDecisionSummarySchema),
-}).loose();
 
 // 0.5.114 issue-first embed: metadata stub for a sandbox artifact
 // listed by issue. Mirrors the Go RuntimeArtifactStub — bytes stay
@@ -1743,61 +1696,6 @@ export const EMPTY_LAB_CONTEXT: LabContext = {
   chat_session_id: null,
   lab_seq: 0,
   server_time: "",
-};
-
-// ---------------------------------------------------------------------------
-// Mythos Swarm run + supervise schemas (0.5.18 M2 LabOutputPanel)
-//
-// GET /api/issues/{issueID}/mythos-runs returns MythosRunSummary[] (the
-// durable run envelope). The free-text coda_summary is NOT persisted to
-// mythos_run — the durable row carries `problem` + `coda_conclusions` only.
-// GET/POST /api/experimental/mythos-swarm/supervise/{runID} returns the
-// supervision_state JSONB envelope (MythosSuperviseStateResponse). Kept
-// lenient (loose + string-typed status/mode/phase) so a future server field
-// addition degrades to the EMPTY fallback instead of crashing the panel.
-
-export const MythosCodaConclusionSchema = z.object({
-  key: z.string(),
-  value: z.string(),
-  confidence: z.number().nullable().optional(),
-  actionable: z.boolean().nullable().optional(),
-}).loose();
-
-export const MythosRunSummarySchema = z.object({
-  run_id: z.string(),
-  status: z.string(),
-  mode: z.string(),
-  started_at: z.string(),
-  problem: z.string().default(""),
-  iterations: z.number().default(0),
-  completed_at: z.string().nullable().optional(),
-  final_issue_id: z.string().nullable().optional(),
-  coda_conclusions: z.array(MythosCodaConclusionSchema).default([]),
-}).loose();
-
-export const MythosRunListSchema = z.array(MythosRunSummarySchema);
-
-export const MythosSuperviseStateSchema = z.object({
-  run_id: z.string(),
-  phase: z.string(),
-  started_at: z.string().optional(),
-  last_check_at: z.string().optional(),
-  last_tick_duration_ms: z.number().default(0),
-  total_ticks: z.number().default(0),
-  sub_tasks_total: z.number().default(0),
-  sub_tasks_done: z.number().default(0),
-  latest_reflection: z.string().optional(),
-  latest_reflection_iter: z.number().optional(),
-  abort_reason: z.string().optional(),
-}).loose();
-
-export const EMPTY_MYTHOS_SUPERVISE_STATE: MythosSuperviseState = {
-  run_id: "",
-  phase: "preparing",
-  last_tick_duration_ms: 0,
-  total_ticks: 0,
-  sub_tasks_total: 0,
-  sub_tasks_done: 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -1897,53 +1795,6 @@ export const PythiaChatAnswerSchema = z.object({
 }).loose();
 
 // ---------------------------------------------------------------------------
-// TimesFM per-issue forecast run schemas (0.5.82 WL2)
-//
-// GET /api/experimental/timesfm/forecast/issue/runs?issue_id=<id>&limit=N
-// returns TimesfmForecastRun[] (newest first, default limit 10). Each row
-// is a timesfm_forecast_run (migration 275): the `result` JSONB holds the
-// engine's raw answer — {series:[{point, quantiles, provenance, dates?}],
-// provenance, model_present, horizon} — exactly what the loopback engine
-// returned, so the lab view re-renders what the engine answered. The
-// quantile map keys mirror the engine's quantile head (10/80/90% bands +
-// median). Kept lenient (.loose() + defaults) so a future engine field
-// addition degrades to the fallback instead of crashing the panel.
-// `provenance` is a DB CHECK set (model | seasonal_naive | mixed) — kept
-// as z.string() so an unknown value still parses and the UI can render it
-// verbatim.
-export const TimesfmQuantilesSchema = z.object({
-  lower_90: z.array(z.number()).default([]),
-  lower_80: z.array(z.number()).default([]),
-  median: z.array(z.number()).default([]),
-  upper_80: z.array(z.number()).default([]),
-  upper_90: z.array(z.number()).default([]),
-}).loose();
-
-export const TimesfmSeriesPointSchema = z.object({
-  point: z.array(z.number()).default([]),
-  quantiles: TimesfmQuantilesSchema.optional(),
-  provenance: z.string().default(""),
-  dates: z.array(z.string()).optional(),
-}).loose();
-
-export const TimesfmForecastResultSchema = z.object({
-  series: z.array(TimesfmSeriesPointSchema).default([]),
-  provenance: z.string().default(""),
-  model_present: z.boolean().default(false),
-  horizon: z.number().default(0),
-}).loose();
-
-export const TimesfmForecastRunSchema = z.object({
-  id: z.string(),
-  horizons: z.number().default(0),
-  provenance: z.string().default(""),
-  created_at: z.string().default(""),
-  result: TimesfmForecastResultSchema.optional(),
-}).loose();
-
-export const TimesfmForecastRunListSchema = z.array(TimesfmForecastRunSchema);
-
-// ---------------------------------------------------------------------------
 // Issue causal graph schemas (0.5.83 WL3)
 //
 // Backs the gated causal-graph REST surface (server/internal/handler/
@@ -2031,27 +1882,6 @@ export const IssueDependencyListSchema = z.object({
   dependencies: z.array(IssueDependencySchema).default([]),
   dependents: z.array(IssueDependencySchema).default([]),
 }).loose();
-
-// ---------------------------------------------------------------------------
-// Code Canvas artifact schema (GET/POST
-// /api/experimental/code-canvas/issues/:id/artifacts)
-//
-// 0.5.18 M4: issue-bound rendered canvases. The Go handler returns
-// snake_case strings (pgtype UUID / timestamptz are converted to strings);
-// the `html` field is the self-contained, already-escaped canvas produced
-// by the code_canvas subprocess. `workspace_id` / `issue_id` are also on the
-// wire but not needed by the panel, so the schema only pins the fields the
-// UI reads (the .loose() keeps the extras without typing them).
-export const CodeCanvasArtifactSchema = z.object({
-  id: z.string().default(""),
-  code: z.string().default(""),
-  language: z.string().default("text"),
-  html: z.string().default(""),
-  created_at: z.string().default(""),
-}).loose();
-
-export const CodeCanvasArtifactListSchema = z.array(CodeCanvasArtifactSchema).default([]);
-
 
 // ---------------------------------------------------------------------------
 // LLM Wiki Bridge status schema (GET /api/experimental/llm-wiki/status)

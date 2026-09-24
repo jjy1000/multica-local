@@ -31,13 +31,9 @@ import { DaemonSettingsTab } from "./components/daemon-settings-tab";
 import { WorkspaceRouteLayout } from "./components/workspace-route-layout";
 import { DesktopRouteErrorPage } from "./components/route-error-page";
 import { ClaudeLabView } from "./pages/claude-lab-view";
-import { MythosView } from "./pages/mythos-view";
 import { PythiaView } from "./pages/pythia-view";
-import { TimesfmView } from "./pages/timesfm-view";
 import { CausalGraphView } from "./pages/causal-graph-view";
 import { LLMWikiBridgeView } from "./pages/llm-wiki-bridge-view";
-import { CodeCanvasView } from "./pages/code-canvas-view";
-import { SemanticaExplorerView } from "./pages/semantica-explorer-view";
 // 0.5.4: agent-creation-studio page deleted — the studio is now an
 // issue-bound lab. Users pick it in the LabPicker, and tasks dispatch
 // to `agent_creation_expert` (which then authors the resources via
@@ -169,14 +165,6 @@ export const appRoutes: RouteObject[] = [
             handle: { title: "Pythia Oracle" },
           },
           {
-            // 0.5.82: TimesFM forecasting lab — records-only surface
-            // (ICP-1: runs fire from issues via the timesfm_oracle
-            // agent; no manual trigger here). URL is
-            // /experimental/timesfm-lab, NOT /experimental/timesfm —
-            // that path is the bare REST proxy the agent subprocess
-            // calls (semantica / semantica-explorer split precedent).
-            path: "timesfm-lab",
-            element: <TimesfmView />,
             handle: { title: "TimesFM Forecast Lab" },
           },
           {
@@ -188,11 +176,6 @@ export const appRoutes: RouteObject[] = [
             element: <CausalGraphView />,
             handle: { title: "Knowledge Graph Decision Traceability" },
           },
-          {
-            path: "mythos",
-            element: <MythosView />,
-            handle: { title: "Mythos Swarm" },
-          },
           // 0.5.105 (audit H3): the swarm-topology route was removed
           // with the runtime retirement (catalog keeps a Frozen tombstone).
           {
@@ -201,8 +184,6 @@ export const appRoutes: RouteObject[] = [
             handle: { title: "LLM Wiki Bridge" },
           },
           {
-            path: "code-canvas",
-            element: <CodeCanvasView />,
             handle: { title: "Code Canvas" },
           },
           {
@@ -212,9 +193,6 @@ export const appRoutes: RouteObject[] = [
             // proxy the agent subprocess calls). Distinction matters: a future
             // /experimental/semantica-decisions tab should not collide with the
             // API proxy at /experimental/semantica/api/decisions.
-            path: "semantica-explorer",
-            element: <SemanticaExplorerView />,
-            handle: { title: "Semantica Explorer" },
           },
           {
             // 0.3.60: generic user plugin shell. The slug comes from the URL

@@ -68,8 +68,6 @@
     "row_stop_aria": "現在の実行を停止",
     "row_pin_aria": "チャットリストの一番上にピン留め",
     "row_unpin_aria": "チャットリストからピン留めを外す",
-    "pin_tooltip": "ピン留め",
-    "unpin_tooltip": "ピン留め解除",
     "stop_action": "停止",
     "row_subtitle": {
       "working": "作業中",

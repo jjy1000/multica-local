@@ -35,7 +35,6 @@ import (
 	agenttrust "github.com/multica-ai/multica/server/internal/service/agent_trust"
 	causalgraph "github.com/multica-ai/multica/server/internal/service/causal_graph"
 	"github.com/multica-ai/multica/server/internal/service/mcpsync"
-	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -172,11 +171,6 @@ type Handler struct {
 	// desktop main process during a manager restart.
 	ExperimentalFlagAPIKeysMu sync.RWMutex
 	ExperimentalFlagAPIKeys   map[string]string
-	// MythosService (0.3.31) owns the enhancer-mode supervise
-	// goroutines. Boot wires it from cmd/server/router.go after
-	// h.Queries is available. Nil is acceptable (older builds or
-	// tests) — the supervise HTTP handlers fall back to 503.
-	MythosService *mythossvc.Service
 	// ResourceGC (0.5.105, ex-swarm_gc) owns the 6h orphan sweep for
 	// experimental_resource_lock / experimental_resource_visibility.
 	// Boot wires it from cmd/server/router.go. Nil is acceptable —
@@ -193,21 +187,6 @@ type Handler struct {
 	// hook at server shutdown closes the ticker channel cleanly
 	// before SIGKILL. Nil is acceptable — test-only builds skip it.
 	RuntimeGC *experimental.RuntimeGC
-	// SemanticaGC (0.5.30 P1-3 — synthesizer Round 7) sweeps the
-	// per-workspace semantica-graph*.provenance files older than
-	// 90 days, plus pre-P1-1 orphan .api-key files. Filesystem-only
-	// (Semantica is an external Python service that owns its own
-	// storage); default interval 24h, default retention 90d. Wired
-	// alongside RuntimeGC + SwarmGC in cmd/server/router.go; Stop
-	// from cmd/server/main.go shutdown. Nil is acceptable — test-
-	// only builds skip it.
-	SemanticaGC *experimental.SemanticaGC
-
-	// SemanticaACLReconciler (0.5.58 P6) ticks every 6h and emits a
-	// reconcile log line; the actual reconcile body lands once
-	// upstream semantica exposes list /api/decisions. Until then,
-	// the field is observability + cron infrastructure only.
-	SemanticaACLReconciler *experimental.ACLReconciler
 	// AuthTokenGC (0.5.31) sweeps the three auth-token tables that
 	// have an `expires_at` column but no working retention GC:
 	// task_token (migration 108), workspace_invitation (041), and

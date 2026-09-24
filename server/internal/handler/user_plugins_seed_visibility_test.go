@@ -18,8 +18,8 @@ func TestSeedPluginVisibility_ScopesToInstallerWorkspace(t *testing.T) {
 	ctx := context.Background()
 
 	// Two workspaces, each with an agent sharing the same name.
-	_, wsA := installCodeCanvasFresh(t, ctx, "f013-ws-a")
-	_, wsB := installCodeCanvasFresh(t, ctx, "f013-ws-b")
+	_, wsA := installLabTestFresh(t, ctx, "f013-ws-a")
+	_, wsB := installLabTestFresh(t, ctx, "f013-ws-b")
 
 	insertAgent := func(wsID, name string) string {
 		t.Helper()

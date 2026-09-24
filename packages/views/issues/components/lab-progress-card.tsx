@@ -45,23 +45,18 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { api, parseWithFallback } from "@multica/core/api";
-import { useTimesfmForecastRuns } from "@multica/core/experimental";
 import {
-  MythosRunListSchema,
   PythiaForecastRunListSchema,
   UserPluginArtifactMetaListSchema,
 } from "@multica/core/api/schemas";
 import type { UserPluginArtifactMeta } from "@multica/core/api/schemas";
 import type {
-  MythosRunSummary,
   PythiaForecastRun,
-  TimesfmForecastRun,
 } from "@multica/core/types/api";
 import { AppLink } from "../../navigation";
 import { labRunHref } from "../../experimental/components/lab-run-link";
 import {
   derivePythiaTriggerState,
-  isTimesfmRunRecent,
   readPythiaTriggeredAt,
 } from "../../experimental/components/lab-run-heuristics";
 import { useT } from "../../i18n";
@@ -73,8 +68,6 @@ const AUXILIARY_LAB_SOURCES = new Set([
   "semantica",
 ]);
 
-/** Mythos run statuses that will not change again (migrations 149/157). */
-const MYTHOS_TERMINAL_STATUSES = new Set(["completed", "aborted", "failed"]);
 
 const POLL_INTERVAL_MS = 5_000;
 const IDLE_INTERVAL_MS = 60_000;
@@ -101,12 +94,6 @@ type CardState =
   | { kind: "done"; summary?: string; runId?: string | null }
   | { kind: "failed"; summary?: string; runId?: string | null }
   | { kind: "engine_down"; summary?: string; runId?: string | null };
-
-function truncateOneLine(s: string, limit = 120): string {
-  const trimmed = s.trim();
-  if (trimmed.length <= limit) return trimmed;
-  return trimmed.slice(0, limit - 1).trimEnd() + "…";
-}
 
 function formatRunTime(createdAt: string | null | undefined): string | null {
   if (!createdAt) return null;
@@ -445,191 +432,6 @@ function PythiaProgressCard({
   );
 }
 
-// ── TimesFM ───────────────────────────────────────────────────────────────
-
-function TimesfmProgressCard({
-  issueId,
-  flagEnabled,
-}: {
-  issueId: string;
-  flagEnabled: boolean;
-}) {
-  const { t } = useT("issues");
-
-  // Same hook + limit as TimesfmPanel → same cache entry, no extra poll.
-  const runsQuery = useTimesfmForecastRuns(issueId);
-
-  if (runsQuery.isLoading) return <LabProgressCardSkeleton />;
-  if (runsQuery.isError) {
-    return (
-      <ProgressCardBody
-        testId="lab-progress-card"
-        labSource="timesfm"
-        issueId={issueId}
-        state={{ kind: "engine_down" }}
-        flagEnabled={flagEnabled}
-      />
-    );
-  }
-
-  const runs = runsQuery.data ?? [];
-  const latest: TimesfmForecastRun | null = runs[0] ?? null;
-  if (!latest) {
-    return (
-      <ProgressCardBody
-        testId="lab-progress-card"
-        labSource="timesfm"
-        issueId={issueId}
-        state={{ kind: "idle" }}
-        flagEnabled={flagEnabled}
-      />
-    );
-  }
-
-  const runTime = formatRunTime(latest.created_at);
-  const summary = `H${latest.horizons} · ${latest.provenance || "—"}${runTime ? ` · ${runTime}` : ""}`;
-  // Rows persist only AFTER the engine answers, so a persisted row is a
-  // completed run. Recency (<2 min) reads as fresh activity — rendered with
-  // the running treatment so "just used it" is glanceable.
-  const fresh = isTimesfmRunRecent(latest.created_at);
-
-  return (
-    <ProgressCardBody
-      testId="lab-progress-card"
-      labSource="timesfm"
-      issueId={issueId}
-      runId={latest.id}
-      flagEnabled={flagEnabled}
-      state={
-        fresh
-          ? {
-              kind: "running",
-              summary: `${summary} · ${t(($) => $.lab_section.progress_done)}`,
-            }
-          : { kind: "done", summary }
-      }
-    />
-  );
-}
-
-// ── Mythos Swarm ──────────────────────────────────────────────────────────
-
-function MythosProgressCard({
-  wsId,
-  issueId,
-  flagEnabled,
-}: {
-  wsId: string;
-  issueId: string;
-  flagEnabled: boolean;
-}) {
-  const { t } = useT("issues");
-
-  // Shares MythosPanel's cache key (same pattern as the pythia card).
-  const runsQuery = useQuery({
-    queryKey: ["lab-output-panel-mythos-runs", wsId, issueId],
-    queryFn: async (): Promise<MythosRunSummary[]> => {
-      const r = await api.rawRequest(
-        `/api/issues/${encodeURIComponent(issueId)}/mythos-runs?workspace_id=${encodeURIComponent(wsId)}`,
-      );
-      if (r.status === 404) return [];
-      if (!r.ok) throw new Error(`mythos-runs ${r.status}`);
-      const raw: unknown = await r.json();
-      return parseWithFallback<MythosRunSummary[]>(
-        raw,
-        MythosRunListSchema,
-        [],
-        { endpoint: "GET /api/issues/:id/mythos-runs" },
-      );
-    },
-    refetchInterval: (query) => {
-      const runs = query.state.data;
-      const latestRun = runs?.[0];
-      if (!latestRun) return IDLE_INTERVAL_MS;
-      return MYTHOS_TERMINAL_STATUSES.has(latestRun.status)
-        ? IDLE_INTERVAL_MS
-        : POLL_INTERVAL_MS;
-    },
-  });
-
-  if (runsQuery.isLoading) return <LabProgressCardSkeleton />;
-  if (runsQuery.isError) {
-    return (
-      <ProgressCardBody
-        testId="lab-progress-card"
-        labSource="mythos_swarm"
-        issueId={issueId}
-        state={{ kind: "failed" }}
-        flagEnabled={flagEnabled}
-      />
-    );
-  }
-
-  const runs = runsQuery.data ?? [];
-  const latest = runs[0] ?? null;
-  if (!latest) {
-    return (
-      <ProgressCardBody
-        testId="lab-progress-card"
-        labSource="mythos_swarm"
-        issueId={issueId}
-        state={{ kind: "idle" }}
-        flagEnabled={flagEnabled}
-      />
-    );
-  }
-
-  // `iterations` is the run's current loop (mythos_run.current_loop via the
-  // handler); there is no max_loop_iters field on the wire.
-  const loopSummary =
-    latest.iterations > 0
-      ? t(($) => $.lab_section.progress_mythos_loop, {
-          loop: String(latest.iterations),
-        })
-      : undefined;
-  const problemSummary = latest.problem
-    ? truncateOneLine(latest.problem)
-    : undefined;
-  const runTime = formatRunTime(latest.completed_at ?? latest.started_at);
-  const summaryTail = runTime ? ` · ${runTime}` : "";
-
-  if (MYTHOS_TERMINAL_STATUSES.has(latest.status)) {
-    return (
-      <ProgressCardBody
-        testId="lab-progress-card"
-        labSource="mythos_swarm"
-        issueId={issueId}
-        runId={latest.run_id}
-        flagEnabled={flagEnabled}
-        state={{
-          kind:
-            latest.status === "completed"
-              ? "done"
-              : ("failed" as const),
-          summary: [problemSummary, loopSummary]
-            .filter(Boolean)
-            .join(" · ") + summaryTail,
-        }}
-      />
-    );
-  }
-
-  // running | supervising — live collaboration.
-  return (
-    <ProgressCardBody
-      testId="lab-progress-card"
-      labSource="mythos_swarm"
-      issueId={issueId}
-      runId={latest.run_id}
-      flagEnabled={flagEnabled}
-      state={{
-        kind: "running",
-        summary: [latest.mode, loopSummary].filter(Boolean).join(" · "),
-      }}
-    />
-  );
-}
-
 // ── Claude Science Lab (snapshot-driven) ──────────────────────────────────
 
 function ClaudeProgressCard({
@@ -775,20 +577,6 @@ export function LabProgressCard({
   if (labSource === "pythia_oracle") {
     return (
       <PythiaProgressCard
-        wsId={workspaceId}
-        issueId={issueId}
-        flagEnabled={flagEnabled}
-      />
-    );
-  }
-  if (labSource === "timesfm") {
-    return (
-      <TimesfmProgressCard issueId={issueId} flagEnabled={flagEnabled} />
-    );
-  }
-  if (labSource === "mythos_swarm") {
-    return (
-      <MythosProgressCard
         wsId={workspaceId}
         issueId={issueId}
         flagEnabled={flagEnabled}

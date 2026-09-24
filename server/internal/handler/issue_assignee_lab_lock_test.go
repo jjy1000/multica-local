@@ -20,9 +20,7 @@ import (
 // Contract table (catalog_test.go::TestCatalogInteractionModelContract
 // pins the classification literals; THIS file pins the HTTP behavior):
 //   - pythia_oracle → leader pythia_runtime: leader allowed, others 400.
-//   - timesfm → leader timesfm_oracle (0.5.86 leader-table addition).
-//   - mythos_swarm → no leader: any manual assignee still 400s
-//     (0.3.33 sole-mutex preserved through the same gate).
+//   - claude_science_lab → leader research: same gate, same shape.
 //   - untouched-field PATCHes on a lab-bound issue stay allowed
 //     (no false positive on title/status edits).
 func TestAssigneeLabLockGate(t *testing.T) {
@@ -32,8 +30,8 @@ func TestAssigneeLabLockGate(t *testing.T) {
 	if testWorkspaceID == "" {
 		t.Skip("workspace fixture not initialized")
 	}
-	if !experimental.IsAssigneeModelLab("pythia_oracle") || !experimental.IsAssigneeModelLab("timesfm") {
-		t.Fatalf("catalog classification drifted: pythia_oracle/timesfm must be InteractionModelAssignee")
+	if !experimental.IsAssigneeModelLab("pythia_oracle") {
+		t.Fatalf("catalog classification drifted: pythia_oracle must be InteractionModelAssignee")
 	}
 
 	// Provision the pythia leader row in the fixture workspace so the
@@ -103,7 +101,7 @@ func TestAssigneeLabLockGate(t *testing.T) {
 		w := httptest.NewRecorder()
 		req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
 			"title":         "lab-lock-reject-member",
-			"lab_source":    "timesfm",
+			"lab_source":    "claude_science_lab",
 			"assignee_type": "member",
 			"assignee_id":   testUserID,
 		})
@@ -111,8 +109,8 @@ func TestAssigneeLabLockGate(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 		}
-		if !strings.Contains(w.Body.String(), "locks the assignee to the lab agent (timesfm_oracle)") {
-			t.Errorf("expected timesfm leader-naming error, got: %s", w.Body.String())
+		if !strings.Contains(w.Body.String(), "locks the assignee to the lab agent (research)") {
+			t.Errorf("expected claude-lab leader-naming error, got: %s", w.Body.String())
 		}
 	})
 
@@ -168,22 +166,6 @@ func TestAssigneeLabLockGate(t *testing.T) {
 		}
 	})
 
-	t.Run("mythos keeps the strict no-manual-assignee mutex", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
-			"title":         "lab-lock-mythos-strict",
-			"lab_source":    "mythos_swarm",
-			"assignee_type": "agent",
-			"assignee_id":   leaderID,
-		})
-		testHandler.CreateIssue(w, req)
-		if w.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-		}
-		if !strings.Contains(w.Body.String(), "requires the lab to own the assignee") {
-			t.Errorf("expected roster-ownership error, got: %s", w.Body.String())
-		}
-	})
 
 	t.Run("auxiliary lab never locks (causal_graph + member assignee allowed)", func(t *testing.T) {
 		if !experimental.IsAuxiliaryModelLab("causal_graph") {

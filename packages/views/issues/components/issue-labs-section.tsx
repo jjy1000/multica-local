@@ -35,9 +35,7 @@ import { useT } from "../../i18n";
 export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   claude_science_lab: "claude-lab",
   pythia_oracle: "pythia",
-  mythos_swarm: "mythos",
   llm_wiki_bridge: "llm-wiki",
-  code_canvas: "code-canvas",
   // 0.5.105 (audit H3): the swarm_topology row was removed with the
   // runtime retirement — legacy swarm-bound issues resolve no route.
   // 0.5.81: semantica issues had NO jump target at all — this map is
@@ -47,12 +45,10 @@ export const FLAG_ROUTE_SUFFIX: Record<string, string> = {
   // those affordances for semantica-bound issues. The URL matches
   // routes.tsx (`/experimental/semantica-explorer`, NOT
   // `/experimental/semantica` — that path is the REST proxy).
-  semantica: "semantica-explorer",
   // 0.5.82: timesfm — local TimesFM 2.5 forecasting lab. The URL matches
   // routes.tsx (`/experimental/timesfm-lab`, NOT `/experimental/timesfm`
   // — that path is the bare REST proxy the agent subprocess calls; same
   // split as semantica above).
-  timesfm: "timesfm-lab",
   // 0.5.83: issue causal graph + hidden agent team. Same routing law as
   // semantica/timesfm above — `/experimental/causal-graph` is the focused
   // view (not the bare `/api/causal-graph/*` REST surface).
@@ -173,11 +169,9 @@ export function AgentTrustCorrectButton({
  */export function IssueLabsSection({
   issueId,
   labSource,
-  issueLabMode = null,
 }: {
   issueId: string;
   labSource: string;
-  issueLabMode?: "sole" | "enhancer" | null;
 }) {
   const { t } = useT("issues");
   const wsId = useWorkspaceId();
@@ -401,20 +395,13 @@ export function AgentTrustCorrectButton({
 
           {/* 0.5.18 M1: converged read-side output panel for the
               A-class issue-bound labs. Only claude_science_lab has a
-              real LabContext reader; pythia/mythos/code-canvas/swarm
-              have dedicated readers, and 0.5.82 adds the timesfm
-              compact records reader. */}
+              real LabContext reader; pythia has a dedicated reader. */}
           {(labSource === "claude_science_lab" ||
-            labSource === "pythia_oracle" ||
-            labSource === "mythos_swarm" ||
-            labSource === "code_canvas" ||
-            labSource === "swarm_topology" ||
-            labSource === "timesfm") && (
+            labSource === "pythia_oracle") && (
             <LabOutputPanel
               wsId={wsId}
               issueId={issueId}
               labSource={labSource}
-              labMode={issueLabMode ?? undefined}
             />
           )}
 

@@ -68,26 +68,21 @@ export interface ManagerFactoryDescriptor {
 // get-status with a stable "ready" surface instead of throwing.
 // loadFlagDescriptors() still merges any server-only additions on top.
 const staticFlagDescriptors: ReadonlyArray<ManagerFactoryDescriptor> = [
-  { flagKey: "chat_pin_ui", kind: "none", label: "experimental_chat_pin_ui" },
   { flagKey: "claude_science_lab", kind: "inline", label: "experimental_claude_science_lab" },
   { flagKey: "pythia_oracle", kind: "subprocess", label: "experimental_pythia" },
-  { flagKey: "mythos_swarm", kind: "headless", label: "experimental_mythos" },
   // 0.5.105 (audit H3): the swarm_topology descriptor was removed with
   // the runtime retirement.
   { flagKey: "llm_wiki_bridge", kind: "subprocess", label: "experimental_llm_wiki_bridge" },
-  { flagKey: "code_canvas", kind: "subprocess", label: "experimental_code_canvas" },
   // 0.5.22 Phase 2: semantica is a catalog-only subprocess flag driven by
   // the generic manifest path (resolveGenericSubprocessManager). The static
   // descriptor is the cold-boot safety net — without it, on a boot where
   // loadFlagDescriptors() has not resolved the server catalog yet, the IPC
   // dispatcher cannot answer experimental:semantica:get-status.
-  { flagKey: "semantica", kind: "subprocess", label: "experimental_semantica" },
   // 0.5.82 WL2: timesfm mirrors semantica — generic subprocess manager
   // spawning resources/timesfm/run.sh (vendored TimesFM 2.5 torch stack).
   // Static cold-boot safety net for experimental:timesfm:get-status.
   // Flag-key literal "timesfm" is a VERBATIM copy per the duplication law
   // (server catalog + install_timesfm.go + migration 275 CHECK pin it).
-  { flagKey: "timesfm", kind: "subprocess", label: "experimental_timesfm" },
   // 0.5.83 WL3: causal_graph is server-NATIVE — the graph tables and
   // gated REST surface live in the Go server, so the desktop owns no
   // subprocess for it (kind "none" = get-status answers "not running"

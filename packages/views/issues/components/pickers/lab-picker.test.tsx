@@ -131,45 +131,6 @@ describe("LabPicker", () => {
     expect(items.length).toBe(3);
   });
 
-  it("0.5.90: mythos binds enhancer-only and never clears the assignee", () => {
-    mockFlags.value = [
-      ...mockFlags.value,
-      { key: "mythos_swarm", title: { zh: "Mythos 群集", en: "Mythos Swarm" }, enabled: true },
-    ];
-    // 0.5.90 OpenMythos: sole mode is retired (server rejects it for
-    // new bindings) — picking mythos always binds enhancer, and the
-    // assignee is the outer loop's execution target so it is kept.
-    const sole = renderPicker();
-    const trigger = document.querySelector("button[aria-haspopup]")!;
-    fireEvent.click(trigger);
-    // Items: None + claude_science_lab + pythia_oracle + mythos_swarm.
-    const items = document.querySelectorAll("button[data-picker-item]");
-    fireEvent.click(items[3]!);
-    expect(sole.onClearAssignee).not.toHaveBeenCalled();
-    expect(sole.onUpdate).toHaveBeenCalledWith({
-      lab_source: "mythos_swarm",
-      lab_mode: "enhancer",
-    });
-  });
-
-  it("mythos_swarm enhancer mode does not clear the assignee", () => {
-    mockFlags.value = [
-      ...mockFlags.value,
-      { key: "mythos_swarm", title: { zh: "Mythos 群集", en: "Mythos Swarm" }, enabled: true },
-    ];
-    // enhancer reverses the mutex: the user kept an assignee by design.
-    const enh = renderPicker({ labSource: null, labMode: "enhancer" });
-    const trigger = document.querySelector("button[aria-haspopup]")!;
-    fireEvent.click(trigger);
-    const items = document.querySelectorAll("button[data-picker-item]");
-    fireEvent.click(items[3]!);
-    expect(enh.onClearAssignee).not.toHaveBeenCalled();
-    expect(enh.onUpdate).toHaveBeenCalledWith({
-      lab_source: "mythos_swarm",
-      lab_mode: "enhancer",
-    });
-  });
-
   it("selecting 'None' does NOT call onClearAssignee", () => {
     // The asymmetric semantics is intentional: clearing the lab
     // is a user-driven "I want a different actor" gesture, not

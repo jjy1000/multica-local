@@ -151,8 +151,8 @@ func TestUserPrefProvider_NilReceiver(t *testing.T) {
 }
 
 func TestIsKnownKey(t *testing.T) {
-	if !IsKnownKey("chat_pin_ui") {
-		t.Fatal("chat_pin_ui should be a known key")
+	if !IsKnownKey("claude_science_lab") {
+		t.Fatal("claude_science_lab should be a known key")
 	}
 	if IsKnownKey("nonexistent_flag") {
 		t.Fatal("nonexistent_flag should not be a known key")

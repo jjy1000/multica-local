@@ -147,9 +147,7 @@ vi.mock("@multica/core/experimental", () => {
     { key: "pythia_oracle", flagKey: "pythia_oracle", labelKey: "experimental_pythia_oracle", route: "/experimental/pythia-oracle" },
     { key: "mythos_swarm", flagKey: "mythos_swarm", labelKey: "experimental_mythos_swarm", route: "/experimental/mythos-swarm" },
     { key: "llm_wiki_bridge", flagKey: "llm_wiki_bridge", labelKey: "experimental_llm_wiki_bridge", route: "/experimental/llm-wiki-bridge" },
-    { key: "code_canvas", flagKey: "code_canvas", labelKey: "experimental_code_canvas", route: "/experimental/code-canvas" },
     { key: "chat_pin_ui", flagKey: "chat_pin_ui", labelKey: "experimental_chat_pin_ui", route: "/experimental/chat-pin-ui" },
-    { key: "experimental_semantica", flagKey: "semantica", labelKey: "experimental_semantica", route: "/experimental/semantica-explorer" },
   ];
   return {
     useExperimentalFlag: () => false,
@@ -210,28 +208,5 @@ describe("PinRow", () => {
       "true",
     );
     expect(container.querySelector('button[data-href="/acme/issues"]')).not.toHaveAttribute("data-active");
-  });
-});
-
-// 0.5.74 batch 1 — Code-Reviewer audit finding A: semantica must resolve to
-// a distinct lucide icon in the experimental sidebar (Brain). Without an
-// entry in experimentalIconByKey it falls back to FlaskConical, so we assert
-// the row's primary icon SVG (the first <svg> in the button — the BadgeShape
-// FlaskConical lives deeper inside a TooltipTrigger-wrapped button and is
-// not the primary icon) is the expected glyph. (0.5.105: the swarm_topology
-// Network-icon test was removed with the runtime retirement.)
-describe("experimentalIconByKey", () => {
-  beforeEach(() => {
-    navigation.current.pathname = "/acme/issues";
-    detail.current = { isPending: false, isError: false, data: null, error: null };
-  });
-
-  it("renders semantica row with Brain icon (not FlaskConical fallback)", () => {
-    const { container } = render(<AppSidebar />);
-    const semanticaButton = container.querySelector('button[data-href="/experimental/semantica-explorer"]');
-    expect(semanticaButton).not.toBeNull();
-    const primaryIcon = semanticaButton?.querySelector(":scope > svg");
-    expect(primaryIcon?.classList.contains("lucide-brain")).toBe(true);
-    expect(primaryIcon?.classList.contains("lucide-flask-conical")).toBe(false);
   });
 });

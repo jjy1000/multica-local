@@ -33,7 +33,7 @@ func TestListExperimentalFlags_DefaultValues(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	if len(resp.Flags) == 0 {
-		t.Fatal("expected at least one catalog flag (chat_pin_ui)")
+		t.Fatal("expected at least one catalog flag (llm_wiki_bridge)")
 	}
 	// Catalog length pins: every catalog entry must be exposed AND the
 	// response must not silently drop or duplicate any flag. A future
@@ -75,8 +75,6 @@ func TestListExperimentalFlags_DefaultValues(t *testing.T) {
 	wantLeaders := map[string]string{
 		"claude_science_lab": "research",
 		"pythia_oracle":      "pythia_runtime",
-		"code_canvas":        "code_canvas_worker",
-		"mythos_swarm":       "",
 	}
 	for key, want := range wantLeaders {
 		if got := leaderByKey[key]; got != want {
@@ -93,12 +91,12 @@ func TestUpdateExperimentalFlag_TogglesAndPersists(t *testing.T) {
 		t.Skip("database not available")
 	}
 
-	// Flip chat_pin_ui on for the test user, then verify GET reflects it.
+	// Flip llm_wiki_bridge on for the test user, then verify GET reflects it.
 	w := httptest.NewRecorder()
-	r := newRequest("PATCH", "/api/experimental-flags/chat_pin_ui", map[string]any{
+	r := newRequest("PATCH", "/api/experimental-flags/llm_wiki_bridge", map[string]any{
 		"enabled": true,
 	})
-	r = withURLParam(r, "key", "chat_pin_ui")
+	r = withURLParam(r, "key", "llm_wiki_bridge")
 	testHandler.UpdateExperimentalFlag(w, r)
 
 	if w.Code != http.StatusNoContent {
@@ -107,10 +105,10 @@ func TestUpdateExperimentalFlag_TogglesAndPersists(t *testing.T) {
 	t.Cleanup(func() {
 		// Reset to false so other tests see the canonical default.
 		reset := httptest.NewRecorder()
-		resetR := newRequest("PATCH", "/api/experimental-flags/chat_pin_ui", map[string]any{
+		resetR := newRequest("PATCH", "/api/experimental-flags/llm_wiki_bridge", map[string]any{
 			"enabled": false,
 		})
-		resetR = withURLParam(resetR, "key", "chat_pin_ui")
+		resetR = withURLParam(resetR, "key", "llm_wiki_bridge")
 		testHandler.UpdateExperimentalFlag(reset, resetR)
 	})
 
@@ -126,8 +124,8 @@ func TestUpdateExperimentalFlag_TogglesAndPersists(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	for _, f := range resp.Flags {
-		if f.Key == "chat_pin_ui" && !f.Enabled {
-			t.Fatalf("expected chat_pin_ui enabled=true after PATCH, got false")
+		if f.Key == "llm_wiki_bridge" && !f.Enabled {
+			t.Fatalf("expected llm_wiki_bridge enabled=true after PATCH, got false")
 		}
 	}
 }

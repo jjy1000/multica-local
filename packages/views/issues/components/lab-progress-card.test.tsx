@@ -1,7 +1,7 @@
 // lab-progress-card.test.tsx (0.5.86)
 //
 // Per-lab progress card in the issue Labs section: idle / running / done /
-// failed / engine-down states for pythia + timesfm (mocked endpoints),
+// failed / engine-down states for pythia (mocked endpoints),
 // live-snapshot states for claude_science_lab, the auxiliary muted row for
 // causal_graph, and click-through href correctness (issue-scoped vs
 // ?run=-scoped deep links). Mirrors the mocking patterns of
@@ -20,7 +20,6 @@ import { LabProgressCard } from "./lab-progress-card";
 import {
   pythiaTriggerKey,
   PYTHIA_IN_PROGRESS_WINDOW_MS,
-  TIMESFM_RECENT_RUN_WINDOW_MS,
 } from "../../experimental/components/lab-run-heuristics";
 
 // Keep the real parseWithFallback (and everything else in the barrel) and
@@ -56,25 +55,6 @@ const pythiaRun = {
   envelopes: [],
 };
 
-const timesfmRun = {
-  id: "tfn-1",
-  horizons: 24,
-  provenance: "model",
-  created_at: "2026-08-14T00:00:00Z",
-  result: { series: [], provenance: "model", model_present: true, horizon: 24 },
-};
-
-const mythosRun = {
-  run_id: "mrun-1",
-  status: "running",
-  mode: "enhancer",
-  started_at: "2026-08-14T00:00:00Z",
-  problem: "How do we grow?",
-  iterations: 3,
-  completed_at: null,
-  final_issue_id: null,
-  coda_conclusions: [],
-};
 
 function Wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({
@@ -192,88 +172,7 @@ describe("LabProgressCard — pythia_oracle", () => {
   });
 });
 
-describe("LabProgressCard — timesfm", () => {
-  it("renders done with horizons + honest provenance and the run-scoped deep link", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(200, [timesfmRun]));
-    renderCard({ labSource: "timesfm" });
 
-    await waitFor(() => expect(card().dataset.state).toBe("done"));
-    expect(card().textContent).toContain("H24");
-    expect(card().textContent).toContain("model");
-    expect(cardHref()).toBe(
-      "/experimental/timesfm-lab?issue=issue-1&run=tfn-1",
-    );
-  });
-
-  it("renders running (recency heuristic) when the latest run is younger than the recent-run window", async () => {
-    mockRawRequest.mockResolvedValue(
-      makeResponse(200, [
-        {
-          ...timesfmRun,
-          created_at: new Date().toISOString(),
-        },
-      ]),
-    );
-    renderCard({ labSource: "timesfm" });
-
-    await waitFor(() => expect(card().dataset.state).toBe("running"));
-    // The run data still rides along — a persisted row is a completed run.
-    expect(card().textContent).toContain("H24");
-  });
-
-  it("renders idle when no runs exist (absence is idle, not engine-down — GET /runs works engine-down)", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(200, []));
-    renderCard({ labSource: "timesfm" });
-
-    await waitFor(() => expect(card().dataset.state).toBe("idle"));
-    expect(cardHref()).toBe("/experimental/timesfm-lab?issue=issue-1");
-  });
-
-  it("renders engine_down when the runs endpoint answers 5xx", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(503, { error: "down" }));
-    renderCard({ labSource: "timesfm" });
-
-    await waitFor(() => expect(card().dataset.state).toBe("engine_down"));
-  });
-});
-
-describe("LabProgressCard — mythos_swarm", () => {
-  it("renders running with the current-loop count from `iterations` (current_loop; no max on the wire)", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(200, [mythosRun]));
-    renderCard({ labSource: "mythos_swarm" });
-
-    await waitFor(() => expect(card().dataset.state).toBe("running"));
-    expect(card().textContent).toContain("iteration 3");
-    expect(card().textContent).toContain("enhancer");
-    expect(cardHref()).toBe("/experimental/mythos?issue=issue-1&run=mrun-1");
-  });
-
-  it("renders done for a completed run with the problem summary", async () => {
-    mockRawRequest.mockResolvedValue(
-      makeResponse(200, [{ ...mythosRun, status: "completed" }]),
-    );
-    renderCard({ labSource: "mythos_swarm" });
-
-    await waitFor(() => expect(card().dataset.state).toBe("done"));
-    expect(card().textContent).toContain("How do we grow?");
-  });
-
-  it("renders failed for aborted runs", async () => {
-    mockRawRequest.mockResolvedValue(
-      makeResponse(200, [{ ...mythosRun, status: "aborted" }]),
-    );
-    renderCard({ labSource: "mythos_swarm" });
-
-    await waitFor(() => expect(card().dataset.state).toBe("failed"));
-  });
-
-  it("renders idle when no runs exist", async () => {
-    mockRawRequest.mockResolvedValue(makeResponse(200, []));
-    renderCard({ labSource: "mythos_swarm" });
-
-    await waitFor(() => expect(card().dataset.state).toBe("idle"));
-  });
-});
 
 describe("LabProgressCard — claude_science_lab (snapshot-driven)", () => {
   it("renders running from the live snapshot flags with the issue-scoped link", () => {
@@ -317,8 +216,8 @@ describe("LabProgressCard — auxiliary + uncovered labs", () => {
     expect(screen.queryByTestId("lab-progress-card")).toBeNull();
   });
 
-  it("renders the muted auxiliary row for llm_wiki_bridge and semantica", () => {
-    for (const lab of ["llm_wiki_bridge", "semantica"]) {
+  it("renders the muted auxiliary row for llm_wiki_bridge", () => {
+    for (const lab of ["llm_wiki_bridge"]) {
       const { unmount } = renderCard({ labSource: lab });
       expect(
         screen.getByTestId("lab-progress-card-auxiliary"),
@@ -327,21 +226,6 @@ describe("LabProgressCard — auxiliary + uncovered labs", () => {
     }
   });
 
-  it("renders nothing for swarm_topology (pill covers it) and code_canvas", () => {
-    for (const lab of ["swarm_topology", "code_canvas"]) {
-      const { container } = render(
-        <LabProgressCard
-          issueId="issue-1"
-          workspaceId="ws-1"
-          labSource={lab}
-          flagEnabled={true}
-        />,
-        { wrapper: Wrapper },
-      );
-      expect(container).toBeEmptyDOMElement();
-      cleanup();
-    }
-  });
 
   it("renders the plugin card for user_* sources (0.5.112 property-panel integration)", async () => {
     // The card polls the plugin's artifact index; a resolved (empty) list
@@ -369,19 +253,3 @@ describe("LabProgressCard — auxiliary + uncovered labs", () => {
   });
 });
 
-describe("LabProgressCard — timesfm recency window contract", () => {
-  it("keeps the recency window at the documented 2 minutes", () => {
-    expect(TIMESFM_RECENT_RUN_WINDOW_MS).toBe(120_000);
-  });
-
-  it("treats unparseable / future-skewed timestamps as not recent", async () => {
-    mockRawRequest.mockResolvedValue(
-      makeResponse(200, [
-        { ...timesfmRun, created_at: "not-a-timestamp" },
-      ]),
-    );
-    renderCard({ labSource: "timesfm" });
-
-    await waitFor(() => expect(card().dataset.state).toBe("done"));
-  });
-});

@@ -2165,17 +2165,6 @@ export class ApiClient {
     await this.fetch(`/api/chat/sessions/${sessionId}/read`, { method: "POST" });
   }
 
-  // Migration 139 + 0.3.4 PR-6: pin / unpin a chat session. The chat UI
-  // sorts the session list by pinned_at DESC so pinned rows stick to the
-  // top. The server uses chat:session_updated to broadcast the change.
-  async pinChatSession(sessionId: string): Promise<void> {
-    await this.fetch(`/api/chat/sessions/${sessionId}/pin`, { method: "POST" });
-  }
-
-  async unpinChatSession(sessionId: string): Promise<void> {
-    await this.fetch(`/api/chat/sessions/${sessionId}/unpin`, { method: "POST" });
-  }
-
   // Experimental / Labs (0.3.6). The server returns the catalog merged
   // with the caller's stored preference; the response is the single source
   // of truth the Settings → Labs tab renders. PATCH path returns 204 on

@@ -63,8 +63,6 @@
     "row_stop_aria": "Stop current run",
     "row_pin_aria": "Pin to top of chat list",
     "row_unpin_aria": "Unpin from chat list",
-    "pin_tooltip": "Pin",
-    "unpin_tooltip": "Unpin",
     "stop_action": "Stop",
     "row_subtitle": {
       "working": "Working",

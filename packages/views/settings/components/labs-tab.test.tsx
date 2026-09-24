@@ -155,15 +155,9 @@ describe("LabsTab — install-all + per-flag cache invalidation", () => {
 describe("LabsTab — usage hints (0.5.114)", () => {
   // Keep in sync with server/internal/experimental/catalog.go Catalog.
   const CATALOG_KEYS = [
-    "chat_pin_ui",
     "claude_science_lab",
     "pythia_oracle",
-    "mythos_swarm",
-    "swarm_topology",
     "llm_wiki_bridge",
-    "code_canvas",
-    "semantica",
-    "timesfm",
     "causal_graph",
   ];
 

@@ -34,7 +34,7 @@ import (
 // installDaemonlessFresh creates a throwaway (user, workspace) pair with
 // NO agent_runtime rows at all — resolveWorkspaceOnlineRuntime must come
 // up empty so the upsert takes the synthesize path. Cleanup mirrors
-// installCodeCanvasFresh (workspace delete cascades the agent/runtime
+// installLabTestFresh (workspace delete cascades the agent/runtime
 // rows the upserts create).
 func installDaemonlessFresh(t *testing.T, ctx context.Context, name string) (string, string) {
 	t.Helper()
@@ -141,8 +141,8 @@ func TestLabInstallDaemonless_SynthesizesRuntime(t *testing.T) {
 	}
 }
 
-// TestLabInstallDaemonless_AllInstallersSucceed pins the other four
-// installers onto the same contract: the daemonless agent upsert must not
+// TestLabInstallDaemonless_AllInstallersSucceed pins the other installers
+// onto the same contract: the daemonless agent upsert must not
 // fail, and each must leave exactly one synthetic offline stub behind.
 func TestLabInstallDaemonless_AllInstallersSucceed(t *testing.T) {
 	t.Parallel()
@@ -153,9 +153,6 @@ func TestLabInstallDaemonless_AllInstallersSucceed(t *testing.T) {
 		daemonID string
 	}{
 		{"pythia", upsertPythiaRuntimeAgent, "pythia-oracle"},
-		{"timesfm", upsertTimesfmOracleAgent, "timesfm"},
-		{"code_canvas", upsertCodeCanvasAgent, "code-canvas"},
-		{"semantica", upsertSemanticaDecisionAdvisorAgent, "semantica"},
 	}
 	for _, tc := range cases {
 		_, workspaceID := installDaemonlessFresh(t, ctx, "daemonless-"+tc.name)

@@ -63,8 +63,6 @@
     "row_stop_aria": "현재 실행 중지",
     "row_pin_aria": "채팅 목록 상단에 고정",
     "row_unpin_aria": "채팅 목록에서 고정 해제",
-    "pin_tooltip": "고정",
-    "unpin_tooltip": "고정 해제",
     "stop_action": "중지",
     "row_subtitle": {
       "working": "작업 중",

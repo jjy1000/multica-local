@@ -322,15 +322,12 @@ function LabPickerRow({
 }
 
 const LAB_DISPLAY_LABELS: Record<string, string> = {
-  mythos_swarm: "Mythos 蜂群",
   pythia_oracle: "Pythia 群智推演",
   claude_science_lab: "Claude 科研实验室",
   llm_wiki_bridge: "LLM Wiki",
-  code_canvas: "代码画布",
   agent_self_optimization: "智能体自优化",
   // (0.3.57: constitution_agent removed alongside the lab
   // retirement in migration 165.)
-  chat_pin_ui: "聊天置顶",
 };
 
 function labDisplayLabel(key: string): string | undefined {

@@ -25,9 +25,7 @@ import (
 var installableSources = map[string]bool{
 	string(experimental.SourceClaudeScience):     true,
 	string(experimental.SourceClaudeScienceLab): true,
-	string(experimental.SourceMythosSwarm):       true,
 	string(experimental.SourcePythiaOracle):      true,
-	string(experimental.SourceCodeCanvas):        true,
 }
 
 // isInstallableFlag reports whether key is a registered installable

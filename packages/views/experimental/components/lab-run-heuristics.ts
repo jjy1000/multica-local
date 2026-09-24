@@ -26,10 +26,6 @@
  *  retired near-instant engine path.) */
 export const PYTHIA_IN_PROGRESS_WINDOW_MS = 300_000;
 
-/** Timesfm: a persisted run younger than this reads as "just ran" — the
- *  lab was active on this issue within the last two minutes. */
-export const TIMESFM_RECENT_RUN_WINDOW_MS = 120_000;
-
 /** sessionStorage key for the pythia trigger timestamp. MUST stay
  *  byte-identical to the 0.5.59 key — older tabs wrote under this name. */
 export function pythiaTriggerKey(wsId: string, issueId: string): string {
@@ -82,15 +78,3 @@ export function derivePythiaTriggerState(
   return "stuck";
 }
 
-/** Timesfm recency: true when the latest persisted run was created within
- *  the recent-run window. Rows carry RFC3339 `created_at` (server formats
- *  with time.RFC3339); an unparseable/absent timestamp is never recent. */
-export function isTimesfmRunRecent(
-  createdAt: string | null | undefined,
-  now: number = Date.now(),
-): boolean {
-  if (!createdAt) return false;
-  const t = Date.parse(createdAt);
-  if (!Number.isFinite(t)) return false;
-  return now - t < TIMESFM_RECENT_RUN_WINDOW_MS && now - t >= -60_000;
-}

@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { Minus, Maximize2, Minimize2, ChevronDown, Plus, Check, Trash2, Pencil, Loader2, Square, Pin } from "lucide-react";
+import { Minus, Maximize2, Minimize2, ChevronDown, Plus, Check, Trash2, Pencil, Loader2, Square } from "lucide-react";
 import { Button } from "@multica/ui/components/ui/button";
 import { cn } from "@multica/ui/lib/utils";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
@@ -43,12 +43,9 @@ import {
   useCreateChatSession,
   useDeleteChatSession,
   useMarkChatSessionRead,
-  usePinChatSession,
-  useUnpinChatSession,
   useUpdateChatSession,
 } from "@multica/core/chat/mutations";
 import { useChatStore } from "@multica/core/chat";
-import { useExperimentalFlag } from "@multica/core/experimental";
 import { ChatMessageList, ChatMessageSkeleton } from "./chat-message-list";
 import { ChatInput } from "./chat-input";
 import { ChatResizeHandles } from "./chat-resize-handles";
@@ -1026,15 +1023,7 @@ function SessionDropdown({
   // newer rename pulled in via WS.
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const deleteSession = useDeleteChatSession();
-  const pinSession = usePinChatSession();
-  const unpinSession = useUnpinChatSession();
   const updateSession = useUpdateChatSession();
-  // 0.3.6 Labs gate: chat_pin_ui flag hides the pin button unless the user
-  // opted in via Settings → Labs. Hard isolation rule — when the flag is
-  // off, no experimental code path runs, the pin button simply does not
-  // render, and chat history falls back to 0.3.2 behaviour. When the flag
-  // is on, the pin button shows up exactly as it did in 0.3.4 PR-6.
-  const chatPinEnabled = useExperimentalFlag("chat_pin_ui", false);
   const setActiveSession = useChatStore((s) => s.setActiveSession);
   const queryClient = useQueryClient();
   const formatTimeAgo = useFormatTimeAgo();
@@ -1364,50 +1353,6 @@ function SessionDropdown({
                 <span className={cn("truncate", (showUnread || showCompleted || isRunning) && "font-medium text-foreground")}>{trailingStatus}</span>
               </div>
               <div className="hidden h-7 items-center gap-0.5 group-hover/history-row:flex">
-                {/* Migration 139 + 0.3.4 PR-6: pin / unpin toggle. Pinned
-                    sessions sort to the top of the chat list (handled by
-                    the backend via pinned_at DESC). The pin icon mirrors
-                    the toolbar pattern: filled when pinned, outline when
-                    not. Clicking toggles via usePinChatSession /
-                    useUnpinChatSession (optimistic + invalidate).
-                    0.3.6 Labs gate: when chat_pin_ui is off (default), the
-                    button does not render at all — the chat list behaves
-                    exactly like 0.3.2. */}
-                {chatPinEnabled ? (
-                  <button
-                    type="button"
-                    onPointerDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      if (session.pinned_at) {
-                        unpinSession.mutate(session.id);
-                      } else {
-                        pinSession.mutate(session.id);
-                      }
-                    }}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    aria-label={
-                      session.pinned_at
-                        ? t(($) => $.session_history.unpin_tooltip)
-                        : t(($) => $.session_history.pin_tooltip)
-                    }
-                    title={
-                      session.pinned_at
-                        ? t(($) => $.session_history.unpin_tooltip)
-                        : t(($) => $.session_history.pin_tooltip)
-                    }
-                  >
-                    {session.pinned_at ? (
-                      <Pin className="size-3.5 fill-current" />
-                    ) : (
-                      <Pin className="size-3.5" />
-                    )}
-                  </button>
-                ) : null}
                 {isRunning && pendingTask && (
                   <button
                     type="button"

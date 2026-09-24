@@ -25,7 +25,7 @@
 // resolveWorkspaceOnlineRuntime and binds the agent's runtime_id to
 // it. Migration 004 makes agent.runtime_id NOT NULL with an FK to
 // agent_runtime, so a fresh install without an online local runtime
-// would fail the FK / NOT NULL constraint. installCodeCanvasFresh
+// would fail the FK / NOT NULL constraint. installLabTestFresh
 // provisions one (status='online', runtime_mode='local'), satisfying
 // the binding path.
 package handler
@@ -50,7 +50,7 @@ const pythiaRuntimeAgentName = "pythia_runtime"
 func TestInstallPythia_SeedsVisibility(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	userID, workspaceID := installCodeCanvasFresh(t, ctx, "pythia-vis")
+	userID, workspaceID := installLabTestFresh(t, ctx, "pythia-vis")
 	cleanupVisibilityRows(t, workspaceID)
 
 	if err := testHandler.InstallPythia(ctx, userID, workspaceID); err != nil {
@@ -91,7 +91,7 @@ func TestInstallPythia_SeedsVisibility(t *testing.T) {
 func TestInstallPythia_VisibilityIdempotent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	userID, workspaceID := installCodeCanvasFresh(t, ctx, "pythia-vis-idem")
+	userID, workspaceID := installLabTestFresh(t, ctx, "pythia-vis-idem")
 	cleanupVisibilityRows(t, workspaceID)
 
 	for i := 0; i < 2; i++ {

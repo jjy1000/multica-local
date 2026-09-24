@@ -32,7 +32,6 @@ import enLayout from "./en/layout.json";
 import enMembers from "./en/members.json";
 import enModals from "./en/modals.json";
 import enMyIssues from "./en/my-issues.json";
-import enMythos from "./en/mythos.json";
 import enOnboarding from "./en/onboarding.json";
 import enProjects from "./en/projects.json";
 import enPythia from "./en/pythia.json";
@@ -43,7 +42,6 @@ import enSettings from "./en/settings.json";
 import enSkills from "./en/skills.json";
 import enSquads from "./en/squads.json";
 import enCausalGraph from "./en/causal-graph.json";
-import enTimesfm from "./en/timesfm.json";
 import enUi from "./en/ui.json";
 import enUsage from "./en/usage.json";
 import enWorkspace from "./en/workspace.json";
@@ -64,7 +62,6 @@ import jaLayout from "./ja/layout.json";
 import jaMembers from "./ja/members.json";
 import jaModals from "./ja/modals.json";
 import jaMyIssues from "./ja/my-issues.json";
-import jaMythos from "./ja/mythos.json";
 import jaOnboarding from "./ja/onboarding.json";
 import jaProjects from "./ja/projects.json";
 import jaPythia from "./ja/pythia.json";
@@ -75,7 +72,6 @@ import jaSettings from "./ja/settings.json";
 import jaSkills from "./ja/skills.json";
 import jaSquads from "./ja/squads.json";
 import jaCausalGraph from "./ja/causal-graph.json";
-import jaTimesfm from "./ja/timesfm.json";
 import jaUi from "./ja/ui.json";
 import jaUsage from "./ja/usage.json";
 import jaWorkspace from "./ja/workspace.json";
@@ -96,7 +92,6 @@ import koLayout from "./ko/layout.json";
 import koMembers from "./ko/members.json";
 import koModals from "./ko/modals.json";
 import koMyIssues from "./ko/my-issues.json";
-import koMythos from "./ko/mythos.json";
 import koOnboarding from "./ko/onboarding.json";
 import koProjects from "./ko/projects.json";
 import koPythia from "./ko/pythia.json";
@@ -107,7 +102,6 @@ import koSettings from "./ko/settings.json";
 import koSkills from "./ko/skills.json";
 import koSquads from "./ko/squads.json";
 import koCausalGraph from "./ko/causal-graph.json";
-import koTimesfm from "./ko/timesfm.json";
 import koUi from "./ko/ui.json";
 import koUsage from "./ko/usage.json";
 import koWorkspace from "./ko/workspace.json";
@@ -128,7 +122,6 @@ import zhHansLayout from "./zh-Hans/layout.json";
 import zhHansMembers from "./zh-Hans/members.json";
 import zhHansModals from "./zh-Hans/modals.json";
 import zhHansMyIssues from "./zh-Hans/my-issues.json";
-import zhHansMythos from "./zh-Hans/mythos.json";
 import zhHansOnboarding from "./zh-Hans/onboarding.json";
 import zhHansProjects from "./zh-Hans/projects.json";
 import zhHansPythia from "./zh-Hans/pythia.json";
@@ -139,7 +132,6 @@ import zhHansSettings from "./zh-Hans/settings.json";
 import zhHansSkills from "./zh-Hans/skills.json";
 import zhHansSquads from "./zh-Hans/squads.json";
 import zhHansCausalGraph from "./zh-Hans/causal-graph.json";
-import zhHansTimesfm from "./zh-Hans/timesfm.json";
 import zhHansUi from "./zh-Hans/ui.json";
 import zhHansUsage from "./zh-Hans/usage.json";
 import zhHansWorkspace from "./zh-Hans/workspace.json";
@@ -161,7 +153,6 @@ const en: LocaleResources = {
   members: enMembers,
   modals: enModals,
   "my-issues": enMyIssues,
-  mythos: enMythos,
   onboarding: enOnboarding,
   projects: enProjects,
   pythia: enPythia,
@@ -172,7 +163,6 @@ const en: LocaleResources = {
   skills: enSkills,
   squads: enSquads,
   "causal-graph": enCausalGraph,
-  timesfm: enTimesfm,
   ui: enUi,
   usage: enUsage,
   workspace: enWorkspace,
@@ -195,7 +185,6 @@ const zhHans: LocaleResources = {
   members: zhHansMembers,
   modals: zhHansModals,
   "my-issues": zhHansMyIssues,
-  mythos: zhHansMythos,
   onboarding: zhHansOnboarding,
   projects: zhHansProjects,
   pythia: zhHansPythia,
@@ -206,7 +195,6 @@ const zhHans: LocaleResources = {
   skills: zhHansSkills,
   squads: zhHansSquads,
   "causal-graph": zhHansCausalGraph,
-  timesfm: zhHansTimesfm,
   ui: zhHansUi,
   usage: zhHansUsage,
   workspace: zhHansWorkspace,
@@ -229,7 +217,6 @@ const ko: LocaleResources = {
   members: koMembers,
   modals: koModals,
   "my-issues": koMyIssues,
-  mythos: koMythos,
   onboarding: koOnboarding,
   projects: koProjects,
   pythia: koPythia,
@@ -240,7 +227,6 @@ const ko: LocaleResources = {
   skills: koSkills,
   squads: koSquads,
   "causal-graph": koCausalGraph,
-  timesfm: koTimesfm,
   ui: koUi,
   usage: koUsage,
   workspace: koWorkspace,
@@ -263,7 +249,6 @@ const ja: LocaleResources = {
   members: jaMembers,
   modals: jaModals,
   "my-issues": jaMyIssues,
-  mythos: jaMythos,
   onboarding: jaOnboarding,
   projects: jaProjects,
   pythia: jaPythia,
@@ -274,7 +259,6 @@ const ja: LocaleResources = {
   skills: jaSkills,
   squads: jaSquads,
   "causal-graph": jaCausalGraph,
-  timesfm: jaTimesfm,
   ui: jaUi,
   usage: jaUsage,
   workspace: jaWorkspace,

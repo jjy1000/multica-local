@@ -44,7 +44,6 @@ import (
 // never carried a CHECK.)
 var allowedClaudeLabSources = map[string]struct{}{
 	"claude_science_lab": {},
-	"mythos_swarm":      {},
 }
 
 // RegisterClaudeLabIssuesRoute wires the Claude Lab issue-listing

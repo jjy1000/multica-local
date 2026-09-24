@@ -33,7 +33,6 @@ import (
 	"github.com/multica-ai/multica/server/internal/service"
 	selfoptsvc "github.com/multica-ai/multica/server/internal/service/agent_self_optimization"
 	agent_trust "github.com/multica-ai/multica/server/internal/service/agent_trust"
-	mythossvc "github.com/multica-ai/multica/server/internal/service/mythos"
 	"github.com/multica-ai/multica/server/internal/storage"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/internal/util/secretbox"
@@ -549,10 +548,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallClaudeScience(context.Background(), experimental.SourceClaudeScienceLab, userID, workspaceID)
 			})
-		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceMythosSwarm),
-			func(userID, workspaceID string) error {
-				return hh.InstallMythos(context.Background(), userID, workspaceID)
-			})
 		// 0.3.27 B4: agent_self_optimization install handler. Removed
 		// in 0.5.6 — the agent + 2 autopilots are boot-provisioned by
 		// the agent_self_optimization service (0.3.45.1, always-on)
@@ -569,31 +564,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			func(userID, workspaceID string) error {
 				return hh.InstallPythia(context.Background(), userID, workspaceID)
 			})
-		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceCodeCanvas),
-			func(userID, workspaceID string) error {
-				return hh.InstallCodeCanvas(context.Background(), userID, workspaceID)
-			})
 		// 0.5.22 Semantica × Multica Phase 2: install handler for the
-		// semantica lab. Mirrors pythia_oracle / code_canvas shape — a
-		// single-leader install that provisions the
-		// semantica_decision_advisor agent + visibility row. The
-		// Semantica FastAPI subprocess itself is owned by the desktop
-		// manager-factory; the install handler only writes the DB rows
-		// the daemon auto-dispatch path lands on.
-		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceSemantica),
-			func(userID, workspaceID string) error {
-				return hh.InstallSemantica(context.Background(), userID, workspaceID)
-			})
-		// 0.5.82 WL2: install handler for the timesfm lab. Mirrors
-		// pythia_oracle / semantica shape — a single-leader install that
-		// provisions the timesfm_oracle agent + purge-before-seed
-		// visibility rows. The vendored TimesFM subprocess itself is
-		// owned by the desktop manager-factory; the install handler only
-		// writes the DB rows the issue-driven dispatch path lands on.
-		h.ExperimentRegistry.RegisterInstallHandler(string(experimental.SourceTimesfm),
-			func(userID, workspaceID string) error {
-				return hh.InstallTimesfm(context.Background(), userID, workspaceID)
-			})
 		// 0.5.83 WL3: install handler for the causal_graph lab. Provisions
 		// the hidden three-agent team (curator / historian / verifier —
 		// NO dispatch leader; AutoDispatch=false and no
@@ -663,60 +634,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			h.ExperimentRegistry.MergeUserPlugins(userFlags)
 			slog.Info("user plugins loaded at boot", "count", len(userFlags))
 		}()
-	}
-
-	// 0.3.31: wire the Mythos supervise service so the HTTP tick /
-	// get-state handlers can drive a synchronous tick. The supervise
-	// goroutines themselves are launched lazily by Service.Run when
-	// an enhancer-mode mythos_run is created; ResumeSupervision picks
-	// up any orphaned runs from a previous daemon process.
-	{
-		svc := mythossvc.NewService(h.Queries, h.TaskService)
-		h.MythosService = svc
-		// Best-effort recovery: scan every workspace for runs in
-		// 'supervising' state. The 0.3.31 SQL query scopes by
-		// workspace; we walk the workspace id list to cover all of
-		// them. Logged but non-fatal — a transient DB failure on
-		// boot should not block startup.
-		bootCtx, bootCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer bootCancel()
-		// A nil pool (tests that only exercise routing, e.g.
-		// TestMainRouterDoesNotExposePrometheusMetrics) has no DB to
-		// scan; skip the recovery walk rather than dereferencing a nil
-		// pool inside Queries.ListAllWorkspaceIDs. Consistent with the
-		// "non-fatal on boot" contract above.
-		if pool != nil {
-			if ids, err := h.Queries.ListAllWorkspaceIDs(bootCtx); err == nil {
-				var totalResumed int
-				for _, id := range ids {
-					if n, err := svc.ResumeSupervision(bootCtx, id); err != nil {
-						slog.Warn("mythos supervise resume failed",
-							"workspace_id", util.UUIDToString(id),
-							"err", err)
-					} else {
-						totalResumed += n
-					}
-				}
-				if totalResumed > 0 {
-					slog.Info("mythos supervise resumed",
-						"total", totalResumed)
-				}
-			} else {
-				slog.Warn("mythos supervise resume: list workspace ids failed",
-					"err", err)
-			}
-		}
-		// 0.5.87 async-engine unification (swarm orchestrator port):
-		// start the stalled-run reaper on the same service. Resume only
-		// covers status='supervising' rows; 'running' rows orphaned by a
-		// mid-pipeline restart have no goroutine and no resume path —
-		// this loop fails them (boot sweep first, then every 6h), the
-		// same closed loop the swarm side has had since 0.5.86. Takes no
-		// context on purpose (the 0.5.39 SwarmGC lesson); Stop is folded
-		// into MythosService.Stop() in cmd/server/main.go.
-		if pool != nil {
-			svc.StartStalledRunReaper(mythossvc.StalledReaperInterval)
-		}
 	}
 
 	// 0.3.45.1: wire the agent_self_optimization service. Mirrors the
@@ -802,27 +719,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		runtimeGC.Start()
 		h.RuntimeGC = runtimeGC
 		slog.Info("runtime_gc started")
-
-		// 0.5.30 P1-3 — synthesizer Round 7: Semantica
-		// provenance + api-key retention. Filesystem-only
-		// (no db.Queries); 24h tick + 90d cutoff. Defaults
-		// baked into NewSemanticaGC.
-		semanticaGC := experimental.NewSemanticaGC(experimental.SemanticaGCConfig{})
-		semanticaGC.Start()
-		h.SemanticaGC = semanticaGC
-		slog.Info("semantica_gc started")
-
-		// 0.5.58 P6: ACL reconciler tick. Pure observability
-		// today (the reconcile body lands when upstream
-		// semantica exposes list /api/decisions). 6h cadence
-		// matches the plan §2.3 contract; defaults baked into
-		// NewACLReconciler.
-		aclReconciler := experimental.NewACLReconciler(experimental.ACLReconcilerConfig{
-			Queries: h.Queries,
-		})
-		aclReconciler.Start()
-		h.SemanticaACLReconciler = aclReconciler
-		slog.Info("semantica_acl_reconciler started")
 
 		// 0.5.31: AuthTokenGC sweeps the three auth-token
 		// tables that have an `expires_at` column but no
@@ -1055,21 +951,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			r.Use(h.RequireExperimentalFlag("llm_wiki_bridge"))
 			handler.RegisterLLMWikiBridgeRoutes(r, h)
 		})
-		// 0.3.27 B3: Mythos Swarm direct invocation endpoint. Unlike the
-		// install handler (which provisions the lab), this is the path
-		// that actually runs the RDT loop and posts the coda summary as
-		// an issue comment.
-		r.Group(func(r chi.Router) {
-			r.Use(h.RequireExperimentalFlag("mythos_swarm"))
-			r.Post("/api/experimental/mythos-swarm/run", h.RunMythosSwarm)
-			// 0.3.31: enhancer-mode supervise HTTP surface.
-			// GET returns the current supervision_state JSONB for a
-			// given run id; POST .../tick triggers an immediate
-			// synchronous tick (used by the IssueLabsSection "立即
-			// 检查" button).
-			r.Get("/api/experimental/mythos-swarm/supervise/{runID}", h.GetMythosSuperviseState)
-			r.Post("/api/experimental/mythos-swarm/supervise/{runID}/tick", h.PostMythosSuperviseTick)
-		})
 		// 0.3.29 Pythia Oracle per-issue forecast. Previously dead code:
 		// RegisterPythiaIssueForecastRoutes / AttachPythiaIssueForecastMiddleware
 		// had zero call sites, so the flagship 0.3.29 per-issue forecast
@@ -1083,22 +964,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// Renders a pasted snippet through the code_canvas subprocess and
 		// persists the canvas per issue. Gated like pythia_oracle; off-flag
 		// the routes physically vanish. Note the proxy prefix
-		// /experimental/code-canvas (no /api/) is mounted separately in
-		// MountExperimentalProxies, so the /api/... paths here do not
-		// collide with it.
-		r.Group(func(r chi.Router) {
-			r.Use(h.RequireExperimentalFlag("code_canvas"))
-			handler.RegisterCodeCanvasRoutes(r, h)
-		})
-		// 0.5.82 WL2: TimesFM per-issue forecast surface. Gated like
-		// pythia_oracle; off-flag the routes physically vanish (uniform
-		// 404 per experimental_guard.go). The /experimental/timesfm
-		// proxy prefix (no /api/) auto-mounts in MountExperimentalProxies
-		// from the catalog entry alone — no manual proxy code here.
-		r.Group(func(r chi.Router) {
-			r.Use(h.RequireExperimentalFlag("timesfm"))
-			handler.RegisterTimesfmIssueForecastRoutes(r, h)
-		})
 
 		// 0.5.83 WL3: issue causal-graph surface (dependencies revive +
 		// causal_node/causal_edge CRUD + subgraph/path + Tier D curation
@@ -1120,10 +985,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// handler/experimental_guard.go for the guard contract
 		// (flag-off answers 404, indistinguishable from a missing
 		// route) and handler/semantica_decisions_test.go for the pin.
-		r.Group(func(r chi.Router) {
-			r.Use(h.RequireExperimentalFlag("semantica"))
-			r.Get("/api/experimental/semantica/decisions", h.ListSemanticaDecisions)
-		})
 
 		// 0.3.45.1: agent_self_optimization history view endpoints.
 		// Flag-gated inside the handlers themselves (returns 404 when
@@ -1360,11 +1221,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Delete("/reactions", h.RemoveIssueReaction)
 					r.Get("/attachments", h.ListAttachments)
 					r.Get("/children", h.ListChildIssues)
-					// 0.3.31: returns recent mythos runs for this
-					// issue. The IssueLabsSection supervise panel
-					// reads this to discover the run id for a
-					// given enhancer-mode issue.
-					r.Get("/mythos-runs", h.GetMythosRunsByIssue)
 					r.Get("/labels", h.ListLabelsForIssue)
 					r.Post("/labels", h.AttachLabel)
 					r.Delete("/labels/{labelId}", h.DetachLabel)
@@ -1619,8 +1475,6 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Get("/messages/page", h.ListChatMessagesPage)
 					r.Get("/pending-task", h.GetPendingChatTask)
 					r.Post("/read", h.MarkChatSessionRead)
-					r.Post("/pin", h.PinChatSession)
-					r.Post("/unpin", h.UnpinChatSession)
 				})
 			})
 			r.Get("/api/chat/pending-tasks", h.ListPendingChatTasks)

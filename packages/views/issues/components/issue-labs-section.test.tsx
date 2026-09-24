@@ -127,18 +127,6 @@ describe("IssueLabsSection → LabProgressCard wiring", () => {
     });
   });
 
-  it("reports flagEnabled=false for a bound-but-disabled lab", () => {
-    mockFlags.value = [makeFlag("timesfm", false)];
-    progressCardCaptured.props = [];
-    render(
-      <IssueLabsSection issueId="issue-3" labSource="timesfm" />,
-      { wrapper: SectionWrapper },
-    );
-    expect(progressCardCaptured.props[0]).toMatchObject({
-      labSource: "timesfm",
-      flagEnabled: false,
-    });
-  });
 });
 
 // ── 0.5.103: panel-link honesty + running-task terminate pin ─────────────
@@ -220,11 +208,7 @@ describe("IssueLabsSection → panel link honesty", () => {
 // Expected suffix mapping mirrors routes.tsx (apps/desktop/.../routes.tsx):
 //   claude_science_lab → claude-lab
 //   pythia_oracle      → pythia
-//   mythos_swarm       → mythos
 //   llm_wiki_bridge    → llm-wiki
-//   code_canvas        → code-canvas
-//   semantica          → semantica-explorer
-//   timesfm            → timesfm-lab
 //   causal_graph       → causal-graph  (0.5.83 — the regression pin)
 //   (0.5.105: swarm_topology removed with the runtime retirement.)
 describe("labSourceRouteSuffix — FLAG_ROUTE_SUFFIX rows", () => {
@@ -232,11 +216,7 @@ describe("labSourceRouteSuffix — FLAG_ROUTE_SUFFIX rows", () => {
     const expected: Array<[string, string]> = [
       ["claude_science_lab", "claude-lab"],
       ["pythia_oracle", "pythia"],
-      ["mythos_swarm", "mythos"],
       ["llm_wiki_bridge", "llm-wiki"],
-      ["code_canvas", "code-canvas"],
-      ["semantica", "semantica-explorer"],
-      ["timesfm", "timesfm-lab"],
       ["causal_graph", "causal-graph"],
     ];
     for (const [flagKey, suffix] of expected) {
@@ -259,12 +239,8 @@ describe("labSourceRouteSuffix — FLAG_ROUTE_SUFFIX rows", () => {
     expect(Object.keys(FLAG_ROUTE_SUFFIX).sort()).toEqual([
       "causal_graph",
       "claude_science_lab",
-      "code_canvas",
       "llm_wiki_bridge",
-      "mythos_swarm",
       "pythia_oracle",
-      "semantica",
-      "timesfm",
     ]);
   });
 

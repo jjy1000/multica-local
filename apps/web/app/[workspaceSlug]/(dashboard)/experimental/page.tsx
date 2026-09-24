@@ -16,15 +16,11 @@ import { FlaskConical } from "lucide-react";
 const LABS = [
   { slug: "claude-lab", labelKey: "experimental_claude_science_lab", descKey: "desc_claude_lab" },
   { slug: "pythia", labelKey: "experimental_pythia", descKey: "desc_pythia" },
-  { slug: "mythos", labelKey: "experimental_mythos", descKey: "desc_mythos" },
   { slug: "llm-wiki", labelKey: "experimental_llm_wiki_bridge", descKey: "desc_llm_wiki_bridge" },
-  { slug: "code-canvas", labelKey: "experimental_code_canvas", descKey: "desc_code_canvas" },
   // 0.5.105 (audit H2): causal-graph card closes the "route without
   // card" gap — /experimental/causal-graph existed but was reachable
   // only via issue deep links. (0.5.87: semantica + timesfm cards
   // closed the same gap.)
-  { slug: "semantica-explorer", labelKey: "experimental_semantica", descKey: "desc_semantica" },
-  { slug: "timesfm-lab", labelKey: "experimental_timesfm", descKey: "desc_timesfm" },
   { slug: "causal-graph", labelKey: "experimental_causal_graph", descKey: "desc_causal_graph" },
   // 0.5.105 (audit H3): the swarm-topology card was removed with the
   // runtime retirement.

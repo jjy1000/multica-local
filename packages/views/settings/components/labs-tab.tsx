@@ -229,24 +229,12 @@ export function LabsTab() {
   // add the case + 4 locale keys in the same commit as the new flag.
   const usageHint = (key: string): string | null => {
     switch (key) {
-      case "chat_pin_ui":
-        return t(($) => $.labs.usage_chat_pin_ui);
       case "claude_science_lab":
         return t(($) => $.labs.usage_claude_science_lab);
       case "pythia_oracle":
         return t(($) => $.labs.usage_pythia_oracle);
-      case "mythos_swarm":
-        return t(($) => $.labs.usage_mythos_swarm);
-      case "swarm_topology":
-        return t(($) => $.labs.usage_swarm_topology);
       case "llm_wiki_bridge":
         return t(($) => $.labs.usage_llm_wiki_bridge);
-      case "code_canvas":
-        return t(($) => $.labs.usage_code_canvas);
-      case "semantica":
-        return t(($) => $.labs.usage_semantica);
-      case "timesfm":
-        return t(($) => $.labs.usage_timesfm);
       case "causal_graph":
         return t(($) => $.labs.usage_causal_graph);
       default:

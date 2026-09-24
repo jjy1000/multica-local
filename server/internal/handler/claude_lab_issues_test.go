@@ -12,7 +12,7 @@ import "testing"
 func TestAllowedClaudeLabSources(t *testing.T) {
 	// The closed set is intentional friction: bumping it requires the
 	// catalog and the migration that widens issue.lab_source CHECK.
-	want := []string{"claude_science_lab", "mythos_swarm"}
+	want := []string{"claude_science_lab"}
 	for _, k := range want {
 		if _, ok := allowedClaudeLabSources[k]; !ok {
 			t.Errorf("expected %q to be in allowedClaudeLabSources", k)

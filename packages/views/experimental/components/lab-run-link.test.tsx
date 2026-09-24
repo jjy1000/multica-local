@@ -34,19 +34,13 @@ describe("labRunHref", () => {
     expect(labRunHref("pythia_oracle", "i1", "r1")).toBe(
       "/experimental/pythia?issue=i1&run=r1",
     );
-    expect(labRunHref("mythos_swarm", "i1", "r1")).toBe(
-      "/experimental/mythos?issue=i1&run=r1",
+    expect(labRunHref("causal_graph", "i1", "r1")).toBe(
+      "/experimental/causal-graph?issue=i1&run=r1",
     );
     // 0.5.105 (audit H3): swarm_topology resolves no route anymore —
     // covered by the unknown-key assertions below.
-    expect(labRunHref("code_canvas", "i1")).toBe(
-      "/experimental/code-canvas?issue=i1",
-    );
     expect(labRunHref("llm_wiki_bridge", "i1", "r1")).toBe(
       "/experimental/llm-wiki?issue=i1&run=r1",
-    );
-    expect(labRunHref("semantica", "i1", "r1")).toBe(
-      "/experimental/semantica-explorer?issue=i1&run=r1",
     );
   });
 
@@ -66,17 +60,11 @@ describe("labRunHref", () => {
   it("omits the ?run= half for falsy run ids instead of dead-linking", () => {
     // Receiver-less labs pass no runId; the contract is that the param
     // disappears entirely rather than pointing at a nonexistent target.
-    expect(labRunHref("code_canvas", "i1", null)).toBe(
-      "/experimental/code-canvas?issue=i1",
-    );
-    expect(labRunHref("code_canvas", "i1", "")).toBe(
-      "/experimental/code-canvas?issue=i1",
-    );
   });
 
   it("URL-encodes both params via URLSearchParams semantics", () => {
-    const href = labRunHref("mythos_swarm", "issue with space", "run/slash");
-    expect(href).toBe("/experimental/mythos?issue=issue+with+space&run=run%2Fslash");
+    const href = labRunHref("claude_science_lab", "issue with space", "run/slash");
+    expect(href).toBe("/experimental/claude-lab?issue=issue+with+space&run=run%2Fslash");
   });
 });
 

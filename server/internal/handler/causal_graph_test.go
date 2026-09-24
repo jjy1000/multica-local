@@ -43,11 +43,28 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// causalTestIssue reuses the timesfm fixture helper (same package) and
-// renames the concept for readability here.
+// causalTestIssue creates a throwaway issue via the public API for
+// causal-graph tests.
 func causalTestIssue(t *testing.T, title string) string {
 	t.Helper()
-	return timesfmTestIssue(t, title)
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title": title,
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateIssue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created IssueResponse
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created issue: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupReq := newRequest("DELETE", "/api/issues/"+created.ID, nil)
+		cleanupReq = withURLParam(cleanupReq, "id", created.ID)
+		testHandler.DeleteIssue(httptest.NewRecorder(), cleanupReq)
+	})
+	return created.ID
 }
 
 // causalCreateNode is the POST /api/causal-graph/nodes helper.
@@ -642,9 +659,9 @@ func TestInstallCausalGraphSeedsHiddenTeam(t *testing.T) {
 
 	// A FRESH workspace with an online LOCAL runtime — the fixture
 	// workspace's runtime is cloud-mode, and the agent table requires
-	// a runtime_id (installCodeCanvasFresh is the semantica/timesfm
+	// a runtime_id (installLabTestFresh is the semantica/timesfm
 	// install-test harness for exactly this reason).
-	userID, workspaceID := installCodeCanvasFresh(t, ctx, "causal-graph-install")
+	userID, workspaceID := installLabTestFresh(t, ctx, "causal-graph-install")
 	cleanupVisibilityRows(t, workspaceID)
 
 	if err := testHandler.InstallCausalGraph(ctx, userID, workspaceID); err != nil {

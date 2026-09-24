@@ -458,11 +458,6 @@ func main() {
 	// #6410 / MUL-5747).
 	taskSvc, autopilotSvc := backgroundServices(h)
 	registerAutopilotListeners(bus, autopilotSvc)
-	// 0.5.22 Semantica × Multica Phase 2: terminal-issue → POST /api/decisions
-	// side-effect. Wired after NewRouterWithOptions so h is in scope;
-	// the listener calls h.SyncIssueDecisionToSemantica which in turn
-	// reads h.ExperimentRegistry + h.Queries + the loopback URL.
-	registerDecisionSyncListeners(bus, h, queries)
 
 	// Construct a LivenessStore that mirrors the one wired into the HTTP
 	// handler. Both the heartbeat write path (handler) and the sweeper read
@@ -602,13 +597,6 @@ func main() {
 	sweepCancel()
 	heartbeatScheduler.Stop()
 
-	// Cancel any in-flight Mythos enhancer-mode supervise goroutines.
-	// Lossless: supervision state is persisted to mythos_run JSONB every
-	// tick, and ResumeSupervision re-adopts status='supervising' rows on
-	// the next boot.
-	if h.MythosService != nil {
-		h.MythosService.Stop()
-	}
 
 	// 0.5.22 audit fix (P2), rehomed 0.5.105: stop the resource GC
 	// (ex-swarm_gc) before process exit. Without this the GC outlives
@@ -619,12 +607,6 @@ func main() {
 	}
 	if h.RuntimeGC != nil {
 		h.RuntimeGC.Stop()
-	}
-	if h.SemanticaGC != nil {
-		h.SemanticaGC.Stop()
-	}
-	if h.SemanticaACLReconciler != nil {
-		h.SemanticaACLReconciler.Stop()
 	}
 	// 0.5.83 WL3: stop the causal-graph maintenance ticker before
 	// process exit — same contract as the GC family above (clean loop

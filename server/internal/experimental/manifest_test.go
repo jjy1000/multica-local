@@ -24,8 +24,8 @@ func TestCatalogEveryFlagHasManifest(t *testing.T) {
 			t.Errorf("flag %q ManifestPath %q is not a local path", f.Key, f.ManifestPath)
 		}
 	}
-	if len(seen) < 5 {
-		t.Errorf("expected at least 5 catalog flags, got %d", len(seen))
+	if len(seen) < 4 {
+		t.Errorf("expected at least 4 catalog flags, got %d", len(seen))
 	}
 }
 
@@ -137,10 +137,17 @@ func TestLoadManifestErrInvalidManifest(t *testing.T) {
 		},
 		"spec": {}
 	}`
-	// Stuff a malformed manifest under chat_pin_ui's path.
-	flag := Catalog[0]
-	if flag.Key != "chat_pin_ui" {
-		t.Fatalf("first catalog entry changed: %q", flag.Key)
+	// Stuff a malformed manifest under claude_science_lab's path.
+	var flag Flag
+	found := false
+	for _, f := range Catalog {
+		if f.Key == "claude_science_lab" {
+			flag, found = f, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("claude_science_lab missing from catalog")
 	}
 	manifestDir := filepath.Join(dir, filepath.Dir(flag.ManifestPath))
 	if err := os.MkdirAll(manifestDir, 0o755); err != nil {

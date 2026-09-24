@@ -73,11 +73,6 @@ const (
 	// which folds in the 0.3.20 `claude_science` + `claude_science_runtime`
 	// pair.
 	SourceClaudeScienceLab Source = "claude_science_lab"
-	// SourceMythosSwarm is the Mythos Swarm RDT topology lab. Added
-	// in 0.3.16-patch.1; the install handler provisions the dedicated
-	// mythos-swarm workspace + 5 Mythos agents + 1 squad under this
-	// source.
-	SourceMythosSwarm Source = "mythos_swarm"
 	// 0.3.27 B4: source for the agent_self_optimization lab. Same
 	// rationale as the deprecated SourceConstitutionAgent (retired in
 	// 0.3.57, migration 165). 0.5.6: the catalog literal is removed
@@ -92,38 +87,11 @@ const (
 	// server — the source here is the agent / skill / lock rows
 	// attached to the lab.
 	SourcePythiaOracle Source = "pythia_oracle"
-	// 0.3.54: source for the code_canvas internal pilot lab. Used
-	// by install_code_canvas.go which provisions a `code_canvas_worker`
-	// agent + the bundled run.sh /health stub subprocess.
-	SourceCodeCanvas Source = "code_canvas"
 	// 0.5.3: source for the agent_creation_studio lab (0.3.45 action
 	// entry, upgraded to an issue-bound lab). 0.5.6: catalog literal
 	// removed; the source string stays so historical lock rows still
 	// match by string, and migration 237 can clean them up.
 	SourceAgentCreationStudio Source = "agent_creation_studio"
-	// SourceSwarmTopology (0.5.21) was RETIRED in 0.5.105 (audit H3):
-	// the constant left AllSources because nothing claims
-	// "swarm_topology" locks anymore. Historical lock rows are
-	// released by the same cascade paths as before; the string stays
-	// valid in the DB CHECK (no migration touched).
-	// SourceSemantica is the 0.5.22 Semantica × Multica integration lab.
-	// Owns the `semantica_decision_advisor` leader agent (the only
-	// installable resource) so the P0#4 leader-rewrite path can land
-	// `multica lab delegate semantica "<task>"` jobs on the right agent.
-	// The Semantica FastAPI subprocess lifecycle itself is owned by the
-	// desktop manager-factory; the install handler only writes the DB
-	// rows that the daemon auto-dispatch path lands on.
-	SourceSemantica Source = "semantica"
-	// SourceTimesfm is the 0.5.82 WL2 TimesFM forecasting lab. Owns the
-	// `timesfm_oracle` leader agent (the only installable resource).
-	// The vendored torch-stack subprocess lifecycle is owned by the
-	// desktop manager-factory; install_timesfm.go only writes the DB
-	// rows (lock + visibility) that the issue-driven dispatch path
-	// lands on. NOTE the flag-key string duplication law: the literal
-	// "timesfm" is VERBATIM across experimental/handler/desktop
-	// packages (import cycles forbid sharing a constant) — pinned by
-	// TestCatalogAutoDispatchContract + the migration 275 static test.
-	SourceTimesfm Source = "timesfm"
 	// SourceCausalGraph is the 0.5.83 WL3 issue causal-graph lab. It is
 	// server-native (no subprocess, no leader agent in this phase): the
 	// causal_node / causal_edge tables, the gated REST surface, and the
@@ -148,13 +116,9 @@ const (
 var AllSources = []Source{
 	SourceClaudeScience,
 	SourceClaudeScienceLab,
-	SourceMythosSwarm,
 	SourceAgentSelfOptimization,
 	SourcePythiaOracle,
-	SourceCodeCanvas,
 	SourceAgentCreationStudio,
-	SourceSemantica,
-	SourceTimesfm,
 	SourceCausalGraph,
 }
 
@@ -174,12 +138,12 @@ func (s Source) Valid() bool {
 type ResourceType string
 
 const (
-	LockWorkspace  ResourceType = "workspace"
-	LockSkill      ResourceType = "skill"
-	LockAgent      ResourceType = "agent"
-	LockSquad      ResourceType = "squad"
-	LockMember     ResourceType = "member"
-	LockMCPServer  ResourceType = "mcp_server"
+	LockWorkspace ResourceType = "workspace"
+	LockSkill     ResourceType = "skill"
+	LockAgent     ResourceType = "agent"
+	LockSquad     ResourceType = "squad"
+	LockMember    ResourceType = "member"
+	LockMCPServer ResourceType = "mcp_server"
 	// 0.5.22 (audit fix 2026-08-16): swarm_run is the per-row
 	// lock target for the swarm topology orchestrator. The
 	// handler/swarm_run.go::PostSwarmRun path claims one lock per

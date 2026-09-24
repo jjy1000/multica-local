@@ -24,14 +24,9 @@ import {
   SquarePen,
   X,
   FlaskConical,
-  Code2,
   Sparkles,
   TestTubes,
   ClipboardList,
-  Pin,
-  Brain,
-  MessagesSquare,
-  LineChart,
   GitBranch,
 } from "lucide-react";
 import { WorkspaceAvatar } from "../workspace/workspace-avatar";
@@ -83,7 +78,7 @@ import type { PinnedItem } from "@multica/core/types";
 import { useLogout } from "../auth";
 import { ProjectIcon } from "../projects/components/project-icon";
 import { useT } from "../i18n";
-import { useExperimentalFlag, useExperimentalFlags, useExperimentalNav } from "@multica/core/experimental";
+import { useExperimentalFlags, useExperimentalNav } from "@multica/core/experimental";
 import { NAV_PAGE_REGISTRY } from "./nav-registry";
 
 // Top-level nav items stay active when the user is on a child route
@@ -127,16 +122,9 @@ const configureNav = NAV_PAGE_REGISTRY.filter((page) => page.group === "configur
 const experimentalIconByKey: Record<string, typeof FlaskConical> = {
   claude_science_lab: TestTubes,
   pythia_oracle: Sparkles,
-  mythos_swarm: MessagesSquare,
   llm_wiki_bridge: ClipboardList,
-  code_canvas: Code2,
   // (0.3.57: constitution_agent removed alongside the lab retirement.)
-  chat_pin_ui: Pin,
   // 0.5.105 (audit H3): swarm_topology removed with the runtime retirement.
-  semantica: Brain,
-  // 0.5.91 wiring: enable the sidebar entry for both newly installable labs
-  // so the icon registry does not fall back to FlaskConical.
-  timesfm: LineChart,
   causal_graph: GitBranch,
 };
 
@@ -393,7 +381,6 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   // `experimentalNav.map(...)` can resolve per-row — calling
   // useExperimentalFlag inside a `.map` would violate React's rules
   // of hooks.
-  const mythosFlagEnabled = useExperimentalFlag("mythos_swarm", false);
   const { data: experimentalFlagState = [] } = useExperimentalFlags();
   const { data: workspaces = EMPTY_WORKSPACES } = useQuery(workspaceListOptions());
   const workspaceCreationDisabled = useConfigStore((s) => s.workspaceCreationDisabled);
@@ -781,16 +768,10 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
                     // Hidden whenever the flag is off (the whole row
                     // disappears via `useExperimentalNav` filter
                     // anyway).
-                    const labEnabled =
-                      item.flagKey === "mythos_swarm"
-                        ? mythosFlagEnabled
-                        : (experimentalFlagState as Array<{ key: string; enabled: boolean }>).some(
-                            (f) => f.key === item.flagKey && f.enabled,
-                          );
-                    const badgeLabelKey =
-                      item.flagKey === "mythos_swarm"
-                        ? "mythos_enabled_badge"
-                        : `${item.flagKey}_enabled_badge`;
+                    const labEnabled = (
+                      experimentalFlagState as Array<{ key: string; enabled: boolean }>
+                    ).some((f) => f.key === item.flagKey && f.enabled);
+                    const badgeLabelKey = `${item.flagKey}_enabled_badge`;
                     // 0.3.33.1: 全部 8 个 lab 统一用 FlaskConical +
                     // text-muted-foreground(无填充色),与"试验性功能"
                     // 语义对齐。per-flag 区分只剩 tooltip 文案。
