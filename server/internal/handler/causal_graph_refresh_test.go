@@ -314,14 +314,22 @@ func TestCausalReadsList(t *testing.T) {
 		testPool.Exec(cctx, `DELETE FROM issue WHERE id = $1`, issue.ID)
 	})
 
+	var runtimeID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO agent_runtime (workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at)
+		VALUES ($1::uuid, NULL, 'causal-read-test-runtime', 'local', 'causal_read_test', 'online', 'Causal Read Test', '{}'::jsonb, now())
+		RETURNING id`, testWorkspaceID).Scan(&runtimeID); err != nil {
+		t.Fatalf("insert agent_runtime: %v", err)
+	}
 	var agentID string
 	if err := testPool.QueryRow(ctx, `
-		INSERT INTO agent (workspace_id, name, runtime_mode, runtime_config, visibility)
-		VALUES ($1::uuid, 'causal-read-agent-test', 'local', '{}'::jsonb, 'workspace')
-		RETURNING id`, testWorkspaceID).Scan(&agentID); err != nil {
+		INSERT INTO agent (workspace_id, name, runtime_mode, runtime_config, runtime_id, visibility)
+		VALUES ($1::uuid, 'causal-read-agent-test', 'local', '{}'::jsonb, $2::uuid, 'workspace')
+		RETURNING id`, testWorkspaceID, runtimeID).Scan(&agentID); err != nil {
 		t.Fatalf("insert agent: %v", err)
 	}
 	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent_runtime WHERE id = $1::uuid`, runtimeID)
 		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent WHERE id = $1::uuid`, agentID)
 	})
 
