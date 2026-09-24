@@ -89,6 +89,11 @@ export function agentTasksOptions(wsId: string, agentId: string) {
     staleTime: 30 * 1000,
     gcTime: 5 * 60 * 1000,
     refetchOnWindowFocus: true,
+    // 0.5.116: modest self-heal poll. The issue:deleted WS handler
+    // invalidates this cache, but a dropped frame must not strand a deleted
+    // issue's tasks in the agent detail Activity tab until remount
+    // (Active Contract #1 tab-cross cadence).
+    refetchInterval: 30_000,
   });
 }
 

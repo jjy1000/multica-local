@@ -3998,6 +3998,25 @@ func (h *Handler) DeleteIssue(w http.ResponseWriter, r *http.Request) {
 	// Fail any linked autopilot runs before delete (ON DELETE SET NULL clears issue_id).
 	h.Queries.FailAutopilotRunsByIssue(r.Context(), issue.ID)
 
+	// 0.5.116 deletion-sync closure: mythos_run.root_issue_id / final_issue_id,
+	// mythos_members.result_issue_id and swarm_run.root_issue_id are bare FKs
+	// (23503 would fail the delete with a generic 500). Detach every reference
+	// first — run/member rows survive as history with the link NULLed, and the
+	// retired swarm tombstone rows are removed (root_issue_id is NOT NULL
+	// there, and a tombstone for a deleted issue is moot).
+	if _, err := h.Queries.DetachMythosRunsByIssue(r.Context(), issue.ID); err != nil {
+		slog.Warn("issue delete: mythos run detach failed", "error", err)
+	}
+	if err := h.Queries.DetachMythosRunFinalIssue(r.Context(), issue.ID); err != nil {
+		slog.Warn("issue delete: mythos final detach failed", "error", err)
+	}
+	if err := h.Queries.DetachMythosMemberResultIssue(r.Context(), issue.ID); err != nil {
+		slog.Warn("issue delete: mythos member detach failed", "error", err)
+	}
+	if err := h.Queries.DeleteSwarmRunsByRootIssue(r.Context(), issue.ID); err != nil {
+		slog.Warn("issue delete: swarm tombstone cleanup failed", "error", err)
+	}
+
 	// Collect all attachment URLs (issue-level + comment-level) before CASCADE delete.
 	attachmentURLs, _ := h.Queries.ListAttachmentURLsByIssueOrComments(r.Context(), issue.ID)
 
@@ -4586,6 +4605,15 @@ func (h *Handler) BatchDeleteIssues(w http.ResponseWriter, r *http.Request) {
 
 		h.TaskService.CancelTasksForIssue(r.Context(), issue.ID)
 		h.Queries.FailAutopilotRunsByIssue(r.Context(), issue.ID)
+		// 0.5.116: batch delete previously skipped the pythia termination
+		// closure the single path and the batch UPDATE path both have — a batch
+		// delete leaked in-flight forecast runs (Active Contract #10 drift).
+		abortPythiaRunsForIssue(r.Context(), h, issue.ID)
+		// Same bare-FK detach family as the single-issue delete above.
+		_, _ = h.Queries.DetachMythosRunsByIssue(r.Context(), issue.ID)
+		_ = h.Queries.DetachMythosRunFinalIssue(r.Context(), issue.ID)
+		_ = h.Queries.DetachMythosMemberResultIssue(r.Context(), issue.ID)
+		_ = h.Queries.DeleteSwarmRunsByRootIssue(r.Context(), issue.ID)
 
 		// Collect attachment URLs before CASCADE delete to clean up S3 objects.
 		attachmentURLs, _ := h.Queries.ListAttachmentURLsByIssueOrComments(r.Context(), issue.ID)
