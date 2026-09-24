@@ -191,6 +191,7 @@ In `server/internal/handler/`, know where a UUID came from before using it in wr
 - New global pre-workspace routes: single word (`/login`, `/inbox`) or `/{noun}/{verb}` (`/workspaces/new`). No hyphenated root routes.
 - Reserved slugs: `server/internal/handler/reserved_slugs.json`. Edit it, run `pnpm generate:reserved-slugs`, commit the generated `packages/core/paths/reserved-slugs.ts`.
 - When changing CLI commands/flags, API fields, or product behavior documented by built-in skills under `server/internal/service/builtin_skills/*`, update the relevant `SKILL.md` and `references/*-source-map.md` in the same PR.
+- **Bundle-cli 镜像资源必须随 source 同步 commit**。`apps/desktop/scripts/bundle-cli.mjs` 每次跑都 wipe + re-copy from `server/migrations/`, `apps/desktop/vendor/pythia-src/`, 等 source 目录到 `apps/desktop/resources/{server/migrations,pythia,}/`。source 改了 → 镜像在 build 时自动覆盖 → ship 出包用了新镜像,但 git tree 还显示 source 是新版本、镜像路径 untracked — 一个 commit 只改 source 不 commit 镜像会让 ship 用上未跟踪文件,而 fresh checkout 会 build 出不一样的产物(0.5.122 C1 fix:mig 292 镜像漏 commit 17 天)。Rule:每次改 source 同时 `git add` 对应镜像路径,确认 `git status` 不残留 untracked 资源镜像。
 
 ## Web/Desktop Features
 
@@ -285,6 +286,7 @@ Rules:
 - Mock `@multica/core/api` for API calls.
 - E2E uses `TestApiClient` for setup/teardown.
 - Prefer writing the failing test in the correct package before implementation when change is behavioral.
+- **新 fixture INSERT 前必查 migrations/*.up.sql 的 NOT NULL FK 列**。agent.task queue / agent / workspace / issue 等核心表的 NOT NULL 列由 mig 0xx 系列沉淀,迁移随版本持续追加;新 fixture 如果漏填一列,Postgres 立刻抛 `null value in column "<col>" of relation "<table>" violates not-null constraint (SQLSTATE 23502)`,测试在 INSERT 阶段就死 — 错误不会被测试本身捕获(测的是后续读取路径),fix 极易被遗漏直到 audit / 下次 ship。Rule:fixture 写 INSERT 前用 `grep -E "NOT NULL\|PRIMARY KEY" migrations/*.up.sql | grep -A1 "CREATE TABLE <表名>"` 列出所有 NOT NULL 列 + 对每个 FK 列(`agent.runtime_id` mig 004 等)查 source table 是否需要先建父行。参照:`TestCausalReadsList` 0.5.122 fix 在 `causal_graph_refresh_test.go:319` 把 INSERT agent 加 `runtime_id` 之前先 INSERT agent_runtime + RETURNING id,跟 `agent_access_test.go:425-438` 同模式。
 
 ## Verification
 
