@@ -34,7 +34,10 @@ import type { CausalEdge, CausalNode } from "@multica/core/types/api";
 import {
   CAUSAL_MAX_CENTER_SEEDS,
   clientToViewBox,
+  forceLayout,
+  forceRestLength,
   layout,
+  nodeRadius,
   resolveEdgeTone,
   type SvgClientMatrix,
 } from "./causal-minimap";
@@ -320,5 +323,84 @@ describe("causal-minimap — clientToViewBox (0.5.86 drag plumbing)", () => {
       inverse: () => scale,
     };
     expect(clientToViewBox(nullCtm, 300, 250, scale)).toEqual({ x: 150, y: 125 });
+  });
+});
+
+describe("causal-minimap — force layout (0.5.120)", () => {
+  const W = 760;
+  const H = 480;
+
+  function ringSeedGraph(n: number): { nodes: CausalNode[]; edges: CausalEdge[] } {
+    // A chain plus a hub: enough structure for the springs to shape.
+    const nodes: CausalNode[] = [];
+    const edges: CausalEdge[] = [];
+    for (let i = 0; i < n; i++) {
+      nodes.push(makeNode(`f${String(i).padStart(2, "0")}`, i % 3 === 0 ? "issue-1" : null));
+      if (i > 0) {
+        edges.push(makeEdge(`fe${String(i).padStart(2, "0")}`, `f${String(i - 1).padStart(2, "0")}`, `f${String(i).padStart(2, "0")}`));
+      }
+    }
+    return { nodes, edges };
+  }
+
+  it("is deterministic: identical inputs produce identical coordinates", () => {
+    const { nodes, edges } = ringSeedGraph(20);
+    const seed = layout(nodes, edges, W, H);
+    const a = forceLayout(seed, edges, W, H);
+    const b = forceLayout(seed, edges, W, H);
+    expect(a.map((n) => [n.id, n.x, n.y])).toEqual(b.map((n) => [n.id, n.x, n.y]));
+  });
+
+  it("keeps every node inside the viewBox with a margin", () => {
+    const { nodes, edges } = ringSeedGraph(30);
+    const seed = layout(nodes, edges, W, H);
+    const out = forceLayout(seed, edges, W, H);
+    for (const n of out) {
+      expect(n.x).toBeGreaterThanOrEqual(20);
+      expect(n.x).toBeLessThanOrEqual(W - 20);
+      expect(n.y).toBeGreaterThanOrEqual(20);
+      expect(n.y).toBeLessThanOrEqual(H - 20);
+    }
+  });
+
+  it("separates connected nodes toward the rest length (no clumping)", () => {
+    const { nodes, edges } = ringSeedGraph(16);
+    const seed = layout(nodes, edges, W, H);
+    const out = forceLayout(seed, edges, W, H);
+    const byId = new Map(out.map((n) => [n.id, n]));
+    const rest = forceRestLength(W, H);
+    // Every spring ends up in a sane band around the rest length —
+    // relaxed but never collapsed onto its neighbour.
+    for (const e of edges) {
+      const a = byId.get(e.from_node_id)!;
+      const b = byId.get(e.to_node_id)!;
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      expect(d).toBeGreaterThan(rest * 0.5);
+      expect(d).toBeLessThan(rest * 2.5);
+    }
+  });
+
+  it("keeps pinned nodes exactly where the caller put them", () => {
+    const { nodes, edges } = ringSeedGraph(12);
+    const seed = layout(nodes, edges, W, H);
+    const pins = new Map([["f00", { x: 40, y: 40 }]]);
+    const out = forceLayout(seed, edges, W, H, pins);
+    const f00 = out.find((n) => n.id === "f00")!;
+    expect(f00.x).toBe(40);
+    expect(f00.y).toBe(40);
+  });
+
+  it("returns the ring layout unchanged past the node cap (performance guard)", () => {
+    const { nodes, edges } = ringSeedGraph(200);
+    const seed = layout(nodes, edges, W, H);
+    const out = forceLayout(seed, edges, W, H);
+    expect(out.map((n) => [n.x, n.y])).toEqual(seed.map((n) => [n.x, n.y]));
+  });
+
+  it("nodeRadius grows with degree and caps at 8 degrees", () => {
+    expect(nodeRadius(0)).toBe(8);
+    expect(nodeRadius(4)).toBeCloseTo(11);
+    expect(nodeRadius(8)).toBe(14);
+    expect(nodeRadius(50)).toBe(14); // capped
   });
 });

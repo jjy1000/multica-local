@@ -139,6 +139,10 @@ export function resolveEdgeTone(type: string, status: string | undefined | null)
   return FALLBACK_TONES[safeStatus];
 }
 
+export function markerIdFor(edgeType: string, stroke: string): string {
+  return `causal-arrow-${`${edgeType}|${stroke}`.replace(/[^a-zA-Z0-9-]/g, "_")}`;
+}
+
 interface LaidOutNode extends CausalNode {
   x: number;
   y: number;
@@ -295,6 +299,145 @@ export function layout(nodes: CausalNode[], edges: CausalEdge[], width: number, 
   return laidOut;
 }
 
+// ---------------------------------------------------------------------------
+// 0.5.120 force layout — the ring layout above stays as the deterministic
+// INITIAL positions and the >160-node performance fallback; this pass
+// relaxes the graph into a force-directed arrangement (repulsion + edge
+// springs + gentle centering) so structure reads from the geometry:
+// hubs push apart, chains stretch, clusters settle.
+//
+// Determinism contract (same bar as layout()): pure arithmetic, fixed
+// iteration count, no randomness — identical inputs always produce
+// identical coordinates. The pin parameter freezes nodes the caller
+// owns (drag overrides / previous positions across poll refetches) so
+// the 5s poll never makes the graph drift under the cursor.
+// ---------------------------------------------------------------------------
+
+// Force-pass knobs. REST_LENGTH scales with the canvas so the popover
+// (420px) and the full-page canvas (760px) both breathe.
+const FORCE_ITERATIONS = 160;
+const FORCE_REPULSION = 3200;
+const FORCE_CENTERING = 0.012;
+const FORCE_MAX_STEP = 14;
+const FORCE_NODE_CAP = 160;
+const FORCE_NODE_MARGIN = 20;
+
+export function forceRestLength(width: number, height: number): number {
+  return Math.min(110, Math.max(60, Math.min(width, height) * 0.22));
+}
+
+export function forceLayout(
+  initial: LaidOutNode[],
+  edges: CausalEdge[],
+  width: number,
+  height: number,
+  pinned?: Map<string, CausalPositionOverride>,
+): LaidOutNode[] {
+  if (initial.length === 0) return initial;
+  // Performance guard: O(n²) per iteration — past the cap the ring
+  // layout (already overlap-free) renders as-is.
+  if (initial.length > FORCE_NODE_CAP) return initial;
+
+  const pos = initial.map((n) => {
+    const pin = pinned?.get(n.id);
+    return pin ? { ...n, x: pin.x, y: pin.y } : { ...n };
+  });
+  const indexOf = new Map(pos.map((n, i) => [n.id, i]));
+
+  // Unique edge pairs (parallel edges of different types collapse to
+  // one spring — two springs on the same pair double-count).
+  const springs: Array<[number, number]> = [];
+  const seenPair = new Set<string>();
+  for (const e of edges) {
+    const a = indexOf.get(e.from_node_id);
+    const b = indexOf.get(e.to_node_id);
+    if (a === undefined || b === undefined || a === b) continue;
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    if (seenPair.has(key)) continue;
+    seenPair.add(key);
+    springs.push([a, b]);
+  }
+
+  const rest = forceRestLength(width, height);
+  const cx = width / 2;
+  const cy = height / 2;
+  const vx = new Array<number>(pos.length).fill(0);
+  const vy = new Array<number>(pos.length).fill(0);
+
+  for (let iter = 0; iter < FORCE_ITERATIONS; iter++) {
+    vx.fill(0);
+    vy.fill(0);
+
+    // Pairwise repulsion (Coulomb-ish, d² falloff with a near clamp so
+    // overlapping nodes separate hard but never explode).
+    for (let i = 0; i < pos.length; i++) {
+      const a = pos[i]!;
+      for (let j = i + 1; j < pos.length; j++) {
+        const b = pos[j]!;
+        let dx = a.x - b.x;
+        let dy = a.y - b.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 1) {
+          // Coincident nodes (same ring angle) get a deterministic
+          // nudge direction so the repulsion can act at all.
+          dx = 0.71;
+          dy = 0.71;
+          d2 = 1;
+        }
+        const d = Math.sqrt(d2);
+        const f = FORCE_REPULSION / Math.max(d2, 64);
+        const fx = (dx / d) * f;
+        const fy = (dy / d) * f;
+        vx[i]! += fx;
+        vy[i]! += fy;
+        vx[j]! -= fx;
+        vy[j]! -= fy;
+      }
+    }
+
+    // Edge springs toward the rest length.
+    for (const [i, j] of springs) {
+      const a = pos[i]!;
+      const b = pos[j]!;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const d = Math.max(Math.hypot(dx, dy), 1);
+      const f = (d - rest) * 0.03;
+      const fx = (dx / d) * f;
+      const fy = (dy / d) * f;
+      vx[i]! += fx;
+      vy[i]! += fy;
+      vx[j]! -= fx;
+      vy[j]! -= fy;
+    }
+
+    // Gentle centering + clamped integration. Pinned nodes never move.
+    for (let i = 0; i < pos.length; i++) {
+      const n = pos[i]!;
+      if (pinned?.has(n.id)) continue;
+      vx[i]! += (cx - n.x) * FORCE_CENTERING;
+      vy[i]! += (cy - n.y) * FORCE_CENTERING;
+      let dx = vx[i]!;
+      let dy = vy[i]!;
+      const mag = Math.hypot(dx, dy);
+      if (mag > FORCE_MAX_STEP) {
+        dx = (dx / mag) * FORCE_MAX_STEP;
+        dy = (dy / mag) * FORCE_MAX_STEP;
+      }
+      n.x += dx;
+      n.y += dy;
+    }
+  }
+
+  // Final clamp inside the viewBox with a node-radius margin.
+  for (const n of pos) {
+    if (pinned?.has(n.id)) continue;
+    n.x = Math.min(Math.max(n.x, FORCE_NODE_MARGIN), width - FORCE_NODE_MARGIN);
+    n.y = Math.min(Math.max(n.y, FORCE_NODE_MARGIN), height - FORCE_NODE_MARGIN);
+  }
+  return pos;
+}
+
 // Width-derived label budget: the full-page canvas affords longer
 // labels than the 440px popover.
 function maxLabelChars(width: number): number {
@@ -321,6 +464,24 @@ interface NodeDragState {
   moved: boolean;
   raf: number | null;
   pending: CausalPositionOverride | null;
+}
+
+// Degree map for the radius encoding — hubs read bigger. Shared by the
+// renderer; recomputed only when the edge list identity changes.
+function degreeMap(edges: CausalEdge[]): Map<string, number> {
+  const deg = new Map<string, number>();
+  for (const e of edges) {
+    deg.set(e.from_node_id, (deg.get(e.from_node_id) ?? 0) + 1);
+    deg.set(e.to_node_id, (deg.get(e.to_node_id) ?? 0) + 1);
+  }
+  return deg;
+}
+
+// Radius encoding: degree 0 → 8px, +0.75 per degree, capped at 14px.
+// Degree (not type) drives size so the graph's hubs are findable at a
+// glance without reading labels.
+export function nodeRadius(degree: number): number {
+  return 8 + Math.min(degree, 8) * 0.75;
 }
 
 export function CausalMinimap({
@@ -379,7 +540,53 @@ export function CausalMinimap({
     [onPositionOverride],
   );
 
-  const laid = useMemo(() => layout(nodes, edges, width, height), [nodes, edges, width, height]);
+  const ringLaid = useMemo(() => layout(nodes, edges, width, height), [nodes, edges, width, height]);
+
+  // 0.5.120: force-directed relaxation on top of the ring seed. The
+  // signature cache is the poll-stability contract: the 5s workspace
+  // poll hands us a fresh nodes array every tick, and re-relaxing on
+  // every identity change would make the graph crawl under the cursor.
+  // Only a change in the graph's MEMBERSHIP (node/edge id sets + canvas
+  // size) retriggers the pass; when it does, the previous positions
+  // pin as the starting point so the re-arrangement is a short local
+  // settle, not a reshuffle.
+  const graphSignature = useMemo(
+    () =>
+      `${width}x${height}|${ringLaid.map((n) => n.id).join(",")}|${edges.map((e) => e.id).join(",")}`,
+    [ringLaid, edges, width, height],
+  );
+  const forceCacheRef = useRef<{ signature: string; positions: Map<string, CausalPositionOverride> } | null>(null);
+  const laid = useMemo(() => {
+    const cached = forceCacheRef.current;
+    const positions = new Map<string, CausalPositionOverride>();
+    if (cached && cached.signature === graphSignature) {
+      // Membership unchanged — reuse the settled positions verbatim.
+      for (const n of ringLaid) {
+        const prev = cached.positions.get(n.id);
+        positions.set(n.id, prev ?? { x: n.x, y: n.y });
+      }
+      return ringLaid.map((n) => {
+        const p = positions.get(n.id);
+        return p ? { ...n, x: p.x, y: p.y } : n;
+      });
+    }
+    // Membership changed. Prior positions (for nodes that still exist)
+    // pin as the settle start; brand-new nodes relax from their ring
+    // seed. User drag overrides are applied later in posById and are
+    // passed as pins too so neighbours arrange AROUND the dragged node.
+    const startPins = new Map<string, CausalPositionOverride>();
+    if (cached) {
+      for (const n of ringLaid) {
+        const prev = cached.positions.get(n.id);
+        if (prev) startPins.set(n.id, prev);
+      }
+    }
+    const relaxed = forceLayout(ringLaid, edges, width, height, startPins.size > 0 ? startPins : undefined);
+    for (const n of relaxed) positions.set(n.id, { x: n.x, y: n.y });
+    forceCacheRef.current = { signature: graphSignature, positions };
+    return relaxed;
+  }, [ringLaid, edges, width, height, graphSignature]);
+
   // Overrides merge AFTER the layout so edges re-follow automatically.
   const posById = useMemo(() => {
     const merged = new Map<string, LaidOutNode>();
@@ -405,6 +612,23 @@ export function CausalMinimap({
     }
     return ids;
   }, [laid.length, edges, selectedNodeId, hoveredId]);
+
+  // 0.5.120 focus mode: hovering (or selecting) a node dims everything
+  // not adjacent to it, so the anchor's immediate causal neighbourhood
+  // pops out of even a dense workspace graph. No anchor → no dimming.
+  // (Hooks live BEFORE the empty-graph early return — rules of hooks.)
+  const focusAnchor = hoveredId ?? selectedNodeId ?? null;
+  const focusIds = useMemo(() => {
+    if (!focusAnchor) return null;
+    const ids = new Set<string>([focusAnchor]);
+    for (const e of edges) {
+      if (e.from_node_id === focusAnchor) ids.add(e.to_node_id);
+      if (e.to_node_id === focusAnchor) ids.add(e.from_node_id);
+    }
+    return ids;
+  }, [focusAnchor, edges]);
+
+  const degree = useMemo(() => degreeMap(edges), [edges]);
 
   const finishDrag = useCallback(
     (select: boolean) => {
@@ -557,6 +781,40 @@ export function CausalMinimap({
       {hasFlowEdges ? (
         <style>{`@keyframes causal-edge-flow{to{stroke-dashoffset:-14}}.causal-edge-flow{animation:causal-edge-flow 0.9s linear infinite}`}</style>
       ) : null}
+      <defs>
+        {/* Subtle dot grid — gives the canvas a spatial substrate so
+            pan/zoom reads as movement, not as shapes sliding on paper. */}
+        <pattern id="causal-dot-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+          <circle cx="1.2" cy="1.2" r="1.2" className="fill-foreground" opacity={0.055} />
+        </pattern>
+        {/* Direction markers — causality without a visible direction is
+            decoration. One marker per (type, status) tone actually in
+            use; unknown types share the neutral fallback marker. */}
+        {Array.from(
+          edges.reduce((acc, e) => {
+            const tone = resolveEdgeTone(e.type, e.status);
+            const key = `${e.type}|${tone.stroke}`;
+            if (!acc.has(key)) acc.set(key, tone.stroke);
+            return acc;
+          }, new Map<string, string>()),
+        ).map(([key, stroke]) => {
+          const markerId = markerIdFor(key.split("|")[0] ?? "", stroke);
+          return (
+            <marker
+              key={markerId}
+              id={markerId}
+              viewBox="0 0 8 8"
+              refX={7}
+              refY={4}
+              markerWidth={5.5}
+              markerHeight={5.5}
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1 L 7 4 L 0 7 z" fill={stroke} />
+            </marker>
+          );
+        })}
+      </defs>
       <g
         ref={contentRef}
         transform={
@@ -565,6 +823,9 @@ export function CausalMinimap({
             : undefined
         }
       >
+        {/* Dot-grid substrate — lives INSIDE the transform group so it
+            pans/zooms with the graph and the motion reads as space. */}
+        <rect x={0} y={0} width={width} height={height} fill="url(#causal-dot-grid)" pointerEvents="none" />
         {edges.map((e) => {
           const from = posById.get(e.from_node_id);
           const to = posById.get(e.to_node_id);
@@ -579,6 +840,11 @@ export function CausalMinimap({
           const bend = Math.hypot(to.x - from.x, to.y - from.y) * 0.12;
           const d = `M ${from.x} ${from.y} Q ${mx + bend} ${my - bend} ${to.x} ${to.y}`;
           const flow = !reducedMotion && e.status === "active" && tone.dashed;
+          // Focus dimming: when an anchor is active, only edges touching
+          // it keep their authored opacity — the rest recede to 0.12×.
+          const focused = !focusIds || (focusIds.has(e.from_node_id) && focusIds.has(e.to_node_id));
+          const opacity = focused ? tone.opacity : tone.opacity * 0.12;
+          const marker = focused ? markerIdFor(e.type, tone.stroke) : undefined;
           if (reducedMotion) {
             return (
               <path
@@ -588,7 +854,8 @@ export function CausalMinimap({
                 stroke={tone.stroke}
                 strokeWidth={1.5}
                 strokeDasharray={tone.dashed ? "4 3" : undefined}
-                opacity={tone.opacity}
+                markerEnd={marker ? `url(#${marker})` : undefined}
+                opacity={opacity}
               />
             );
           }
@@ -605,9 +872,10 @@ export function CausalMinimap({
               stroke={tone.stroke}
               strokeWidth={1.5}
               strokeDasharray={tone.dashed ? "4 3" : undefined}
+              markerEnd={marker ? `url(#${marker})` : undefined}
               className={flow ? "causal-edge-flow" : undefined}
               initial={tone.dashed ? { opacity: 0 } : { opacity: 0, pathLength: 0 }}
-              animate={tone.dashed ? { opacity: tone.opacity } : { opacity: tone.opacity, pathLength: 1 }}
+              animate={tone.dashed ? { opacity } : { opacity, pathLength: 1 }}
               transition={{ duration: 0.4, ease: "easeOut" }}
             />
           );
@@ -618,6 +886,12 @@ export function CausalMinimap({
           const selected = selectedNodeId === n.id;
           const hovered = hoveredId === n.id;
           const labelsVisible = labelIds === null || labelIds.has(n.id);
+          // Hub radius: degree drives size (see nodeRadius) so the
+          // graph's connective tissue is findable without labels.
+          const r = nodeRadius(degree.get(n.id) ?? 0);
+          // Focus dimming mirrors the edges: non-neighbours recede.
+          const focused = !focusIds || focusIds.has(n.id);
+          const dim = focused ? 1 : 0.15;
           // Side-anchor ring labels so neighbouring rings stop stacking
           // text on text; centre (ring 0) nodes keep the below-node
           // middle label.
@@ -631,6 +905,7 @@ export function CausalMinimap({
               transform={`translate(${pos.x}, ${pos.y})`}
               data-causal-node-id={n.id}
               className={onSelectNode ? "cursor-pointer" : undefined}
+              opacity={dim}
               onMouseEnter={() => setHoveredId(n.id)}
               onMouseLeave={() => setHoveredId((cur) => (cur === n.id ? null : cur))}
             >
@@ -642,15 +917,15 @@ export function CausalMinimap({
               >
                 {selected ? (
                   reducedMotion ? (
-                    <circle r={14} fill="none" stroke="#0f172a" strokeWidth={1.5} opacity={0.35} />
+                    <circle r={r + 5} fill="none" stroke="#0f172a" strokeWidth={1.5} opacity={0.35} />
                   ) : (
                     <motion.circle
-                      r={14}
+                      r={r + 5}
                       fill="none"
                       stroke="#0f172a"
                       strokeWidth={1.5}
                       initial={{ opacity: 0.5, scale: 1 }}
-                      animate={{ opacity: [0.5, 0.05, 0.5], scale: [1, 1.3, 1] }}
+                      animate={{ opacity: [0.5, 0.05, 0.5], scale: [1, 1.25, 1] }}
                       transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
                       style={{ transformOrigin: "center", transformBox: "fill-box" }}
                     />
@@ -670,21 +945,25 @@ export function CausalMinimap({
                         }
                   }
                 >
+                  {/* Type-coloured halo — the glow that makes the node
+                      read as a light source rather than a dot. */}
+                  <circle r={r + 4.5} fill={color} opacity={hovered || selected ? 0.28 : 0.14} />
                   <circle
-                    r={selected ? 13 : 10}
+                    r={selected ? r + 2 : r}
                     fill={color}
-                    opacity={0.9}
+                    opacity={0.95}
                     stroke={selected ? "#0f172a" : "#ffffff"}
-                    strokeWidth={selected ? 2.5 : 1.5}
+                    strokeWidth={selected ? 2 : 1.5}
                   />
                 </g>
                 <title>{`${n.type}: ${n.label}`}</title>
                 {labelsVisible ? (
                   <text
-                    x={anchor === "start" ? 12 : anchor === "end" ? -12 : 0}
-                    y={anchor === "middle" ? 24 : 3}
+                    x={anchor === "start" ? r + 3 : anchor === "end" ? -(r + 3) : 0}
+                    y={anchor === "middle" ? r + 13 : 3}
                     textAnchor={anchor}
-                    fontSize={9}
+                    fontSize={9.5}
+                    fontWeight={hovered || selected ? 500 : 400}
                     fill="currentColor"
                     className="fill-muted-foreground"
                     pointerEvents="none"

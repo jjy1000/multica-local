@@ -193,7 +193,7 @@ function FocusedGraph({ issueId }: { issueId: string }) {
             nodes={nodes}
             edges={edges}
             width={760}
-            height={480}
+            height={560}
             selectedNodeId={selected?.id ?? null}
             onSelectNode={setSelected}
             positionOverrides={positionOverrides}
@@ -205,11 +205,11 @@ function FocusedGraph({ issueId }: { issueId: string }) {
               resetView: t(($) => $.reset_view),
             }}
           />
+          <Legend />
           {subgraph.isPending ? <GraphLoadingOverlay label={t(($) => $.loading)} /> : null}
         </div>
         <NodeDetail node={selected} />
       </div>
-      <Legend />
       <SuggestedQueue wsId={nodes[0]?.workspace_id ?? ""} />
     </div>
   );
@@ -304,7 +304,7 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
               nodes={nodes}
               edges={edges}
               width={760}
-              height={480}
+              height={560}
               selectedNodeId={selected?.id ?? null}
               onSelectNode={setSelected}
               positionOverrides={positionOverrides}
@@ -316,12 +316,12 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
                 resetView: t(($) => $.reset_view),
               }}
             />
+            <Legend />
             {graph.isPending ? <GraphLoadingOverlay label={t(($) => $.loading)} /> : null}
           </div>
           <NodeDetail node={selected} />
         </div>
       )}
-      <Legend />
     </div>
   );
 }
@@ -383,12 +383,19 @@ function NodeDetail({ node }: { node: CausalNode | null }) {
 function Legend() {
   const { t } = useT("causal-graph");
   const entries = useMemo(() => Object.entries(CAUSAL_NODE_TYPE_COLORS), []);
+  // 0.5.120: the legend is a canvas HUD — pinned to the viewport corner,
+  // glassy, and click-transparent so it never blocks pan/drag gestures.
   return (
-    <div className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
-      <span className="font-medium">{t(($) => $.legend_title)}:</span>
+    <div
+      className="pointer-events-none absolute bottom-2 left-2 z-[5] flex max-w-[85%] flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-border/50 bg-background/75 px-2.5 py-1.5 text-[10px] text-muted-foreground shadow-sm backdrop-blur"
+    >
+      <span className="font-medium">{t(($) => $.legend_title)}</span>
       {entries.map(([type, color]) => (
         <span key={type} className="inline-flex items-center gap-1">
-          <span className="inline-block size-2 rounded-full" style={{ backgroundColor: color }} />
+          <span
+            className="inline-block size-2 rounded-full"
+            style={{ backgroundColor: color, boxShadow: `0 0 4px ${color}` }}
+          />
           {type}
         </span>
       ))}
