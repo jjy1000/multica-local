@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { api } from "@multica/core/api";
 import type { LabArtifactStub } from "@multica/core/api/schemas";
+import { formatElapsedSecs } from "../../../chat/lib/format";
 import { useClaudeLabIssue } from "../../hooks/use-claude-lab-issue";
 import { useT } from "../../../i18n";
 
@@ -60,7 +61,32 @@ export function ClaudeIssueEmbed({
   issueId: string;
 }) {
   const { t } = useT("experimental");
-  const { tasks, status, hasLive, artifacts } = useClaudeLabIssue(wsId, issueId);
+  const { tasks, latest, liveTask, status, hasLive, artifacts } = useClaudeLabIssue(wsId, issueId);
+
+  // Ticking clock for the live progress row — 1s cadence so the elapsed
+  // counter visibly moves while a run is in flight; interval mounted only
+  // while live (the AgentTaskSnapshot 5s poll supplies the state changes).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hasLive) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [hasLive]);
+
+  const startedMs = Date.parse(liveTask?.started_at ?? liveTask?.created_at ?? "") || 0;
+  const elapsedSecs =
+    hasLive && startedMs ? Math.max(0, Math.round((now - startedMs) / 1000)) : 0;
+  const attempt = liveTask?.attempt ?? 1;
+  const liveLabel = !liveTask
+    ? ""
+    : liveTask.status !== "running" && liveTask.status !== "waiting_local_directory"
+      ? t(($) => $.claude_lab.embed_queued)
+      : latest?.status === "failed"
+        ? t(($) => $.claude_lab.embed_retrying, { n: attempt })
+        : attempt > 1
+          ? t(($) => $.claude_lab.embed_attempt, { n: attempt })
+          : t(($) => $.claude_lab.embed_working);
 
   // Inline previews: newest image-kind artifacts only, fetched through
   // rawRequest (auth headers; a bare <img src> would 401). Object URLs
@@ -133,6 +159,22 @@ export function ClaudeIssueEmbed({
         )}
       </div>
       <div className="space-y-2 px-3 py-2">
+        {hasLive && liveLabel && (
+          <div className="flex items-center gap-2" data-testid="claude-embed-live-progress">
+            <Loader2
+              className="size-3 shrink-0 animate-spin text-sky-600 dark:text-sky-300"
+              aria-hidden
+            />
+            <span className="animate-pulse truncate text-xs font-medium text-sky-700 dark:text-sky-300">
+              {liveLabel}
+            </span>
+            {elapsedSecs > 0 && (
+              <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                {formatElapsedSecs(elapsedSecs)}
+              </span>
+            )}
+          </div>
+        )}
         {imageIds.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {imageIds.map((a) => (
@@ -172,7 +214,9 @@ export function ClaudeIssueEmbed({
           </ul>
         ) : (
           <p className="text-xs text-muted-foreground">
-            {t(($) => $.claude_lab.embed_artifacts_empty)}
+            {hasLive
+              ? t(($) => $.claude_lab.embed_artifacts_pending)
+              : t(($) => $.claude_lab.embed_artifacts_empty)}
           </p>
         )}
       </div>

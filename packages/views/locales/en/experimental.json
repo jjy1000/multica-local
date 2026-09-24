@@ -279,7 +279,7 @@
     "pill_idle": "Pythia · idle",
     "tab_continue": "continue"
   },
-    "claude_lab": {
+  "claude_lab": {
     "pill_running": "Experiment running",
     "pill_queued": "Queued",
     "pill_done": "Done",
@@ -290,6 +290,11 @@
     "embed_running": "Experiment in progress…",
     "embed_status_done": "Last experiment finished — report in the comments below",
     "embed_artifacts_empty": "No artifacts yet",
-    "embed_download": "Download"
+    "embed_artifacts_pending": "Artifacts will appear here as they are produced",
+    "embed_download": "Download",
+    "embed_working": "Lab agents are working…",
+    "embed_queued": "Queued — waiting for a runtime…",
+    "embed_retrying": "Previous step failed — retrying (attempt {{n}})",
+    "embed_attempt": "Attempt {{n}} in progress…"
   }
 }

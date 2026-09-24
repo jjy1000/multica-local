@@ -279,7 +279,7 @@
     "pill_idle": "Pythia · 待機",
     "tab_continue": "続行"
   },
-    "claude_lab": {
+  "claude_lab": {
     "pill_running": "実験を実行中",
     "pill_queued": "待機中",
     "pill_done": "完了",
@@ -290,6 +290,11 @@
     "embed_running": "実験を実行中…",
     "embed_status_done": "前回の実験が完了 — レポートは下のコメント欄に",
     "embed_artifacts_empty": "成果物はまだありません",
-    "embed_download": "ダウンロード"
+    "embed_artifacts_pending": "成果物は生成され次第、ここに表示されます",
+    "embed_download": "ダウンロード",
+    "embed_working": "実験エージェントが実行中…",
+    "embed_queued": "キューに追加済み — ランタイムの割り当て待ち…",
+    "embed_retrying": "前のステップが失敗 — 自動リトライ中（{{n}} 回目）",
+    "embed_attempt": "{{n}} 回目の実行中…"
   }
 }

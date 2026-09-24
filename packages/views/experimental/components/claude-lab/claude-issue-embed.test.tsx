@@ -9,6 +9,8 @@ import { ClaudeIssueEmbed } from "./claude-issue-embed";
 const hookState = vi.hoisted(() => ({
   tasks: [] as unknown[],
   status: "idle",
+  latest: null as Record<string, unknown> | null,
+  liveTask: null as Record<string, unknown> | null,
   artifacts: [] as Array<{ id: string; name: string; kind: string; bytes: number; sha256: string; url: string; session_id: string }>,
 }));
 const rawRequestMock = vi.hoisted(() => vi.fn());
@@ -16,8 +18,8 @@ const rawRequestMock = vi.hoisted(() => vi.fn());
 vi.mock("../../hooks/use-claude-lab-issue", () => ({
   useClaudeLabIssue: () => ({
     tasks: hookState.tasks,
-    latest: null,
-    liveTask: null,
+    latest: hookState.latest,
+    liveTask: hookState.liveTask,
     status: hookState.status,
     hasLive: hookState.status === "running" || hookState.status === "queued",
     artifacts: hookState.artifacts,
@@ -28,9 +30,13 @@ vi.mock("@multica/core/api", () => ({
 }));
 vi.mock("../../../i18n", () => ({
   useT: () => ({
-    t: (sel: (d: unknown) => unknown) => {
+    t: (sel: (d: unknown) => unknown, opts?: Record<string, unknown>) => {
       const v = sel(enExperimental);
-      return typeof v === "string" ? v : undefined;
+      if (typeof v !== "string") return undefined;
+      // minimal {{var}} interpolation so retry/attempt labels resolve
+      return opts
+        ? v.replace(/\{\{(\w+)\}\}/g, (_, k) => String(opts[k] ?? `{{${k}}}`))
+        : v;
     },
   }),
 }));
@@ -39,6 +45,8 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
+    hookState.latest = null;
+    hookState.liveTask = null;
     rawRequestMock.mockResolvedValue(new Response("x"));
   });
 
@@ -62,12 +70,50 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     expect(screen.getAllByText(enExperimental.claude_lab.embed_download)).toHaveLength(2);
   });
 
-  it("shows the empty-artifacts hint for a task with none", () => {
+  it("shows the live progress row + pending hint while running with no artifacts", () => {
     hookState.tasks = [{ id: "t1" }];
     hookState.status = "running";
+    hookState.liveTask = { id: "t1", status: "running", attempt: 1, started_at: new Date().toISOString() };
     hookState.artifacts = [];
     render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
-    expect(screen.getByText(enExperimental.claude_lab.embed_artifacts_empty)).toBeTruthy();
+    // live progress row present with the working label + running header
+    expect(screen.getByTestId("claude-embed-live-progress")).toBeTruthy();
+    expect(screen.getByText(enExperimental.claude_lab.embed_working)).toBeTruthy();
     expect(screen.getByText(enExperimental.claude_lab.embed_running)).toBeTruthy();
+    // running → guidance hint instead of the terminal "No artifacts yet"
+    expect(screen.getByText(enExperimental.claude_lab.embed_artifacts_pending)).toBeTruthy();
+  });
+
+  it("shows the retrying label when the previous step failed and a retry is live", () => {
+    hookState.tasks = [{ id: "t1" }, { id: "t2" }];
+    hookState.status = "running";
+    hookState.latest = { id: "t1", status: "failed" };
+    hookState.liveTask = { id: "t2", status: "running", attempt: 2, started_at: new Date().toISOString() };
+    hookState.artifacts = [];
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    expect(
+      screen.getByText(
+        enExperimental.claude_lab.embed_retrying.replace("{{n}}", "2"),
+      ),
+    ).toBeTruthy();
+  });
+
+  it("shows the queued label while the task has not been claimed", () => {
+    hookState.tasks = [{ id: "t1" }];
+    hookState.status = "queued";
+    hookState.liveTask = { id: "t1", status: "queued", attempt: 1, created_at: new Date().toISOString() };
+    hookState.artifacts = [];
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    expect(screen.getByText(enExperimental.claude_lab.embed_queued)).toBeTruthy();
+  });
+
+  it("keeps the terminal empty hint and no live row after completion", () => {
+    hookState.tasks = [{ id: "t1" }];
+    hookState.status = "completed";
+    hookState.liveTask = null;
+    hookState.artifacts = [];
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    expect(screen.queryByTestId("claude-embed-live-progress")).toBeNull();
+    expect(screen.getByText(enExperimental.claude_lab.embed_artifacts_empty)).toBeTruthy();
   });
 });

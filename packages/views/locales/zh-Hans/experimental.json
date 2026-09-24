@@ -279,7 +279,7 @@
     "pill_idle": "Pythia · 空闲",
     "tab_continue": "继续"
   },
-    "claude_lab": {
+  "claude_lab": {
     "pill_running": "实验运行中",
     "pill_queued": "排队中",
     "pill_done": "已完成",
@@ -290,6 +290,11 @@
     "embed_running": "实验进行中…",
     "embed_status_done": "上一次实验已完成 — 完整报告见下方评论",
     "embed_artifacts_empty": "暂无产物",
-    "embed_download": "下载"
+    "embed_artifacts_pending": "产物生成后会在这里实时出现",
+    "embed_download": "下载",
+    "embed_working": "实验智能体正在执行…",
+    "embed_queued": "已排队，等待运行时领取…",
+    "embed_retrying": "上一步失败，正在自动重试（第 {{n}} 次尝试）",
+    "embed_attempt": "第 {{n}} 次执行中…"
   }
 }

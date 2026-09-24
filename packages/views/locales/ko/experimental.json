@@ -279,7 +279,7 @@
     "pill_idle": "Pythia · 대기",
     "tab_continue": "계속"
   },
-    "claude_lab": {
+  "claude_lab": {
     "pill_running": "실험 실행 중",
     "pill_queued": "대기 중",
     "pill_done": "완료",
@@ -290,6 +290,11 @@
     "embed_running": "실험 진행 중…",
     "embed_status_done": "마지막 실험 완료 — 전체 보고서는 아래 댓글에",
     "embed_artifacts_empty": "아직 산출물이 없습니다",
-    "embed_download": "다운로드"
+    "embed_artifacts_pending": "산출물은 생성되는 대로 여기에 표시됩니다",
+    "embed_download": "다운로드",
+    "embed_working": "실험 에이전트가 실행 중…",
+    "embed_queued": "대기열에 추가됨 — 런타임 할당 대기 중…",
+    "embed_retrying": "이전 단계 실패 — 자동 재시도 중（{{n}}번째 시도）",
+    "embed_attempt": "{{n}}번째 실행 중…"
   }
 }
