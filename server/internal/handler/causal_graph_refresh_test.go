@@ -14,6 +14,9 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -276,5 +279,87 @@ func TestRefreshForIssueNoOpWhenFlagOff(t *testing.T) {
 	postAge := time.Since(lastObserved(t, ctx, pgtype.UUID{Valid: true, Bytes: nodeID}))
 	if postAge < 30*24*time.Hour {
 		t.Errorf("flag-off refresh touched the row: age=%v, want ≥30d (unchanged)", postAge)
+	}
+}
+
+// TestCausalReadsList — the 0.5.121 read-receipt read path. Receipts are
+// written by the daemon claim seam (daemon.go); this pin covers the
+// gated listing endpoint end-to-end against real rows: newest first,
+// agent name joined, source echoed, workspace membership enforced by
+// the shared loadIssueForUser path.
+func TestCausalReadsList(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("handler fixture unavailable (no DATABASE_URL)")
+	}
+	ctx := t.Context()
+
+	enableCausalGraphFlag(t, ctx)
+
+	// Create a throwaway issue + agent + two receipts (older first).
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":  "causal reads issue " + time.Now().Format(time.RFC3339Nano),
+		"status": "todo",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create issue: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var issue IssueResponse
+	json.NewDecoder(w.Body).Decode(&issue)
+	t.Cleanup(func() {
+		cctx := context.Background()
+		testPool.Exec(cctx, `DELETE FROM causal_graph_read_receipt WHERE issue_id = $1::uuid`, issue.ID)
+		testPool.Exec(cctx, `DELETE FROM causal_node WHERE issue_id = $1::uuid`, issue.ID)
+		testPool.Exec(cctx, `DELETE FROM issue WHERE id = $1`, issue.ID)
+	})
+
+	var agentID string
+	if err := testPool.QueryRow(ctx, `
+		INSERT INTO agent (workspace_id, name, runtime_mode, runtime_config, visibility)
+		VALUES ($1::uuid, 'causal-read-agent-test', 'local', '{}'::jsonb, 'workspace')
+		RETURNING id`, testWorkspaceID).Scan(&agentID); err != nil {
+		t.Fatalf("insert agent: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM agent WHERE id = $1::uuid`, agentID)
+	})
+
+	for _, src := range []string{"claim_brief", "claim_brief"} {
+		if _, err := testPool.Exec(ctx, `
+			INSERT INTO causal_graph_read_receipt (workspace_id, issue_id, agent_id, source)
+			VALUES ($1::uuid, $2::uuid, $3::uuid, $4)`,
+			testWorkspaceID, issue.ID, agentID, src); err != nil {
+			t.Fatalf("insert receipt: %v", err)
+		}
+	}
+
+	w2 := httptest.NewRecorder()
+	req2 := newRequest("GET", "/api/causal-graph/reads?issue_id="+issue.ID, nil)
+	testHandler.causalReads(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("GET reads: expected 200, got %d: %s", w2.Code, w2.Body.String())
+	}
+	var body struct {
+		Reads []struct {
+			AgentID   string `json:"agent_id"`
+			AgentName string `json:"agent_name"`
+			Source    string `json:"source"`
+		} `json:"reads"`
+	}
+	if err := json.NewDecoder(w2.Body).Decode(&body); err != nil {
+		t.Fatalf("decode reads: %v", err)
+	}
+	if len(body.Reads) != 2 {
+		t.Fatalf("expected 2 reads, got %d", len(body.Reads))
+	}
+	if body.Reads[0].AgentName != "causal-read-agent-test" {
+		t.Errorf("agent_name = %q, want joined name", body.Reads[0].AgentName)
+	}
+	if body.Reads[0].Source != "claim_brief" {
+		t.Errorf("source = %q, want claim_brief", body.Reads[0].Source)
+	}
+	if body.Reads[0].AgentID != agentID {
+		t.Errorf("agent_id = %q, want %q", body.Reads[0].AgentID, agentID)
 	}
 }

@@ -32,5 +32,16 @@
   "focus_issue_label": "聚焦 issue",
   "suggested_confirmed": "已确认该关系",
   "suggested_rejected": "已拒绝该关系",
-  "suggested_action_failed": "操作失败 — 提议已还原,请重试"
+  "suggested_action_failed": "操作失败 — 提议已还原,请重试",
+  "tab_graph": "图谱",
+  "tab_reads": "读取",
+  "reads_empty": "还没有智能体追溯过这份因果分析 — 任务首次读取后会在留存记录",
+  "reads_hint": "{{n}} 条读取记录",
+  "reads_unknown_agent": "未知智能体",
+  "search_placeholder": "搜索节点 / 智能体 / 任务…",
+  "search_empty": "没有匹配的节点",
+  "open_issue": "打开任务问题",
+  "digest_copy": "复制 Agent 摘要",
+  "digest_copied": "图谱摘要已复制到剪贴板",
+  "digest_copy_failed": "摘要复制失败"
 }

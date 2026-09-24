@@ -25,10 +25,12 @@ import { useQuery } from "@tanstack/react-query";
 import { api, parseWithFallback } from "../api";
 import {
   CausalEdgeListSchema,
+  CausalReadsSchema,
   CausalNodeListSchema,
   CausalPathSchema,
   CausalSubgraphSchema,
 } from "../api/schemas";
+import type { CausalRead, CausalReads } from "../api/schemas";
 import type { CausalEdge, CausalNode, CausalPath, CausalSubgraph } from "../types/api";
 
 /** Cache-key family for the causal graph queries (issueKeys style). */
@@ -166,4 +168,33 @@ export async function causalRejectEdge(edgeId: string, wsId: string): Promise<vo
     { method: "POST" },
   );
   if (!r.ok) throw new Error(`reject ${r.status}`);
+}
+
+// ---------------------------------------------------------------------------
+// 0.5.121 read receipts — WHO has read this issue's causal trace. Rows
+// land server-side when the daemon injects the claim-time briefing, so
+// the issue-side graph preview can show which agents are actively
+// tracing the causal analysis. Parsed defensively per the API-compat
+// contract; a drift renders as an empty list, never a crash.
+// ---------------------------------------------------------------------------
+
+
+export function useCausalReads(issueId: string | null | undefined, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: [...causalGraphKeys.all, "reads", issueId ?? ""],
+    queryFn: async (): Promise<CausalRead[]> => {
+      const r = await api.rawRequest(
+        `/api/causal-graph/reads?issue_id=${encodeURIComponent(issueId ?? "")}`,
+      );
+      if (r.status === 404) throw new CausalFlagOffError();
+      if (!r.ok) throw new Error(`causal reads ${r.status}`);
+      const raw: unknown = await r.json();
+      return parseWithFallback<CausalReads>(raw, CausalReadsSchema, { reads: [] }, {
+        endpoint: "GET /api/causal-graph/reads",
+      }).reads;
+    },
+    enabled: Boolean(issueId) && (options?.enabled ?? true),
+    retry: (count, error) => (error instanceof CausalFlagOffError ? false : count < 2),
+    staleTime: 30_000,
+  });
 }

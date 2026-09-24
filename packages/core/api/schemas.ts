@@ -1993,6 +1993,21 @@ export const CausalSubgraphSchema = z.object({
   edges: z.array(CausalEdgeSchema).default([]),
 }).loose();
 
+// 0.5.121 read receipts — who has read an issue's causal trace.
+export const CausalReadSchema = z.object({
+  agent_id: z.string().default(""),
+  agent_name: z.string().default(""),
+  task_id: z.string().default(""),
+  source: z.string().default(""),
+  created_at: z.string().default(""),
+});
+export type CausalRead = z.infer<typeof CausalReadSchema>;
+
+export const CausalReadsSchema = z.object({
+  reads: z.array(CausalReadSchema).default([]),
+});
+export type CausalReads = z.infer<typeof CausalReadsSchema>;
+
 export const CausalPathSchema = z.object({
   nodes: z.array(CausalNodeSchema).default([]),
   edges: z.array(CausalEdgeSchema).default([]),

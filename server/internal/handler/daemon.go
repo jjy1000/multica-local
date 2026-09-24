@@ -2005,6 +2005,25 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 			} else {
 				resp.Agent.Instructions = resp.Agent.Instructions + "\n\n" + subgraph
 			}
+			// 0.5.121 read receipt: a non-empty brief means THIS agent just
+			// read the issue's causal trace. Record it so the issue-side
+			// graph preview can show who has been tracing the causal
+			// analysis (the 知识图谱 decision-traceability loop made
+			// visible). Best-effort — a failed receipt must never fail the
+			// claim.
+			if _, err := h.Queries.CreateCausalGraphReadReceipt(r.Context(), db.CreateCausalGraphReadReceiptParams{
+				WorkspaceID: parseUUID(resp.WorkspaceID),
+				IssueID:     task.IssueID,
+				AgentID:     task.AgentID,
+				TaskID:      pgtype.UUID{Valid: true, Bytes: task.ID.Bytes},
+				Source:      "claim_brief",
+			}); err != nil {
+				slog.Warn("causal read receipt failed",
+					"task_id", uuidToString(task.ID),
+					"issue_id", uuidToString(task.IssueID),
+					"error", err,
+				)
+			}
 			slog.Debug("injected causal subgraph briefing",
 				"task_id", uuidToString(task.ID),
 				"issue_id", uuidToString(task.IssueID),

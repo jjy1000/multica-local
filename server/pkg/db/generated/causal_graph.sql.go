@@ -114,6 +114,48 @@ func (q *Queries) CreateCausalEdge(ctx context.Context, arg CreateCausalEdgePara
 	return i, err
 }
 
+const createCausalGraphReadReceipt = `-- name: CreateCausalGraphReadReceipt :one
+INSERT INTO causal_graph_read_receipt (
+    workspace_id, issue_id, agent_id, task_id, source
+) VALUES (
+    $1::uuid,
+    $2::uuid,
+    $3::uuid,
+    $4::uuid,
+    $5::text
+)
+RETURNING id, workspace_id, issue_id, agent_id, task_id, source, created_at
+`
+
+type CreateCausalGraphReadReceiptParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	IssueID     pgtype.UUID `json:"issue_id"`
+	AgentID     pgtype.UUID `json:"agent_id"`
+	TaskID      pgtype.UUID `json:"task_id"`
+	Source      string      `json:"source"`
+}
+
+func (q *Queries) CreateCausalGraphReadReceipt(ctx context.Context, arg CreateCausalGraphReadReceiptParams) (CausalGraphReadReceipt, error) {
+	row := q.db.QueryRow(ctx, createCausalGraphReadReceipt,
+		arg.WorkspaceID,
+		arg.IssueID,
+		arg.AgentID,
+		arg.TaskID,
+		arg.Source,
+	)
+	var i CausalGraphReadReceipt
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.IssueID,
+		&i.AgentID,
+		&i.TaskID,
+		&i.Source,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const createCausalNode = `-- name: CreateCausalNode :one
 
 INSERT INTO causal_node (
@@ -628,6 +670,59 @@ func (q *Queries) ListCausalEdges(ctx context.Context, arg ListCausalEdgesParams
 			&i.CreatedBy,
 			&i.ProposedBy,
 			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCausalGraphReadsByIssue = `-- name: ListCausalGraphReadsByIssue :many
+SELECT r.id, r.issue_id, r.agent_id, r.task_id, r.source, r.created_at,
+       a.name AS agent_name
+FROM causal_graph_read_receipt r
+LEFT JOIN agent a ON a.id = r.agent_id
+WHERE r.issue_id = $1::uuid
+ORDER BY r.created_at DESC
+LIMIT $2::int
+`
+
+type ListCausalGraphReadsByIssueParams struct {
+	IssueID   pgtype.UUID `json:"issue_id"`
+	LimitRows int32       `json:"limit_rows"`
+}
+
+type ListCausalGraphReadsByIssueRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	IssueID   pgtype.UUID        `json:"issue_id"`
+	AgentID   pgtype.UUID        `json:"agent_id"`
+	TaskID    pgtype.UUID        `json:"task_id"`
+	Source    string             `json:"source"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	AgentName pgtype.Text        `json:"agent_name"`
+}
+
+func (q *Queries) ListCausalGraphReadsByIssue(ctx context.Context, arg ListCausalGraphReadsByIssueParams) ([]ListCausalGraphReadsByIssueRow, error) {
+	rows, err := q.db.Query(ctx, listCausalGraphReadsByIssue, arg.IssueID, arg.LimitRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListCausalGraphReadsByIssueRow{}
+	for rows.Next() {
+		var i ListCausalGraphReadsByIssueRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.IssueID,
+			&i.AgentID,
+			&i.TaskID,
+			&i.Source,
+			&i.CreatedAt,
+			&i.AgentName,
 		); err != nil {
 			return nil, err
 		}

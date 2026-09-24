@@ -32,5 +32,16 @@
   "focus_issue_label": "フォーカス issue",
   "suggested_confirmed": "関係を承認しました",
   "suggested_rejected": "関係を却下しました",
-  "suggested_action_failed": "操作に失敗しました。提案を元に戻したので再試行してください"
+  "suggested_action_failed": "操作に失敗しました。提案を元に戻したので再試行してください",
+  "tab_graph": "トレース",
+  "tab_reads": "読取",
+  "reads_empty": "まだエージェントはこの因果分析を追跡していません — 初回のブリーフィング時に記録されます",
+  "reads_hint": "読取記録 {{n}} 件",
+  "reads_unknown_agent": "不明なエージェント",
+  "search_placeholder": "ノード / エージェント / イシューを検索…",
+  "search_empty": "一致するノードがありません",
+  "open_issue": "イシューを開く",
+  "digest_copy": "エージェント要約をコピー",
+  "digest_copied": "グラフ要約をクリップボードにコピーしました",
+  "digest_copy_failed": "要約のコピーに失敗しました"
 }

@@ -43,6 +43,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -992,6 +993,52 @@ func (h *Handler) causalPath(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// causalReads lists WHO has read this issue's causal trace (0.5.121
+// read receipts — rows land when the daemon injects the claim-time
+// briefing, so the issue-side graph preview can show which agents are
+// actively tracing the causal analysis). Membership-gated via
+// loadIssueForUser; returns the most recent few, newest first.
+func (h *Handler) causalReads(w http.ResponseWriter, r *http.Request) {
+	issue, ok := h.loadIssueForUser(w, r, r.URL.Query().Get("issue_id"))
+	if !ok {
+		return
+	}
+	rows, err := h.Queries.ListCausalGraphReadsByIssue(r.Context(), dbpkg.ListCausalGraphReadsByIssueParams{
+		IssueID:   issue.ID,
+		LimitRows: 8,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list causal reads: "+err.Error())
+		return
+	}
+	type readJSON struct {
+		AgentID   string `json:"agent_id"`
+		AgentName string `json:"agent_name"`
+		TaskID    string `json:"task_id"`
+		Source    string `json:"source"`
+		CreatedAt string `json:"created_at"`
+	}
+	reads := make([]readJSON, 0, len(rows))
+	for _, row := range rows {
+		agentID := ""
+		if row.AgentID.Valid {
+			agentID = util.UUIDToString(row.AgentID)
+		}
+		taskID := ""
+		if row.TaskID.Valid {
+			taskID = util.UUIDToString(row.TaskID)
+		}
+		reads = append(reads, readJSON{
+			AgentID:   agentID,
+			AgentName: row.AgentName.String,
+			TaskID:    taskID,
+			Source:    row.Source,
+			CreatedAt: row.CreatedAt.Time.UTC().Format(time.RFC3339),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"reads": reads})
+}
+
 // RegisterCausalGraphRoutes mounts the gated surface. The caller wraps
 // it in RequireExperimentalFlag("causal_graph") (router.go).
 func RegisterCausalGraphRoutes(r chi.Router, h *Handler) {
@@ -1010,4 +1057,5 @@ func RegisterCausalGraphRoutes(r chi.Router, h *Handler) {
 
 	r.Get("/api/causal-graph/subgraph", h.causalSubgraph)
 	r.Get("/api/causal-graph/path", h.causalPath)
+	r.Get("/api/causal-graph/reads", h.causalReads)
 }

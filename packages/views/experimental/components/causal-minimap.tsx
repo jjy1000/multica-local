@@ -35,6 +35,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import type { CausalEdge, CausalNode } from "@multica/core/types/api";
 
 export const CAUSAL_NODE_TYPE_COLORS: Record<string, string> = {
@@ -76,51 +77,55 @@ interface EdgeTone {
 }
 type EdgeToneByStatus = Record<"active" | "suggested" | "rejected" | "superseded", EdgeTone>;
 type EdgeToneByType = Record<string, EdgeToneByStatus>;
-const SUPERSEDED_TONE: EdgeTone = { stroke: "#cbd5e1", dashed: true, opacity: 0.22 };
+
+// 0.5.121: the per-type HUE moved into CSS custom properties
+// (--causal-edge-* in ui/styles/tokens.css, with light + dark values) so
+// the graph tracks the app's color scheme instead of hardcoding
+// slate-600-family strokes that go invisible on dark canvases. Status
+// differences (active vs suggested vs rejected vs superseded) are
+// expressed purely through opacity + dash — visually sufficient, and it
+// keeps one hue per relation type across every status.
+const EDGE_VAR: Record<string, string> = {
+  causes: "var(--causal-edge-causes)",
+  supports: "var(--causal-edge-supports)",
+  contradicts: "var(--causal-edge-contradicts)",
+  depends_on: "var(--causal-edge-depends-on)",
+  enables: "var(--causal-edge-enables)",
+  blocks: "var(--causal-edge-blocks)",
+};
+const FALLBACK_STROKE = "var(--causal-edge-fallback)";
+const SUPERSEDED_STROKE = "var(--causal-edge-superseded)";
+
+const SUPERSEDED_TONE: EdgeTone = { stroke: SUPERSEDED_STROKE, dashed: true, opacity: 0.22 };
 const FALLBACK_TONES: EdgeToneByStatus = {
-  active: { stroke: "#94a3b8", dashed: false, opacity: 0.65 },
-  suggested: { stroke: "#94a3b8", dashed: true, opacity: 0.4 },
-  rejected: { stroke: "#94a3b8", dashed: false, opacity: 0.3 },
+  active: { stroke: FALLBACK_STROKE, dashed: false, opacity: 0.65 },
+  suggested: { stroke: FALLBACK_STROKE, dashed: true, opacity: 0.4 },
+  rejected: { stroke: FALLBACK_STROKE, dashed: false, opacity: 0.3 },
   superseded: SUPERSEDED_TONE,
 };
-const EDGE_TONES: EdgeToneByType = {
-  causes: {
-    active: { stroke: "#334155", dashed: false, opacity: 0.7 },
-    suggested: { stroke: "#64748b", dashed: true, opacity: 0.5 },
-    rejected: { stroke: "#94a3b8", dashed: false, opacity: 0.3 },
-    superseded: SUPERSEDED_TONE,
-  },
-  supports: {
-    active: { stroke: "#059669", dashed: true, opacity: 0.7 },
-    suggested: { stroke: "#10b981", dashed: true, opacity: 0.5 },
-    rejected: { stroke: "#94a3b8", dashed: true, opacity: 0.3 },
-    superseded: SUPERSEDED_TONE,
-  },
-  contradicts: {
-    active: { stroke: "#dc2626", dashed: true, opacity: 0.7 },
-    suggested: { stroke: "#f87171", dashed: true, opacity: 0.5 },
-    rejected: { stroke: "#94a3b8", dashed: true, opacity: 0.3 },
-    superseded: SUPERSEDED_TONE,
-  },
-  depends_on: {
-    active: { stroke: "#64748b", dashed: false, opacity: 0.7 },
-    suggested: { stroke: "#94a3b8", dashed: false, opacity: 0.5 },
-    rejected: { stroke: "#cbd5e1", dashed: false, opacity: 0.3 },
-    superseded: SUPERSEDED_TONE,
-  },
-  enables: {
-    active: { stroke: "#2563eb", dashed: false, opacity: 0.7 },
-    suggested: { stroke: "#60a5fa", dashed: false, opacity: 0.5 },
-    rejected: { stroke: "#94a3b8", dashed: false, opacity: 0.3 },
-    superseded: SUPERSEDED_TONE,
-  },
-  blocks: {
-    active: { stroke: "#dc2626", dashed: false, opacity: 0.7 },
-    suggested: { stroke: "#f87171", dashed: false, opacity: 0.5 },
-    rejected: { stroke: "#94a3b8", dashed: false, opacity: 0.3 },
-    superseded: SUPERSEDED_TONE,
-  },
-};
+function toneFor(type: string | undefined): string {
+  return (type && EDGE_VAR[type]) || FALLBACK_STROKE;
+}
+function activeTone(type: string): EdgeTone {
+  return { stroke: toneFor(type), dashed: type === "supports" || type === "contradicts", opacity: 0.7 };
+}
+function suggestedTone(type: string): EdgeTone {
+  return { stroke: toneFor(type), dashed: true, opacity: 0.5 };
+}
+function rejectedTone(type: string): EdgeTone {
+  return { stroke: toneFor(type), dashed: type === "supports" || type === "contradicts", opacity: 0.3 };
+}
+const EDGE_TONES: EdgeToneByType = Object.fromEntries(
+  Object.keys(EDGE_VAR).map((type) => [
+    type,
+    {
+      active: activeTone(type),
+      suggested: suggestedTone(type),
+      rejected: rejectedTone(type),
+      superseded: SUPERSEDED_TONE,
+    } satisfies EdgeToneByStatus,
+  ]),
+) as EdgeToneByType;
 
 // resolveEdgeTone picks the tone for an edge by (type, status). Falls
 // back to a neutral grey so unknown statuses never collapse the
@@ -441,7 +446,7 @@ export function forceLayout(
 // Width-derived label budget: the full-page canvas affords longer
 // labels than the 440px popover.
 function maxLabelChars(width: number): number {
-  return width >= 600 ? 12 : 8;
+  return width >= 600 ? 12 : 10;
 }
 
 function truncateLabel(label: string, max: number): string {
@@ -876,7 +881,7 @@ export function CausalMinimap({
               className={flow ? "causal-edge-flow" : undefined}
               initial={tone.dashed ? { opacity: 0 } : { opacity: 0, pathLength: 0 }}
               animate={tone.dashed ? { opacity } : { opacity, pathLength: 1 }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
+              transition={{ duration: 0.4, ease: UI_EASE_OUT }}
             />
           );
         })}
@@ -912,7 +917,7 @@ export function CausalMinimap({
               <motion.g
                 initial={reducedMotion ? false : { opacity: 0, scale: 0.5 }}
                 animate={reducedMotion ? undefined : { opacity: 1, scale: 1 }}
-                transition={{ delay: entryDelay, duration: 0.25, ease: "easeOut" }}
+                transition={{ delay: entryDelay, duration: UI_MOTION_DURATION.standard, ease: UI_EASE_OUT }}
                 style={{ transformOrigin: "center", transformBox: "fill-box" }}
               >
                 {selected ? (

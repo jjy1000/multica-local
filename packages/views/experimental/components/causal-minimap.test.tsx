@@ -115,16 +115,13 @@ function angleFor(node: { x: number; y: number }, cx: number, cy: number): numbe
 }
 
 describe("causal-minimap — resolveEdgeTone (P0 #5)", () => {
-  it("returns a different stroke for active vs rejected for the same edge type", () => {
+  it("distinguishes active vs rejected for the same edge type via opacity + dash (0.5.121 var tones)", () => {
     const active = resolveEdgeTone("causes", "active");
     const rejected = resolveEdgeTone("causes", "rejected");
     const suggested = resolveEdgeTone("causes", "suggested");
-    // All three statuses must produce visually distinguishable tones —
-    // the audit flagged that pre-fix this was identical.
-    expect(rejected.stroke).not.toBe(active.stroke);
     expect(rejected.opacity).toBeLessThan(active.opacity);
-    expect(suggested.stroke).not.toBe(active.stroke);
     expect(suggested.opacity).toBeLessThan(active.opacity);
+    expect(suggested.dashed).toBe(true);
   });
 
   it("preserves the dash pattern the audit documented (supports/contradicts dashed, others solid)", () => {
@@ -136,21 +133,20 @@ describe("causal-minimap — resolveEdgeTone (P0 #5)", () => {
     expect(resolveEdgeTone("depends_on", "active").dashed).toBe(false);
   });
 
-  it("falls back to neutral grey for an unknown edge type (and never collapses to active)", () => {
+  it("falls back to the neutral var for an unknown edge type (and never collapses to a known hue)", () => {
     const active = resolveEdgeTone("causes", "active");
     const fallback = resolveEdgeTone("unknown_type", "active");
-    expect(fallback.stroke).toBe("#94a3b8");
+    expect(fallback.stroke).toBe("var(--causal-edge-fallback)");
     expect(fallback.stroke).not.toBe(active.stroke);
   });
 
-  it("returns a distinct tone for unknown statuses (no silent 'active' fallback)", () => {
+  it("folds unknown statuses onto the active tone (unchanged) and keeps rejected distinct", () => {
     const active = resolveEdgeTone("causes", "active");
-    const weird = resolveEdgeTone("causes", "pending_review");
-    // Unknown status collapses to active per the resolve function
-    // contract (explicit default branch), but the rejection / suggestion
-    // tones must still be visually distinct from active.
+    const weird = resolveEdgeTone("causes", "some-weird-status");
     expect(weird.stroke).toBe(active.stroke);
-    expect(resolveEdgeTone("causes", "rejected").stroke).not.toBe(active.stroke);
+    expect(weird.opacity).toBe(active.opacity);
+    const rejected = resolveEdgeTone("causes", "rejected");
+    expect(rejected.opacity).toBeLessThan(active.opacity);
   });
 
   it("gives superseded edges an explicit muted dashed tone that is never the active tone (0.5.86)", () => {

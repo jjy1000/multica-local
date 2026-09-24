@@ -243,3 +243,24 @@ RETURNING *;
 
 -- name: DeleteIssueDependency :exec
 DELETE FROM issue_dependency WHERE id = sqlc.arg('dependency_id')::uuid;
+
+-- name: CreateCausalGraphReadReceipt :one
+INSERT INTO causal_graph_read_receipt (
+    workspace_id, issue_id, agent_id, task_id, source
+) VALUES (
+    sqlc.arg('workspace_id')::uuid,
+    sqlc.arg('issue_id')::uuid,
+    sqlc.narg('agent_id')::uuid,
+    sqlc.narg('task_id')::uuid,
+    sqlc.arg('source')::text
+)
+RETURNING *;
+
+-- name: ListCausalGraphReadsByIssue :many
+SELECT r.id, r.issue_id, r.agent_id, r.task_id, r.source, r.created_at,
+       a.name AS agent_name
+FROM causal_graph_read_receipt r
+LEFT JOIN agent a ON a.id = r.agent_id
+WHERE r.issue_id = sqlc.arg('issue_id')::uuid
+ORDER BY r.created_at DESC
+LIMIT sqlc.arg('limit_rows')::int;

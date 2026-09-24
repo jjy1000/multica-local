@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 import { api } from "@multica/core/api";
 import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
-import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, ClipboardCopy, ExternalLink, Loader2, RefreshCw, Search } from "lucide-react";
 import {
   useExperimentalFlag,
   useCausalSubgraph,
@@ -13,7 +13,7 @@ import {
   causalConfirmEdge,
   causalRejectEdge,
 } from "@multica/core/experimental";
-import type { CausalNode } from "@multica/core/types/api";
+import type { CausalEdge, CausalNode } from "@multica/core/types/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useT } from "@multica/views/i18n";
 import { IssueBreadcrumb } from "@multica/views/experimental/components";
@@ -21,6 +21,8 @@ import {
   CausalGraphCanvas,
   CAUSAL_NODE_TYPE_COLORS,
 } from "@multica/views/experimental/components";
+import { buildGraphDigest } from "@multica/views/experimental/components/causal-graph-digest";
+import { AppLink } from "@multica/views/navigation";
 import type { CausalPositionOverride } from "@multica/views/experimental/components";
 
 // CausalGraphView (0.5.83 WL3) — the workspace-wide causal graph
@@ -152,6 +154,7 @@ function FocusedGraph({ issueId }: { issueId: string }) {
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-foreground">{t(($) => $.title)}</h2>
         <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+          <DigestButton nodes={nodes} edges={edges} />
           <span>{t(($) => $.depth_label)}</span>
           {[1, 2, 3, 4].map((d) => (
             <button
@@ -205,6 +208,7 @@ function FocusedGraph({ issueId }: { issueId: string }) {
               resetView: t(($) => $.reset_view),
             }}
           />
+          <GraphSearch nodes={nodes} onSelect={setSelected} />
           <Legend />
           {subgraph.isPending ? <GraphLoadingOverlay label={t(($) => $.loading)} /> : null}
         </div>
@@ -269,6 +273,7 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-foreground">{t(($) => $.title)}</h2>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <DigestButton nodes={nodes} edges={edges} />
           <button
             type="button"
             onClick={() => setPositionOverrides(new Map())}
@@ -316,6 +321,7 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
                 resetView: t(($) => $.reset_view),
               }}
             />
+            <GraphSearch nodes={nodes} onSelect={setSelected} />
             <Legend />
             {graph.isPending ? <GraphLoadingOverlay label={t(($) => $.loading)} /> : null}
           </div>
@@ -330,6 +336,10 @@ function NodeDetail({ node }: { node: CausalNode | null }) {
   const { t } = useT("causal-graph");
   const reduceMotion = useReducedMotion() ?? false;
 
+  const agentName =
+    typeof node?.metadata?.agent === "string" && node.metadata.agent ? node.metadata.agent : null;
+  const source =
+    typeof node?.provenance?.source === "string" && node.provenance.source ? node.provenance.source : null;
   const body = node ? (
     <div className="space-y-1 text-[11px] leading-snug text-muted-foreground">
       <p className="flex items-center gap-1.5 font-medium text-foreground">
@@ -341,11 +351,17 @@ function NodeDetail({ node }: { node: CausalNode | null }) {
       </p>
       <p>
         {t(($) => $.node_type_label)}: {node.type}
+        {agentName ? (
+          <span className="ml-1 rounded bg-muted px-1 py-px text-[9px]">
+            by {agentName}
+          </span>
+        ) : null}
       </p>
-      {node.description ? <p>{node.description}</p> : null}
-      {node.issue_id ? (
-        <p className="font-mono text-[10px] opacity-80">{node.issue_id}</p>
+      {source ? (
+        <p className="font-mono text-[10px] opacity-80">source: {source}</p>
       ) : null}
+      {node.description ? <p>{node.description}</p> : null}
+      {node.issue_id ? <IssueRefChip issueId={node.issue_id} /> : null}
     </div>
   ) : (
     <p className="text-[11px] text-muted-foreground">{t(($) => $.no_selection)}</p>
@@ -377,6 +393,136 @@ function NodeDetail({ node }: { node: CausalNode | null }) {
         </AnimatePresence>
       )}
     </div>
+  );
+}
+
+// GraphSearch (0.5.121) — canvas HUD top-left. Filters nodes by label /
+// type / agent / issue id; picking a result selects the node (the
+// focus-dim + detail pane follow from selection). Mirrors the legend's
+// glassy HUD style; the input itself stays interactive while the shell
+// lets canvas gestures pass around it.
+function GraphSearch({
+  nodes,
+  onSelect,
+}: {
+  nodes: CausalNode[];
+  onSelect: (node: CausalNode) => void;
+}) {
+  const { t } = useT("causal-graph");
+  const [query, setQuery] = useState("");
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return nodes
+      .filter(
+        (n) =>
+          n.label.toLowerCase().includes(q) ||
+          n.type.toLowerCase().includes(q) ||
+          (typeof n.metadata?.agent === "string" && n.metadata.agent.toLowerCase().includes(q)) ||
+          n.issue_id?.toLowerCase().includes(q),
+      )
+      .slice(0, 8);
+  }, [query, nodes]);
+
+  return (
+    <div className="absolute left-2 top-2 z-[5] w-56">
+      <div className="flex items-center gap-1.5 rounded-lg border border-border/50 bg-background/80 px-2 py-1 shadow-sm backdrop-blur">
+        <Search className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t(($) => $.search_placeholder)}
+          className="w-full bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
+        />
+      </div>
+      {results.length > 0 ? (
+        <ul className="mt-1 max-h-56 overflow-y-auto rounded-lg border border-border/50 bg-popover/95 p-1 shadow-md backdrop-blur">
+          {results.map((n) => (
+            <li key={n.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  onSelect(n);
+                  setQuery("");
+                }}
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-accent"
+              >
+                <span
+                  className="inline-block size-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: CAUSAL_NODE_TYPE_COLORS[n.type] ?? "#94a3b8" }}
+                />
+                <span className="truncate text-foreground">{n.label}</span>
+                {typeof n.metadata?.agent === "string" && n.metadata.agent ? (
+                  <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
+                    by {n.metadata.agent}
+                  </span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : query.trim() ? (
+        <p className="mt-1 rounded-lg border border-border/50 bg-background/80 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur">
+          {t(($) => $.search_empty)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+// IssueRefChip (0.5.121) — closes the node → task loop: a graph node
+// points at the concrete 任务问题 (issue) it was recorded on. Resolves
+// the display key/title via the typed getIssue (parseWithFallback
+// protects against backend drift); the link itself works even before
+// the fetch lands.
+function IssueRefChip({ issueId }: { issueId: string }) {
+  const { t } = useT("causal-graph");
+  const ref = useQuery({
+    queryKey: ["causal-node-issue-ref", issueId],
+    queryFn: () => api.getIssue(issueId),
+    staleTime: 60_000,
+    retry: false,
+  });
+  const identifier = ref.data?.identifier;
+  const title = ref.data?.title;
+  return (
+    <AppLink
+      href={`/issues/${encodeURIComponent(issueId)}`}
+      className="mt-1 inline-flex max-w-full items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+    >
+      <ExternalLink className="size-3 shrink-0" aria-hidden />
+      <span className="truncate">
+        {identifier ? (title ? `${identifier} · ${title}` : identifier) : t(($) => $.open_issue)}
+      </span>
+    </AppLink>
+  );
+}
+
+function DigestButton({ nodes, edges }: { nodes: CausalNode[]; edges: CausalEdge[] }) {
+  const { t } = useT("causal-graph");
+  const disabled = nodes.length === 0;
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      title={t(($) => $.digest_copy)}
+      aria-label={t(($) => $.digest_copy)}
+      onClick={() => {
+        navigator.clipboard
+          .writeText(buildGraphDigest(nodes, edges))
+          .then(() => toast.success(t(($) => $.digest_copied)))
+          .catch(() => toast.error(t(($) => $.digest_copy_failed)));
+      }}
+      className={
+        "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors " +
+        (disabled
+          ? "opacity-50"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground")
+      }
+    >
+      <ClipboardCopy className="size-3" aria-hidden />
+      {t(($) => $.digest_copy)}
+    </button>
   );
 }
 

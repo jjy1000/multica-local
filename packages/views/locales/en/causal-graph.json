@@ -32,5 +32,16 @@
   "focus_issue_label": "focused issue",
   "suggested_confirmed": "Relation confirmed",
   "suggested_rejected": "Relation rejected",
-  "suggested_action_failed": "Action failed — the proposal was restored, try again"
+  "suggested_action_failed": "Action failed — the proposal was restored, try again",
+  "tab_graph": "Trace",
+  "tab_reads": "Reads",
+  "reads_empty": "No agent has traced this causal analysis yet — the first claim-time briefing leaves a record here.",
+  "reads_hint": "{{n}} read(s) on record",
+  "reads_unknown_agent": "Unknown agent",
+  "search_placeholder": "Search nodes / agents / issues…",
+  "search_empty": "No matching nodes",
+  "open_issue": "Open issue",
+  "digest_copy": "Copy agent digest",
+  "digest_copied": "Graph digest copied to clipboard",
+  "digest_copy_failed": "Digest failed to copy"
 }
