@@ -1262,7 +1262,14 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 					// id, so resumed sessions that legitimately reply to a
 					// folded comment (MUL-4195) are accepted.
 					if task.TriggerCommentID.Valid || len(task.CoalescedCommentIds) > 0 {
-						if !taskCoversReplyParent(task, parentID) {
+						// 0.5.118: lab-bound issues admit a top-level reply
+						// (empty parent). The lab's final report IS the
+						// issue's answer — server-side lab writebacks
+						// (pythia/timesfm via postLabRunReportComment) post
+						// top-level for the same reason. Threaded --parent
+						// values stay validated for lab tasks as before.
+						isLabIssue := issue.LabSource.Valid && issue.LabSource.String != ""
+						if !(isLabIssue && !parentID.Valid) && !taskCoversReplyParent(task, parentID) {
 							accepted := append([]pgtype.UUID{}, task.CoalescedCommentIds...)
 							if task.TriggerCommentID.Valid {
 								accepted = append(accepted, task.TriggerCommentID)

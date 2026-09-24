@@ -313,6 +313,7 @@ type AgentTaskResponse struct {
 	TriggerSummary           *string              `json:"trigger_summary,omitempty"`             // canonical short description snapshot — comment text / autopilot title — taken at task creation; survives source edits/deletes
 	TriggerAuthorType        string               `json:"trigger_author_type,omitempty"`         // "agent" or "member" — author kind of the triggering comment
 	TriggerAuthorName        string               `json:"trigger_author_name,omitempty"`         // display name of the triggering comment author
+	IssueLabSource           string               `json:"issue_lab_source,omitempty"`            // issue.lab_source when the task's issue is lab-bound; daemon switches report-delivery instructions to top-level (pythia-writeback parity)
 	NewCommentCount          int                  `json:"new_comment_count,omitempty"`           // trigger-thread comments since last run; excludes injected trigger + own comments; omitempty so old daemons ignore it
 	NewCommentsSince         string               `json:"new_comments_since,omitempty"`          // RFC3339 anchor (last run's started_at) the count is measured from; omitempty so old daemons ignore it
 	ChatSessionID            string               `json:"chat_session_id,omitempty"`             // non-empty for chat tasks

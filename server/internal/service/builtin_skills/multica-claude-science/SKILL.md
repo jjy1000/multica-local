@@ -89,6 +89,15 @@ way they pick up any user message.
 
 ## Step 4 — synthesize
 
+**Report delivery is TOP-LEVEL (0.5.118).** The final research report is
+the issue's answer — post it as a top-level comment on the issue
+(`multica issue comment add "$ISSUE_ID" --content-file ./report.md`, no
+`--parent`), exactly like the pythia/timesfm server-side report
+writebacks. A report threaded under the trigger comment gets buried in a
+collapsed reply chain and reads as a missing deliverable. Keep
+conversational traffic (progress pings, questions, acks) in the trigger
+thread with the usual `--parent` form.
+
 When the agent signals completion (status change to "done" / "in review",
 or a final summary comment), read back the issue, then write a short
 coda comment so the reasoning chain stays in Multica:

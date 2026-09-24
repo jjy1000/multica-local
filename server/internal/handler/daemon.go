@@ -1465,6 +1465,12 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+			// 0.5.118: surface the issue's lab binding so the daemon's
+			// reply instructions route the FINAL REPORT to a top-level
+			// comment (pythia-writeback parity) instead of threading it
+			// under the trigger comment.
+			resp.IssueLabSource = issue.LabSource.String
+
 			// 0.3.51: prepend the system-prompt binding (if any) to the
 			// agent's Instructions before the daemon dispatches the task.
 			// Keys are tolerated at the API surface (CreateAgent /

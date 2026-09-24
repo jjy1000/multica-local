@@ -154,9 +154,12 @@ func activeThreadID(triggerThreadID, triggerCommentID string) string {
 //
 // provider is retained for caller symmetry and future per-provider tweaks; the
 // guardrail itself is intentionally identical across providers and hosts.
-func BuildCommentReplyInstructions(provider, issueID, triggerCommentID string) string {
+func BuildCommentReplyInstructions(provider, issueID, triggerCommentID, issueLabSource string) string {
 	if triggerCommentID == "" {
 		return ""
+	}
+	if issueLabSource != "" {
+		return buildLabReportDeliveryInstructions(provider, issueID, triggerCommentID, issueLabSource)
 	}
 	if useSlimBrief() {
 		return buildCommentReplyInstructionsSlim(provider, issueID, triggerCommentID)
@@ -202,6 +205,56 @@ func BuildCommentReplyInstructions(provider, issueID, triggerCommentID string) s
 			"    rm ./reply.md\n\n"+
 			"Do NOT write literal `\\n` escapes to simulate line breaks; the file preserves real newlines.\n",
 		issueID, triggerCommentID,
+	)
+}
+
+// buildLabReportDeliveryInstructions is the lab-bound variant of the reply
+// instructions (0.5.118). On a lab-bound issue the FINAL REPORT is the
+// issue's answer, not a conversation reply — mirroring the server-side
+// pythia/timesfm writeback, which posts its report as a top-level comment
+// via postLabRunReportComment. Threading the report under the trigger
+// comment buried it in a collapsed reply chain (user report 2026-09-24),
+// so lab agents are told to post the report WITHOUT --parent while
+// keeping conversational traffic (progress, questions, acks) in the
+// trigger thread. The comment.go reply-parent gate admits the empty
+// parent for lab-bound tasks — taskCoversReplyParent alone would reject
+// it as mid-conversation drift.
+func buildLabReportDeliveryInstructions(provider, issueID, triggerCommentID, issueLabSource string) string {
+	labRule := fmt.Sprintf(
+		"This issue is bound to the Multica lab `%s`.\n\n"+
+			"**Final report delivery (mandatory):** post your final report as a TOP-LEVEL comment on the issue — "+
+			"do NOT pass `--parent`. The report is the issue's answer and must be directly visible in the comment "+
+			"stream, exactly like the pythia/timesfm report writebacks. Threaded reports get buried under the "+
+			"trigger comment and are treated as missing deliverables.\n\n"+
+			"Keep conversational replies (progress pings, clarifying questions, acknowledgements) in the trigger "+
+			"thread — those DO use `--parent %s`.\n\n", issueLabSource, triggerCommentID)
+	if runtimeGOOS == "windows" {
+		return labRule + fmt.Sprintf(
+			"On Windows, write the body to a UTF-8 file with your file-write tool, then post with `--content-file`. "+
+				"Do NOT pipe via `--content-stdin` — PowerShell 5.1's `$OutputEncoding` silently drops non-ASCII. "+
+				"Do NOT use inline `--content`.\n\n"+
+				"    # Final report (TOP-LEVEL — no --parent):\n"+
+				"    multica issue comment add %s --content-file ./report.md\n"+
+				"    Remove-Item ./report.md\n\n"+
+				"    # Threaded conversational reply (uses --parent):\n"+
+				"    multica issue comment add %s --parent %s --content-file ./reply.md\n"+
+				"    Remove-Item ./reply.md\n\n"+
+				"Do NOT write literal `\\n` escapes to simulate line breaks; the file preserves real newlines.\n",
+			issueID, issueID, triggerCommentID,
+		)
+	}
+	return labRule + fmt.Sprintf(
+		"Write each body to a UTF-8 file with your file-write tool first, then post it with `--content-file`. "+
+			"Do NOT use inline `--content` or `--content-stdin` HEREDOCs — the shell rewrites backticks/`$()`/quotes, "+
+			"and heredoc boundaries silently swallow flags (GitHub #4182).\n\n"+
+			"    # 1. Final report (TOP-LEVEL — no --parent):\n"+
+			"    multica issue comment add %s --content-file ./report.md\n"+
+			"    rm ./report.md\n\n"+
+			"    # 2. Threaded conversational reply (uses --parent):\n"+
+			"    multica issue comment add %s --parent %s --content-file ./reply.md\n"+
+			"    rm ./reply.md\n\n"+
+			"Do NOT write literal `\\n` escapes to simulate line breaks; the file preserves real newlines.\n",
+		issueID, issueID, triggerCommentID,
 	)
 }
 

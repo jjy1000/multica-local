@@ -1718,7 +1718,15 @@ func (s *TaskService) CompleteTaskWithTransition(ctx context.Context, taskID pgt
 							"agent_id", util.UUIDToString(task.AgentID),
 						)
 					} else {
-						s.createAgentComment(ctx, task.IssueID, task.AgentID, redact.Text(body), "comment", task.TriggerCommentID, pgtype.UUID{})
+						// 0.5.118: on a lab-bound issue the synthesized report
+						// lands TOP-LEVEL (pythia-writeback parity) — the
+						// report is the issue's answer, not a thread reply.
+						fallbackParent := task.TriggerCommentID
+						if issueRow, issueErr := s.Queries.GetIssue(ctx, task.IssueID); issueErr == nil &&
+							issueRow.LabSource.Valid && issueRow.LabSource.String != "" {
+							fallbackParent = pgtype.UUID{}
+						}
+						s.createAgentComment(ctx, task.IssueID, task.AgentID, redact.Text(body), "comment", fallbackParent, pgtype.UUID{})
 					}
 				}
 			}

@@ -26,7 +26,7 @@ func TestBuildCommentReplyInstructionsCodexLinux(t *testing.T) {
 	issueID := "11111111-1111-1111-1111-111111111111"
 	triggerID := "22222222-2222-2222-2222-222222222222"
 
-	got := BuildCommentReplyInstructions("codex", issueID, triggerID)
+	got := BuildCommentReplyInstructions("codex", issueID, triggerID, "")
 
 	for _, want := range []string{
 		"multica issue comment add " + issueID + " --parent " + triggerID + " --content-file ./reply.md",
@@ -82,7 +82,7 @@ func TestBuildCommentReplyInstructionsNonCodexLinux(t *testing.T) {
 			name := provider + "/" + host
 			t.Run(name, func(t *testing.T) {
 				runtimeGOOS = host
-				got := BuildCommentReplyInstructions(provider, issueID, triggerID)
+				got := BuildCommentReplyInstructions(provider, issueID, triggerID, "")
 
 				for _, want := range []string{
 					"multica issue comment add " + issueID + " --parent " + triggerID + " --content-file ./reply.md",
@@ -135,7 +135,7 @@ func TestBuildCommentReplyInstructionsWindowsUsesContentFile(t *testing.T) {
 
 	for _, provider := range []string{"codex", "claude", "opencode", "openclaw", "hermes", "kimi", "kiro", "cursor"} {
 		t.Run(provider+"/windows", func(t *testing.T) {
-			got := BuildCommentReplyInstructions(provider, issueID, triggerID)
+			got := BuildCommentReplyInstructions(provider, issueID, triggerID, "")
 			for _, want := range []string{
 				"multica issue comment add " + issueID + " --parent " + triggerID + " --content-file",
 				"On Windows, write the reply body to a UTF-8 file",
@@ -164,7 +164,7 @@ func TestBuildCommentReplyInstructionsEmptyWhenNoTrigger(t *testing.T) {
 	t.Parallel()
 
 	for _, provider := range []string{"codex", "claude", "opencode"} {
-		if got := BuildCommentReplyInstructions(provider, "issue-id", ""); got != "" {
+		if got := BuildCommentReplyInstructions(provider, "issue-id", "", ""); got != "" {
 			t.Fatalf("expected empty string when triggerCommentID is empty for %s, got %q", provider, got)
 		}
 	}
@@ -332,5 +332,50 @@ func TestInjectRuntimeConfigWindowsAssignmentBriefStaysFileOnly(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestBuildLabReportDeliveryInstructions pins the 0.5.118 lab-bound variant:
+// the FINAL REPORT goes TOP-LEVEL (no --parent — pythia-writeback parity)
+// while conversational replies keep the threaded --parent form. Motivation:
+// the lab report landed under the trigger comment's collapsed reply chain
+// and read as a missing deliverable (user report 2026-09-24).
+//
+// Not parallel: mutates the package-level runtimeGOOS.
+func TestBuildLabReportDeliveryInstructions(t *testing.T) {
+	saved := runtimeGOOS
+	t.Cleanup(func() { runtimeGOOS = saved })
+	runtimeGOOS = "darwin"
+
+	issueID := "11111111-1111-1111-1111-111111111111"
+	triggerID := "22222222-2222-2222-2222-222222222222"
+
+	got := BuildCommentReplyInstructions("claude", issueID, triggerID, "claude_science_lab")
+
+	for _, want := range []string{
+		"bound to the Multica lab `claude_science_lab`",
+		"TOP-LEVEL comment",
+		"do NOT pass `--parent`",
+		"multica issue comment add " + issueID + " --content-file ./report.md\n",
+		// conversational replies keep the threaded form
+		"multica issue comment add " + issueID + " --parent " + triggerID + " --content-file ./reply.md",
+		"`--content-file`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("lab reply instructions missing %q\n---\n%s", want, got)
+		}
+	}
+
+	// The report command line must NOT carry --parent.
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "--content-file ./report.md") && strings.Contains(line, "--parent") {
+			t.Fatalf("lab report command must be top-level (no --parent): %q", line)
+		}
+	}
+
+	// Empty lab source keeps the legacy threaded-only template.
+	legacy := BuildCommentReplyInstructions("claude", issueID, triggerID, "")
+	if strings.Contains(legacy, "TOP-LEVEL") {
+		t.Fatalf("non-lab template must not gain the top-level report rule\n---\n%s", legacy)
 	}
 }
