@@ -186,7 +186,7 @@ export const appRoutes: RouteObject[] = [
             // server-native — /api/causal-graph/* are the endpoints).
             path: "causal-graph",
             element: <CausalGraphView />,
-            handle: { title: "Issue Causal Graph" },
+            handle: { title: "Knowledge Graph Decision Traceability" },
           },
           {
             path: "mythos",

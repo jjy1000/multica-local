@@ -285,6 +285,53 @@ func TestRenderClaimBriefMarkdown_HeadingAndNodeList(t *testing.T) {
 	}
 }
 
+// TestRenderClaimBriefMarkdown_AgentAttribution pins the 0.5.119
+// decision-traceability read side: an action/outcome node stamped with
+// metadata {"agent": "<name>"} renders an " (by <name>)" suffix; a node
+// without the stamp renders exactly as before.
+func TestRenderClaimBriefMarkdown_AgentAttribution(t *testing.T) {
+	stamped := uuidFromString(t, "33333333-3333-3333-3333-333333333333")
+	plain := uuidFromString(t, "44444444-4444-4444-4444-444444444444")
+	nodes := []db.CausalNode{
+		{
+			ID:             stamped,
+			WorkspaceID:    uuidFromStringForTest("ws-test"),
+			Type:           "action",
+			Label:          "ran the analysis",
+			Status:         "active",
+			Metadata:       []byte(`{"agent":"research"}`),
+			CreatedAt:      pgtype.Timestamptz{Time: time.Now().Add(-time.Minute), Valid: true},
+			LastObservedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		},
+		{
+			ID:             plain,
+			WorkspaceID:    uuidFromStringForTest("ws-test"),
+			Type:           "action",
+			Label:          "legacy run",
+			Status:         "active",
+			CreatedAt:      pgtype.Timestamptz{Time: time.Now(), Valid: true},
+			LastObservedAt: pgtype.Timestamptz{Time: time.Now(), Valid: true},
+		},
+	}
+	allNodes := map[pgtype.UUID]db.CausalNode{
+		stamped: nodes[0],
+		plain:   nodes[1],
+	}
+	got := renderClaimBriefMarkdown(nodes, nil, allNodes)
+
+	if !strings.Contains(got, "- [action] ran the analysis (by research)\n") {
+		t.Errorf("agent-attributed node line missing or malformed, got: %q", got)
+	}
+	if !strings.Contains(got, "- [action] legacy run\n") {
+		t.Errorf("unstamped node must render unchanged, got: %q", got)
+	}
+
+	// Degenerate metadata never panics the render path.
+	if nodeAgent(nil) != "" || nodeAgent([]byte("not-json")) != "" || nodeAgent([]byte(`{"other":1}`)) != "" {
+		t.Errorf("nodeAgent must return empty on absent/unparsable/missing-key metadata")
+	}
+}
+
 // TestRenderClaimBriefMarkdown_HardCapTruncatesOldestEdges pins
 // the 16 000-char hard cap. With 500 edges fed in, the tail of
 // the section carries the "…(truncated, N more edges)" suffix.

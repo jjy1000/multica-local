@@ -1,14 +1,18 @@
-// Package causalgraph — delegation-loop edge (0.5.88).
+// Package causalgraph — sub-issue split edge (0.5.88, generalized 0.5.119).
 //
-// `multica lab delegate --parent <issue> <lab> "<task>"` creates the
-// lab child with parent_issue_id + lab_source in one POST. Until
-// 0.5.88 that linkage lived only in the issue tree (and, once the run
-// finished, in the child-done system comment). This file records the
-// same linkage on the causal graph: parent issue root node
-// --depends_on--> lab child root node. The claim-time subgraph brief
-// (claim_brief.go) then surfaces the delegation to whichever agent
-// works either side, closing the trace the way #8/#9 closed the read
-// side.
+// Until 0.5.119 this recorded ONLY lab-delegated children (the shape
+// `multica lab delegate --parent` produces: parent_issue_id +
+// lab_source). The 0.5.119 decision-traceability mandate widens the
+// seam to EVERY sub-issue: a parent issue split into children is
+// exactly the "task fission" trace the graph exists to answer — which
+// agent owns which piece, and what the parent's completion depends on.
+// The lab_source gate is gone; plain CreateIssue with parent_issue_id
+// and `multica lab delegate --parent` both land here.
+//
+// This file records the linkage on the causal graph: parent issue root
+// node --depends_on--> child root node. The claim-time subgraph brief
+// (claim_brief.go) then surfaces the split to whichever agent works
+// either side, closing the trace the way #8/#9 closed the read side.
 //
 // Edge-type choice: depends_on from the EXISTING CHECK set (migrations
 // 277/278) — no new edge type, no migration. Direction is parent →
@@ -22,7 +26,9 @@
 // Idempotency: both endpoints are dedup-keyed root nodes, and the edge
 // insert is guarded by an any-status FindCausalEdgeBetween probe (the
 // 0.5.84 ICP-5 never-nag contract), so a retried create (or a
-// create+PATCH round trip) lands at most one edge.
+// create+PATCH round trip) lands at most one edge — a lab-delegated
+// child hitting both the generic create seam and the delegate seam
+// collapses onto the same single edge.
 package causalgraph
 
 import (
@@ -35,14 +41,15 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// RecordDelegationEdge records parent --depends_on--> child for a
-// delegated lab sub-issue (child carries parent_issue_id + lab_source).
-// The parent row is re-loaded through the recorder's own Queries so the
-// handler call site stays a one-liner (mirrors RecordTaskOutcome's
-// issue_lookup stage). Best-effort on every path; nil-safe; flag-gated
-// through Enabled (fail-closed) exactly like the Tier A hooks.
-func (r *Recorder) RecordDelegationEdge(ctx context.Context, child db.Issue) {
-	const op = "causal record delegation edge"
+// RecordSubIssueEdge records parent --depends_on--> child for any
+// sub-issue (child carries parent_issue_id; 0.5.119 dropped the
+// lab_source requirement). The parent row is re-loaded through the
+// recorder's own Queries so the handler call site stays a one-liner
+// (mirrors RecordTaskOutcome's issue_lookup stage). Best-effort on
+// every path; nil-safe; flag-gated through Enabled (fail-closed)
+// exactly like the Tier A hooks.
+func (r *Recorder) RecordSubIssueEdge(ctx context.Context, child db.Issue) {
+	const op = "causal record sub-issue edge"
 	if r == nil || r.Queries == nil {
 		return
 	}
@@ -53,14 +60,6 @@ func (r *Recorder) RecordDelegationEdge(ctx context.Context, child db.Issue) {
 		return
 	}
 	ctx = context.WithoutCancel(ctx) // survive HTTP-client disconnects
-
-	// The delegated child must actually be lab-bound — the shape
-	// `multica lab delegate --parent` produces. Plain sub-issues keep
-	// their tree linkage only (the causal graph stays about runs and
-	// decisions, not every parent/child pair).
-	if !child.LabSource.Valid || child.LabSource.String == "" {
-		return
-	}
 
 	parent, err := r.Queries.GetIssue(ctx, child.ParentIssueID)
 	if err != nil {
@@ -87,7 +86,7 @@ func (r *Recorder) RecordDelegationEdge(ctx context.Context, child db.Issue) {
 		return // degenerate self-parenting; never record a self-loop
 	}
 
-	// Any-status probe: a decided (or stale-marked) delegation edge is
+	// Any-status probe: a decided (or stale-marked) split edge is
 	// still the record of the linkage — never re-insert a second copy.
 	if _, err := r.Queries.FindCausalEdgeBetween(ctx, db.FindCausalEdgeBetweenParams{
 		FromNodeID: parentNodeID,
@@ -102,7 +101,7 @@ func (r *Recorder) RecordDelegationEdge(ctx context.Context, child db.Issue) {
 		FromNodeID:  parentNodeID,
 		ToNodeID:    childNodeID,
 		EdgeType:    "depends_on",
-		Provenance:  []byte(`{"source":"issue_delegate"}`),
+		Provenance:  []byte(`{"source":"issue_split"}`),
 		CreatedBy:   pgtype.Text{Valid: true, String: "system"},
 	}); err != nil {
 		slog.Warn(op+" failed", "stage", "edge",

@@ -571,22 +571,31 @@ var Catalog = []Flag{
 		// desktop descriptor is kind "none"). The manifest carries the
 		// real sidebar entry point (/experimental/causal-graph) — the
 		// user asked for a visible full-graph surface, not a
-		// settings-toggle-only lab. Off by default; the Tier A/B
-		// recorders no-op unless the flag is on.
+		// settings-toggle-only lab.
 		//
-		// Flag-key literal "causal_graph" is a VERBATIM copy per the
-		// duplication law (router gate + lock.go SourceCausalGraph +
-		// migration 279 CHECK + this catalog — pinned by
-		// TestCatalogAutoDispatchContract + the migration static test).
+		// 0.5.119: renamed 知识图谱决策追溯自动系统 (Knowledge Graph
+		// Decision Traceability) and flipped DefaultVal to true — the
+		// Tier A recorders are global task-seam hooks (enqueue /
+		// complete / sub-issue split), not an issue-bound surface, so
+		// the tracing only fulfils its purpose when it captures every
+		// task by default. Explicit-off pref rows are untouched; the
+		// renderer-side CausalGraphInstallAutoStart ensure-installs the
+		// hidden team once per session (claude_science_lab 0.5.114
+		// precedent). Flag-key literal "causal_graph" is a VERBATIM
+		// copy per the duplication law (router gate + lock.go
+		// SourceCausalGraph + migration 279 CHECK + this catalog —
+		// pinned by TestCatalogAutoDispatchContract + the migration
+		// static test). The KEY does not carry the new display name —
+		// renaming it would touch every verbatim site for zero gain.
 		Key:        "causal_graph",
-		DefaultVal: false,
+		DefaultVal: true,
 		Title: LocalizedString{
-			En: "Issue Causal Graph",
-			Zh: "问题因果图谱",
+			En: "Knowledge Graph Decision Traceability",
+			Zh: "知识图谱决策追溯自动系统",
 		},
 		Description: LocalizedString{
-			En: "Decision tracking across issues: runs, decisions, and outcomes become a typed causal graph (native task hooks + Semantica decision mirrors + Pythia hypothesis closure + LLM-curated proposals behind a human-confirm gate). Adds the /experimental/causal-graph surface. Off by default.",
-			Zh: "跨 issue 的决策追踪:运行、决策与结果汇成类型化因果图(原生任务钩子 + Semantica 决策镜像 + Pythia 假设闭环 + 人工确认门控的 LLM 提议)。新增 /experimental/causal-graph 页面。默认关闭。",
+			En: "Automatic decision-traceability system: every task run, sub-issue split, delegation, decision and outcome is captured into a typed causal knowledge graph (native task hooks + Semantica decision mirrors + Pythia hypothesis closure + LLM-curated proposals behind a human-confirm gate). Agents consume the graph at claim time and via `multica causal`; the /experimental/causal-graph surface is the workspace-wide overview. On by default.",
+			Zh: "决策追溯自动系统:每个任务运行、子任务分裂、委托、决策与结果自动汇成类型化因果知识图谱(原生任务钩子 + Semantica 决策镜像 + Pythia 假设闭环 + 人工确认门控的 LLM 提议)。智能体在 claim 时自动收到因果简报,也可用 `multica causal` 主动追溯;/experimental/causal-graph 页面提供全局总览。默认开启。",
 		},
 		ManifestPath: "experiments/causal_graph/manifest.json",
 		RuntimeKind:  "inline",

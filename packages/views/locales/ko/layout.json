@@ -67,6 +67,6 @@
     "experimental_timesfm": "TimesFM 예측 랩",
     "error_fallback": "사이드바를 렌더링하지 못했습니다.",
     "error_retry": "다시 시도",
-    "experimental_causal_graph": "이슈 인과 그래프"
+    "experimental_causal_graph": "지식 그래프 의사결정 추적 시스템"
   }
 }

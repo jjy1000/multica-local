@@ -98,6 +98,7 @@ func init() {
 	rootCmd.AddCommand(updateCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(pythiaCmd)
+	rootCmd.AddCommand(causalCmd)
 	rootCmd.AddCommand(claudeScienceCmd)
 	rootCmd.AddCommand(labCmd)
 	// 0.5.105 (audit H3): swarmCmd removed with the swarm_topology

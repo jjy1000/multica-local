@@ -229,11 +229,131 @@ func TestCreateDelegatedLabChildRecordsCausalDependsOnEdge(t *testing.T) {
 	}
 
 	// Idempotency: a re-record of the same linkage lands no second edge.
-	rec.RecordDelegationEdge(ctx, db.Issue{
+	rec.RecordSubIssueEdge(ctx, db.Issue{
 		ID:            childUUID,
 		WorkspaceID:   wsUUID,
 		ParentIssueID: pgtype.UUID{Valid: true, Bytes: parentUUID.Bytes},
 		LabSource:     pgtype.Text{Valid: true, String: "pythia_oracle"},
+	})
+	var n int
+	if err := testPool.QueryRow(ctx, `
+		SELECT count(*) FROM causal_edge
+		WHERE from_node_id = $1::uuid AND to_node_id = $2::uuid AND type = 'depends_on'`,
+		parentNode.ID, childNode.ID).Scan(&n); err != nil {
+		t.Fatalf("count edges: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("re-record wrote a second edge: count = %d, want 1", n)
+	}
+}
+
+// TestCreatePlainSubIssueRecordsCausalDependsOnEdge — the 0.5.119
+// generalization pin. A sub-issue WITHOUT lab_source (a plain task
+// split, not a lab delegation) must record the same parent
+// --depends_on--> child edge; before 0.5.119 the recorder required
+// lab_source and every non-lab fission was invisible to the graph.
+func TestCreatePlainSubIssueRecordsCausalDependsOnEdge(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("handler fixture unavailable (no DATABASE_URL)")
+	}
+	rec := testHandler.TaskService.CausalRecorder
+	if rec == nil {
+		t.Fatal("TaskService.CausalRecorder is nil — the WL3 wiring regressed")
+	}
+	ctx := t.Context()
+	userUUID := mustParseUUID(t, testUserID)
+
+	// Same flag discipline as the delegated-lab-child pin above.
+	if _, err := testPool.Exec(ctx, `DELETE FROM experimental_pref WHERE flag_key = 'causal_graph'`); err != nil {
+		t.Fatalf("reset pref rows: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testPool.Exec(context.Background(), `DELETE FROM experimental_pref WHERE flag_key = 'causal_graph'`)
+	})
+	if _, err := testHandler.Queries.UpsertExperimentalPref(ctx, db.UpsertExperimentalPrefParams{
+		UserID:  userUUID,
+		FlagKey: "causal_graph",
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("enable flag: %v", err)
+	}
+
+	// Parent + PLAIN sub-issue (no lab_source) through the HTTP create path.
+	w := httptest.NewRecorder()
+	req := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":  "causal split parent " + time.Now().Format(time.RFC3339Nano),
+		"status": "in_progress",
+	})
+	testHandler.CreateIssue(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create parent: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var parent IssueResponse
+	json.NewDecoder(w.Body).Decode(&parent)
+
+	w2 := httptest.NewRecorder()
+	req2 := newRequest("POST", "/api/issues?workspace_id="+testWorkspaceID, map[string]any{
+		"title":           "causal plain split child " + time.Now().Format(time.RFC3339Nano),
+		"status":          "todo",
+		"parent_issue_id": parent.ID,
+	})
+	testHandler.CreateIssue(w2, req2)
+	if w2.Code != http.StatusCreated {
+		t.Fatalf("create plain sub-issue: expected 201, got %d: %s", w2.Code, w2.Body.String())
+	}
+	var child IssueResponse
+	json.NewDecoder(w2.Body).Decode(&child)
+	if child.LabSource != nil && *child.LabSource != "" {
+		t.Fatalf("child must be lab-free for this pin, got lab_source=%q", *child.LabSource)
+	}
+
+	t.Cleanup(func() {
+		cctx := context.Background()
+		for _, issueID := range []string{parent.ID, child.ID} {
+			testPool.Exec(cctx, `
+				DELETE FROM causal_edge
+				WHERE from_node_id IN (SELECT id FROM causal_node WHERE issue_id = $1::uuid)
+				   OR to_node_id   IN (SELECT id FROM causal_node WHERE issue_id = $1::uuid)`, issueID)
+			testPool.Exec(cctx, `DELETE FROM causal_node WHERE issue_id = $1::uuid`, issueID)
+			testPool.Exec(cctx, `DELETE FROM issue WHERE id = $1`, issueID)
+		}
+	})
+
+	parentUUID := mustParseUUID(t, parent.ID)
+	childUUID := mustParseUUID(t, child.ID)
+	wsUUID := mustParseUUID(t, testWorkspaceID)
+
+	parentNode, err := testHandler.Queries.FindCausalNodeByDedupKey(ctx, db.FindCausalNodeByDedupKeyParams{
+		WorkspaceID: wsUUID,
+		DedupKey:    "issue_root:" + parent.ID,
+	})
+	if err != nil {
+		t.Fatalf("parent root node missing: %v", err)
+	}
+	childNode, err := testHandler.Queries.FindCausalNodeByDedupKey(ctx, db.FindCausalNodeByDedupKeyParams{
+		WorkspaceID: wsUUID,
+		DedupKey:    "issue_root:" + child.ID,
+	})
+	if err != nil {
+		t.Fatalf("child root node missing: %v", err)
+	}
+	if childNode.LabSource.Valid {
+		t.Errorf("child root node lab_source = %v, want NULL for a plain split", childNode.LabSource)
+	}
+
+	if _, err := testHandler.Queries.FindCausalEdgeBetween(ctx, db.FindCausalEdgeBetweenParams{
+		FromNodeID: parentNode.ID,
+		ToNodeID:   childNode.ID,
+		EdgeType:   "depends_on",
+	}); err != nil {
+		t.Fatalf("plain sub-issue must record parent --depends_on--> child edge, got error: %v", err)
+	}
+
+	// Idempotency: re-record lands no second edge.
+	rec.RecordSubIssueEdge(ctx, db.Issue{
+		ID:            childUUID,
+		WorkspaceID:   wsUUID,
+		ParentIssueID: pgtype.UUID{Valid: true, Bytes: parentUUID.Bytes},
 	})
 	var n int
 	if err := testPool.QueryRow(ctx, `

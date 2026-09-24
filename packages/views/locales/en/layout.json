@@ -67,6 +67,6 @@
     "experimental_timesfm": "TimesFM Forecast Lab",
     "error_fallback": "Sidebar failed to render.",
     "error_retry": "Retry",
-    "experimental_causal_graph": "Issue Causal Graph"
+    "experimental_causal_graph": "Knowledge Graph Decision Traceability"
   }
 }

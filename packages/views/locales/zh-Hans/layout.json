@@ -67,6 +67,6 @@
     "experimental_timesfm": "TimesFM 预测实验室",
     "error_fallback": "侧边栏渲染失败。",
     "error_retry": "重试",
-    "experimental_causal_graph": "问题因果图谱"
+    "experimental_causal_graph": "知识图谱决策追溯自动系统"
   }
 }

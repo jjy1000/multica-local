@@ -4,19 +4,24 @@
   "metadata": {
     "name": "causal_graph",
     "flag": "causal_graph",
-    "title": { "en": "Issue Causal Graph", "zh": "问题因果图谱" },
-    "description": {
-      "en": "Decision tracking across issues: runs, decisions, and outcomes become a typed causal graph (native task hooks + Semantica decision mirrors + Pythia hypothesis closure + LLM-curated proposals behind a human-confirm gate). Adds the /experimental/causal-graph surface. Off by default.",
-      "zh": "跨 issue 的决策追踪:运行、决策与结果汇成类型化因果图(原生任务钩子 + Semantica 决策镜像 + Pythia 假设闭环 + 人工确认门控的 LLM 提议)。新增 /experimental/causal-graph 页面。默认关闭。"
+    "title": {
+      "en": "Knowledge Graph Decision Traceability",
+      "zh": "知识图谱决策追溯自动系统"
     },
-    "default_enabled": false
+    "description": {
+      "en": "Automatic decision-traceability system: every task run, sub-issue split, delegation, decision and outcome is captured into a typed causal knowledge graph (native task hooks + Semantica decision mirrors + Pythia hypothesis closure + LLM-curated proposals behind a human-confirm gate). Agents consume the graph at claim time and via `multica causal`; the /experimental/causal-graph surface is the workspace-wide overview. On by default.",
+      "zh": "决策追溯自动系统:每个任务运行、子任务分裂、委托、决策与结果自动汇成类型化因果知识图谱(原生任务钩子 + Semantica 决策镜像 + Pythia 假设闭环 + 人工确认门控的 LLM 提议)。智能体在 claim 时自动收到因果简报,也可用 `multica causal` 主动追溯;/experimental/causal-graph 页面提供全局总览。默认开启。"
+    },
+    "default_enabled": true
   },
   "spec": {
     "capabilities": {
       "skills": [],
       "agents": [],
       "squads": [],
-      "permissions": ["issue:read"]
+      "permissions": [
+        "issue:read"
+      ]
     },
     "entry_points": {
       "sidebar": [
@@ -26,7 +31,9 @@
           "route": "/experimental/causal-graph"
         }
       ],
-      "settings": { "route": "/experimental/causal-graph" }
+      "settings": {
+        "route": "/experimental/causal-graph"
+      }
     },
     "surface": {
       "type": "page",

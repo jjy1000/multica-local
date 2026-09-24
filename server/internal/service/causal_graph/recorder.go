@@ -58,6 +58,24 @@ type Recorder struct {
 
 func New(q *db.Queries) *Recorder { return &Recorder{Queries: q} }
 
+// agentStamp resolves the identity of the task's assigned agent for
+// node provenance (0.5.119 decision-traceability: "which agent did
+// this" must be answerable from the graph itself, not a join against
+// agent_task_queue). Fail-soft: empty strings on every error path — a
+// missing name must never block the recorder. The name lands in node
+// metadata as "agent" (what the claim brief renders); the raw UUID
+// goes into provenance alongside the other native ids.
+func (r *Recorder) agentStamp(ctx context.Context, agentID pgtype.UUID) (id, name string) {
+	if !agentID.Valid {
+		return "", ""
+	}
+	id = util.UUIDToString(agentID)
+	if a, err := r.Queries.GetAgent(ctx, agentID); err == nil {
+		name = a.Name
+	}
+	return id, name
+}
+
 // Enabled reports whether the causal_graph flag is on for any user in
 // this single-user fork (ListEnabledFlagKeys semantics, narrowed to
 // one EXISTS). Fail-closed on error.
@@ -147,18 +165,27 @@ func (r *Recorder) RecordTaskOutcome(ctx context.Context, task db.AgentTaskQueue
 		label = "run " + task.Status
 	}
 
+	agentID, agentName := r.agentStamp(ctx, task.AgentID)
+	prov := map[string]string{
+		"source":    "task_complete",
+		"dedup_key": dedupKey,
+		"task_id":   util.UUIDToString(task.ID),
+		"status":    task.Status,
+	}
+	meta := map[string]string{}
+	if agentID != "" {
+		prov["agent_id"] = agentID
+		meta["agent"] = agentName
+	}
+
 	outcome, err := r.Queries.CreateCausalNode(ctx, db.CreateCausalNodeParams{
 		WorkspaceID: workspaceID,
 		IssueID:     pgtype.UUID{Valid: true, Bytes: issueID.Bytes},
 		NodeType:    "outcome",
 		Label:       label,
-		Provenance: mustJSON(map[string]string{
-			"source":    "task_complete",
-			"dedup_key": dedupKey,
-			"task_id":   util.UUIDToString(task.ID),
-			"status":    task.Status,
-		}),
-		CreatedBy: pgtype.Text{Valid: true, String: "system"},
+		Metadata:    mustJSON(meta),
+		Provenance:  mustJSON(prov),
+		CreatedBy:   pgtype.Text{Valid: true, String: "system"},
 	})
 	if err != nil {
 		slog.Warn(op+" failed", "stage", "outcome_node", "task_id", util.UUIDToString(task.ID), "error", err)
@@ -200,19 +227,27 @@ func (r *Recorder) ensureActionNode(ctx context.Context, issue db.Issue, task db
 	if !task.TriggerSummary.Valid || label == "" {
 		label = "run on " + issueTitle(issue)
 	}
+	agentID, agentName := r.agentStamp(ctx, task.AgentID)
+	prov := map[string]string{
+		"source":    "task_enqueue",
+		"dedup_key": dedupKey,
+		"task_id":   util.UUIDToString(task.ID),
+		"trigger":   trigger,
+	}
+	meta := map[string]string{}
+	if agentID != "" {
+		prov["agent_id"] = agentID
+		meta["agent"] = agentName
+	}
 	node, err := r.Queries.CreateCausalNode(ctx, db.CreateCausalNodeParams{
 		WorkspaceID: issue.WorkspaceID,
 		IssueID:     pgtype.UUID{Valid: true, Bytes: issue.ID.Bytes},
 		NodeType:    "action",
 		Label:       truncateLabel(label, 120),
+		Metadata:    mustJSON(meta),
 		LabSource:   issue.LabSource,
-		Provenance: mustJSON(map[string]string{
-			"source":    "task_enqueue",
-			"dedup_key": dedupKey,
-			"task_id":   util.UUIDToString(task.ID),
-			"trigger":   trigger,
-		}),
-		CreatedBy: pgtype.Text{Valid: true, String: "system"},
+		Provenance:  mustJSON(prov),
+		CreatedBy:   pgtype.Text{Valid: true, String: "system"},
 	})
 	if err != nil {
 		return pgtype.UUID{}, err

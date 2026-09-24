@@ -2928,19 +2928,19 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 0.5.88 delegation loop: when the created issue is BOTH lab-bound AND
-	// a sub-issue (parent_issue_id + lab_source — exactly the shape
-	// `multica lab delegate --parent` produces), record a causal
-	// parent --depends_on--> child edge so the linkage is visible to the
-	// claim-time subgraph briefing on either side. Placed in the create
-	// success path after the lab_mode persist (CreateIssue has no earlier
-	// causal touch — issue root nodes are ensured inside the recorder, so
-	// both endpoints exist by the time the edge lands). Best-effort: WRN +
-	// continue on every error inside the recorder; nil-safe and
-	// flag-gated (fail-closed) exactly like the RefreshForIssue call
-	// sites. Issue creation must NEVER fail because of this.
-	if h.CausalRecorder != nil && parentIssueID.Valid && req.LabSource != nil && *req.LabSource != "" {
-		h.CausalRecorder.RecordDelegationEdge(r.Context(), issue)
+	// 0.5.88 delegation loop, generalized 0.5.119: ANY sub-issue
+	// (parent_issue_id — lab-delegated or a plain split) records a causal
+	// parent --depends_on--> child edge so the task-fission linkage is
+	// visible to the claim-time subgraph briefing on either side.
+	// Placed in the create success path after the lab_mode persist
+	// (CreateIssue has no earlier causal touch — issue root nodes are
+	// ensured inside the recorder, so both endpoints exist by the time
+	// the edge lands). Best-effort: WRN + continue on every error inside
+	// the recorder; nil-safe and flag-gated (fail-closed) exactly like
+	// the RefreshForIssue call sites. Issue creation must NEVER fail
+	// because of this.
+	if h.CausalRecorder != nil && parentIssueID.Valid {
+		h.CausalRecorder.RecordSubIssueEdge(r.Context(), issue)
 	}
 
 	resp := issueToResponse(issue, prefix)

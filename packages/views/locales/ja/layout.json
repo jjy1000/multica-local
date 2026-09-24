@@ -67,6 +67,6 @@
     "experimental_timesfm": "TimesFM 予測ラボ",
     "error_fallback": "サイドバーのレンダリングに失敗しました。",
     "error_retry": "再試行",
-    "experimental_causal_graph": "イシュー因果グラフ"
+    "experimental_causal_graph": "ナレッジグラフ意思決定トレーサビリティ"
   }
 }

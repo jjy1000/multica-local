@@ -49,6 +49,7 @@ package causalgraph
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -373,6 +374,9 @@ func renderClaimBriefMarkdown(nodes []db.CausalNode, edges []db.CausalEdge, allN
 	sb.WriteString("### Nodes\n")
 	for _, n := range nodes {
 		fmt.Fprintf(&sb, "- [%s] %s", n.Type, truncateBriefLabel(n.Label))
+		if agent := nodeAgent(n.Metadata); agent != "" {
+			fmt.Fprintf(&sb, " (by %s)", agent)
+		}
 		if n.Description.Valid && n.Description.String != "" {
 			fmt.Fprintf(&sb, " — %s", truncateBriefLabel(n.Description.String))
 		}
@@ -421,6 +425,21 @@ func nodeLabel(id pgtype.UUID, allNodes map[pgtype.UUID]db.CausalNode, renderabl
 		return "unknown"
 	}
 	return n.Type + ":" + truncateBriefLabel(n.Label)
+}
+
+// nodeAgent extracts the "agent" display name from a node's metadata
+// JSON (stamped by the 0.5.119 recorder so "who ran this" is answerable
+// from the graph itself). Returns "" when absent or unparsable — the
+// line simply renders without the attribution suffix.
+func nodeAgent(meta []byte) string {
+	if len(meta) == 0 {
+		return ""
+	}
+	var m map[string]string
+	if err := json.Unmarshal(meta, &m); err != nil {
+		return ""
+	}
+	return m["agent"]
 }
 
 // truncateBriefLabel keeps the rendered section well within the
