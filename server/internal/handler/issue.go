@@ -3563,6 +3563,10 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 	// 0.5.22 MUL-4063: actor identity is no longer threaded through.
 	if statusChanged {
 		h.notifyParentOfChildDone(r.Context(), prevIssue, issue)
+		// 0.5.124: a child moving INTO blocked is a hand-back signal — wake
+		// the parent assignee or the flow stalls with nobody owning the
+		// resume (JYF-497). Best-effort, same contract as the done path.
+		h.notifyParentOfChildBlocked(r.Context(), prevIssue, issue)
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -4554,6 +4558,8 @@ func (h *Handler) BatchUpdateIssues(w http.ResponseWriter, r *http.Request) {
 		// 0.5.22 MUL-4063: actor identity is no longer threaded through.
 		if statusChanged {
 			h.notifyParentOfChildDone(r.Context(), prevIssue, issue)
+			// 0.5.124 blocked hand-back wake, mirrored from UpdateIssue.
+			h.notifyParentOfChildBlocked(r.Context(), prevIssue, issue)
 		}
 
 		updated++
