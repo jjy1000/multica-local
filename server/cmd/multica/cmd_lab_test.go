@@ -16,15 +16,20 @@ import (
 
 // TestResolveLabFlagKey pins the <lab> → flag_key normalization: a bare slug
 // gets the "user_" prefix, an already-prefixed key passes through, a
-// built-in catalog key (e.g. "semantica") passes through unchanged so
-// `multica lab delegate semantica "..."` lands on lab_source="semantica"
-// (not "user_semantica"), and input whitespace is trimmed before prefixing.
+// built-in catalog key (e.g. "pythia_oracle") passes through unchanged so
+// `multica lab delegate pythia_oracle "..."` lands on
+// lab_source="pythia_oracle" (not "user_pythia_oracle"), and input
+// whitespace is trimmed before prefixing. Retired keys (0.5.122 removed
+// semantica / swarm_topology / mythos_swarm / timesfm / code_canvas from
+// the catalog) are no longer "known" and resolve through the user_
+// namespace like any other slug.
 func TestResolveLabFlagKey(t *testing.T) {
 	cases := []struct{ name, in, want string }{
 		{"bare slug gets user_ prefix", "my-lab", "user_my-lab"},
 		{"already-prefixed passes through", "user_my-lab", "user_my-lab"},
 		{"whitespace trimmed", "  my-lab  ", "user_my-lab"},
-		{"built-in catalog key passes through", "semantica", "semantica"},
+		{"built-in catalog key passes through", "pythia_oracle", "pythia_oracle"},
+		{"retired key resolves through user_ namespace", "semantica", "user_semantica"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -35,26 +40,27 @@ func TestResolveLabFlagKey(t *testing.T) {
 	}
 }
 
-// TestRunLabDelegateRejectsFrozenLab pins the 0.5.88 never-disagree law on the
-// CLI side: BuildDelegateBrief skips Frozen labs from the delegation briefing,
-// so the delegate CLI must reject them too — a frozen lab's leader agent row
-// only exists during a Phase-1 bootstrap that a fresh delegation never
-// triggers, the same "pointed at a lab that can never dispatch" dead end the
-// AutoDispatch gate removes. swarm_topology is the 0.5.86 frozen lab
-// (SuccessorKey mythos_swarm). The gate fires before any flag access, so a
-// bare command is enough.
-func TestRunLabDelegateRejectsFrozenLab(t *testing.T) {
-	cmd := &cobra.Command{Use: "lab"}
-
-	err := runLabDelegate(cmd, []string{"swarm_topology", "run the analysis"})
-	if err == nil {
-		t.Fatal("expected frozen-lab delegation to be rejected, got nil error")
+// TestRunLabDelegateRetiredKeys documents what 0.5.122 did to the 0.5.88
+// frozen-lab gate on the CLI side. The gate (BuildDelegateBrief skips
+// Frozen labs, delegate CLI rejects them before any flag access) stays for
+// future Frozen labs, but the retirement removed the LAST Frozen catalog
+// entries — including the swarm_topology tombstone — so delegation of a
+// retired key no longer reaches it: resolveLabFlagKey normalizes the
+// unknown slug into the user_ plugin namespace and delegation fails at the
+// plugin-lookup step instead. Pin that reachability so it is a documented
+// decision, not silent drift; if a retired key becomes a catalog entry
+// again, re-evaluate the frozen-gate test alongside.
+func TestRunLabDelegateRetiredKeys(t *testing.T) {
+	for _, key := range []string{"swarm_topology", "mythos_swarm", "semantica", "timesfm", "code_canvas"} {
+		if experimental.IsKnownKey(key) {
+			t.Errorf("%s retired in 0.5.122 is a catalog entry again — re-check frozen-gate reachability (was TestRunLabDelegateRejectsFrozenLab)", key)
+		}
 	}
-	if !strings.Contains(err.Error(), "frozen") {
-		t.Fatalf("error should name the frozen state, got: %v", err)
+	if experimental.IsFrozen("swarm_topology") {
+		t.Error("swarm_topology frozen tombstone re-added — the delegate CLI needs its 0.5.88 rejection test back")
 	}
-	if !strings.Contains(err.Error(), "mythos_swarm") {
-		t.Fatalf("error should point at the successor mythos_swarm, got: %v", err)
+	if got := resolveLabFlagKey("swarm_topology"); got != "user_swarm_topology" {
+		t.Fatalf("resolveLabFlagKey(swarm_topology) = %q, want user_swarm_topology (retired keys resolve through the user_ namespace)", got)
 	}
 }
 
