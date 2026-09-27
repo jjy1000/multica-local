@@ -188,16 +188,33 @@ func TestChildReopenAndDoneFiresAgain(t *testing.T) {
 	}
 }
 
-// TestChildDoneSkippedWhenParentDone — when the parent is already at a
-// terminal status, there is nothing for the parent assignee to advance to,
-// so the notification must NOT fire.
-func TestChildDoneSkippedWhenParentDone(t *testing.T) {
+// TestChildDoneNotifiesParentEvenWhenParentDone — 0.5.124 delegate-return
+// contract. Delegating agents close the parent right after dispatching a lab
+// child ("Waiting for the lab delegate to return"); the child's completion
+// is then the ONLY event that can wake them to relay the deliverable
+// (JYF-489/496 — Helper closed the parent, the lab child finished later, and
+// the report never flowed back). A done child under a done parent must
+// therefore still notify.
+func TestChildDoneNotifiesParentEvenWhenParentDone(t *testing.T) {
 	fx := newChildDoneFixture(t, "done")
 
 	updateChildStatus(t, fx.child.ID, "done")
 
+	if got := countSystemCommentsOn(t, fx.parent.ID); got != 1 {
+		t.Fatalf("done child under done parent should still notify (delegate-return), got %d comments", got)
+	}
+}
+
+// TestChildDoneStillSuppressedWhenCancelledChildUnderDoneParent — the
+// 0.5.124 relaxation is one-directional: a CANCELLED child under a done
+// parent adds nothing the parent needs to act on, so it stays silent.
+func TestChildDoneStillSuppressedWhenCancelledChildUnderDoneParent(t *testing.T) {
+	fx := newChildDoneFixture(t, "done")
+
+	updateChildStatus(t, fx.child.ID, "cancelled")
+
 	if got := countSystemCommentsOn(t, fx.parent.ID); got != 0 {
-		t.Errorf("parent at 'done' should not receive notification, got %d comments", got)
+		t.Errorf("cancelled child under done parent should not notify, got %d comments", got)
 	}
 }
 
@@ -552,5 +569,126 @@ func TestChildDoneWakesLeaderWhenChildIsSameSquad(t *testing.T) {
 	}
 	if got := countPendingTasksForAgent(t, fx.parent.ID, sq.LeaderID); got != 1 {
 		t.Errorf("expected 1 pending leader task for same-squad child (MUL-3969), got %d", got)
+	}
+}
+
+// ── 0.5.124: child →blocked hand-back wake ─────────────────────────────────
+
+// TestChildBlockedWakesParentAgent — a child transitioning INTO blocked is a
+// hand-back signal: the parent's agent assignee must receive the system
+// comment AND a pending task, or the flow stalls with nobody owning the
+// resume (JYF-497 — a squad member finished its scan, flipped the issue to
+// blocked, and the coordinator was never triggered). Re-saving blocked must
+// not fire twice.
+func TestChildBlockedWakesParentAgent(t *testing.T) {
+	fx := newChildDoneFixture(t, "in_progress")
+
+	var agentID string
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT id FROM agent WHERE workspace_id = $1 AND name = $2`,
+		testWorkspaceID, "Handler Test Agent",
+	).Scan(&agentID); err != nil {
+		t.Fatalf("locate test agent: %v", err)
+	}
+	setIssueAssigneeDirect(t, fx.parent.ID, "agent", agentID)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(),
+			`DELETE FROM agent_task_queue WHERE issue_id = $1`, fx.parent.ID)
+	})
+
+	updateChildStatus(t, fx.child.ID, "blocked")
+
+	content := parentSystemCommentContent(t, fx.parent.ID)
+	if !strings.Contains(content, "blocked") {
+		t.Errorf("expected blocked hand-back wording in system comment, got: %s", content)
+	}
+	if !strings.Contains(content, "mention://agent/"+agentID) {
+		t.Errorf("expected parent-assignee mention in system comment, got: %s", content)
+	}
+	if got := countPendingTasksForAgent(t, fx.parent.ID, agentID); got != 1 {
+		t.Errorf("expected 1 pending task for parent agent after blocked transition, got %d", got)
+	}
+
+	// Re-saving the same blocked status is a no-op transition.
+	updateChildStatus(t, fx.child.ID, "blocked")
+	if got := countSystemCommentsOn(t, fx.parent.ID); got != 1 {
+		t.Errorf("blocked -> blocked re-save must not fire again, got %d comments", got)
+	}
+}
+
+// TestChildBlockedWakesParentSquadLeader — the exact JYF-497 topology: the
+// child reports to a squad-assigned parent; the wake must go to the squad
+// leader as a leader-role task.
+func TestChildBlockedWakesParentSquadLeader(t *testing.T) {
+	fx := newChildDoneFixture(t, "in_progress")
+	sq := newSquadCommentTriggerFixture(t)
+
+	setIssueAssigneeDirect(t, fx.parent.ID, "squad", sq.SquadID)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(),
+			`DELETE FROM agent_task_queue WHERE issue_id = $1`, fx.parent.ID)
+	})
+
+	updateChildStatus(t, fx.child.ID, "blocked")
+
+	content := parentSystemCommentContent(t, fx.parent.ID)
+	if !strings.Contains(content, "mention://squad/"+sq.SquadID) {
+		t.Errorf("expected parent-squad mention in system comment, got: %s", content)
+	}
+	if got := countPendingTasksForAgent(t, fx.parent.ID, sq.LeaderID); got != 1 {
+		t.Errorf("expected 1 pending leader task after blocked transition, got %d", got)
+	}
+}
+
+// TestChildBlockedSuppressedForMemberParent — MUL-2538 parity: a human
+// parent assignee gets no system comment and no inbox row from the
+// platform-side blocked wake.
+func TestChildBlockedSuppressedForMemberParent(t *testing.T) {
+	fx := newChildDoneFixture(t, "in_progress")
+
+	var userID string
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT user_id FROM member WHERE workspace_id = $1 LIMIT 1`,
+		testWorkspaceID,
+	).Scan(&userID); err != nil {
+		t.Fatalf("locate workspace member: %v", err)
+	}
+	setIssueAssigneeDirect(t, fx.parent.ID, "member", userID)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(),
+			`DELETE FROM inbox_item WHERE issue_id = $1`, fx.parent.ID)
+	})
+
+	updateChildStatus(t, fx.child.ID, "blocked")
+
+	if got := countSystemCommentsOn(t, fx.parent.ID); got != 0 {
+		t.Errorf("member-assigned parent should not receive a blocked system comment, got %d", got)
+	}
+	if got := countInboxItems(t, userID, fx.parent.ID); got != 0 {
+		t.Errorf("member-assigned parent should not receive an inbox row, got %d", got)
+	}
+}
+
+// TestChildBlockedSuppressedForBacklogParent — MUL-3497 parity with the
+// done path: a parent deliberately parked in backlog stays inert.
+func TestChildBlockedSuppressedForBacklogParent(t *testing.T) {
+	fx := newChildDoneFixture(t, "backlog")
+
+	updateChildStatus(t, fx.child.ID, "blocked")
+
+	if got := countSystemCommentsOn(t, fx.parent.ID); got != 0 {
+		t.Errorf("backlog parent should not receive a blocked system comment, got %d", got)
+	}
+}
+
+// TestChildBlockedSuppressedForCancelledParent — a cancelled parent was torn
+// down deliberately; the blocked wake must not resurrect it.
+func TestChildBlockedSuppressedForCancelledParent(t *testing.T) {
+	fx := newChildDoneFixture(t, "cancelled")
+
+	updateChildStatus(t, fx.child.ID, "blocked")
+
+	if got := countSystemCommentsOn(t, fx.parent.ID); got != 0 {
+		t.Errorf("cancelled parent should not receive a blocked system comment, got %d", got)
 	}
 }

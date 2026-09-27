@@ -28,8 +28,15 @@ import (
 //     cancelled sibling never finishes and so closes its stage (see the entry
 //     guard and isTerminalChildStatus).
 //   - issue.ParentIssueID must be set
-//   - parent must not be "done" or "cancelled" — the parent is already
-//     closed and a notification has no follow-up to drive
+//   - parent must not be "cancelled" — the work was torn down deliberately
+//     and a notification has no follow-up to drive. A "done" parent DOES
+//     still receive the notification since 0.5.124: delegating agents close
+//     the parent right after dispatching a lab child ("Waiting for the lab
+//     delegate to return"), and the child's completion is then the ONLY
+//     event that can wake them to relay the deliverable (JYF-489/496 —
+//     Helper closed the parent, the lab child finished later, the report
+//     never flowed back). A cancelled child under a done parent stays
+//     suppressed: cancelling adds nothing the parent needs to act on.
 //   - parent must not be "backlog" — a parent parked in backlog is being
 //     deliberately held for later; waking its assignee (which can then
 //     promote sibling backlog sub-issues into todo) is exactly the
@@ -107,7 +114,14 @@ func (h *Handler) notifyParentOfChildDone(ctx context.Context, prev, issue db.Is
 	// terminal status closes this out and a custom backlog status parks it,
 	// exactly like Done/Cancelled and Backlog do. (MUL-6243)
 	parentStatus := issuestatus.Effective(ctx, h.Queries, parent.WorkspaceID, parent.Status)
-	if parentStatus == "done" || parentStatus == "cancelled" {
+	// 0.5.124: a done parent only suppresses when the child was CANCELLED.
+	// A done child finishing under a done parent is the delegate-return
+	// flow — see the doc-comment bullet above.
+	childStatus := issuestatus.Effective(ctx, h.Queries, issue.WorkspaceID, issue.Status)
+	if parentStatus == "cancelled" {
+		return
+	}
+	if parentStatus == "done" && childStatus != "done" {
 		return
 	}
 	// A parent parked in backlog is deliberately held for later. Posting the
@@ -256,6 +270,94 @@ func (h *Handler) notifyParentOfChildDone(ctx context.Context, prev, issue db.Is
 	// coordination-handoff rationale (parent invocation was already
 	// enforced at squad-assign time, so re-checking it on the child's
 	// behalf failed closed for the default private leader).
+	h.dispatchParentAssigneeTrigger(ctx, parent, comment)
+}
+
+// notifyParentOfChildBlocked posts a top-level system comment on the parent
+// issue and wakes its assignee when a child issue transitions INTO blocked
+// (0.5.124). A worker blocking its issue is a hand-back signal: the
+// coordinator must be woken or the flow stalls with nobody owning the
+// resume — the JYF-497 incident had a squad member finish its scan, flip
+// the issue to blocked as the hand-back, and the parent's squad leader was
+// never triggered because a bare status flip posts no comment and the
+// status-change path had no trigger at all.
+//
+// Deliberately simpler than notifyParentOfChildDone: no stage barrier (a
+// blocked child needs attention regardless of its siblings) and no
+// done-parent suppression (a blocked child under a closed parent is still
+// the delegate-return case — the woken coordinator decides what to do).
+// Shared with the done path: cancelled / backlog / member-assignee parent
+// gates, best-effort failure, explicit dispatchParentAssigneeTrigger (the
+// notification + subscriber listeners skip system comments, so the mention
+// link in the body is inert everywhere else).
+//
+// Self-wake is allowed, matching triggerChildDoneAgent's MUL-2808 stance:
+// a parent agent blocking its own child is a cross-issue handoff, and the
+// HasPendingTaskForIssueAndAgent dedup inside the dispatch caps runaway
+// re-triggering. Repeat fires are impossible per call site: the caller only
+// invokes this on a status CHANGE, and blocked -> blocked saves are no-ops.
+func (h *Handler) notifyParentOfChildBlocked(ctx context.Context, prev, issue db.Issue) {
+	if !issue.ParentIssueID.Valid {
+		return
+	}
+	prevCanonical := issuestatus.Effective(ctx, h.Queries, prev.WorkspaceID, prev.Status)
+	nowCanonical := issuestatus.Effective(ctx, h.Queries, issue.WorkspaceID, issue.Status)
+	if prevCanonical == "blocked" || nowCanonical != "blocked" {
+		return
+	}
+	parent, err := h.Queries.GetIssue(ctx, issue.ParentIssueID)
+	if err != nil {
+		slog.Warn("child blocked: failed to load parent",
+			"error", err,
+			"child_id", uuidToString(issue.ID),
+			"parent_id", uuidToString(issue.ParentIssueID))
+		return
+	}
+	parentStatus := issuestatus.Effective(ctx, h.Queries, parent.WorkspaceID, parent.Status)
+	if parentStatus == "cancelled" || parentStatus == "backlog" {
+		return
+	}
+	if parent.AssigneeType.Valid && parent.AssigneeType.String == "member" {
+		return
+	}
+
+	prefix := h.getIssuePrefix(ctx, issue.WorkspaceID)
+	identifier := prefix + "-" + strconv.Itoa(int(issue.Number))
+	mentionPrefix := h.buildParentAssigneeMention(ctx, parent)
+	content := fmt.Sprintf(
+		"%sSub-issue [%s](mention://issue/%s) — \"%s\" — was just moved to blocked. Pick up the blocked work: resume it, re-dispatch it to the right agent, or close it out if it is no longer needed.",
+		mentionPrefix, identifier, uuidToString(issue.ID), sanitizeChildTitleForSystemComment(issue.Title),
+	)
+
+	comment, err := h.Queries.CreateComment(ctx, db.CreateCommentParams{
+		IssueID:     parent.ID,
+		WorkspaceID: parent.WorkspaceID,
+		AuthorType:  "system",
+		AuthorID:    pgtype.UUID{Valid: true},
+		Content:     content,
+		Type:        "system",
+		ParentID:    pgtype.UUID{Valid: false},
+	})
+	if err != nil {
+		slog.Warn("child blocked: create system comment failed",
+			"error", err,
+			"child_id", uuidToString(issue.ID),
+			"parent_id", uuidToString(parent.ID))
+		return
+	}
+
+	if h.CausalRecorder != nil {
+		h.CausalRecorder.RefreshForIssue(ctx, parent.ID)
+	}
+
+	h.publish(protocol.EventCommentCreated, uuidToString(parent.WorkspaceID), "system", "", map[string]any{
+		"comment":             commentToResponse(comment, nil, nil),
+		"issue_title":         parent.Title,
+		"issue_assignee_type": textToPtr(parent.AssigneeType),
+		"issue_assignee_id":   uuidToPtr(parent.AssigneeID),
+		"issue_status":        parent.Status,
+	})
+
 	h.dispatchParentAssigneeTrigger(ctx, parent, comment)
 }
 
