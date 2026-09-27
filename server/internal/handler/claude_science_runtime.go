@@ -65,6 +65,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
+	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
 const (
@@ -283,16 +284,19 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 		// lab pane is a transient overlay and the issue is the only
 		// persistent surface.
 		if issueID.Valid {
-			if _, cerr := h.Queries.CreateComment(r.Context(), db.CreateCommentParams{
+			comment, cerr := h.Queries.CreateComment(r.Context(), db.CreateCommentParams{
 				IssueID:     issueID,
 				AuthorType:  "agent",
 				AuthorID:    agentID,
 				Content:     "Claude Lab runtime 调用失败:python3 不在 PATH 上(需要 Python 3.11+)。请安装后重试。",
 				Type:        "comment",
 				WorkspaceID: wsID,
-			}); cerr != nil {
+			})
+			if cerr != nil {
 				slog.Warn("claude-science runtime: failure comment write failed",
 					"issue", issueID, "err", cerr)
+			} else {
+				h.publishRuntimeComment(r.Context(), wsID, issueID, comment)
 			}
 		}
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -487,18 +491,29 @@ func (h *Handler) PostClaudeScienceRuntimeExecute(w http.ResponseWriter, r *http
 	commentBody := composeArtifactSummary(stubs, req.Code, res.exit, durationMs)
 	if issueID.Valid {
 		if commentBody != "" {
-			_, cerr := h.Queries.CreateComment(r.Context(), db.CreateCommentParams{
-				IssueID:    issueID,
-				AuthorType: "agent",
-				AuthorID:   agentID,
-				Content:    commentBody,
-				Type:       "artifact",
-				ParentID:   pgtype.UUID{},
+			// 0.5.124: WorkspaceID was never set here, so the insert failed
+			// on the NOT NULL column and the discarded error meant labs ran
+			// forever without an inline artifact summary. Set it, stop
+			// discarding the failure, and publish the comment like the HTTP
+			// CreateComment path does.
+			comment, cerr := h.Queries.CreateComment(r.Context(), db.CreateCommentParams{
+				IssueID:     issueID,
+				WorkspaceID: wsID,
+				AuthorType:  "agent",
+				AuthorID:    agentID,
+				Content:     commentBody,
+				Type:        "artifact",
+				ParentID:    pgtype.UUID{},
 			})
-			// Comment failure is non-fatal — the artifacts are
-			// already persisted in their own table; we just lose
-			// the inline summary.
-			_ = cerr
+			if cerr != nil {
+				// Comment failure is non-fatal — the artifacts are
+				// already persisted in their own table; we just lose
+				// the inline summary.
+				slog.Warn("claude-science runtime: artifact summary comment write failed",
+					"issue", issueID, "err", cerr)
+			} else {
+				h.publishRuntimeComment(r.Context(), wsID, issueID, comment)
+			}
 		}
 	}
 
@@ -921,4 +936,26 @@ func mimeForKind(kind string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// publishRuntimeComment mirrors the HTTP CreateComment WS publish
+// (handler/comment.go) for the runtime comment paths that write directly via
+// db.Queries and would otherwise never reach an open client. The 0.5.124
+// audit found both runtime inserts silent on the wire: the python3-probe
+// failure comment and the artifact-summary comment were inserted (when they
+// inserted at all) with no comment:created event, so an open desktop window
+// only showed them after a full refetch.
+func (h *Handler) publishRuntimeComment(ctx context.Context, wsID pgtype.UUID, issueID pgtype.UUID, comment db.Comment) {
+	payload := map[string]any{
+		"comment": commentToResponse(comment, nil, nil),
+	}
+	if issueID.Valid {
+		if issue, err := h.Queries.GetIssue(ctx, issueID); err == nil {
+			payload["issue_title"] = issue.Title
+			payload["issue_assignee_type"] = textToPtr(issue.AssigneeType)
+			payload["issue_assignee_id"] = uuidToPtr(issue.AssigneeID)
+			payload["issue_status"] = issue.Status
+		}
+	}
+	h.publish(protocol.EventCommentCreated, uuidToString(wsID), comment.AuthorType, uuidToString(comment.AuthorID), payload)
 }
