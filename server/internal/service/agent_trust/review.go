@@ -157,6 +157,7 @@ func callProviderCLI(ctx context.Context, prompt string) (string, error) {
 
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, bin, "--print")
+	cmd.Env = providerCLIEnv()
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -185,6 +186,43 @@ func resolveProviderBin() (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// providerCLIEnv is the explicit environment for the provider CLI child.
+// Mirrors handler/runtime_llm_call.go::providerCLIEnv (this package cannot
+// import the handler package) — keep the two in sync. The CLI is the
+// intended consumer of provider credentials, so user provider config
+// namespaces pass through; server-side secrets (DATABASE_URL, JWT secret,
+// MULTICA_API_TOKEN) are not in the allowlist and therefore do not.
+func providerCLIEnv() []string {
+	allowedExact := map[string]bool{
+		"PATH": true, "HOME": true, "LANG": true, "LC_ALL": true, "TZ": true,
+		"TMPDIR": true, "TERM": true, "SHELL": true, "USER": true, "LOGNAME": true,
+		"CODEX_HOME":      true,
+		"XDG_CONFIG_HOME": true, "XDG_DATA_HOME": true, "XDG_CACHE_HOME": true,
+		"HTTP_PROXY": true, "HTTPS_PROXY": true, "ALL_PROXY": true, "NO_PROXY": true,
+		"http_proxy": true, "https_proxy": true, "all_proxy": true, "no_proxy": true,
+	}
+	allowedPrefixes := []string{
+		"ANTHROPIC_", "OPENAI_", "CLAUDE_", "GEMINI_", "GOOGLE_", "AWS_", "AZURE_",
+		"OPENROUTER_", "MOONSHOT_", "KIMI_", "DEEPSEEK_", "DASHSCOPE_", "ZHIPUAI_",
+		"GLM_", "XAI_", "GROQ_", "MISTRAL_", "PERPLEXITY_", "OLLAMA_",
+	}
+	env := make([]string, 0, 24)
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if allowedExact[key] {
+			env = append(env, entry)
+			continue
+		}
+		for _, p := range allowedPrefixes {
+			if strings.HasPrefix(key, p) {
+				env = append(env, entry)
+				break
+			}
+		}
+	}
+	return env
 }
 
 // truncateForLog bounds a stderr dump to 500 chars for the warning log.

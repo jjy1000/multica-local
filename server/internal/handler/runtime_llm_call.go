@@ -212,6 +212,7 @@ func (h *Handler) LLMCallHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Env = providerCLIEnv()
 	cmd.Stdin = strings.NewReader(combined)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -328,6 +329,45 @@ func buildProviderArgs(_, model string) []string {
 		args = append(args, "--model", model)
 	}
 	return args
+}
+
+// providerCLIEnv is the explicit environment for the provider CLI child.
+// Per the 0.5.107 subprocess rule, a handler-spawned child must never
+// inherit the server's full environment (nil cmd.Env hands it os.Environ()
+// with DATABASE_URL, the JWT secret and MULTICA_API_TOKEN). The CLI is the
+// intended consumer of provider credentials, so user provider config
+// namespaces pass through; server-side secrets are not in the allowlist
+// and therefore do not. Mirrored in service/agent_trust/review.go — keep
+// the two in sync.
+func providerCLIEnv() []string {
+	allowedExact := map[string]bool{
+		"PATH": true, "HOME": true, "LANG": true, "LC_ALL": true, "TZ": true,
+		"TMPDIR": true, "TERM": true, "SHELL": true, "USER": true, "LOGNAME": true,
+		"CODEX_HOME":      true,
+		"XDG_CONFIG_HOME": true, "XDG_DATA_HOME": true, "XDG_CACHE_HOME": true,
+		"HTTP_PROXY": true, "HTTPS_PROXY": true, "ALL_PROXY": true, "NO_PROXY": true,
+		"http_proxy": true, "https_proxy": true, "all_proxy": true, "no_proxy": true,
+	}
+	allowedPrefixes := []string{
+		"ANTHROPIC_", "OPENAI_", "CLAUDE_", "GEMINI_", "GOOGLE_", "AWS_", "AZURE_",
+		"OPENROUTER_", "MOONSHOT_", "KIMI_", "DEEPSEEK_", "DASHSCOPE_", "ZHIPUAI_",
+		"GLM_", "XAI_", "GROQ_", "MISTRAL_", "PERPLEXITY_", "OLLAMA_",
+	}
+	env := make([]string, 0, 24)
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if allowedExact[key] {
+			env = append(env, entry)
+			continue
+		}
+		for _, p := range allowedPrefixes {
+			if strings.HasPrefix(key, p) {
+				env = append(env, entry)
+				break
+			}
+		}
+	}
+	return env
 }
 
 // runtimeLLMCallAllow returns true iff host has not exceeded
