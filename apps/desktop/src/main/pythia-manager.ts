@@ -1,4 +1,5 @@
 import { app, ipcMain, type BrowserWindow } from "electron";
+import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -130,6 +131,18 @@ class PythiaManager implements ExperimentalManager {
   readonly name = "pythia";
   private readonly inner: BaseExperimentalManager;
   private readonly resourceSubdir: string;
+  // Per-manager engine token. Injected into the engine env as
+  // PYTHIA_ENGINE_TOKEN and attached as X-API-Key on every proxy path
+  // (renderer pythia:proxy + the /__experimental/upstream registration so
+  // the Go reverse proxy picks it up). The engine keeps /health open for
+  // the manager's bring-up probe and additionally accepts the user JWT it
+  // receives via MULTICA_API_TOKEN, which is what `multica pythia` callers
+  // inherit.
+  private readonly engineTokenValue = randomBytes(24).toString("base64url");
+
+  engineToken(): string {
+    return this.engineTokenValue;
+  }
 
   constructor(cfg: PythiaManagerConfig) {
     this.resourceSubdir = cfg.resourceSubdir;
@@ -165,6 +178,10 @@ class PythiaManager implements ExperimentalManager {
         // Force unbuffered stdout so any startup banner can be
         // captured by BaseExperimentalManager's pipe listeners.
         PYTHONUNBUFFERED: "1",
+        // Loopback token gate (engine/server.py). The main process is the
+        // token authority; the engine rejects unauthenticated calls on all
+        // routes except /health when this is set.
+        PYTHIA_ENGINE_TOKEN: this.engineTokenValue,
         // 0.3.16: route every LLM call through Multica's runtime
         // instead of spawning Ollama/MiroFish. See engine/oracle.py.
         ...runtimeEnv,
@@ -175,7 +192,7 @@ class PythiaManager implements ExperimentalManager {
       // the Multica origin (see experimental_proxy.go). Without this
       // hook the renderer would call the loopback URL directly and
       // lose same-origin localStorage for any future theme/i18n work.
-      onReady: (url) => registerExperimentalUpstream("pythia_oracle", url),
+      onReady: (url) => registerExperimentalUpstream("pythia_oracle", url, this.engineTokenValue),
       onStop: () => unregisterExperimentalUpstream("pythia_oracle"),
     });
   }
@@ -516,7 +533,12 @@ export function setupPythiaProxyIPC(): void {
         const init: RequestInit = {
           method,
           signal: controller.signal,
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            // The engine's loopback token gate (PYTHIA_ENGINE_TOKEN) is
+            // enforced on every allowlisted path; /health stays open.
+            "X-API-Key": manager.engineToken(),
+          },
         };
         if (method !== "GET" && method !== "DELETE" && req.body !== undefined) {
           init.body = JSON.stringify(req.body);

@@ -454,6 +454,11 @@ func issueRoundSourceFor(ifc *issueForecastContext) issueRoundSource {
 	return func(ctx context.Context, seed int64, ifc *issueForecastContext, round int, opts issueRoundOpts) (forecastEnvelope, error) {
 		env, err := queryOracleIssue(ctx, url, ifc, seed, round, opts)
 		if err != nil {
+			// 0.5.103 lesson: a silent synthetic degrade looks like a
+			// successful live run in every surface except server.log.
+			// Always leave a line when the oracle path fails.
+			slog.Warn("pythia forecast: oracle call failed, degrading to synthetic envelope",
+				"issue_id", ifc.IssueID, "round", round, "error", err)
 			env, _ = syntheticIssueForecast(ctx, seed, ifc, round, opts)
 			env.LabSource = "synthetic_oracle_failover"
 			return env, nil
@@ -530,6 +535,7 @@ func queryOracleIssue(
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Multica-Embedded", "1")
+	req.Header.Set("X-API-Key", oracleEngineKey())
 	// One real round now costs an oracle pass PLUS a 4-persona council
 	// (5 LLM calls; personas run with bounded concurrency). 180s matches
 	// the engine's own httpx budget per call and keeps a hung engine from
@@ -639,6 +645,7 @@ func queryOracleIssueReport(
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Multica-Embedded", "1")
+	req.Header.Set("X-API-Key", oracleEngineKey())
 	cli := &http.Client{Timeout: 180 * time.Second}
 	resp, err := cli.Do(req)
 	if err != nil {

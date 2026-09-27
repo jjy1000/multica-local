@@ -11,11 +11,12 @@ import asyncio
 import logging
 import math
 import os
+import secrets
 from contextlib import asynccontextmanager
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .config import CONFIG
 from .state import STATE
@@ -64,6 +65,38 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="PYTHIA Oracle", version="0.2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# ---------------------------------------------------------------------------
+# Loopback token gate.
+#
+# The engine binds 127.0.0.1, which accepts every local user account, and
+# the engine env carries the user's Multica JWT — a same-host process from
+# another user session could otherwise drive forecasts (LLM spend) or read
+# world state. When PYTHIA_ENGINE_TOKEN is set (the desktop main process
+# generates one per spawn), every route except /health requires the
+# X-API-Key header to match that token OR the MULTICA_API_TOKEN copy in
+# this process env (agent CLIs / `multica pythia` inherit the JWT, not the
+# manager-generated token). Empty env → open engine, so dev / standalone
+# runs (`python3 -m uvicorn engine.server:app`) keep working unchanged.
+# ---------------------------------------------------------------------------
+_ENGINE_TOKEN = os.environ.get("PYTHIA_ENGINE_TOKEN", "").strip()
+_ENGINE_JWT = os.environ.get("MULTICA_API_TOKEN", "").strip()
+
+
+@app.middleware("http")
+async def _loopback_token_guard(request, call_next):
+    if _ENGINE_TOKEN and request.url.path != "/health":
+        # compare_digest raises TypeError on str inputs with non-ASCII
+        # chars; Starlette decodes header bytes as latin-1, so a raw
+        # >=0x80 byte in the header would 500 instead of 401. Compare
+        # bytes (no ASCII restriction) so bad keys fail closed as 401.
+        key = request.headers.get("X-API-Key", "").encode("utf-8", "replace")
+        ok = secrets.compare_digest(key, _ENGINE_TOKEN.encode())
+        if not ok and _ENGINE_JWT:
+            ok = secrets.compare_digest(key, _ENGINE_JWT.encode())
+        if not ok:
+            return JSONResponse({"error": "engine token required"}, status_code=401)
+    return await call_next(request)
 
 
 @app.get("/health")

@@ -243,10 +243,10 @@ func pythiaChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		IssueID  string `json:"issue_id"`
-		Message  string `json:"message"`
-		Persona  string `json:"persona,omitempty"`
-		History  []struct {
+		IssueID string `json:"issue_id"`
+		Message string `json:"message"`
+		Persona string `json:"persona,omitempty"`
+		History []struct {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"history,omitempty"`
@@ -311,6 +311,7 @@ func pythiaChat(w http.ResponseWriter, r *http.Request) {
 	}
 	engineReq.Header.Set("Content-Type", "application/json")
 	engineReq.Header.Set("X-Multica-Embedded", "1")
+	engineReq.Header.Set("X-API-Key", oracleEngineKey())
 	cli := &http.Client{Timeout: 120 * time.Second}
 	resp, err := cli.Do(engineReq)
 	if err != nil {

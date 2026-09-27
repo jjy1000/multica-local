@@ -314,6 +314,7 @@ func queryOracle(ctx context.Context, baseURL string) (forecastEnvelope, error) 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Multica-Embedded", "1")
+	req.Header.Set("X-API-Key", oracleEngineKey())
 	cli := &http.Client{Timeout: 3 * time.Second}
 	resp, err := cli.Do(req)
 	if err != nil {

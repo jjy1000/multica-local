@@ -121,15 +121,26 @@ func runPythiaStatus(cmd *cobra.Command, _ []string) error {
 
 // pythiaHTTPClient fetches a JSON resource from the loopback URL the
 // desktop installed. Single-purpose so any loopback call is centralized
-// here; no global client, no Multica API auth — Pythia sits behind
-// 127.0.0.1 and trusts the local user.
-func pythiaHTTPGet(ctx context.Context, url string, path string, out any) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+// here; no global client. The engine sits behind 127.0.0.1 but (since the
+// loopback token gate) authenticates callers: the engine accepts the user's
+// JWT as an alternative to the manager-generated PYTHIA_ENGINE_TOKEN (see
+// engine/server.py::_loopback_token_guard), so auth goes through
+// resolveToken — daemon-injected MULTICA_API_TOKEN inside agent tasks, the
+// profile config.json PAT in a bare terminal.
+func setPythiaAuthHeader(cmd *cobra.Command, req *http.Request) {
+	if tok := resolveToken(cmd); tok != "" {
+		req.Header.Set("X-API-Key", tok)
+	}
+}
+
+func pythiaHTTPGet(cmd *cobra.Command, url string, path string, out any) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+path, nil)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
 	}
+	setPythiaAuthHeader(cmd, req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("pythia unreachable at %s: %w", url, err)
@@ -148,8 +159,8 @@ func pythiaHTTPGet(ctx context.Context, url string, path string, out any) error 
 	return nil
 }
 
-func pythiaHTTPPost(ctx context.Context, url string, path string, payload any, out any) error {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+func pythiaHTTPPost(cmd *cobra.Command, url string, path string, payload any, out any) error {
+	ctx, cancel := context.WithTimeout(cmd.Context(), 15*time.Second)
 	defer cancel()
 	buf, err := json.Marshal(payload)
 	if err != nil {
@@ -160,6 +171,7 @@ func pythiaHTTPPost(ctx context.Context, url string, path string, payload any, o
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	setPythiaAuthHeader(cmd, req)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("pythia unreachable at %s: %w", url, err)
@@ -186,7 +198,7 @@ func runPythiaBrief(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--url is required (run `multica pythia status` first; the agent must already have the loopback URL from the desktop)")
 	}
 	var resp map[string]any
-	if err := pythiaHTTPGet(cmd.Context(), url, "/brief", &resp); err != nil {
+	if err := pythiaHTTPGet(cmd, url, "/brief", &resp); err != nil {
 		return err
 	}
 	return writeJSON(resp)
@@ -203,7 +215,7 @@ func runPythiaPredict(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--scenario is required")
 	}
 	var resp map[string]any
-	if err := pythiaHTTPPost(cmd.Context(), url, "/predict", map[string]any{
+	if err := pythiaHTTPPost(cmd, url, "/predict", map[string]any{
 		"scenario": scenario,
 		"horizon":  horizon,
 	}, &resp); err != nil {
@@ -222,7 +234,7 @@ func runPythiaWhatif(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("--intervention is required")
 	}
 	var resp map[string]any
-	if err := pythiaHTTPPost(cmd.Context(), url, "/whatif", map[string]any{
+	if err := pythiaHTTPPost(cmd, url, "/whatif", map[string]any{
 		"intervention": intervention,
 	}, &resp); err != nil {
 		return err

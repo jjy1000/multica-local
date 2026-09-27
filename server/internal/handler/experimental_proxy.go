@@ -34,6 +34,11 @@ import (
 var experimentalLoopback struct {
 	sync.RWMutex
 	registry *experimental.Registry
+	// apiKeys mirrors h.ExperimentalFlagAPIKeys for the package-level
+	// callers (forecast runner / chat bridge) that resolve the engine
+	// URL from the same registry and must attach the matching
+	// X-API-Key. Written only by upstreamRegister.
+	apiKeys map[string]string
 }
 
 // SetExperimentalLoopbackURL is called by the desktop main process
@@ -58,6 +63,21 @@ func SetExperimentalLoopbackURL(service, u string) {
 		return
 	}
 	reg.SetLoopbackURL(service, u)
+}
+
+// experimentalUpstreamKey returns the X-API-Key the desktop main process
+// registered for a subprocess upstream ("" = anonymous). Direct engine
+// callers that bypass the reverse proxy (forecast runner, chat bridge)
+// attach it so the upstream's token gate accepts the call.
+func experimentalUpstreamKey(service string) string {
+	experimentalLoopback.RLock()
+	defer experimentalLoopback.RUnlock()
+	return experimentalLoopback.apiKeys[service]
+}
+
+// oracleEngineKey is the pythia_oracle spelling of experimentalUpstreamKey.
+func oracleEngineKey() string {
+	return experimentalUpstreamKey("pythia_oracle")
 }
 
 // AttachExperimentalRegistry binds the loopback storage to the given
@@ -368,8 +388,22 @@ func (h *Handler) upstreamRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	SetExperimentalLoopbackURL(body.Service, body.URL)
+	// Mirror the key into the package-level map so the direct engine
+	// callers (oracleLoopbackURL + oracleEngineKey pair) authenticate the
+	// same way the reverse proxy does.
+	experimentalLoopback.Lock()
+	if body.Key == "" {
+		delete(experimentalLoopback.apiKeys, body.Service)
+	} else {
+		if experimentalLoopback.apiKeys == nil {
+			experimentalLoopback.apiKeys = make(map[string]string, 4)
+		}
+		experimentalLoopback.apiKeys[body.Service] = body.Key
+	}
+	experimentalLoopback.Unlock()
 	// 0.5.29 P1-1: in-memory key transport. An empty key clears any
-	// previous entry (callers doing unregister send empty key).
+	// previous entry; upstreamUnregister clears both mirrors too, so a
+	// key never outlives the URL it was registered with.
 	h.ExperimentalFlagAPIKeysMu.Lock()
 	if h.ExperimentalFlagAPIKeys == nil {
 		h.ExperimentalFlagAPIKeys = make(map[string]string, 4)
@@ -416,6 +450,15 @@ func (h *Handler) upstreamUnregister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	SetExperimentalLoopbackURL(service, "")
+	// Clear the key mirrors along with the URL: a stale key surviving
+	// an unregister would keep authenticating direct engine callers
+	// against an engine the manager no longer owns.
+	experimentalLoopback.Lock()
+	delete(experimentalLoopback.apiKeys, service)
+	experimentalLoopback.Unlock()
+	h.ExperimentalFlagAPIKeysMu.Lock()
+	delete(h.ExperimentalFlagAPIKeys, service)
+	h.ExperimentalFlagAPIKeysMu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 
