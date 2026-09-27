@@ -546,15 +546,15 @@ describe("IssueDetail (shared)", () => {
     mockApiObj.getProject.mockReset();
   });
 
-  // 0.3.49.1: HidesDeliverableInIssueTimeline contract — when the
-  // issue's lab_source corresponds to a flag that declares
-  // `hides_deliverable_in_issue_timeline: true` in the catalog, the
-  // plain timeline must drop agent-authored comments (the deliverable
-  // belongs in the lab's workbench view). Member-authored comments
-  // and agent ACTIVITIES still render. The two cases below pin both
-  // branches of the migration from the deprecated `VIEW_LAB_SOURCES`
-  // const to the server-derived field.
-  it("hides agent deliverable comments when the lab catalog declares hides_deliverable_in_issue_timeline", async () => {
+  // HidesDeliverableInIssueTimeline contract — when the issue's lab_source
+  // corresponds to a flag that declares `hides_deliverable_in_issue_timeline:
+  // true` in the catalog, the plain timeline must drop NESTED agent comments
+  // (run chatter belongs in the lab's workbench view) while KEEPING the
+  // TOP-LEVEL agent comment: since 0.5.118 the lab final report is delivered
+  // as a top-level agent comment and must render directly in the comment
+  // stream (0.5.124 pin — the pre-0.5.124 filter hid the deliverable itself).
+  // Member-authored comments and agent ACTIVITIES still render.
+  it("hides reply agent comments but keeps the top-level lab report when the catalog declares hides_deliverable_in_issue_timeline", async () => {
     mockApiObj.getIssue.mockResolvedValue({
       ...mockIssue,
       lab_source: "claude_science_lab",
@@ -569,6 +569,22 @@ describe("IssueDetail (shared)", () => {
         hides_deliverable_in_issue_timeline: true,
       },
     ]);
+    // comment-2 (agent, parent_id: null) is the 0.5.118 top-level lab report;
+    // reply-1 (agent, parent_id set) is nested run chatter on that report.
+    mockApiObj.listTimeline.mockResolvedValue([
+      ...mockTimeline,
+      {
+        type: "comment",
+        id: "reply-1",
+        actor_type: "agent",
+        actor_id: "agent-1",
+        content: "Run 3 partial progress notes",
+        parent_id: "comment-2",
+        created_at: "2026-01-17T01:00:00Z",
+        updated_at: "2026-01-17T01:00:00Z",
+        comment_type: "comment",
+      } as TimelineEntry,
+    ]);
 
     renderIssueDetail();
 
@@ -576,9 +592,13 @@ describe("IssueDetail (shared)", () => {
     await waitFor(() => {
       expect(screen.getByText("Started working on this")).toBeInTheDocument();
     });
-    // agent deliverable does NOT — the Agent "I can help with this"
-    // belongs in the Claude Lab Artifact tab, not the plain timeline.
-    expect(screen.queryByText("I can help with this")).not.toBeInTheDocument();
+    // The TOP-LEVEL agent comment (the lab deliverable / final report) IS
+    // visible in the plain timeline.
+    expect(screen.getByText("I can help with this")).toBeInTheDocument();
+    // The agent REPLY (nested run chatter) is NOT.
+    expect(
+      screen.queryByText("Run 3 partial progress notes"),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps agent deliverable comments when the lab catalog field is absent", async () => {

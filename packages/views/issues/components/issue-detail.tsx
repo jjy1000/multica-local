@@ -1112,16 +1112,23 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
   // unrelated thread) hands every card a brand-new prop reference and forces
   // every thread subtree to re-render in lockstep.
   const prevThreadRepliesRef = useRef<Map<string, TimelineEntry[]>>(new Map());
-  // For lab issues that own a workbench view, the agent delivers its
-  // results inside the lab panel (GetClaudeLabContext), so its comments
-  // (plans / conclusions) must not surface as deliverables in the plain
-  // issue timeline. Agent *activities* (started / completed) still show.
+  // For lab issues that own a workbench view, nested lab run chatter (agent
+  // REPLIES inside run threads) must not surface in the plain issue timeline —
+  // the run detail belongs in the lab panel (GetClaudeLabContext). Agent
+  // *activities* (started / completed) still show, and so does a TOP-LEVEL
+  // agent comment.
   //
   // 0.3.49.1: read `hides_deliverable_in_issue_timeline` from the
   // server catalog payload (`useExperimentalFlags`) instead of the
   // deprecated `VIEW_LAB_SOURCES` const. Same 7 flags are seeded,
   // but the server is the canonical source from now on — a new lab
   // that declares the field stays in sync without a TS release.
+  //
+  // 0.5.124: since 0.5.118 the lab FINAL REPORT is delivered as a
+  // top-level agent comment that must render directly in the comment
+  // stream. The filter therefore hides only REPLY comments (parent_id
+  // set) — the old "hide every agent comment" form also hid the
+  // deliverable itself.
   const hideLabAgentComments =
     !!issue?.lab_source &&
     flagCatalog?.some(
@@ -1136,7 +1143,12 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     // reply's parent is always in the same array.
     const visible = hideLabAgentComments
       ? timeline.filter(
-          (e) => !(e.type === "comment" && e.actor_type === "agent"),
+          (e) =>
+            !(
+              e.type === "comment" &&
+              e.actor_type === "agent" &&
+              !!e.parent_id
+            ),
         )
       : timeline;
     const topLevel = visible.filter(
