@@ -153,7 +153,11 @@ export function RunConfirmModal({
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v && !submitting) onClose(); }}>
-      <DialogContent>
+      {/* Wider than the primitive's sm:max-w-sm: the two actions are long
+          phrases, not "Cancel"/"Save". In French they measure ~435px with the
+          send-shortcut keycaps against the 352px the default leaves, so the
+          dialog's overflow-auto showed a horizontal scrollbar. (MUL-7614) */}
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {mode === "assign" ? t(($) => $.run_confirm.title_assign) : t(($) => $.run_confirm.title_status)}
@@ -195,7 +199,9 @@ export function RunConfirmModal({
           </div>
         ) : null}
 
-        <DialogFooter>
+        {/* flex-wrap keeps a longer translation, or a larger text size, from
+            bringing the scrollbar back: the actions stack instead. */}
+        <DialogFooter className="sm:flex-wrap">
           {loading ? (
             <Button type="button" disabled>
               <Spinner className="size-4" />
