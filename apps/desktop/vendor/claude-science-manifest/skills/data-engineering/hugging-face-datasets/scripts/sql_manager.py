@@ -40,6 +40,7 @@ Usage:
 
 import os
 import json
+import re
 import argparse
 from typing import Optional, List, Dict, Any, Union
 
@@ -49,6 +50,54 @@ from huggingface_hub import HfApi
 
 # Configuration
 HF_TOKEN = os.environ.get("HF_TOKEN")
+
+
+# ---------------------------------------------------------------------------
+# SQL composition safety helpers.
+#
+# DuckDB has no server and this tool's contract hands raw SQL fragments
+# (where / select / group_by / on ...) to a local analyst, but the
+# dataset-id / token / path / column interpolations below are NOT meant to
+# be SQL-active. They get strict validation or literal/identifier quoting
+# so a stray quote in a repo id or token cannot terminate the enclosing
+# statement, and clause fragments may not end it early or comment out the
+# trailing clauses.
+# ---------------------------------------------------------------------------
+
+# Hugging Face references (dataset ids, configs, splits, revisions) are
+# restricted to this charset — quotes, semicolons, whitespace and shell
+# metacharacters never appear in legitimate names.
+_DATASET_PART_RE = re.compile(r"^[A-Za-z0-9._~*/-]+$")
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9._\-]+$")
+
+
+def _validate_ref(value: str, label: str) -> str:
+    if not _DATASET_PART_RE.fullmatch(str(value)):
+        raise ValueError(f"{label} {value!r} contains characters outside the Hugging Face reference charset")
+    return str(value)
+
+
+def _sql_literal(value: str) -> str:
+    """Return value as a safely quoted SQL string literal."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _quote_ident(name: str) -> str:
+    """Return name as a safely quoted SQL identifier."""
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _ensure_no_sql_breakout(fragment: str, label: str) -> str:
+    """Reject a caller-supplied clause fragment that could hijack the statement.
+
+    The fragment parameters are SQL by contract, so their content is not
+    restricted — but they must not terminate the statement (`;`) or comment
+    out the clauses this tool appends after them.
+    """
+    for marker in (";", "--", "/*"):
+        if marker in fragment:
+            raise ValueError(f"{label} must not contain {marker!r}")
+    return fragment
 
 
 class HFDatasetSQL:
@@ -72,7 +121,9 @@ class HFDatasetSQL:
         """Configure DuckDB connection for HF access."""
         # Set HF token if available (for private datasets)
         if self.token:
-            self.conn.execute(f"CREATE SECRET hf_token (TYPE HUGGINGFACE, TOKEN '{self.token}');")
+            if not _TOKEN_RE.fullmatch(self.token):
+                raise ValueError("HF_TOKEN contains unexpected characters; refusing to register it with DuckDB")
+            self.conn.execute(f"CREATE SECRET hf_token (TYPE HUGGINGFACE, TOKEN {_sql_literal(self.token)});")
 
     def _build_hf_path(
         self, dataset_id: str, split: str = "*", config: Optional[str] = None, revision: str = "~parquet"
@@ -90,9 +141,9 @@ class HFDatasetSQL:
             hf:// path string
         """
         if config:
-            return f"hf://datasets/{dataset_id}@{revision}/{config}/{split}/*.parquet"
+            return f"hf://datasets/{_validate_ref(dataset_id, 'dataset_id')}@{_validate_ref(revision, 'revision')}/{_validate_ref(config, 'config')}/{_validate_ref(split, 'split')}/*.parquet"
         else:
-            return f"hf://datasets/{dataset_id}@{revision}/default/{split}/*.parquet"
+            return f"hf://datasets/{_validate_ref(dataset_id, 'dataset_id')}@{_validate_ref(revision, 'revision')}/default/{_validate_ref(split, 'split')}/*.parquet"
 
     def _build_hf_path_flexible(
         self,
@@ -111,14 +162,14 @@ class HFDatasetSQL:
         Returns:
             hf:// path with appropriate wildcards
         """
-        base = f"hf://datasets/{dataset_id}@~parquet"
+        base = f"hf://datasets/{_validate_ref(dataset_id, 'dataset_id')}@~parquet"
 
         if config and split:
-            return f"{base}/{config}/{split}/*.parquet"
+            return f"{base}/{_validate_ref(config, 'config')}/{_validate_ref(split, 'split')}/*.parquet"
         elif config:
-            return f"{base}/{config}/*/*.parquet"
+            return f"{base}/{_validate_ref(config, 'config')}/*/*.parquet"
         elif split:
-            return f"{base}/*/{split}/*.parquet"
+            return f"{base}/*/{_validate_ref(split, 'split')}/*.parquet"
         else:
             return f"{base}/*/*/*.parquet"
 
@@ -154,10 +205,11 @@ class HFDatasetSQL:
 
         # Replace 'data' placeholder with actual path
         # Handle various SQL patterns
-        processed_sql = sql.replace("FROM data", f"FROM '{hf_path}'")
-        processed_sql = processed_sql.replace("from data", f"FROM '{hf_path}'")
-        processed_sql = processed_sql.replace("JOIN data", f"JOIN '{hf_path}'")
-        processed_sql = processed_sql.replace("join data", f"JOIN '{hf_path}'")
+        hf_lit = _sql_literal(hf_path)
+        processed_sql = sql.replace("FROM data", f"FROM {hf_lit}")
+        processed_sql = processed_sql.replace("from data", f"FROM {hf_lit}")
+        processed_sql = processed_sql.replace("JOIN data", f"JOIN {hf_lit}")
+        processed_sql = processed_sql.replace("join data", f"JOIN {hf_lit}")
 
         # If user provides raw path, use as-is
         if "hf://" in sql:
@@ -165,7 +217,7 @@ class HFDatasetSQL:
 
         # Apply limit if specified and not already in query
         if limit and "LIMIT" not in processed_sql.upper():
-            processed_sql += f" LIMIT {limit}"
+            processed_sql += f" LIMIT {int(limit)}"
 
         try:
             result = self.conn.execute(processed_sql)
@@ -227,7 +279,7 @@ class HFDatasetSQL:
         """
         hf_path = self._build_hf_path(dataset_id, split=split, config=config)
 
-        sql = f"DESCRIBE SELECT * FROM '{hf_path}' LIMIT 1"
+        sql = f"DESCRIBE SELECT * FROM {_sql_literal(hf_path)} LIMIT 1"
         result = self.conn.execute(sql)
 
         columns = [desc[0] for desc in result.description]
@@ -258,10 +310,11 @@ class HFDatasetSQL:
         """
         hf_path = self._build_hf_path(dataset_id, split=split, config=config)
 
+        n = int(n)
         if seed is not None:
-            sql = f"SELECT * FROM '{hf_path}' USING SAMPLE {n} (RESERVOIR, {seed})"
+            sql = f"SELECT * FROM {_sql_literal(hf_path)} USING SAMPLE {n} (RESERVOIR, {int(seed)})"
         else:
-            sql = f"SELECT * FROM '{hf_path}' USING SAMPLE {n}"
+            sql = f"SELECT * FROM {_sql_literal(hf_path)} USING SAMPLE {n}"
 
         return self.query_raw(sql)
 
@@ -282,9 +335,9 @@ class HFDatasetSQL:
         """
         hf_path = self._build_hf_path(dataset_id, split=split, config=config)
 
-        sql = f"SELECT COUNT(*) FROM '{hf_path}'"
+        sql = f"SELECT COUNT(*) FROM {_sql_literal(hf_path)}"
         if where:
-            sql += f" WHERE {where}"
+            sql += f" WHERE {_ensure_no_sql_breakout(where, 'where')}"
 
         result = self.conn.execute(sql).fetchone()
         return result[0] if result else 0
@@ -307,7 +360,7 @@ class HFDatasetSQL:
         """
         hf_path = self._build_hf_path(dataset_id, split=split, config=config)
 
-        sql = f"SELECT DISTINCT {column} FROM '{hf_path}' LIMIT {limit}"
+        sql = f"SELECT DISTINCT {_quote_ident(column)} FROM {_sql_literal(hf_path)} LIMIT {int(limit)}"
         result = self.conn.execute(sql).fetchall()
 
         return [row[0] for row in result]
@@ -330,14 +383,15 @@ class HFDatasetSQL:
         """
         hf_path = self._build_hf_path(dataset_id, split=split, config=config)
 
+        column_ident = _quote_ident(column)
         sql = f"""
-        SELECT 
-            {column},
+        SELECT
+            {column_ident},
             COUNT(*) as count
-        FROM '{hf_path}'
-        GROUP BY {column}
+        FROM {_sql_literal(hf_path)}
+        GROUP BY {column_ident}
         ORDER BY count DESC
-        LIMIT {bins}
+        LIMIT {int(bins)}
         """
 
         return self.query_raw(sql)
@@ -380,16 +434,16 @@ class HFDatasetSQL:
         """
         hf_path = self._build_hf_path(dataset_id, split=split, config=config)
 
-        sql_parts = [f"SELECT {select}", f"FROM '{hf_path}'"]
+        sql_parts = [f"SELECT {_ensure_no_sql_breakout(select, 'select')}", f"FROM {_sql_literal(hf_path)}"]
 
         if where:
-            sql_parts.append(f"WHERE {where}")
+            sql_parts.append(f"WHERE {_ensure_no_sql_breakout(where, 'where')}")
         if group_by:
-            sql_parts.append(f"GROUP BY {group_by}")
+            sql_parts.append(f"GROUP BY {_ensure_no_sql_breakout(group_by, 'group_by')}")
         if order_by:
-            sql_parts.append(f"ORDER BY {order_by}")
+            sql_parts.append(f"ORDER BY {_ensure_no_sql_breakout(order_by, 'order_by')}")
         if limit:
-            sql_parts.append(f"LIMIT {limit}")
+            sql_parts.append(f"LIMIT {int(limit)}")
 
         sql = " ".join(sql_parts)
         return self.query_raw(sql)
@@ -428,15 +482,18 @@ class HFDatasetSQL:
         left_path = self._build_hf_path(left_dataset, split=left_split, config=left_config)
         right_path = self._build_hf_path(right_dataset, split=right_split, config=right_config)
 
+        join_type = str(join_type).strip().upper()
+        if join_type not in {"INNER", "LEFT", "LEFT OUTER", "RIGHT", "RIGHT OUTER", "FULL", "FULL OUTER", "CROSS"}:
+            raise ValueError(f"unsupported join_type {join_type!r}")
         sql = f"""
-        SELECT {select}
-        FROM '{left_path}' AS left_table
-        {join_type} JOIN '{right_path}' AS right_table
-        ON {on}
+        SELECT {_ensure_no_sql_breakout(select, 'select')}
+        FROM {_sql_literal(left_path)} AS left_table
+        {join_type} JOIN {_sql_literal(right_path)} AS right_table
+        ON {_ensure_no_sql_breakout(on, 'on')}
         """
 
         if limit:
-            sql += f" LIMIT {limit}"
+            sql += f" LIMIT {int(limit)}"
 
         return self.query_raw(sql)
 
@@ -465,12 +522,13 @@ class HFDatasetSQL:
 
         if sql:
             # Process the query
-            processed_sql = sql.replace("FROM data", f"FROM '{hf_path}'")
-            processed_sql = processed_sql.replace("from data", f"FROM '{hf_path}'")
+            hf_lit = _sql_literal(hf_path)
+            processed_sql = sql.replace("FROM data", f"FROM {hf_lit}")
+            processed_sql = processed_sql.replace("from data", f"FROM {hf_lit}")
         else:
-            processed_sql = f"SELECT * FROM '{hf_path}'"
+            processed_sql = f"SELECT * FROM {_sql_literal(hf_path)}"
 
-        export_sql = f"COPY ({processed_sql}) TO '{output_path}' (FORMAT PARQUET)"
+        export_sql = f"COPY ({processed_sql}) TO {_sql_literal(output_path)} (FORMAT PARQUET)"
         self.conn.execute(export_sql)
 
         print(f"✅ Exported to {output_path}")
@@ -572,7 +630,7 @@ class HFDatasetSQL:
             config: Optional config
         """
         hf_path = self._build_hf_path(dataset_id, split=split, config=config)
-        self.conn.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM '{hf_path}'")
+        self.conn.execute(f"CREATE OR REPLACE VIEW {_quote_ident(name)} AS SELECT * FROM {_sql_literal(hf_path)}")
         print(f"✅ Created view '{name}' for {dataset_id}")
 
     def info(self, dataset_id: str) -> Dict[str, Any]:

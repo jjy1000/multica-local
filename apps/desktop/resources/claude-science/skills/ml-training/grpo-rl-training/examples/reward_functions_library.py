@@ -336,6 +336,18 @@ def extract_code_block(text: str) -> str:
     match = re.search(pattern, text, re.DOTALL)
     return match.group(1) if match else ""
 
+# Builtins deliberately withheld from executed completion code. This raises
+# the bar for accidental filesystem/interpreter access but is NOT a sandbox:
+# Python offers no in-process isolation, so production deployments must run
+# this reward inside a container or a separate least-privilege worker.
+_EXEC_WITHHELD_BUILTINS = (
+    "__import__", "open", "eval", "exec", "compile", "input", "breakpoint",
+)
+
+# Upper bound for completion code handed to run_test_cases.
+_MAX_REVIEW_CODE_BYTES = 64 * 1024
+
+
 def run_test_cases(code: str, test_cases: List[tuple]) -> bool:
     """
     Execute code with test cases (MUST be sandboxed in production!).
@@ -347,10 +359,25 @@ def run_test_cases(code: str, test_cases: List[tuple]) -> bool:
     Returns:
         True if all tests pass
     """
-    # WARNING: This is a simplified example
-    # In production, use proper sandboxing (e.g., docker, pypy sandbox)
+    # WARNING: This is a simplified example. Execution below runs with
+    # restricted builtins, but determined code can still escape in-process —
+    # in production, use proper sandboxing (e.g., docker, pypy sandbox).
+    if len(code) > _MAX_REVIEW_CODE_BYTES:
+        return False
     try:
-        exec_globals = {}
+        import builtins as _builtins
+
+        safe_builtins = {
+            name: getattr(_builtins, name)
+            for name in dir(_builtins)
+            if name not in _EXEC_WITHHELD_BUILTINS
+            # Dunder names are escape vectors: __loader__.load_module
+            # re-enters the import machinery, __spec__/__build_class__
+            # widen it further. Stripping them costs class statements in
+            # graded code — an acceptable trade for this reward grader.
+            and not name.startswith("__")
+        }
+        exec_globals = {"__builtins__": safe_builtins}
         exec(code, exec_globals)
 
         for input_val, expected in test_cases:
