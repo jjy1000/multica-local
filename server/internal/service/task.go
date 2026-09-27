@@ -1195,11 +1195,15 @@ func (s *TaskService) finalizeCancelledChatMessage(ctx context.Context, task db.
 	}
 	var cancelled *CancelledChatMessageResult
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
-		messages, err := qtx.ListTaskMessages(ctx, task.ID)
+		// Cancellation only needs to know whether a transcript exists —
+		// loading the full transcript just to check emptiness transferred
+		// every row (potentially megabytes) on the cancel path.
+		hasMessages, err := qtx.HasTaskMessages(ctx, task.ID)
 		if err != nil {
 			return fmt.Errorf("list cancelled chat task messages: %w", err)
 		}
-		if len(messages) == 0 {
+		restorable := !hasMessages
+		if restorable {
 			// Detach attachments BEFORE deleting the user message — the
 			// attachment FK is ON DELETE CASCADE, so deleting first would
 			// destroy rows the restored draft needs to re-bind.
