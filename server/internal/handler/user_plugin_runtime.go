@@ -316,6 +316,13 @@ func (h *Handler) RunUserPlugin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		commandArgs = rm.Runtime.Args
+		for _, a := range commandArgs {
+			if strings.ContainsAny(a, ";&|`$<>()\n\r\t") {
+				writeError(w, http.StatusBadRequest,
+					"subprocess args contain shell metacharacters")
+				return
+			}
+		}
 	} else {
 		// inline: resolve code source in priority order (request body code →
 		// manifest.runtime.entry_code → existing entry.py), then pre-flight the

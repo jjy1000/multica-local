@@ -471,3 +471,89 @@ func TestRunUserPluginRejectedWhenLabDisabled(t *testing.T) {
 		t.Errorf("flag on: expected the snippet stdout in the response, got %s", body)
 	}
 }
+
+// TestRunUserPluginSubprocessArgMetacharGate pins the subprocess argv
+// boundary added with the 0.5.122 security batch: manifest.runtime.args
+// carrying shell metacharacters are rejected with 400 before any child
+// process exists, while a metachar-free argv still reaches 200. The gate
+// is deliberate defense-in-depth (exec.CommandContext never invokes a
+// shell), declared here as a contract so manifests can rely on the
+// rejection instead of discovering it in production.
+func TestRunUserPluginSubprocessArgMetacharGate(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	// Anchor HOME to a temp tree so the run's env dir and runs.json never
+	// touch the real ~/.multica/plugins.
+	t.Setenv("HOME", t.TempDir())
+
+	ctx := context.Background()
+	var created []string
+	t.Cleanup(func() {
+		for _, slug := range created {
+			testPool.Exec(ctx, `DELETE FROM experimental_pref WHERE flag_key = $1`, "user_"+slug)
+			testPool.Exec(ctx, `DELETE FROM user_plugin WHERE slug = $1`, slug)
+			experimental.UnregisterUserPlugin("user_" + slug)
+		}
+	})
+
+	// runCase provisions a fresh subprocess plugin whose manifest declares
+	// the given argv, seeds its Labs pref ON (so the flag gate cannot
+	// answer instead of the argv boundary under test), runs it once over
+	// HTTP and returns (status, body).
+	caseNo := 0
+	runCase := func(command string, args []string) (int, string) {
+		caseNo++
+		slug := fmt.Sprintf("arggate-%d-%d", time.Now().UnixNano(), caseNo)
+		created = append(created, slug)
+		flagKey := "user_" + slug
+
+		wCreate := httptest.NewRecorder()
+		manifest := map[string]any{"runtime": map[string]any{"command": command, "args": args}}
+		raw, _ := json.Marshal(manifest)
+		testHandler.CreateUserPlugin(wCreate, newRequest(http.MethodPost, "/api/user-plugins", map[string]any{
+			"slug":         slug,
+			"title":        map[string]any{"en": "Arg gate", "zh": "参数闸口"},
+			"runtime_kind": "subprocess",
+			"manifest":     json.RawMessage(raw),
+		}))
+		if wCreate.Code != http.StatusCreated {
+			t.Fatalf("create %s: expected 201, got %d: %s", slug, wCreate.Code, wCreate.Body.String())
+		}
+
+		if _, err := testPool.Exec(ctx,
+			`INSERT INTO experimental_pref (user_id, flag_key, enabled) VALUES ($1, $2, true)`,
+			testUserID, flagKey,
+		); err != nil {
+			t.Fatalf("seed pref: %v", err)
+		}
+
+		w := httptest.NewRecorder()
+		req := withURLParam(
+			newRequest(http.MethodPost, "/api/user-plugins/"+slug+"/run", map[string]any{}),
+			"slug", slug,
+		)
+		testHandler.RunUserPlugin(w, req)
+		return w.Code, w.Body.String()
+	}
+
+	// Metacharacter-bearing args must be refused before any child runs.
+	for _, arg := range []string{"print(1)", "x;import os", "a|b", "`id`", "$(id)"} {
+		code, body := runCase("echo", []string{arg})
+		if code != http.StatusBadRequest {
+			t.Errorf("arg %q: expected 400, got %d: %s", arg, code, body)
+		}
+		if !strings.Contains(body, "metacharacters") {
+			t.Errorf("arg %q: expected the response to name the metacharacter gate, got %s", arg, body)
+		}
+	}
+
+	// Positive control: a metachar-free argv passes the gate and runs.
+	code, body := runCase("echo", []string{"subprocess-arg-gate-ok"})
+	if code != http.StatusOK {
+		t.Fatalf("clean arg: expected 200, got %d: %s", code, body)
+	}
+	if strings.Contains(body, "metacharacters") {
+		t.Errorf("clean arg: gate falsely rejected a clean argv: %s", body)
+	}
+}
