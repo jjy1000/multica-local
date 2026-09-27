@@ -8,6 +8,7 @@ import {
   DuplicateIssueErrorBodySchema,
   EMPTY_USER,
   EMPTY_INBOX_UNREAD_SUMMARY,
+  EMPTY_LAB_ARTIFACT_STUB_LIST,
   EMPTY_LAB_CONTEXT,
   ExperimentalFlagsListSchema,
   ExperimentalFlagSchema,
@@ -17,6 +18,7 @@ import {
   EMPTY_ISSUE_STATUS_ENTRY,
   ListIssueStatusesResponseSchema,
   EMPTY_LIST_ISSUE_STATUSES_RESPONSE,
+  LabArtifactStubListSchema,
   LabContextSchema,
   ListIssuesResponseSchema,
   PythiaMonitorRunListSchema,
@@ -815,6 +817,46 @@ describe("LabContextSchema drift (getLabContext)", () => {
     expect(parseWithFallback("garbage", LabContextSchema, EMPTY_LAB_CONTEXT, { endpoint: "x" })).toEqual(EMPTY_LAB_CONTEXT);
   });
 
+});
+
+// 0.5.124: the artifact listing endpoint returns the Go
+// runtimeArtifactsResponse wrapper {"artifacts":[...],"total":N}, not a bare
+// array — the pre-0.5.124 bare-array schema never parsed the real wire shape,
+// so the lab embed degraded to 「暂无产物」 on every load.
+describe("LabArtifactStubListSchema wire shape (listClaudeScienceArtifactsByIssue)", () => {
+  const stub = {
+    id: "artifact-1",
+    session_id: "sess-1",
+    name: "report.md",
+    kind: "markdown",
+    bytes: 128,
+    sha256: "deadbeef",
+    url: "/api/experimental/claude-science-runtime/artifacts/artifact-1",
+  };
+
+  it("parses the server wrapper {artifacts, total} and exposes the array", () => {
+    const parsed = LabArtifactStubListSchema.safeParse({ artifacts: [stub], total: 1 });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.artifacts).toHaveLength(1);
+    expect(parsed.data?.artifacts[0]?.name).toBe("report.md");
+    expect(parsed.data?.total).toBe(1);
+  });
+
+  it("defaults a drifted body ({}) to an empty list without throwing", () => {
+    const parsed = LabArtifactStubListSchema.safeParse({});
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.artifacts).toEqual([]);
+    expect(parsed.data?.total).toBe(0);
+  });
+
+  it("parseWithFallback returns the empty wrapper for null / drifted bodies (incl. the old bare-array shape)", () => {
+    expect(
+      parseWithFallback(null, LabArtifactStubListSchema, EMPTY_LAB_ARTIFACT_STUB_LIST, { endpoint: "x" }),
+    ).toEqual(EMPTY_LAB_ARTIFACT_STUB_LIST);
+    expect(
+      parseWithFallback([stub], LabArtifactStubListSchema, EMPTY_LAB_ARTIFACT_STUB_LIST, { endpoint: "x" }),
+    ).toEqual(EMPTY_LAB_ARTIFACT_STUB_LIST);
+  });
 });
 
 // Issue status catalog (MUL-6243). The catalog drives how every status renders,

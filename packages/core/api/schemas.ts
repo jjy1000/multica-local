@@ -1662,8 +1662,11 @@ export const LabContextSchema = z.object({
 
 // 0.5.114 issue-first embed: metadata stub for a sandbox artifact
 // listed by issue. Mirrors the Go RuntimeArtifactStub — bytes stay
-// behind the per-artifact endpoint. Array-level parseWithFallback so a
-// drifted gated response degrades to "no artifacts", never a crash.
+// behind the per-artifact endpoint. 0.5.124: the listing endpoint
+// returns the wrapper `runtimeArtifactsResponse` {"artifacts":[...],
+// "total":N} (server/internal/handler/claude_science_runtime.go), NOT
+// a bare array — schema the wrapper so parseWithFallback degrades a
+// drifted gated response to "no artifacts", never a crash.
 export const LabArtifactStubSchema = z.object({
   id: z.string(),
   session_id: z.string(),
@@ -1674,8 +1677,15 @@ export const LabArtifactStubSchema = z.object({
   url: z.string(),
 });
 export type LabArtifactStub = z.infer<typeof LabArtifactStubSchema>;
-export const LabArtifactStubListSchema = z.array(LabArtifactStubSchema);
-export const EMPTY_LAB_ARTIFACT_STUBS: LabArtifactStub[] = [];
+export const LabArtifactStubListSchema = z.object({
+  artifacts: z.array(LabArtifactStubSchema).default([]),
+  total: z.number().default(0),
+}).loose();
+export type LabArtifactStubList = z.infer<typeof LabArtifactStubListSchema>;
+export const EMPTY_LAB_ARTIFACT_STUB_LIST: LabArtifactStubList = {
+  artifacts: [],
+  total: 0,
+};
 
 export const EMPTY_LAB_CONTEXT: LabContext = {
   issue: {

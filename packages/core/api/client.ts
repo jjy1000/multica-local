@@ -188,7 +188,7 @@ import {
   EMPTY_SQUAD,
   EMPTY_SQUAD_LIST,
   EMPTY_SQUAD_MEMBER_STATUS_LIST,
-  EMPTY_LAB_ARTIFACT_STUBS,
+  EMPTY_LAB_ARTIFACT_STUB_LIST,
   EMPTY_TIMELINE_ENTRIES,
   EMPTY_USER,
   EMPTY_LIST_WEBHOOK_DELIVERIES_RESPONSE,
@@ -757,7 +757,10 @@ export class ApiClient {
   // 0.5.114 issue-first embed: newest sandbox artifacts across a
   // lab-bound issue's runtime sessions (metadata only). rawRequest for
   // the same reason as getLabContext — flag-gated route, a generic 404
-  // must not masquerade as "no artifacts".
+  // must not masquerade as "no artifacts". 0.5.124: the endpoint wraps
+  // the list in runtimeArtifactsResponse {"artifacts":[...],"total":N}
+  // — parse the wrapper and return just the array so the public
+  // Promise<LabArtifactStub[]> shape is unchanged.
   async listClaudeScienceArtifactsByIssue(
     issueId: string,
     workspaceId: string,
@@ -769,9 +772,10 @@ export class ApiClient {
       throw new Error(`listClaudeScienceArtifactsByIssue ${r.status}`);
     }
     const raw: unknown = await r.json();
-    return parseWithFallback(raw, LabArtifactStubListSchema, EMPTY_LAB_ARTIFACT_STUBS, {
+    const parsed = parseWithFallback(raw, LabArtifactStubListSchema, EMPTY_LAB_ARTIFACT_STUB_LIST, {
       endpoint: "GET /api/experimental/claude-science-runtime/issues/:id/artifacts",
     });
+    return parsed.artifacts;
   }
 
   async createIssue(data: CreateIssueRequest): Promise<Issue> {
