@@ -7,6 +7,7 @@ import (
 
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/handler"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -69,6 +70,62 @@ func TestActivityIssueCreated(t *testing.T) {
 	}
 	if util.UUIDToString(activities[0].ActorID) != testUserID {
 		t.Fatalf("expected actor_id %s, got %s", testUserID, util.UUIDToString(activities[0].ActorID))
+	}
+}
+
+// TestActivityIssueCreated_MapPayload — MUL-7594 port. Autopilot and
+// channel creates publish issue:created with the IssueToMapResolved map
+// shape, which the old struct assertion silently dropped: autopilot-created
+// issues never got a "created" entry in the activity timeline. The
+// extractIssueFields normalizer accepts both shapes.
+func TestActivityIssueCreated_MapPayload(t *testing.T) {
+	queries := db.New(testPool)
+	bus := events.New()
+	registerActivityListeners(bus, queries)
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupActivities(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	issue, err := queries.GetIssue(context.Background(), util.MustParseUUID(issueID))
+	if err != nil {
+		t.Fatalf("GetIssue: %v", err)
+	}
+
+	var broadcasts []events.Event
+	bus.Subscribe(protocol.EventActivityCreated, func(e events.Event) {
+		broadcasts = append(broadcasts, e)
+	})
+	bus.Publish(events.Event{
+		Type:        protocol.EventIssueCreated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "agent",
+		ActorID:     "00000000-0000-0000-0000-0000000000a1",
+		Payload: map[string]any{
+			// Same payload builder as AutopilotService.dispatchCreateIssue.
+			"issue": service.IssueToMapResolved(context.Background(), queries, issue, "ACT"),
+		},
+	})
+
+	activities := listActivitiesForIssue(t, queries, issueID)
+	if len(activities) != 1 {
+		t.Fatalf("expected one created activity for the map-shaped payload, got %d", len(activities))
+	}
+	if activities[0].Action != "created" || activities[0].ActorType.String != "agent" {
+		t.Fatalf("unexpected creation activity: %+v", activities[0])
+	}
+	if len(broadcasts) != 1 {
+		t.Fatalf("expected one activity broadcast, got %d", len(broadcasts))
+	}
+	payload, ok := broadcasts[0].Payload.(map[string]any)
+	if !ok || payload["issue_id"] != issueID {
+		t.Fatalf("unexpected broadcast payload: %#v", broadcasts[0].Payload)
+	}
+	entry, ok := payload["entry"].(map[string]any)
+	if !ok || entry["id"] != util.UUIDToString(activities[0].ID) || entry["action"] != "created" {
+		t.Fatalf("broadcast must reference the persisted creation activity: %#v", payload["entry"])
 	}
 }
 

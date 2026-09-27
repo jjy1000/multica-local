@@ -25,7 +25,10 @@ func registerActivityListeners(bus *events.Bus, queries *db.Queries) {
 		if !ok {
 			return
 		}
-		issue, ok := payload["issue"].(handler.IssueResponse)
+		// HTTP creates carry IssueResponse; autopilot and channel creates
+		// carry the IssueToMapResolved map shape (MUL-7594 — the struct
+		// assertion used to silently drop their creation activity).
+		issue, ok := extractIssueFields(payload["issue"])
 		if !ok {
 			return
 		}
