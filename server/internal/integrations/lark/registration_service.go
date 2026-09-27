@@ -244,6 +244,7 @@ func (s *registrationSession) snapshot() RegistrationSessionState {
 		InstallationID: s.installationID,
 		ErrorReason:    s.errorReason,
 		ErrorMessage:   s.errorMessage,
+		InitiatorID:    s.initiatorID,
 	}
 }
 
@@ -272,12 +273,15 @@ func (s *registrationSession) markError(reason, msg string, gcAfter time.Time) {
 
 // RegistrationSessionState is the read-only snapshot the handler
 // serializes to the frontend. Internal mutex is hidden by construction.
+// InitiatorID is not serialized to the client — the handler uses it only
+// to authorize the status read (session initiator or workspace admin).
 type RegistrationSessionState struct {
 	ID             string
 	Status         RegistrationSessionStatus
 	InstallationID pgtype.UUID
 	ErrorReason    string
 	ErrorMessage   string
+	InitiatorID    pgtype.UUID
 }
 
 // BeginInstallParams is the trusted input from the handler — the

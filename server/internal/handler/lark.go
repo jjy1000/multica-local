@@ -129,12 +129,30 @@ func (h *Handler) RevokeLarkInstallation(w http.ResponseWriter, r *http.Request)
 	}
 	// Workspace-scoped lookup ensures one workspace cannot revoke
 	// another's installation by guessing the UUID.
-	if _, err := h.LarkInstallations.GetInWorkspace(r.Context(), instUUID, wsUUID); err != nil {
+	inst, err := h.LarkInstallations.GetInWorkspace(r.Context(), instUUID, wsUUID)
+	if err != nil {
 		if errors.Is(err, lark.ErrInstallationNotFound) {
 			writeError(w, http.StatusNotFound, "lark installation not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load installation")
+		return
+	}
+	// Authorize against the bound agent (MUL-4213 port, defense-in-depth
+	// under the admin-only router): normally its owner or a workspace
+	// owner/admin may revoke (canManageAgent writes the 403/404 itself).
+	// If the agent has been hard-deleted the installation is an orphan,
+	// so fall back to workspace owner/admin-only cleanup instead of
+	// 404-ing the disconnect entry point.
+	agent, agentErr := h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{
+		ID:          inst.AgentID,
+		WorkspaceID: wsUUID,
+	})
+	if agentErr != nil {
+		if _, ok := h.requireWorkspaceRole(w, r, uuidToString(wsUUID), "lark installation not found", "owner", "admin"); !ok {
+			return
+		}
+	} else if !h.canManageAgent(w, r, agent) {
 		return
 	}
 	if err := h.LarkInstallations.Revoke(r.Context(), instUUID); err != nil {
@@ -288,11 +306,19 @@ func (h *Handler) BeginLarkInstall(w http.ResponseWriter, r *http.Request) {
 	// Ownership pre-check at the HTTP boundary so a malformed
 	// agent_id surfaces 404 here (not an opaque service error from
 	// inside the service's own re-check).
-	if _, err := h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{
+	agent, err := h.Queries.GetAgentInWorkspace(r.Context(), db.GetAgentInWorkspaceParams{
 		ID:          agentUUID,
 		WorkspaceID: wsUUID,
-	}); err != nil {
+	})
+	if err != nil {
 		writeError(w, http.StatusNotFound, "agent not found in this workspace")
+		return
+	}
+	// Authorize the initiator against the target agent (MUL-4213 port):
+	// its owner or a workspace owner/admin may bind. canManageAgent
+	// writes the 403/404 itself, so the authorization does not rely on
+	// the router grouping alone.
+	if !h.canManageAgent(w, r, agent) {
 		return
 	}
 	initiatorUUID, ok := parseUUIDOrBadRequest(w, userID, "user id")
@@ -343,6 +369,10 @@ func (h *Handler) GetLarkInstallStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "lark install not configured")
 		return
 	}
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
 	wsUUID, ok := parseUUIDOrBadRequest(w, chi.URLParam(r, "id"), "workspace id")
 	if !ok {
 		return
@@ -360,6 +390,17 @@ func (h *Handler) GetLarkInstallStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load install session")
 		return
+	}
+	// Only the initiator or a workspace owner/admin may read the session
+	// (MUL-4213 port). The session id is handed back only to the
+	// initiator, so treating anyone else as "session lost" (404, no
+	// existence leak) is consistent with the unknown-session case above.
+	if uuidToString(state.InitiatorID) != userID {
+		member, mErr := h.getWorkspaceMember(r.Context(), userID, uuidToString(wsUUID))
+		if mErr != nil || !roleAllowed(member.Role, "owner", "admin") {
+			writeError(w, http.StatusNotFound, "install session not found")
+			return
+		}
 	}
 	resp := LarkInstallStatusResponse{
 		Status:       string(state.Status),
