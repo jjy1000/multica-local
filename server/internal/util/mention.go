@@ -21,12 +21,26 @@ var MentionRe = regexp.MustCompile(`\[@?(.+?)\]\(mention://(member|agent|squad|i
 // [@Label](mention://type/id) shape taught in multica-mentioning/SKILL.md,
 // and a missed mention silently drops the dispatch: the 0.5.123 incident had
 // a squad leader's 派工 comment route zero tasks because every mention used
-// the bold-label + parenthesized-URL variant. The `all` alternative must
-// come FIRST — unlike MentionRe this pattern has no trailing `\)` anchor, so
-// the hex-char class would otherwise greedily eat the "a" of "all/all" and
-// parse a bogus id. The type:id dedup in ParseMentions collapses bare hits
-// that MentionRe already captured.
-var bareMentionRe = regexp.MustCompile(`mention://(member|agent|squad|issue|all)/(all|[0-9a-fA-F-]+)`)
+// the bold-label + parenthesized-URL variant. The type:id dedup in
+// ParseMentions collapses bare hits that MentionRe already captured.
+//
+// Because this pattern has no trailing delimiter anchor, the id must be
+// self-terminating or the hex class eats a prefix of a longer token and
+// yields a bogus id. Two guards, both required:
+//
+//  1. `all` comes FIRST in the alternation. With the hex class first,
+//     "all/all" loses its "a" to the char class and parses as id "ll".
+//     (JYF-490 fixed this case.)
+//  2. The uuid branch spells out the full 8-4-4-4-12 shape instead of a bare
+//     `[0-9a-fA-F-]+`. Without it, "mention://member/Alice" matches the single
+//     leading "A" (a legal hex digit) and dispatches to a phantom member "A"
+//     — the regression TestMentioningSkillTeachesTheParserContract caught. A
+//     trailing lookahead would be the obvious fix but Go's regexp is RE2,
+//     which has no lookaround, so the shape itself must carry the anchor.
+//
+// Every id this fork mints is a 36-char UUID, so the strict shape costs
+// nothing on real mentions; it only rejects prose that merely looks like one.
+var bareMentionRe = regexp.MustCompile(`mention://(member|agent|squad|issue|all)/(all|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})`)
 
 // IsMentionAll returns true if the mention is an @all mention.
 func (m Mention) IsMentionAll() bool {

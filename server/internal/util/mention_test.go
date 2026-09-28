@@ -152,6 +152,31 @@ func TestParseMentionsBareURL(t *testing.T) {
 			content: "docs at https://example.com/mention://agent/aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
 			want:    []Mention{{Type: "agent", ID: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}},
 		},
+		{
+			// JYF-490 shipped bareMentionRe without a trailing delimiter
+			// anchor, so the hex class happily ate the leading "A" of a
+			// human name and produced a phantom member "A". Nothing down the
+			// line rejects that id — it is dispatched. The uuid-shape branch
+			// is what rejects it now.
+			name:    "non-uuid id is not truncated into a phantom mention",
+			content: "[@Alice](mention://member/Alice) please review",
+			want:    nil,
+		},
+		{
+			name:    "bare non-uuid id yields no mention",
+			content: "contact (mention://agent/backend-team) about the outage",
+			want:    nil,
+		},
+		{
+			name:    "uuid prefix of a longer token is not a mention",
+			content: "stale ref mention://agent/877a086e-c05e-461a-9ffa trailing junk",
+			want:    nil,
+		},
+		{
+			name:    "non-uuid prose never suppresses the real uuid next to it",
+			content: "[@Alice](mention://member/Alice) and (mention://agent/321db75b-2be6-485b-9f43-e07088cef440)",
+			want:    []Mention{{Type: "agent", ID: "321db75b-2be6-485b-9f43-e07088cef440"}},
+		},
 	}
 
 	for _, tt := range tests {
