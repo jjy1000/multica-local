@@ -42,6 +42,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -842,18 +843,30 @@ func upsertClaudeScienceVisibility(
 	src := experimental.SourceClaudeScienceLab
 	flagKey := string(src)
 	// Every agent the install just created gets a visibility row keyed
-	// to the lab's experimental_source.
-	for _, name := range []string{
-		"biology", "physics", "ml", "research", "write",
-	} {
-		id, ok := agentsByName[name]
-		if !ok {
-			continue
-		}
+	// to the lab's experimental_source — the same "walk what you just
+	// made" rule the squad loop below follows.
+	//
+	// 0.5.126: this used to be a hardcoded name list
+	// {biology, physics, ml, research, write}. 0.5.114 added `critique`
+	// to the manifest and to labLeaderAgentNames but not here, so the
+	// reviewer shipped with no visibility row: `lab_managed` stayed
+	// false and it leaked into the agent/squad pickers, where a user
+	// could assign a review agent to an ordinary issue. Iterating the
+	// map makes the next added agent correct by construction instead of
+	// by remembering to edit a second list.
+	//
+	// Sorted so the INSERT order — and therefore any error message —
+	// is reproducible across runs; Go map iteration is randomised.
+	agentNames := make([]string, 0, len(agentsByName))
+	for name := range agentsByName {
+		agentNames = append(agentNames, name)
+	}
+	sort.Strings(agentNames)
+	for _, name := range agentNames {
 		if err := h.Queries.InsertExperimentalResourceVisibility(ctx, db.InsertExperimentalResourceVisibilityParams{
 			FlagKey:      flagKey,
 			ResourceType: string(experimental.HideAgent),
-			ResourceID:   id,
+			ResourceID:   agentsByName[name],
 		}); err != nil {
 			return fmt.Errorf("agent %s visibility: %w", name, err)
 		}

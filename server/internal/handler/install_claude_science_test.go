@@ -174,3 +174,76 @@ func TestInstallClaudeScience_SeedsVisibility(t *testing.T) {
 		t.Fatalf("squad visibility rows after re-install = %d, want 1 (idempotency broken)", visCount)
 	}
 }
+
+// TestInstallClaudeScience_HidesEveryInstalledAgent pins the 0.5.126
+// fix for the critique leak.
+//
+// The original implementation walked a hardcoded name list
+// {biology, physics, ml, research, write}. 0.5.114 added `critique` to
+// the payload and to labLeaderAgentNames but not to that list, so the
+// reviewer shipped with no visibility row: `lab_managed` stayed false
+// and it appeared in the agent picker, assignable to ordinary issues.
+// The test above could not catch it because its fixture manifest
+// declares ONE agent named `fixture-research`, which is not in the
+// hardcoded list — every `if !ok { continue }` skipped and the agent
+// half of the function ran zero times.
+//
+// This test asserts the property rather than a list: every agent the
+// install created is hidden. Reverting to a name list, or adding an
+// agent the list does not know, turns it red.
+func TestInstallClaudeScience_HidesEveryInstalledAgent(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+	userID, workspaceID := installLabTestFresh(t, ctx, "cs-agent-vis")
+	cleanupVisibilityRows(t, workspaceID)
+	defer withTestManifestEnv(t)()
+
+	flagKey := string(experimental.SourceClaudeScienceLab)
+
+	if err := testHandler.InstallClaudeScience(ctx, experimental.SourceClaudeScience, userID, workspaceID); err != nil {
+		t.Fatalf("InstallClaudeScience: %v", err)
+	}
+
+	// The leak is the ABSENCE of a row, not a particular `hidden`
+	// value: ListLabManagedResourceIDs treats any row for the flag as
+	// "this agent belongs to a Labs flag" and the renderer gates on the
+	// resulting `lab_managed` stamp. Rows written by older code paths
+	// carry hidden=false and still hide correctly. So assert on missing
+	// rows, which is exactly what a hardcoded name list produces.
+	rows, err := testPool.Query(ctx, `
+		SELECT a.name
+		FROM agent a
+		WHERE a.workspace_id = $1
+		  AND NOT EXISTS (
+		    SELECT 1 FROM experimental_resource_visibility v
+		    WHERE v.flag_key = $2
+		      AND v.resource_type = 'agent'
+		      AND v.resource_id = a.id
+		  )
+		ORDER BY a.name
+	`, uuidToPgtype(workspaceID), flagKey)
+	if err != nil {
+		t.Fatalf("query unhidden agents: %v", err)
+	}
+	defer rows.Close()
+	var unhidden []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan unhidden agent: %v", err)
+		}
+		unhidden = append(unhidden, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows err: %v", err)
+	}
+	if len(unhidden) > 0 {
+		t.Fatalf("agents with no claude_science_lab visibility row: %v — they are "+
+			"lab-owned (lab_managed=false) and will show in the agent picker. "+
+			"upsertClaudeScienceVisibility must walk the agents it just created, "+
+			"not a hardcoded name list; that is how 0.5.114's critique agent shipped.",
+			unhidden)
+	}
+}
