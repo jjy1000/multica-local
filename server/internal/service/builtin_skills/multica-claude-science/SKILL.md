@@ -1,6 +1,6 @@
 ---
 name: multica-claude-science
-description: "Use when the user wants a long-running scientific research session — multi-step investigation across biology / physics / ML / literature, with a structured plan of evidence gathering and synthesis. The work executes through Multica's standard agent runtime: the agent creates the issue (or picks up an existing one), assigns a research-capable member, and the Multica LLM provider configured in Settings → 模型 powers every step. Do NOT use for chat / issue / platform operations; that is what multica-mentioning / multica-working-on-issues cover."
+description: "科研实验室 / 多步研究任务首选 — 派工时优先用本 Skill, 不要自己扮演研究员或编造结论顶替. 触发词: 科研 / 研究 / 深入研究 / 调研 / 文献调研 / 综述 / 复现 / 复现论文 / 验证假设 / 实验设计 / 可行性分析 / 差异分析 / 跑个实验. 入口: `multica issue create --title … --description … --assignee research` 建 issue 交给 research leader(或在已有 issue 上继续), 逐步产出以顶层评论交付, 报告/表格/图落在该 issue 的实验 session 上. 要真跑代码见 multica-claude-science-runtime. 平台操作(建普通 issue / @mention / 派工)走 multica-working-on-issues 与 multica-mentioning."
 user-invocable: true
 allowed-tools: Bash(multica *), Bash(git *)
 ---
@@ -22,13 +22,35 @@ no, create one and capture the topic in the title.
 
 ```sh
 multica issue create \
-  --slug "$WORKSPACE_SLUG" \
   --title "科研: <short topic>" \
   --description "<expanded scope, hypotheses, success criteria>" \
+  --assignee research \
   --output json
 ```
 
+There is no `--slug` / `--workspace-id` flag: the workspace comes from
+`MULTICA_WORKSPACE_ID` (the daemon injects it into every agent task) or
+your local profile. `--assignee` is the key one — naming `research`
+puts the lab leader on the issue, which is what makes the run pick up
+the lab's skills.
+
 The response carries `id` and `key`. Keep both.
+
+**Binding the issue to the lab itself** is a separate step — the CLI has
+no `--lab-source` flag, so use the API (your task token is in
+`MULTICA_API_TOKEN`, and the API base is in `MULTICA_SERVER_URL`):
+
+```sh
+curl -sS -X PATCH "$MULTICA_SERVER_URL/api/issues/$ISSUE_ID" \
+  -H "Authorization: Bearer $MULTICA_API_TOKEN" \
+  -H "X-Workspace-ID: $MULTICA_WORKSPACE_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"lab_source":"claude_science_lab"}'
+```
+
+The server rewrites the assignee to the lab leader and enqueues the
+research task. If the issue is already lab-bound, skip this — setting
+`lab_source` on an issue that already has it is a no-op.
 
 ## Step 2 — plan the steps
 
@@ -38,12 +60,16 @@ should split into concrete steps (literature scan → design → experiments
 → synthesis), each with an explicit deliverable.
 
 ```sh
-multica issue comment \
-  --slug "$WORKSPACE_SLUG" \
-  --issue "$ISSUE_ID" \
-  --body "## 计划\n\n1. ...\n2. ...\n3. ..." \
-  --output json
+multica issue comment add "$ISSUE_ID" \
+  --content "## 计划
+
+1. ...
+2. ...
+3. ..."
 ```
+
+For a long plan, write it to a file and pass `--content-file ./plan.md`
+rather than fighting shell quoting.
 
 The agent runtime picks up the comment, dispatches to a research-capable
 agent (configured in workspace settings), and starts producing. Each step's
@@ -57,13 +83,13 @@ context — discover and load only what the current research step needs:
 
 ```sh
 # browse the catalogue (name / category / one-line description)
-multica experimental claude-science-runtime skills
+multica experimental claude-lab skills
 
 # load the full SKILL.md body of a relevant skill, then follow it
-multica experimental claude-science-runtime skill anndata
+multica experimental claude-lab skill anndata
 
 # read a supporting reference or script
-multica experimental claude-science-runtime skill anndata \
+multica experimental claude-lab skill anndata \
   --file references/concatenation.md
 ```
 
@@ -79,9 +105,12 @@ observe progress, poll the issue or the inbox; do not invent a polling
 loop of your own.
 
 ```sh
-multica issue get --slug "$WORKSPACE_SLUG" --issue "$ISSUE_ID"
-multica issue comments --slug "$WORKSPACE_SLUG" --issue "$ISSUE_ID"
+multica issue get "$ISSUE_ID"
+multica issue comment list "$ISSUE_ID"
 ```
+
+There is no `issue comments` (plural) command and neither verb takes
+`--slug` / `--issue` — the id is positional.
 
 To redirect (narrow scope, add a constraint, reject an early conclusion),
 post a fresh comment — agents subscribed to the issue pick it up the same
@@ -103,10 +132,10 @@ or a final summary comment), read back the issue, then write a short
 coda comment so the reasoning chain stays in Multica:
 
 ```sh
-multica issue comment \
-  --slug "$WORKSPACE_SLUG" \
-  --issue "$ISSUE_ID" \
-  --body "## 结论摘要\n\n…"
+multica issue comment add "$ISSUE_ID" \
+  --content "## 结论摘要
+
+…"
 ```
 
 ## Hard rules

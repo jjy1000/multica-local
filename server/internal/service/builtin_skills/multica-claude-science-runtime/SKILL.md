@@ -1,6 +1,6 @@
 ---
 name: multica-claude-science-runtime
-description: "Use when the user wants to execute Python code inside the Claude Science research workspace, capture stdout, and surface generated artifacts (PNG / SVG / HTML / JSON / CSV / MD). Also use to load a specific research skill from the lab's 294-skill catalogue on demand. The runtime is gated behind the `claude_science_lab` Labs flag — when the flag is off, this Skill must refuse to run code and fall back to the standard in-band agent flow (issue + comments). Do NOT use for chat / issue / platform operations; that is what multica-mentioning / multica-working-on-issues cover."
+description: "在科研实验室沙箱里真跑 Python 并回收产物(PNG/SVG/HTML/JSON/CSV/MD),以及按需加载 294 个研究技能 — 需要真实计算/绘图/跑包时用本 Skill, 不要用 Bash(python3 …) 内联替代. 触发词: 跑代码 / 执行代码 / 跑脚本 / 跑数据 / 画图 / 出图 / 绘图 / 算一下 / 统计 / 数据分析 / 模拟 / 跑实验 / 加载研究技能. 入口: `multica experimental claude-lab execute --code-file <path>`, 技能目录 `… claude-lab skills`, 加载单个 `… claude-lab skill <name>`. 受 claude_science_lab 开关控制, 关闭时拒绝执行并退回普通 plan."
 user-invocable: true
 allowed-tools: Bash(multica *), Bash(git *)
 ---
@@ -13,14 +13,18 @@ multi-step **research planning** via the standard Multica agent
 runtime, the runtime gives the same agent a way to **run code**,
 **collect artifacts**, and **load research skills on demand**.
 
-Surface — five verbs:
+Surface — five verbs. **The subcommand is `claude-lab`, not
+`claude-science-runtime`** (renamed by the 0.3.22 lab consolidation;
+`Use:` in `cmd_experimental.go:76`). `multica experimental claude-lab
+--help` lists the live set — treat that output as authoritative over
+this table if they ever disagree.
 
-- `multica experimental claude-science-runtime execute --workspace-id <uuid>
-   --agent <id> --code-file <path> [--timeout-ms <n>] [--session <uuid>]`
-- `multica experimental claude-science-runtime sessions --workspace-id <uuid>`
-- `multica experimental claude-science-runtime artifacts --session-id <uuid>`
-- `multica experimental claude-science-runtime skills [--workspace-id <uuid>]`
-- `multica experimental claude-science-runtime skill <name> [--file <path>] [--workspace-id <uuid>]`
+- `multica experimental claude-lab execute --workspace-id <uuid>
+   --agent-id <id> --code-file <path> [--timeout-ms <n>] [--session <uuid>]`
+- `multica experimental claude-lab sessions --workspace-id <uuid>`
+- `multica experimental claude-lab artifacts --session-id <uuid>`
+- `multica experimental claude-lab skills [--workspace-id <uuid>]`
+- `multica experimental claude-lab skill <name> [--file <path>] [--workspace-id <uuid>]`
 
 The CLI dispatcher lives at `server/cmd/multica/cmd_experimental.go`.
 
@@ -81,13 +85,17 @@ pass it through without base64 gymnastics. Keep the snippet under
 ## Step 2 — execute
 
 ```sh
-multica experimental claude-science-runtime execute \
+multica experimental claude-lab execute \
   --workspace-id "$WORKSPACE_ID" \
-  --agent "$AGENT_ID" \
+  --agent-id "$AGENT_ID" \
   --code-file /tmp/multica-experiment.py \
   --timeout-ms 60000 \
   --output json
 ```
+
+`--agent-id` is the real flag (there is no `--agent`). It defaults to
+the `MULTICA_AGENT_ID` the daemon injects, so inside an agent task you
+can usually omit it.
 
 The response carries `session_id`, `root_session_id`, `status`,
 `exit_code`, `stdout`, `stderr`, `duration_ms`, and `artifacts[]`.
@@ -98,18 +106,21 @@ Each artifact has `id`, `name`, `kind`, `bytes`, `sha256`, and `url`.
 In the issue thread, post a comment that references the artifacts:
 
 ```sh
-multica issue comment \
-  --slug "$WORKSPACE_SLUG" \
-  --issue "$ISSUE_ID" \
-  --body "## 实验运行 #$SESSION_ID (status=$STATUS, exit=$EXIT_CODE, $DURATION_MS ms)
+multica issue comment add "$ISSUE_ID" \
+  --content "## 实验运行 #$SESSION_ID (status=$STATUS, exit=$EXIT_CODE, $DURATION_MS ms)
 
 \$STDOUT
 
 \$(artifact list)
 
-下载: <url for each artifact>" \
-  --output json
+下载: <url for each artifact>"
 ```
+
+`multica issue comment` is a command GROUP (`add` / `delete` / `list` /
+`resolve` / `unresolve`) and carries no `--slug` / `--issue` / `--body`
+flags of its own — the issue id is a positional argument and the body
+is `--content` (or `--content-file` / `--content-stdin`). Use
+`--content-file ./body.md` for long multi-line reports.
 
 The Claude Lab workbench picks up the artifacts on the next refetch
 and renders PNG/SVG/JSON/CSV/MD inline.
@@ -120,7 +131,7 @@ If the agent's run is a one-off (no follow-up), drop the session
 so the GC walk can purge the artifact directory:
 
 ```sh
-multica experimental claude-science-runtime delete --session-id "$SESSION_ID"
+multica experimental claude-lab delete --session-id "$SESSION_ID"
 ```
 
 User-driven deletion is idempotent; expired sessions (TTL = 30 days)
