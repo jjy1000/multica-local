@@ -59,6 +59,7 @@ import {
   Lock,
   Play,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useExperimentalFlag } from "@multica/core/experimental";
@@ -1206,7 +1207,10 @@ function PlanTab({
   );
 }
 
-function ArtifactTab({
+// Exported for tests (0.5.126): the run-history list carries the delete
+// and issue-jump behavior, and neither is observable from the composed
+// ClaudeLabView without mounting all five tabs.
+export function ArtifactTab({
   wsId,
   selectedIssueId,
 }: {
@@ -1215,26 +1219,33 @@ function ArtifactTab({
 }) {
   const enabled = useExperimentalFlag(CLAUDE_LAB_FLAG, false);
   const { t } = useT("claude-lab");
+  const router = useNavigation();
+  const queryClient = useQueryClient();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // 0.5.126 — this tab is a run HISTORY, not a per-issue peek.
+  //
+  // 0.3.45.8 filtered to the selected issue because "the artifact / code
+  // tabs narrow to that issue in one click" was the then-current UX.
+  // That makes "click a run to reach its issue" a no-op: the row's
+  // issue is the one you are already on. The workspace list carries
+  // `issue_id` per row (server ListExperimentalClaudeRuntimeSessions
+  // → SELECT *), so a row can name its owning issue and navigate to
+  // it. Selection is preserved as a sort preference rather than a
+  // filter — the focused issue's runs float to the top instead of
+  // disappearing, and the empty state disappears with the selection
+  // requirement.
+  //
+  // Backend LIMIT is 50 for this endpoint (no query param); that is the
+  // history depth the panel offers.
+  const historyKey = ["claude-lab-runtime-sessions-history", wsId];
   const sessions = useQuery({
-    queryKey: ["claude-lab-runtime-sessions", wsId, selectedIssueId],
-    enabled: enabled && !!wsId && !!selectedIssueId,
+    queryKey: historyKey,
+    enabled: enabled && !!wsId,
     staleTime: 15_000,
-    // 0.3.45.8 (P0#3.7 sibling): the Artifact tab shows per-session status
-    // badges. Poll every 5s while a session is still running; fall back to
-    // the 15s idle beat when all sessions are terminal. No WS push reaches
-    // this custom key, so idle keeps a baseline poll rather than `false`.
-    //
-    // 0.3.49 (Mode B variant): the canonical Mode B idle cadence from
-    // the 0.3.45.9 lineage is `30_000` for "no WS + tab-cross" keys.
-    // Claude Lab session queries (`runtime-sessions` and `code-sessions`,
-    // both below) deliberately use a tighter `15_000` because they are
-    // per-issue scoped — when the user is actively viewing the Artifact
-    // or Code tab they need new session rows to surface within a single
-    // reading beat. Mode B `30_000` would still be correct under
-    // tab-cross semantics (i.e. users opening one issue, switching
-    // away, coming back), but Claude Lab's UX assumption is "you are
-    // here for this issue right now". If that assumption ever
-    // changes, switch to `30_000` and update the comment block below.
+    // Same cadence contract as the 0.3.45.8 list it replaces: 5s while
+    // any run is live, 15s once everything is terminal. No WS push
+    // reaches this key, so idle polls rather than stopping.
     refetchInterval: (query) =>
       (query.state.data?.sessions ?? []).some((s) =>
         LIVE_LAB_SESSION_STATUSES.has(s.status),
@@ -1243,10 +1254,87 @@ function ArtifactTab({
         : 15_000,
     queryFn: async () => {
       const r = await api.rawRequest(
-        `/api/experimental/claude-science-runtime/sessions/by-issue?workspace_id=${encodeURIComponent(wsId ?? "")}&issue_id=${encodeURIComponent(selectedIssueId ?? "")}&limit=20`,
+        `/api/experimental/claude-science-runtime/sessions?workspace_id=${encodeURIComponent(wsId ?? "")}`,
       );
-      if (!r.ok) throw new Error(`by-issue ${r.status}`);
+      if (!r.ok) throw new Error(`sessions ${r.status}`);
       return (await r.json()) as RuntimeSessionsResponse;
+    },
+  });
+
+  // Same query key as the Plan tab (claude-lab-issues / wsId /
+  // CLAUDE_LAB_SOURCE), so mounting both tabs costs zero extra
+  // round-trips — React Query dedupes. Its only job here is turning a
+  // session's bare `issue_id` into "#123 title" so a history row is
+  // recognizable without opening it.
+  const issues = useQuery({
+    queryKey: ["claude-lab-issues", wsId, CLAUDE_LAB_SOURCE],
+    enabled: enabled && !!wsId,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const r = await api.rawRequest(
+        `/api/experimental/claude-science-lab/issues?workspace_id=${encodeURIComponent(wsId ?? "")}&lab=${encodeURIComponent(CLAUDE_LAB_SOURCE)}`,
+      );
+      if (!r.ok) throw new Error(`issues ${r.status}`);
+      return (await r.json()) as LabIssuesResponse;
+    },
+  });
+
+  const issueById = useMemo(() => {
+    const map = new Map<string, LabIssue>();
+    for (const it of issues.data?.issues ?? []) map.set(it.id, it);
+    return map;
+  }, [issues.data]);
+
+  // Focus first, keep the backend's created_at DESC inside each group.
+  // Array#sort is stable, so no explicit tiebreak is needed.
+  const rows = useMemo(() => {
+    const all = sessions.data?.sessions ?? [];
+    if (!selectedIssueId) return all;
+    return [...all].sort(
+      (a, b) =>
+        (a.issue_id === selectedIssueId ? 0 : 1) -
+        (b.issue_id === selectedIssueId ? 0 : 1),
+    );
+  }, [sessions.data, selectedIssueId]);
+
+  const openIssue = (issueId: string | null) => {
+    if (!issueId) return;
+    const slug = getCurrentSlug();
+    router.push(
+      slug != null
+        ? paths.workspace(slug).issueDetail(issueId)
+        : `/experimental/claude-lab?issue=${encodeURIComponent(issueId)}`,
+    );
+  };
+
+  // Optimistic: drop the row immediately, restore it if the request
+  // fails. The DELETE endpoint answers 204 and is idempotent (a
+  // missing row also answers 204), so a retry is safe.
+  const deleteSession = useMutation({
+    mutationFn: async (id: string) => {
+      const r = await api.rawRequest(
+        `/api/experimental/claude-science-runtime/sessions/${encodeURIComponent(id)}`,
+        { method: "DELETE" },
+      );
+      if (!r.ok) throw new Error(`delete ${r.status}`);
+    },
+    onMutate: async (id) => {
+      setConfirmDeleteId(null);
+      await queryClient.cancelQueries({ queryKey: historyKey });
+      const prev = queryClient.getQueryData<RuntimeSessionsResponse>(historyKey);
+      if (prev) {
+        queryClient.setQueryData<RuntimeSessionsResponse>(historyKey, {
+          sessions: prev.sessions.filter((s) => s.id !== id),
+          total: Math.max(0, prev.total - 1),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(historyKey, ctx.prev);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: historyKey });
     },
   });
 
@@ -1258,14 +1346,6 @@ function ArtifactTab({
       />
     );
   }
-  if (!selectedIssueId) {
-    return (
-      <EmptyHint
-        title={t(($) => $.title_artifact)}
-        body={t(($) => $.agent_lock_issue_required)}
-      />
-    );
-  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -1273,7 +1353,7 @@ function ArtifactTab({
         <header className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
           <FlaskConical className="size-4" aria-hidden />
           <span className="font-medium text-foreground">
-            {t(($) => $.artifact_sessions_header)}
+            {t(($) => $.session_history_header)}
           </span>
           <span>· {t(($) => $.artifact_sessions_count, { count: sessions.data?.total ?? 0 })}</span>
         </header>
@@ -1284,32 +1364,91 @@ function ArtifactTab({
             title=""
             body={`${t(($) => $.artifact_load_error)}: ${(sessions.error as Error).message}`}
           />
-        ) : (sessions.data?.sessions ?? []).length === 0 ? (
+        ) : rows.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            {t(($) => $.artifact_empty_body)}
+            {t(($) => $.session_history_empty)}
           </p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {(sessions.data?.sessions ?? []).map((s) => (
-              <li
-                key={s.id}
-                className="flex items-center gap-3 rounded-md border border-border bg-background/40 px-3 py-2 text-xs"
-              >
-                <span className="font-mono text-[10px] text-muted-foreground">
-                  {s.id.slice(0, 8)}
-                </span>
-                <span className="flex-1 truncate font-medium">{s.status}</span>
-                {s.exit_code !== null ? (
-                  <span className="text-muted-foreground">exit {s.exit_code}</span>
-                ) : null}
-                {s.duration_ms !== null ? (
-                  <span className="text-muted-foreground">{s.duration_ms} ms</span>
-                ) : null}
-                <span className="text-muted-foreground">
-                  {new Date(s.created_at).toLocaleString()}
-                </span>
-              </li>
-            ))}
+          <ul className="flex flex-col gap-2" data-testid="claude-lab-run-history">
+            {rows.map((s) => {
+              const issue = s.issue_id ? issueById.get(s.issue_id) : undefined;
+              const confirming = confirmDeleteId === s.id;
+              return (
+                <li
+                  key={s.id}
+                  className="flex items-center gap-2 rounded-md border border-border bg-background/40 px-3 py-2 text-xs"
+                >
+                  <button
+                    type="button"
+                    onClick={() => openIssue(s.issue_id)}
+                    disabled={!s.issue_id}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-default"
+                    aria-label={
+                      s.issue_id
+                        ? `${t(($) => $.session_open_issue)}: ${issue ? `#${issue.number} ${issue.title}` : s.issue_id}`
+                        : t(($) => $.session_no_issue)
+                    }
+                  >
+                    <span className="font-mono text-[10px] text-muted-foreground">
+                      {s.id.slice(0, 8)}
+                    </span>
+                    {issue ? (
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          #{issue.number}
+                        </span>{" "}
+                        {issue.title}
+                      </span>
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate font-medium text-muted-foreground">
+                        {s.issue_id
+                          ? t(($) => $.session_issue_gone)
+                          : t(($) => $.session_no_issue)}
+                      </span>
+                    )}
+                    <span className="shrink-0 text-muted-foreground">{s.status}</span>
+                    {s.exit_code !== null ? (
+                      <span className="shrink-0 text-muted-foreground">exit {s.exit_code}</span>
+                    ) : null}
+                    {s.duration_ms !== null ? (
+                      <span className="shrink-0 text-muted-foreground">{s.duration_ms} ms</span>
+                    ) : null}
+                    <span className="shrink-0 text-muted-foreground">
+                      {new Date(s.created_at).toLocaleString()}
+                    </span>
+                  </button>
+                  {confirming ? (
+                    <span className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => deleteSession.mutate(s.id)}
+                        className="rounded bg-destructive px-2 py-1 text-[10px] font-medium text-destructive-foreground"
+                        data-testid="claude-lab-delete-confirm"
+                      >
+                        {t(($) => $.session_delete_confirm)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(null)}
+                        className="rounded border border-border px-2 py-1 text-[10px] text-muted-foreground"
+                      >
+                        {t(($) => $.session_delete_cancel)}
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDeleteId(s.id)}
+                      className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label={`${t(($) => $.session_delete)}: ${issue?.title ?? s.id.slice(0, 8)}`}
+                      data-testid="claude-lab-delete"
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

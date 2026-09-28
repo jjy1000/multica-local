@@ -240,6 +240,8 @@
     "embed_artifacts_empty": "No artifacts yet",
     "embed_artifacts_pending": "Artifacts will appear here as they are produced",
     "embed_download": "Download",
+    "embed_inline_loading": "Loading preview…",
+    "embed_inline_error": "Preview unavailable — use Download instead",
     "embed_working": "Lab agents are working…",
     "embed_queued": "Queued — waiting for a runtime…",
     "embed_retrying": "Previous step failed — retrying (attempt {{n}})",

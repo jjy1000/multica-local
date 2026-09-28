@@ -8,14 +8,25 @@
 // null when the issue has no lab tasks AND no artifacts — same
 // 0-runs-ready law as pythia.
 //
-// Deliberately NO deliverable markdown: the research run's report
-// arrives through the standard agent-task comment path (and
-// HidesDeliverableInIssueTimeline keeps it out of the way) — rendering
-// it here would duplicate the timeline, the exact double-delivery the
-// pythia embed removed in b69c24364.
+// Deliberately NO deliverable markdown *comment*: the research run's
+// report arrives as a TOP-LEVEL agent-task comment and renders in the
+// timeline (0.5.124 narrowed hides_deliverable_in_issue_timeline to
+// replies only, because 0.3.49.1's filter was also hiding the
+// deliverable itself). Re-rendering it here would duplicate the
+// timeline — the exact double-delivery the pythia embed removed in
+// b69c24364.
+//
+// 0.5.126: what the embed DID lack was the other half of the delivery
+// — the artifact payloads. `report.md` was a filename plus a download
+// button and `results.csv` was "12 B", so reading a result meant
+// leaving the issue. ArtifactInlineView now expands markdown reports,
+// CSV tables and JSON in place (AIPOCH open-science reviews its
+// generated reports "beside the conversation"); the report comment
+// above and the payloads below are one delivery, not a duplicate.
 
 import { useEffect, useState } from "react";
 import {
+  ChevronRight,
   Download,
   File as FileIcon,
   FileCode2,
@@ -29,6 +40,7 @@ import { api } from "@multica/core/api";
 import type { LabArtifactStub } from "@multica/core/api/schemas";
 import { formatElapsedSecs } from "../../../chat/lib/format";
 import { useClaudeLabIssue } from "../../hooks/use-claude-lab-issue";
+import { ArtifactInlineView, hasInlineView } from "./artifact-inline-view";
 import { useT } from "../../../i18n";
 
 const INLINE_PREVIEW_KINDS = new Set(["png", "svg", "jpg", "jpeg"]);
@@ -67,6 +79,12 @@ export function ClaudeIssueEmbed({
   // counter visibly moves while a run is in flight; interval mounted only
   // while live (the AgentTaskSnapshot 5s poll supplies the state changes).
   const [now, setNow] = useState(() => Date.now());
+  // 0.5.126: which artifact's CONTENT is expanded inline. Single-open on
+  // purpose — a results bundle is usually report.md + results.csv +
+  // figure.png, and opening all three at once turns the embed into a
+  // page. Binary kinds (png/svg/html) never land here; they keep the
+  // download row.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   useEffect(() => {
     if (!hasLive) return;
     setNow(Date.now());
@@ -192,22 +210,47 @@ export function ClaudeIssueEmbed({
           <ul className="space-y-1" data-testid="claude-embed-artifacts">
             {rows.map((a) => {
               const Icon = artifactIcon(a.kind);
+              const viewable = hasInlineView(a);
+              const open = expandedId === a.id;
               return (
-                <li key={a.id} className="flex items-center gap-2 text-xs">
-                  <Icon className="size-3.5 shrink-0 text-sky-600 dark:text-sky-300" aria-hidden />
-                  <span className="min-w-0 flex-1 truncate text-foreground">{a.name}</span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {a.bytes > 1024 ? `${(a.bytes / 1024).toFixed(1)} KB` : `${a.bytes} B`}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void download(a)}
-                    className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-sky-700 hover:bg-sky-500/10 dark:text-sky-300"
-                    aria-label={`${t(($) => $.claude_lab.embed_download)}: ${a.name}`}
-                  >
-                    <Download className="size-3" aria-hidden />
-                    {t(($) => $.claude_lab.embed_download)}
-                  </button>
+                <li key={a.id} className="text-xs">
+                  <div className="flex items-center gap-2">
+                    <Icon className="size-3.5 shrink-0 text-sky-600 dark:text-sky-300" aria-hidden />
+                    {viewable ? (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId(open ? null : a.id)}
+                        aria-expanded={open}
+                        data-testid="claude-embed-toggle"
+                        className="flex min-w-0 flex-1 items-center gap-1 text-left hover:text-sky-700 dark:hover:text-sky-300"
+                      >
+                        <ChevronRight
+                          className={`size-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+                          aria-hidden
+                        />
+                        <span className="truncate text-foreground">{a.name}</span>
+                      </button>
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate text-foreground">{a.name}</span>
+                    )}
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {a.bytes > 1024 ? `${(a.bytes / 1024).toFixed(1)} KB` : `${a.bytes} B`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void download(a)}
+                      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-sky-700 hover:bg-sky-500/10 dark:text-sky-300"
+                      aria-label={`${t(($) => $.claude_lab.embed_download)}: ${a.name}`}
+                    >
+                      <Download className="size-3" aria-hidden />
+                      {t(($) => $.claude_lab.embed_download)}
+                    </button>
+                  </div>
+                  {open && (
+                    <div className="mt-1 pl-4.5">
+                      <ArtifactInlineView artifact={a} />
+                    </div>
+                  )}
                 </li>
               );
             })}

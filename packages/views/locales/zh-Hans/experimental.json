@@ -240,6 +240,8 @@
     "embed_artifacts_empty": "暂无产物",
     "embed_artifacts_pending": "产物生成后会在这里实时出现",
     "embed_download": "下载",
+    "embed_inline_loading": "正在加载预览…",
+    "embed_inline_error": "预览加载失败，可改用下载查看",
     "embed_working": "实验智能体正在执行…",
     "embed_queued": "已排队，等待运行时领取…",
     "embed_retrying": "上一步失败，正在自动重试（第 {{n}} 次尝试）",

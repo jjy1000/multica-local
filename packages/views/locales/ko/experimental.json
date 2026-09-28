@@ -240,6 +240,8 @@
     "embed_artifacts_empty": "아직 산출물이 없습니다",
     "embed_artifacts_pending": "산출물은 생성되는 대로 여기에 표시됩니다",
     "embed_download": "다운로드",
+    "embed_inline_loading": "미리보기를 불러오는 중…",
+    "embed_inline_error": "미리보기를 볼 수 없습니다 — 다운로드를 사용하세요",
     "embed_working": "실험 에이전트가 실행 중…",
     "embed_queued": "대기열에 추가됨 — 런타임 할당 대기 중…",
     "embed_retrying": "이전 단계 실패 — 자동 재시도 중（{{n}}번째 시도）",

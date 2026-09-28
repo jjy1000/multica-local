@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import enExperimental from "../../../locales/en/experimental.json";
 import { ClaudeIssueEmbed } from "./claude-issue-embed";
 
@@ -115,5 +115,118 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
     expect(screen.queryByTestId("claude-embed-live-progress")).toBeNull();
     expect(screen.getByText(enExperimental.claude_lab.embed_artifacts_empty)).toBeTruthy();
+  });
+});
+
+// 0.5.126 — artifact CONTENT renders beside the conversation. The
+// common/markdown wrapper drags in the config store, workspace paths and
+// the issue/project mention chips; stub it so these cases assert the
+// embed's own fetch + disclosure behavior, not react-markdown's output.
+vi.mock("../../../common/markdown", () => ({
+  Markdown: ({ children }: { children: string }) => (
+    <div data-testid="mock-markdown">{children}</div>
+  ),
+}));
+
+describe("ClaudeIssueEmbed — 0.5.126 in-place artifact rendering", () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    hookState.tasks = [{ id: "t1" }];
+    hookState.status = "completed";
+    hookState.latest = null;
+    hookState.liveTask = null;
+  });
+
+  it("keeps a markdown artifact collapsed until its row is clicked", async () => {
+    hookState.artifacts = [
+      { id: "a1", session_id: "s1", name: "report.md", kind: "md", bytes: 900, sha256: "aa", url: "/x/a1" },
+    ];
+    rawRequestMock.mockResolvedValue(new Response("# Findings\n\nThe effect replicated."));
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+
+    // Closed on mount: the report body is neither fetched nor mounted.
+    // That is the contract that keeps this out of double-delivery with
+    // the timeline report comment.
+    expect(screen.queryByTestId("claude-embed-inline-markdown")).toBeNull();
+    expect(rawRequestMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("claude-embed-toggle"));
+    await waitFor(() =>
+      expect(screen.getByTestId("claude-embed-inline-markdown")).toBeTruthy(),
+    );
+    expect(screen.getByTestId("mock-markdown").textContent).toContain("The effect replicated.");
+    // Fetched through rawRequest (auth headers), never a bare <img>/fetch.
+    expect(rawRequestMock.mock.calls[0]?.[0]).toContain(
+      "/api/experimental/claude-science-runtime/artifacts/a1",
+    );
+  });
+
+  it("collapses an expanded artifact again on a second click", async () => {
+    hookState.artifacts = [
+      { id: "a1", session_id: "s1", name: "report.md", kind: "md", bytes: 900, sha256: "aa", url: "/x/a1" },
+    ];
+    rawRequestMock.mockResolvedValue(new Response("body"));
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    const toggle = screen.getByTestId("claude-embed-toggle");
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(screen.getByTestId("claude-embed-inline-markdown")).toBeTruthy(),
+    );
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("claude-embed-inline-markdown")).toBeNull();
+  });
+
+  it("renders a CSV artifact as a table with a header row", async () => {
+    hookState.artifacts = [
+      { id: "a2", session_id: "s1", name: "results.csv", kind: "csv", bytes: 64, sha256: "bb", url: "/x/a2" },
+    ];
+    rawRequestMock.mockResolvedValue(
+      new Response('gene,log2fc\nTP53,4.2\nBRCA1,2.8\n"KIF11, quoted",1.1'),
+    );
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    fireEvent.click(screen.getByTestId("claude-embed-toggle"));
+    await waitFor(() => expect(screen.getByTestId("claude-embed-csv")).toBeTruthy());
+    expect(screen.getByText("gene")).toBeTruthy();
+    expect(screen.getByText("log2fc")).toBeTruthy();
+    expect(screen.getByText("4.2")).toBeTruthy();
+    // Quoted cell keeps its comma instead of splitting into two columns.
+    expect(screen.getByText("KIF11, quoted")).toBeTruthy();
+  });
+
+  it("gives no toggle to binary artifacts — they keep the download row", async () => {
+    hookState.artifacts = [
+      { id: "a1", session_id: "s1", name: "figure.png", kind: "png", bytes: 2048, sha256: "aa", url: "/x/a1" },
+    ];
+    rawRequestMock.mockResolvedValue(new Response("x"));
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    await waitFor(() => expect(screen.getByTestId("claude-embed-artifacts")).toBeTruthy());
+    expect(screen.getByText("figure.png")).toBeTruthy();
+    expect(screen.queryByTestId("claude-embed-toggle")).toBeNull();
+  });
+
+  it("gives no toggle to an oversized text artifact", async () => {
+    hookState.artifacts = [
+      { id: "a3", session_id: "s1", name: "huge.md", kind: "md", bytes: 5_000_000, sha256: "cc", url: "/x/a3" },
+    ];
+    rawRequestMock.mockResolvedValue(new Response("x"));
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    await waitFor(() => expect(screen.getByTestId("claude-embed-artifacts")).toBeTruthy());
+    expect(screen.queryByTestId("claude-embed-toggle")).toBeNull();
+  });
+
+  it("falls back to the download row when the preview request fails", async () => {
+    hookState.artifacts = [
+      { id: "a1", session_id: "s1", name: "report.md", kind: "md", bytes: 900, sha256: "aa", url: "/x/a1" },
+    ];
+    rawRequestMock.mockResolvedValue(new Response("", { status: 500 }));
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    fireEvent.click(screen.getByTestId("claude-embed-toggle"));
+    await waitFor(() =>
+      expect(screen.getByTestId("claude-embed-inline-error")).toBeTruthy(),
+    );
+    expect(screen.getByText(enExperimental.claude_lab.embed_inline_error)).toBeTruthy();
+    // The download affordance survives the failure.
+    expect(screen.getAllByText(enExperimental.claude_lab.embed_download)).toHaveLength(1);
   });
 });

@@ -240,6 +240,8 @@
     "embed_artifacts_empty": "成果物はまだありません",
     "embed_artifacts_pending": "成果物は生成され次第、ここに表示されます",
     "embed_download": "ダウンロード",
+    "embed_inline_loading": "プレビューを読み込み中…",
+    "embed_inline_error": "プレビューを表示できません — ダウンロードしてください",
     "embed_working": "実験エージェントが実行中…",
     "embed_queued": "キューに追加済み — ランタイムの割り当て待ち…",
     "embed_retrying": "前のステップが失敗 — 自動リトライ中（{{n}} 回目）",
