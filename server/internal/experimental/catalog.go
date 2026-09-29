@@ -163,8 +163,10 @@ type Flag struct {
 	// assignee) but the enqueue gate short-circuits — the user must
 	// trigger the run explicitly (e.g. via @mention, a workspace-scoped
 	// lab UI button, or the daemon CLI). Used by labs whose runs are
-	// expensive enough that an automatic 30+ minute background run on
-	// every new issue would surprise the user (claude_science_lab).
+	// expensive or disruptive enough that an automatic background run
+	// on every new issue would surprise the user (pythia_oracle,
+	// causal_graph). claude_science_lab held this from 0.5.22 until
+	// 0.5.81 flipped it back to auto-dispatch — do not cite it here.
 	// Pointer is required so we can distinguish "not configured =
 	// default true" from "explicitly opted out = false"; a plain bool
 	// could not encode that without a sentinel. Free function
@@ -597,8 +599,9 @@ func DefaultFor(key string) bool {
 // auto-enqueue a task on the lab leader when created (CreateIssue +
 // UpdateIssue paths via IssueService.maybeEnqueueOnAssign / handler
 // WillEnqueueRun). Defaults to true so existing labs keep their
-// 0.3.46 behaviour; flags that opt out (claude_science_lab) set
-// Flag.AutoDispatch = ptrBool(false).
+// 0.3.46 behaviour; flags that opt out (pythia_oracle, causal_graph)
+// set Flag.AutoDispatch = ptrBool(false). claude_science_lab opted out
+// 0.5.22–0.5.80 and was flipped back — no longer an example.
 //
 // Note: this gate does NOT block the leader-rewrite (assignDefaultLabAgent /
 // assignDefaultLabAgentOnUpdate). The assignee still becomes the lab
