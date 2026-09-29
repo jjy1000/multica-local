@@ -706,15 +706,12 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
-	// Pause autopilots pointing at the archived agents BEFORE we delete
-	// them. Migration 096 dropped the autopilot.assignee_id agent FK, so a
-	// hard-delete here would otherwise leave dangling rows that subsequent
-	// scheduler ticks would skip with "assignee agent no longer exists" —
-	// quiet, but burning a run record every tick until an operator notices.
-	// Pausing makes the breakage visible in the autopilot list so the owner
-	// can re-point or delete the row instead. This runs inside the teardown
-	// transaction so a pause that lands but is followed by a failed delete
-	// rolls back with everything else, matching ArchiveAgentsAndDeleteRuntime.
+	// Pause autopilots pointing at the archived agents. The agents are NOT
+	// hard-deleted anymore (0.5.128 tombstone), so this is belt-and-suspenders
+	// rather than dangling-FK hygiene — but a paused autopilot is much louder
+	// in the UI than a silently skipped archived assignee, and the archive
+	// itself already justifies the pause. Runs inside the tombstone tx so a
+	// pause that lands but is followed by a failed mark rolls back together.
 	archivedAgentIDs, err := qtx.ListArchivedAgentIDsByRuntime(r.Context(), rt.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to enumerate archived agents")
@@ -727,21 +724,22 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Remove archived squads whose leader is an archived agent on this runtime
-	// so the RESTRICT FK on squad.leader_id won't block the subsequent agent
-	// deletion. Active squads are handled by the 409 guard above instead.
-	if err := qtx.DeleteSquadsByArchivedAgentsOnRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up squads referencing archived agents")
-		return
-	}
-
-	// Remove archived agents so the FK constraint (ON DELETE RESTRICT) won't block deletion.
-	if err := qtx.DeleteArchivedAgentsByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up archived agents")
-		return
-	}
-
-	if err := qtx.DeleteAgentRuntime(r.Context(), rt.ID); err != nil {
+	// 0.5.128 tombstone: MARK the runtime deleted instead of tearing it down.
+	// The old flow hard-deleted archived agents + the row, which meant a
+	// daemon re-registration (the UNIQUE workspace+daemon+provider arbiter)
+	// minted a FRESH runtime id — every agent bound to the deleted row was
+	// gone for good and the runtime_usage history (ON DELETE CASCADE) evapo-
+	// rated with it. The tombstone keeps the row: the agent bindings, chat
+	// sessions and usage history all survive, the list queries hide the row
+	// (metadata->>'deleted_at' IS NULL), and the next daemon re-registration
+	// resurrects the SAME row — agents archived by this delete are restored
+	// then (see DaemonRegister). The squads cleanup is gone with the
+	// hard-delete: no agent row is removed, so squad.leader FK never blocks.
+	emptyIDs, _ := json.Marshal([]string{})
+	if err := qtx.MarkAgentRuntimeDeleted(r.Context(), db.MarkAgentRuntimeDeletedParams{
+		ID:                      rt.ID,
+		DeletedArchivedAgentIds: emptyIDs,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
 		return
 	}
@@ -946,11 +944,10 @@ func (h *Handler) ArchiveAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.R
 	}
 
 	// 3. Pause autopilots whose assignee is one of the archived agents.
-	//    Snapshots the full archived set on this runtime — including any
-	//    that were already archived before this call — because the
-	//    DeleteArchivedAgentsByRuntime below will hard-delete the lot, and
-	//    a paused autopilot is much louder in the UI than a silently-
-	//    dangling assignee_id (see migration 096 for why the FK is gone).
+	//    The agents survive the delete (0.5.128 tombstone), so this is
+	//    belt-and-suspenders rather than dangling-FK hygiene — but a
+	//    paused autopilot is much louder in the UI than a silently-
+	//    skipped archived assignee (see migration 096 for the history).
 	allArchivedIDs, err := qtx.ListArchivedAgentIDsByRuntime(r.Context(), rt.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to enumerate archived agents")
@@ -963,15 +960,28 @@ func (h *Handler) ArchiveAgentsAndDeleteRuntime(w http.ResponseWriter, r *http.R
 		}
 	}
 
-	// 4. Hard-delete the archived agents so the agent.runtime_id FK
-	//    (ON DELETE RESTRICT) no longer keeps the runtime alive.
-	if err := qtx.DeleteArchivedAgentsByRuntime(r.Context(), rt.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to clean up archived agents")
-		return
+	// 4. Tombstone the runtime instead of hard-deleting the archived agents
+	//    and the row. The old flow ("hard-delete the now-detached archived
+	//    rows so the agent.runtime_id FK no longer pins the runtime") made
+	//    every agent on this runtime unrecoverable and evaporated the
+	//    runtime_usage history (ON DELETE CASCADE) — a daemon re-registration
+	//    then minted a fresh runtime id, so the delete/re-add cycle the user
+	//    describes as "误删后重新加回来" lost the agents AND their usage
+	//    metrics. The tombstone keeps the row (hidden from list queries via
+	//    metadata.deleted_at), so the next re-registration resurrects the
+	//    SAME id: agents recorded in deleted_archived_agent_ids are restored
+	//    automatically, and every usage row was never touched. The squads
+	//    cleanup is gone with the hard-delete — no agent row is removed, so
+	//    the squad.leader FK never blocks.
+	deletedIDs := make([]string, len(allArchivedIDs))
+	for i, id := range allArchivedIDs {
+		deletedIDs[i] = uuidToString(id)
 	}
-
-	// 5. Finally delete the runtime row itself.
-	if err := qtx.DeleteAgentRuntime(r.Context(), rt.ID); err != nil {
+	deletedIDsJSON, _ := json.Marshal(deletedIDs)
+	if err := qtx.MarkAgentRuntimeDeleted(r.Context(), db.MarkAgentRuntimeDeletedParams{
+		ID:                      rt.ID,
+		DeletedArchivedAgentIds: deletedIDsJSON,
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
 		return
 	}

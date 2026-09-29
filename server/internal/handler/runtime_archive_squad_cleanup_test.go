@@ -212,15 +212,16 @@ func TestDeleteSquadsByArchivedAgentsOnRuntime_Query(t *testing.T) {
 	}
 }
 
-// TestDeleteAgentRuntime_RemovesArchivedSquadsLedByArchivedAgents is the end-to-end
-// regression test: a runtime whose only agents are archived but
-// still referenced as squad leaders must now delete cleanly.
-//
-// Before this fix the handler returned 500 "failed to clean up archived
-// agents" because squad.leader_id REFERENCES agent(id) ON DELETE RESTRICT
-// blocked the DELETE FROM agent step. With the squad-cleanup step in front
-// of the agent-cleanup, the delete succeeds.
-func TestDeleteAgentRuntime_RemovesArchivedSquadsLedByArchivedAgents(t *testing.T) {
+// TestDeleteAgentRuntime_TombstonesRuntimeWithArchivedSquadLeader is the
+// end-to-end regression test, rewritten for the 0.5.128 tombstone contract.
+// The ORIGINAL incident this test guards stands: a runtime whose only agents
+// are archived but still referenced as squad leaders must delete CLEANLY —
+// before 0.3.x the handler 500'd because squad.leader_id REFERENCES agent(id)
+// ON DELETE RESTRICT blocked the agent hard-delete. The 0.5.128 flow no
+// longer deletes anything: the runtime is tombstoned (row kept, hidden from
+// lists), so the squad and the archived agent both survive untouched and the
+// FK can never block in the first place.
+func TestDeleteAgentRuntime_TombstonesRuntimeWithArchivedSquadLeader(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -239,14 +240,17 @@ func TestDeleteAgentRuntime_RemovesArchivedSquadsLedByArchivedAgents(t *testing.
 		t.Fatalf("DeleteAgentRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	if squadExists(t, archivedSquad) {
-		t.Errorf("squad led by archived agent on the runtime should have been deleted")
+	if !squadExists(t, archivedSquad) {
+		t.Errorf("squad led by archived agent must survive the tombstone delete")
 	}
-	if agentExists(t, archivedLeader) {
-		t.Errorf("archived agent on the runtime should have been deleted")
+	if !agentExists(t, archivedLeader) {
+		t.Errorf("archived agent must survive the tombstone delete")
 	}
-	if runtimeExists(t, runtimeID) {
-		t.Errorf("runtime should have been deleted")
+	if !runtimeExists(t, runtimeID) {
+		t.Errorf("runtime row must survive as a tombstone")
+	}
+	if !runtimeTombstoned(t, runtimeID) {
+		t.Errorf("runtime must be tombstoned (metadata.deleted_at set)")
 	}
 }
 
@@ -324,9 +328,11 @@ func TestDeleteAgentRuntime_ArchivedAndActiveSquadsReturnConflictWithoutDeletes(
 	}
 }
 
-// TestDeleteAgentRuntime_NoSquadsRegression confirms the new pre-cleanup
-// step is a safe no-op when the runtime's archived agents were never squad
-// leaders. Without this, the fix could regress the common case.
+// TestDeleteAgentRuntime_NoSquadsRegression confirms the tombstone flow is a
+// clean no-op for the common case: a runtime whose archived agents were never
+// squad leaders tombstones without touching the agents (pre-0.5.128 this
+// test asserted the hard deletion; the pin was rewritten when the delete
+// stopped destroying rows).
 func TestDeleteAgentRuntime_NoSquadsRegression(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -343,12 +349,28 @@ func TestDeleteAgentRuntime_NoSquadsRegression(t *testing.T) {
 		t.Fatalf("DeleteAgentRuntime: expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	if agentExists(t, archivedAgent) {
-		t.Errorf("archived agent should have been deleted")
+	if !agentExists(t, archivedAgent) {
+		t.Errorf("archived agent must survive the tombstone delete")
 	}
-	if runtimeExists(t, runtimeID) {
-		t.Errorf("runtime should have been deleted")
+	if !runtimeExists(t, runtimeID) {
+		t.Errorf("runtime row must survive as a tombstone")
 	}
+	if !runtimeTombstoned(t, runtimeID) {
+		t.Errorf("runtime must be tombstoned (metadata.deleted_at set)")
+	}
+}
+
+// runtimeTombstoned reports whether a runtime row carries the 0.5.128
+// deletion marker.
+func runtimeTombstoned(t *testing.T, runtimeID string) bool {
+	t.Helper()
+	var marked bool
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT (metadata->>'deleted_at') IS NOT NULL FROM agent_runtime WHERE id = $1`, runtimeID,
+	).Scan(&marked); err != nil {
+		t.Fatalf("read tombstone marker %s: %v", runtimeID, err)
+	}
+	return marked
 }
 
 // TestDeleteAgentRuntime_StillBlockedByActiveAgents preserves the existing

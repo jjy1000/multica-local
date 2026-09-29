@@ -277,8 +277,8 @@
     "badge_custom": "Custom",
     "badge_registering": "Registering",
     "badge_default": "Default",
-    "badge_default_hint": "New agents default to this runtime (CLI)",
-    "set_default_action": "Set as default runtime",
+    "badge_default_hint": "New agents default to this runtime (CLI); setting it also migrates the previous default's agents over",
+    "set_default_action": "Set as default & migrate agents",
     "unset_default_action": "Clear default runtime",
     "default_set_toast": "Set as default — new agents will use this runtime",
     "default_cleared_toast": "Default runtime cleared",
@@ -286,7 +286,11 @@
     "pending_health": "Registering with daemon",
     "pending_health_warning": "Waiting for daemon sync",
     "pending_health_error": "Registration error",
-    "pending_cli_unknown": "waiting"
+    "pending_cli_unknown": "waiting",
+    "set_default_action_hint": "Agents on the previous default runtime move over automatically",
+    "default_set_migrated_one": "Set as default — migrated {{count}} agent",
+    "default_set_migrated_other": "Set as default — migrated {{count}} agents",
+    "default_set_migration_failed": "Default is active, but the fleet migration failed:"
   },
   "profiles": {
     "cta": "Add runtime",

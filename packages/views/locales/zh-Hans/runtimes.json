@@ -266,8 +266,8 @@
     "badge_custom": "自定义",
     "badge_registering": "注册中",
     "badge_default": "默认",
-    "badge_default_hint": "新建智能体默认使用此运行时（CLI）",
-    "set_default_action": "设为默认运行时",
+    "badge_default_hint": "新建智能体默认使用此运行时（CLI）；设为默认时会把原默认上的智能体一并迁移过来",
+    "set_default_action": "设为默认并迁移智能体",
     "unset_default_action": "取消默认运行时",
     "default_set_toast": "已设为默认运行时，新建智能体将默认使用它",
     "default_cleared_toast": "已取消默认运行时",
@@ -275,7 +275,11 @@
     "pending_health": "正在向守护进程注册",
     "pending_health_warning": "等待守护进程同步",
     "pending_health_error": "注册错误",
-    "pending_cli_unknown": "等待中"
+    "pending_cli_unknown": "等待中",
+    "set_default_action_hint": "原默认运行时上的智能体会一并迁移过来",
+    "default_set_migrated_one": "已设为默认，并迁移了 {{count}} 个智能体",
+    "default_set_migrated_other": "已设为默认，并迁移了 {{count}} 个智能体",
+    "default_set_migration_failed": "默认已生效，但存量迁移失败："
   },
   "profiles": {
     "cta": "添加运行时",

@@ -266,8 +266,8 @@
     "badge_custom": "カスタム",
     "badge_registering": "登録中",
     "badge_default": "デフォルト",
-    "badge_default_hint": "新しいエージェントはこのランタイム（CLI）を既定で使用します",
-    "set_default_action": "既定のランタイムに設定",
+    "badge_default_hint": "新しいエージェントはこのランタイム（CLI）を既定で使用します。設定時に以前の既定のエージェントも移行されます",
+    "set_default_action": "既定に設定してエージェントを移行",
     "unset_default_action": "既定のランタイムを解除",
     "default_set_toast": "既定に設定しました。新しいエージェントはこのランタイムを使用します",
     "default_cleared_toast": "既定のランタイムを解除しました",
@@ -275,7 +275,11 @@
     "pending_health": "Daemon に登録中",
     "pending_health_warning": "Daemon 同期待ち",
     "pending_health_error": "登録エラー",
-    "pending_cli_unknown": "待機中"
+    "pending_cli_unknown": "待機中",
+    "set_default_action_hint": "以前の既定ランタイム上のエージェントも自動的に移行されます",
+    "default_set_migrated_one": "既定に設定し、{{count}} 件のエージェントを移行しました",
+    "default_set_migrated_other": "既定に設定し、{{count}} 件のエージェントを移行しました",
+    "default_set_migration_failed": "既定は有効ですが、移行に失敗しました："
   },
   "profiles": {
     "cta": "ランタイムを追加",

@@ -1,11 +1,28 @@
 -- name: ListAgentRuntimes :many
+-- Tombstoned runtimes (metadata.deleted_at set by DeleteAgentRuntime /
+-- ArchiveAgentsAndDeleteRuntime) are hidden: the user deleted them, but the
+-- ROW stays so a daemon re-registration reuses the same id (the UNIQUE
+-- workspace+daemon+provider arbiter) and every agent binding, chat session
+-- and runtime_usage history row survives the delete/re-add cycle untouched.
 SELECT * FROM agent_runtime
 WHERE workspace_id = $1
+  AND metadata->>'deleted_at' IS NULL
 ORDER BY created_at ASC;
 
 -- name: GetAgentRuntime :one
 SELECT * FROM agent_runtime
 WHERE id = $1;
+
+-- name: GetAgentRuntimeByDaemonProvider :one
+-- Pre-upsert lookup for the tombstone revival: UpsertAgentRuntime's
+-- DO UPDATE SET metadata = EXCLUDED.metadata overwrites the row metadata
+-- with daemon-sent values, which is exactly what clears the tombstone —
+-- so the recorded deleted_archived_agent_ids must be lifted out BEFORE
+-- the upsert runs. Built-in rows only (profile_id IS NULL), matching the
+-- upsert's conflict arbiter.
+SELECT * FROM agent_runtime
+WHERE workspace_id = $1 AND daemon_id = $2 AND provider = $3
+  AND profile_id IS NULL;
 
 -- name: LockAgentRuntime :one
 -- Acquires a row-level exclusive lock on the runtime row. Used at the
@@ -194,9 +211,38 @@ WHERE status IN ('dispatched', 'running', 'waiting_local_directory')
 RETURNING *;
 
 -- name: ListAgentRuntimesByOwner :many
+-- Tombstone filter mirrors ListAgentRuntimes — see the comment there.
 SELECT * FROM agent_runtime
 WHERE workspace_id = $1 AND owner_id = $2
+  AND metadata->>'deleted_at' IS NULL
 ORDER BY created_at ASC;
+
+-- name: MarkAgentRuntimeDeleted :exec
+-- Tombstone a runtime instead of deleting it: agents stay bound (the
+-- agent.runtime_id FK is ON DELETE RESTRICT and is no longer fought),
+-- runtime_usage / chat_session references stay intact, and the UNIQUE
+-- (workspace_id, daemon_id, provider) arbiter makes the next daemon
+-- re-registration resurrect THE SAME row id. deleted_archived_agent_ids
+-- records the agents archived BY THIS DELETE (cascade mode) so revival
+-- can restore exactly those and not pre-existing archived rows.
+UPDATE agent_runtime
+SET metadata = metadata
+      || jsonb_build_object(
+           'deleted_at', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+           'deleted_archived_agent_ids', @deleted_archived_agent_ids::jsonb),
+    updated_at = now()
+WHERE id = @id;
+
+-- name: RestoreAgentsArchivedByRuntimeDeletion :many
+-- Un-archives the agents that a runtime deletion archived (ids recorded in
+-- the tombstone's deleted_archived_agent_ids). Rows already restored or
+-- hard-deleted by other paths are simply not returned. Returns the restored
+-- agents so the caller can fan out agent:restored broadcasts.
+UPDATE agent
+SET archived_at = NULL, archived_by = NULL, updated_at = now()
+WHERE archived_at IS NOT NULL
+  AND id = ANY(SELECT jsonb_array_elements_text($1::jsonb)::uuid)
+RETURNING *;
 
 -- name: ForceOfflineRuntimesByIDs :many
 -- Unconditionally flips a known set of runtime IDs to offline. Distinct from

@@ -53,6 +53,19 @@ vi.mock("@multica/core/agents", () => ({
   useWorkspacePresenceMap: () => ({ byAgent: new Map(), loading: false }),
 }));
 
+// The delete dialogs are stubbed to a controllable capture: the
+// clear-default-on-delete test drives onDeleted directly.
+const deleteDialogOnDeleted = vi.fn();
+vi.mock("./delete-runtime-dialog", () => ({
+  DeleteRuntimeDialog: (props: { onDeleted: () => void }) => {
+    deleteDialogOnDeleted.mockImplementation(props.onDeleted);
+    return null;
+  },
+}));
+vi.mock("./delete-runtime-profile-dialog", () => ({
+  DeleteRuntimeProfileDialog: () => null,
+}));
+
 // The unified DeleteRuntimeDialog the kebab now opens reaches into auth +
 // the api singleton. The dialog never renders in these tests (`open=false`
 // throughout) but its hooks still mount; stub them so module init is clean.
@@ -248,7 +261,7 @@ describe("runtime list row menu", () => {
       { canSetDefault: true, onSetDefault },
     );
     fireEvent.click(screen.getByLabelText("Row actions"));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Set as default runtime" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as default & migrate agents" }));
     expect(onSetDefault).toHaveBeenCalledWith("rt-1");
   });
 
@@ -271,9 +284,33 @@ describe("runtime list row menu", () => {
     );
     fireEvent.click(screen.getByLabelText("Row actions"));
     expect(
-      screen.queryByRole("menuitem", { name: "Set as default runtime" }),
+      screen.queryByRole("menuitem", { name: "Set as default & migrate agents" }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+  });
+
+  // 0.5.128: deleting the DEFAULT runtime must clear the workspace default
+  // key (the tombstoned row stays reserved for the daemon's revival —
+  // leaving it as default would let a daemon restart silently re-become the
+  // default CLI). Deleting a non-default runtime leaves the key alone.
+  it("clears the workspace default when the default runtime is deleted", () => {
+    const onSetDefault = vi.fn().mockResolvedValue(undefined);
+    renderActionsCell(
+      makeRow(makeRuntime({ id: "rt-1", runtime_mode: "local" })),
+      { canSetDefault: true, isDefault: true, onSetDefault },
+    );
+    deleteDialogOnDeleted();
+    expect(onSetDefault).toHaveBeenCalledWith(null);
+  });
+
+  it("does not touch the default key when a non-default runtime is deleted", () => {
+    const onSetDefault = vi.fn().mockResolvedValue(undefined);
+    renderActionsCell(
+      makeRow(makeRuntime({ id: "rt-1", runtime_mode: "local" })),
+      { canSetDefault: true, isDefault: false, onSetDefault },
+    );
+    deleteDialogOnDeleted();
+    expect(onSetDefault).not.toHaveBeenCalled();
   });
 });
 

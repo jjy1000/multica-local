@@ -430,6 +430,15 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 				ProfileID:      prow.ProfileID,
 			}
 		} else {
+			// 0.5.128 tombstone revival: if this exact runtime row was
+			// tombstoned by a delete (metadata.deleted_at), the daemon coming
+			// back IS the user re-adding it. The upsert below overwrites
+			// metadata (clearing the marker), so snapshot the recorded
+			// deleted-run agent ids first, then restore them after the upsert.
+			// Same row id (UNIQUE workspace+daemon+provider arbiter), so the
+			// restored agents' runtime_id bindings and the runtime_usage
+			// history were never broken — revival is pure un-archive.
+			tombstonedIDs := h.tombstoneSnapshot(r.Context(), wsUUID, req.DaemonID, provider)
 			row, err := h.Queries.UpsertAgentRuntime(r.Context(), db.UpsertAgentRuntimeParams{
 				WorkspaceID: wsUUID,
 				DaemonID:    strToText(req.DaemonID),
@@ -473,6 +482,7 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 				Visibility:     row.Visibility,
 				ProfileID:      row.ProfileID,
 			}
+			h.reviveTombstonedRuntimeAgents(r.Context(), registered, tombstonedIDs)
 		}
 
 		// Inserted is false for normal daemon reconnects/upserts, so
@@ -585,6 +595,68 @@ func (h *Handler) DaemonRegister(w http.ResponseWriter, r *http.Request) {
 		"repos_version": repoResp.ReposVersion,
 		"settings":      repoResp.Settings,
 	})
+}
+
+// tombstoneSnapshot returns the deleted_archived_agent_ids recorded on a
+// tombstoned runtime row (nil when the row doesn't exist or isn't a
+// tombstone). MUST be read before UpsertAgentRuntime: the upsert's
+// DO UPDATE SET metadata = EXCLUDED.metadata lays daemon-sent metadata over
+// the row, which is precisely what clears the tombstone marker — the
+// recorded id list only exists in that pre-upsert window.
+func (h *Handler) tombstoneSnapshot(ctx context.Context, workspaceID pgtype.UUID, daemonID, provider string) []string {
+	row, err := h.Queries.GetAgentRuntimeByDaemonProvider(ctx, db.GetAgentRuntimeByDaemonProviderParams{
+		WorkspaceID: workspaceID,
+		DaemonID:    strToText(daemonID),
+		Provider:    provider,
+	})
+	if err != nil || len(row.Metadata) == 0 {
+		return nil
+	}
+	var meta struct {
+		DeletedAt               string   `json:"deleted_at"`
+		DeletedArchivedAgentIDs []string `json:"deleted_archived_agent_ids"`
+	}
+	if err := json.Unmarshal(row.Metadata, &meta); err != nil || meta.DeletedAt == "" {
+		return nil
+	}
+	return meta.DeletedArchivedAgentIDs
+}
+
+// reviveTombstonedRuntimeAgents un-archives the agents a previous deletion
+// of this same runtime row archived (0.5.128 tombstone). The row id never
+// changed — the UNIQUE (workspace, daemon_id, provider) arbiter reused it —
+// so the agents' runtime_id bindings and the runtime_usage history were
+// never broken; this is a pure un-archive plus the same agent:restored
+// fan-out the explicit restore endpoint emits. Best-effort: a restore
+// failure leaves the agents in the archive (still manually restorable) and
+// must not fail the daemon's registration.
+func (h *Handler) reviveTombstonedRuntimeAgents(ctx context.Context, registered db.AgentRuntime, archivedIDs []string) {
+	if len(archivedIDs) == 0 {
+		return
+	}
+	idsJSON, err := json.Marshal(archivedIDs)
+	if err != nil {
+		slog.Warn("tombstone revival: marshal ids failed", "runtime_id", uuidToString(registered.ID), "error", err)
+		return
+	}
+	restored, err := h.Queries.RestoreAgentsArchivedByRuntimeDeletion(ctx, idsJSON)
+	if err != nil {
+		slog.Warn("tombstone revival: agent restore failed",
+			"runtime_id", uuidToString(registered.ID),
+			"archived_ids", len(archivedIDs),
+			"error", err)
+		return
+	}
+	for _, a := range restored {
+		h.publish(protocol.EventAgentRestored, uuidToString(registered.WorkspaceID), "system", "", map[string]any{
+			"agent": broadcastAgentResponse(agentToResponse(a)),
+		})
+	}
+	slog.Info("tombstoned runtime revived — deleted-run agents restored",
+		"runtime_id", uuidToString(registered.ID),
+		"provider", registered.Provider,
+		"restored_agents", len(restored),
+	)
 }
 
 // mergeLegacyRuntimes folds every runtime row keyed on a prior hostname-derived

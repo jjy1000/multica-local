@@ -276,8 +276,8 @@
     "badge_custom": "사용자 지정",
     "badge_registering": "등록 중",
     "badge_default": "기본",
-    "badge_default_hint": "새 에이전트는 이 런타임(CLI)을 기본으로 사용합니다",
-    "set_default_action": "기본 런타임으로 설정",
+    "badge_default_hint": "새 에이전트는 이 런타임(CLI)을 기본으로 사용합니다. 설정 시 이전 기본 런타임의 에이전트도 이동됩니다",
+    "set_default_action": "기본 설정 및 에이전트 마이그레이션",
     "unset_default_action": "기본 런타임 해제",
     "default_set_toast": "기본으로 설정되었습니다. 새 에이전트가 이 런타임을 사용합니다",
     "default_cleared_toast": "기본 런타임이 해제되었습니다",
@@ -285,7 +285,11 @@
     "pending_health": "Daemon에 등록 중",
     "pending_health_warning": "Daemon 동기화 대기 중",
     "pending_health_error": "등록 오류",
-    "pending_cli_unknown": "대기 중"
+    "pending_cli_unknown": "대기 중",
+    "set_default_action_hint": "이전 기본 런타임의 에이전트가 자동으로 이동합니다",
+    "default_set_migrated_one": "기본으로 설정하고 에이전트 {{count}}개를 이동했습니다",
+    "default_set_migrated_other": "기본으로 설정하고 에이전트 {{count}}개를 이동했습니다",
+    "default_set_migration_failed": "기본값은 적용되었지만 마이그레이션 실패:"
   },
   "profiles": {
     "cta": "런타임 추가",

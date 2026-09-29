@@ -459,6 +459,48 @@ func (q *Queries) GetAgentRuntime(ctx context.Context, id pgtype.UUID) (AgentRun
 	return i, err
 }
 
+const getAgentRuntimeByDaemonProvider = `-- name: GetAgentRuntimeByDaemonProvider :one
+SELECT id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at, created_at, updated_at, owner_id, legacy_daemon_id, visibility, profile_id FROM agent_runtime
+WHERE workspace_id = $1 AND daemon_id = $2 AND provider = $3
+  AND profile_id IS NULL
+`
+
+type GetAgentRuntimeByDaemonProviderParams struct {
+	WorkspaceID pgtype.UUID `json:"workspace_id"`
+	DaemonID    pgtype.Text `json:"daemon_id"`
+	Provider    string      `json:"provider"`
+}
+
+// Pre-upsert lookup for the tombstone revival: UpsertAgentRuntime's
+// DO UPDATE SET metadata = EXCLUDED.metadata overwrites the row metadata
+// with daemon-sent values, which is exactly what clears the tombstone —
+// so the recorded deleted_archived_agent_ids must be lifted out BEFORE
+// the upsert runs. Built-in rows only (profile_id IS NULL), matching the
+// upsert's conflict arbiter.
+func (q *Queries) GetAgentRuntimeByDaemonProvider(ctx context.Context, arg GetAgentRuntimeByDaemonProviderParams) (AgentRuntime, error) {
+	row := q.db.QueryRow(ctx, getAgentRuntimeByDaemonProvider, arg.WorkspaceID, arg.DaemonID, arg.Provider)
+	var i AgentRuntime
+	err := row.Scan(
+		&i.ID,
+		&i.WorkspaceID,
+		&i.DaemonID,
+		&i.Name,
+		&i.RuntimeMode,
+		&i.Provider,
+		&i.Status,
+		&i.DeviceInfo,
+		&i.Metadata,
+		&i.LastSeenAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.OwnerID,
+		&i.LegacyDaemonID,
+		&i.Visibility,
+		&i.ProfileID,
+	)
+	return i, err
+}
+
 const getAgentRuntimeForWorkspace = `-- name: GetAgentRuntimeForWorkspace :one
 SELECT id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at, created_at, updated_at, owner_id, legacy_daemon_id, visibility, profile_id FROM agent_runtime
 WHERE id = $1 AND workspace_id = $2
@@ -547,9 +589,15 @@ func (q *Queries) IsAgentRuntimeEligibleForGC(ctx context.Context, arg IsAgentRu
 const listAgentRuntimes = `-- name: ListAgentRuntimes :many
 SELECT id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at, created_at, updated_at, owner_id, legacy_daemon_id, visibility, profile_id FROM agent_runtime
 WHERE workspace_id = $1
+  AND metadata->>'deleted_at' IS NULL
 ORDER BY created_at ASC
 `
 
+// Tombstoned runtimes (metadata.deleted_at set by DeleteAgentRuntime /
+// ArchiveAgentsAndDeleteRuntime) are hidden: the user deleted them, but the
+// ROW stays so a daemon re-registration reuses the same id (the UNIQUE
+// workspace+daemon+provider arbiter) and every agent binding, chat session
+// and runtime_usage history row survives the delete/re-add cycle untouched.
 func (q *Queries) ListAgentRuntimes(ctx context.Context, workspaceID pgtype.UUID) ([]AgentRuntime, error) {
 	rows, err := q.db.Query(ctx, listAgentRuntimes, workspaceID)
 	if err != nil {
@@ -590,6 +638,7 @@ func (q *Queries) ListAgentRuntimes(ctx context.Context, workspaceID pgtype.UUID
 const listAgentRuntimesByOwner = `-- name: ListAgentRuntimesByOwner :many
 SELECT id, workspace_id, daemon_id, name, runtime_mode, provider, status, device_info, metadata, last_seen_at, created_at, updated_at, owner_id, legacy_daemon_id, visibility, profile_id FROM agent_runtime
 WHERE workspace_id = $1 AND owner_id = $2
+  AND metadata->>'deleted_at' IS NULL
 ORDER BY created_at ASC
 `
 
@@ -598,6 +647,7 @@ type ListAgentRuntimesByOwnerParams struct {
 	OwnerID     pgtype.UUID `json:"owner_id"`
 }
 
+// Tombstone filter mirrors ListAgentRuntimes — see the comment there.
 func (q *Queries) ListAgentRuntimesByOwner(ctx context.Context, arg ListAgentRuntimesByOwnerParams) ([]AgentRuntime, error) {
 	rows, err := q.db.Query(ctx, listAgentRuntimesByOwner, arg.WorkspaceID, arg.OwnerID)
 	if err != nil {
@@ -753,6 +803,33 @@ func (q *Queries) LockAgentRuntime(ctx context.Context, id pgtype.UUID) (AgentRu
 		&i.ProfileID,
 	)
 	return i, err
+}
+
+const markAgentRuntimeDeleted = `-- name: MarkAgentRuntimeDeleted :exec
+UPDATE agent_runtime
+SET metadata = metadata
+      || jsonb_build_object(
+           'deleted_at', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+           'deleted_archived_agent_ids', $1::jsonb),
+    updated_at = now()
+WHERE id = $2
+`
+
+type MarkAgentRuntimeDeletedParams struct {
+	DeletedArchivedAgentIds []byte      `json:"deleted_archived_agent_ids"`
+	ID                      pgtype.UUID `json:"id"`
+}
+
+// Tombstone a runtime instead of deleting it: agents stay bound (the
+// agent.runtime_id FK is ON DELETE RESTRICT and is no longer fought),
+// runtime_usage / chat_session references stay intact, and the UNIQUE
+// (workspace_id, daemon_id, provider) arbiter makes the next daemon
+// re-registration resurrect THE SAME row id. deleted_archived_agent_ids
+// records the agents archived BY THIS DELETE (cascade mode) so revival
+// can restore exactly those and not pre-existing archived rows.
+func (q *Queries) MarkAgentRuntimeDeleted(ctx context.Context, arg MarkAgentRuntimeDeletedParams) error {
+	_, err := q.db.Exec(ctx, markAgentRuntimeDeleted, arg.DeletedArchivedAgentIds, arg.ID)
+	return err
 }
 
 const markAgentRuntimeOnline = `-- name: MarkAgentRuntimeOnline :one
@@ -927,6 +1004,64 @@ type RecordRuntimeLegacyDaemonIDParams struct {
 func (q *Queries) RecordRuntimeLegacyDaemonID(ctx context.Context, arg RecordRuntimeLegacyDaemonIDParams) error {
 	_, err := q.db.Exec(ctx, recordRuntimeLegacyDaemonID, arg.ID, arg.LegacyDaemonID)
 	return err
+}
+
+const restoreAgentsArchivedByRuntimeDeletion = `-- name: RestoreAgentsArchivedByRuntimeDeletion :many
+UPDATE agent
+SET archived_at = NULL, archived_by = NULL, updated_at = now()
+WHERE archived_at IS NOT NULL
+  AND id = ANY(SELECT jsonb_array_elements_text($1::jsonb)::uuid)
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, system_key, disabled_runtime_skills, permission_mode
+`
+
+// Un-archives the agents that a runtime deletion archived (ids recorded in
+// the tombstone's deleted_archived_agent_ids). Rows already restored or
+// hard-deleted by other paths are simply not returned. Returns the restored
+// agents so the caller can fan out agent:restored broadcasts.
+func (q *Queries) RestoreAgentsArchivedByRuntimeDeletion(ctx context.Context, dollar_1 []byte) ([]Agent, error) {
+	rows, err := q.db.Query(ctx, restoreAgentsArchivedByRuntimeDeletion, dollar_1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Agent{}
+	for rows.Next() {
+		var i Agent
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.AvatarUrl,
+			&i.RuntimeMode,
+			&i.RuntimeConfig,
+			&i.Visibility,
+			&i.Status,
+			&i.MaxConcurrentTasks,
+			&i.OwnerID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Description,
+			&i.RuntimeID,
+			&i.Instructions,
+			&i.ArchivedAt,
+			&i.ArchivedBy,
+			&i.CustomEnv,
+			&i.CustomArgs,
+			&i.McpConfig,
+			&i.Model,
+			&i.ThinkingLevel,
+			&i.SystemKey,
+			&i.DisabledRuntimeSkills,
+			&i.PermissionMode,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const selectStaleOnlineRuntimes = `-- name: SelectStaleOnlineRuntimes :many

@@ -598,6 +598,7 @@ export function RuntimeRowMenu({
             <DropdownMenuItem
               disabled={pendingDefault}
               onClick={handleToggleDefault}
+              title={isDefault ? undefined : t(($) => $.list.set_default_action_hint)}
             >
               {isDefault ? (
                 <>
@@ -647,6 +648,15 @@ export function RuntimeRowMenu({
           wsId={wsId}
           onDeleted={() => {
             setDeleteOpen(false);
+            // 0.5.128: deleting the default runtime clears the default key —
+            // a tombstoned row id stays reserved for the daemon's revival, so
+            // leaving it as default would let a mere daemon restart silently
+            // re-become the default CLI. The tombstone keeps agents + usage
+            // recoverable; this just stops the deleted row from being the
+            // workspace's chosen default.
+            if (isDefault) {
+              void onSetDefault?.(null);
+            }
             toast.success(t(($) => $.detail.toast_deleted));
           }}
         />

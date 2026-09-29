@@ -205,8 +205,13 @@ func TestDeleteAgentRuntime_CustomProfileInstanceRefusesDirectDelete(t *testing.
 
 // TestArchiveAgentsAndDeleteRuntime_HappyPath exercises the cascade endpoint
 // end-to-end: with the correct expected_active_agent_ids snapshot, it must
-// archive the active agent, delete the runtime row, and respond 200 with the
-// counts.
+// archive the active agent and tombstone the runtime. The pre-0.5.128 flow
+// hard-deleted the archived agents + the runtime row — the "误删后重加回来
+// 智能体消失" incident — and an earlier version of this very test pinned
+// that destruction as its happy path; the pin was rewritten to the tombstone
+// contract: row survives (hidden from lists via metadata.deleted_at), agent
+// survives archived with its recorded id in the tombstone, task_usage_daily
+// history untouched.
 func TestArchiveAgentsAndDeleteRuntime_HappyPath(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -215,6 +220,7 @@ func TestArchiveAgentsAndDeleteRuntime_HappyPath(t *testing.T) {
 
 	runtimeID := createCascadeFixtureRuntime(t, ctx, "Cascade Happy Runtime")
 	agentID := createCascadeFixtureAgent(t, ctx, runtimeID, "Cascade Happy Agent")
+	createCascadeFixtureUsage(t, ctx, runtimeID, agentID)
 
 	w := httptest.NewRecorder()
 	req := newRequest("POST", "/api/runtimes/"+runtimeID+"/archive-agents-and-delete",
@@ -225,22 +231,52 @@ func TestArchiveAgentsAndDeleteRuntime_HappyPath(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Runtime row must be gone.
-	var rtRows int
-	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_runtime WHERE id = $1`, runtimeID).Scan(&rtRows); err != nil {
-		t.Fatalf("count runtime rows: %v", err)
+	// Runtime row must SURVIVE as a tombstone: still present, marked deleted,
+	// carrying the archived-agent id list for revival.
+	var meta struct {
+		DeletedAt               string   `json:"deleted_at"`
+		DeletedArchivedAgentIDs []string `json:"deleted_archived_agent_ids"`
 	}
-	if rtRows != 0 {
-		t.Fatalf("expected runtime row to be deleted, found %d", rtRows)
+	var rawMetadata []byte
+	if err := testPool.QueryRow(ctx, `SELECT metadata FROM agent_runtime WHERE id = $1`, runtimeID).Scan(&rawMetadata); err != nil {
+		t.Fatalf("runtime row must survive the delete: %v", err)
 	}
-	// Agent row must be gone too — DeleteArchivedAgentsByRuntime hard-deletes
-	// the archived rows so the agent.runtime_id FK no longer pins the runtime.
-	var agentRows int
-	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent WHERE id = $1`, agentID).Scan(&agentRows); err != nil {
-		t.Fatalf("count agent rows: %v", err)
+	if err := json.Unmarshal(rawMetadata, &meta); err != nil {
+		t.Fatalf("decode metadata: %v", err)
 	}
-	if agentRows != 0 {
-		t.Fatalf("expected archived agent to be hard-deleted with runtime, found %d", agentRows)
+	if meta.DeletedAt == "" {
+		t.Fatalf("expected metadata.deleted_at tombstone, got %s", rawMetadata)
+	}
+	if len(meta.DeletedArchivedAgentIDs) != 1 || meta.DeletedArchivedAgentIDs[0] != agentID {
+		t.Fatalf("expected tombstone to record [%s], got %v", agentID, meta.DeletedArchivedAgentIDs)
+	}
+
+	// The tombstoned row is hidden from the workspace runtime list.
+	var listed int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent_runtime WHERE id = $1 AND metadata->>'deleted_at' IS NULL`, runtimeID).Scan(&listed); err != nil {
+		t.Fatalf("list filter check: %v", err)
+	}
+	if listed != 0 {
+		t.Fatal("tombstoned runtime must not appear in list queries")
+	}
+
+	// Agent must be archived but NOT hard-deleted — the restore path needs
+	// the row (and its runtime_id binding) intact.
+	var archived bool
+	if err := testPool.QueryRow(ctx, `SELECT (archived_at IS NOT NULL) FROM agent WHERE id = $1`, agentID).Scan(&archived); err != nil {
+		t.Fatalf("agent row must survive: %v", err)
+	}
+	if !archived {
+		t.Fatal("expected agent archived by the cascade")
+	}
+
+	// Usage history must be untouched (the old hard delete CASCADE-dropped it).
+	var usage int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM task_usage_hourly WHERE runtime_id = $1`, runtimeID).Scan(&usage); err != nil {
+		t.Fatalf("count usage rows: %v", err)
+	}
+	if usage != 1 {
+		t.Fatalf("expected usage history to survive the delete, found %d rows", usage)
 	}
 }
 
@@ -347,9 +383,9 @@ func createCascadeFixtureRuntime(t *testing.T, ctx context.Context, name string)
 		t.Fatalf("insert cascade fixture runtime: %v", err)
 	}
 	t.Cleanup(func() {
-		// Best-effort cleanup. The cascade endpoint deletes the runtime;
-		// these statements only matter when the test failed before the
-		// cascade ran.
+		// Best-effort cleanup. Tombstoned rows are real rows now, so this
+		// matters on failure paths AND after a successful tombstone.
+		testPool.Exec(context.Background(), `DELETE FROM task_usage_hourly WHERE runtime_id = $1`, runtimeID)
 		testPool.Exec(context.Background(), `DELETE FROM agent WHERE runtime_id = $1`, runtimeID)
 		testPool.Exec(context.Background(), `DELETE FROM agent_runtime WHERE id = $1`, runtimeID)
 	})
@@ -407,4 +443,188 @@ func createCascadeFixtureAgent(t *testing.T, ctx context.Context, runtimeID, nam
 		testPool.Exec(context.Background(), `DELETE FROM agent WHERE id = $1`, agentID)
 	})
 	return agentID
+}
+
+// createCascadeFixtureUsage seeds one task_usage_daily row (the table the
+// runtimes-list cost cell and runtime detail read) so the tombstone tests can
+// prove usage history survives a runtime delete AND stays attached to the
+// revived row. The old hard delete didn't cascade-drop these rows (no FK on
+// task_usage_hourly.runtime_id) — it orphaned them: still on disk, but
+// permanently detached from the fresh runtime id a re-registration minted.
+// The tombstone keeps the row id stable, so the history simply continues.
+func createCascadeFixtureUsage(t *testing.T, ctx context.Context, runtimeID, usageAgentID string) {
+	t.Helper()
+	if _, err := testPool.Exec(ctx, `
+		INSERT INTO task_usage_hourly (bucket_hour, workspace_id, runtime_id, agent_id, provider, model, input_tokens, output_tokens, task_count, event_count)
+		VALUES (date_trunc('hour', now()), $1, $2, $3, 'cascade-test', 'test-model', 1000, 500, 1, 3)
+	`, testWorkspaceID, runtimeID, usageAgentID); err != nil {
+		t.Fatalf("insert cascade fixture usage: %v", err)
+	}
+}
+
+// TestDeleteAgentRuntime_LightPathTombstones covers the no-active-agents
+// delete: the runtime row survives as a tombstone (hidden from lists), any
+// already-archived agents stay put, and task_usage_daily survives. The old flow
+// hard-deleted archived agents + the row here.
+func TestDeleteAgentRuntime_LightPathTombstones(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	runtimeID := createCascadeFixtureRuntime(t, ctx, "Tombstone Light Runtime")
+	// An ALREADY-archived agent (archived before the delete — the restore-on-
+	// revival path must NOT resurrect this one; only deletion-archived ids
+	// are recorded).
+	agentID := createCascadeFixtureAgent(t, ctx, runtimeID, "Tombstone PreArchived Agent")
+	if _, err := testPool.Exec(ctx, `UPDATE agent SET archived_at = now(), archived_by = $2::uuid WHERE id = $1`, agentID, testUserID); err != nil {
+		t.Fatalf("pre-archive fixture agent: %v", err)
+	}
+	createCascadeFixtureUsage(t, ctx, runtimeID, agentID)
+
+	w := httptest.NewRecorder()
+	req := newRequest("DELETE", "/api/runtimes/"+runtimeID, nil)
+	req = withURLParam(req, "runtimeId", runtimeID)
+	testHandler.DeleteAgentRuntime(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var meta struct {
+		DeletedAt               string   `json:"deleted_at"`
+		DeletedArchivedAgentIDs []string `json:"deleted_archived_agent_ids"`
+	}
+	var rawMetadata []byte
+	if err := testPool.QueryRow(ctx, `SELECT metadata FROM agent_runtime WHERE id = $1`, runtimeID).Scan(&rawMetadata); err != nil {
+		t.Fatalf("runtime row must survive: %v", err)
+	}
+	if err := json.Unmarshal(rawMetadata, &meta); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if meta.DeletedAt == "" {
+		t.Fatalf("expected tombstone, got %s", rawMetadata)
+	}
+	// Light path archives nobody — the recorded list must be empty so revival
+	// doesn't resurrect pre-existing archived agents.
+	if len(meta.DeletedArchivedAgentIDs) != 0 {
+		t.Fatalf("light path must record no archived ids, got %v", meta.DeletedArchivedAgentIDs)
+	}
+	var agentRows int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM agent WHERE id = $1`, agentID).Scan(&agentRows); err != nil {
+		t.Fatalf("count agent rows: %v", err)
+	}
+	if agentRows != 1 {
+		t.Fatal("archived agent must survive the light-path delete")
+	}
+	var usage int
+	if err := testPool.QueryRow(ctx, `SELECT count(*) FROM task_usage_hourly WHERE runtime_id = $1`, runtimeID).Scan(&usage); err != nil {
+		t.Fatalf("count usage: %v", err)
+	}
+	if usage != 1 {
+		t.Fatalf("usage history must survive, got %d", usage)
+	}
+}
+
+// TestRuntimeTombstoneRevival pins the daemon-re-registration resurrection:
+// snapshot → upsert (overwrites metadata, clearing the marker) → restore.
+// This mirrors DaemonRegister's built-in branch call order — the snapshot
+// MUST come first because the upsert erases the recorded id list.
+func TestRuntimeTombstoneRevival(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	runtimeID := createCascadeFixtureRuntime(t, ctx, "Tombstone Revival Runtime")
+	agentID := createCascadeFixtureAgent(t, ctx, runtimeID, "Tombstone Revival Agent")
+	if _, err := testPool.Exec(ctx, `UPDATE agent SET archived_at = now(), archived_by = $2::uuid WHERE id = $1`, agentID, testUserID); err != nil {
+		t.Fatalf("archive fixture agent: %v", err)
+	}
+	deletedIDsJSON, _ := json.Marshal([]string{agentID})
+	if _, err := testPool.Exec(ctx, `
+		UPDATE agent_runtime
+		SET metadata = metadata || jsonb_build_object('deleted_at', '2026-09-29T00:00:00Z', 'deleted_archived_agent_ids', $2::jsonb)
+		WHERE id = $1
+	`, runtimeID, deletedIDsJSON); err != nil {
+		t.Fatalf("tombstone fixture: %v", err)
+	}
+
+	wsUUID, err := uuidFromString(testWorkspaceID)
+	if err != nil {
+		t.Fatalf("parse workspace: %v", err)
+	}
+
+	// The fixture row carries daemon_id NULL (the arbiter can't match NULL),
+	// so give it the daemon id the "re-registering" daemon would send BEFORE
+	// the snapshot — same (workspace, daemon_id, provider) as the upsert below.
+	if _, err := testPool.Exec(ctx, `UPDATE agent_runtime SET daemon_id = 'tombstone-revival-daemon' WHERE id = $1`, runtimeID); err != nil {
+		t.Fatalf("set fixture daemon_id: %v", err)
+	}
+
+	// Step 1: snapshot BEFORE upsert (the recorded ids live only here).
+	snap := testHandler.tombstoneSnapshot(ctx, wsUUID, "tombstone-revival-daemon", "cascade-test")
+	if len(snap) != 1 || snap[0] != agentID {
+		t.Fatalf("snapshot = %v, want [%s]", snap, agentID)
+	}
+
+	// A non-tombstoned / absent row snapshots to nil.
+	if got := testHandler.tombstoneSnapshot(ctx, wsUUID, "tombstone-revival-daemon", "never-registered-provider"); got != nil {
+		t.Fatalf("absent row must snapshot nil, got %v", got)
+	}
+
+	// Step 2: upsert with daemon-sent metadata — clears the tombstone marker
+	// and reuses the SAME row id (the arbiter the whole design rides on).
+	row, err := testHandler.Queries.UpsertAgentRuntime(ctx, db.UpsertAgentRuntimeParams{
+		WorkspaceID: wsUUID,
+		DaemonID:    strToText("tombstone-revival-daemon"),
+		Name:        "Tombstone Revival Runtime (MacBook-Pro)",
+		RuntimeMode: "local",
+		Provider:    "cascade-test",
+		Status:      "online",
+		DeviceInfo:  "revival device",
+		Metadata:    []byte(`{"version":"1"}`),
+	})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if uuidToString(row.ID) != runtimeID {
+		t.Fatalf("revival must reuse the same row id, got %s want %s", uuidToString(row.ID), runtimeID)
+	}
+
+	// Step 3: restore the recorded agents.
+	restored, err := testHandler.Queries.RestoreAgentsArchivedByRuntimeDeletion(ctx, deletedIDsJSON)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if len(restored) != 1 || uuidToString(restored[0].ID) != agentID {
+		t.Fatalf("expected to restore exactly %s, got %v", agentID, restored)
+	}
+	var activeAgain bool
+	if err := testPool.QueryRow(ctx, `SELECT (archived_at IS NULL) FROM agent WHERE id = $1`, agentID).Scan(&activeAgain); err != nil {
+		t.Fatalf("reload agent: %v", err)
+	}
+	if !activeAgain {
+		t.Fatal("restored agent must be active again")
+	}
+
+	// The restored agent's runtime binding was never broken — it still points
+	// at the revived row.
+	var boundRuntime string
+	if err := testPool.QueryRow(ctx, `SELECT runtime_id::text FROM agent WHERE id = $1`, agentID).Scan(&boundRuntime); err != nil {
+		t.Fatalf("reload binding: %v", err)
+	}
+	if boundRuntime != runtimeID {
+		t.Fatalf("binding drifted: %s != %s", boundRuntime, runtimeID)
+	}
+
+	// Marker is gone after the upsert — a second snapshot is nil.
+	if got := testHandler.tombstoneSnapshot(ctx, wsUUID, "", "cascade-test"); got != nil {
+		t.Fatalf("tombstone must be cleared by the upsert, got %v", got)
+	}
+
+	// Restoring the same ids twice is a no-op (already active).
+	again, err := testHandler.Queries.RestoreAgentsArchivedByRuntimeDeletion(ctx, deletedIDsJSON)
+	if err != nil || len(again) != 0 {
+		t.Fatalf("double restore must return nothing, got %v / %v", again, err)
+	}
 }

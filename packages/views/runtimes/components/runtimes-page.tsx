@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
+import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useCurrentWorkspace } from "@multica/core/paths";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
@@ -22,7 +23,10 @@ import {
 } from "@multica/core/runtimes";
 import { useUpdatableRuntimeIds } from "@multica/core/runtimes/hooks";
 import { useWSEvent } from "@multica/core/realtime";
-import { agentListOptions } from "@multica/core/workspace/queries";
+import {
+  agentListOptions,
+  workspaceKeys,
+} from "@multica/core/workspace/queries";
 import { memberListOptions } from "@multica/core/workspace/queries";
 import { Button } from "@multica/ui/components/ui/button";
 import { Input } from "@multica/ui/components/ui/input";
@@ -159,27 +163,64 @@ export function RuntimesPage({
   // its picker from. owner/admin sets it per row; a stale id (runtime
   // deleted) degrades gracefully — no badge, form falls back to first
   // usable.
+  //
+  // 0.5.128 one-click semantics: setting a NEW default also migrates the
+  // existing fleet off the PREVIOUS default (the reverse click migrates
+  // back) — the user asked for "点击默认后就开始迁移" rather than a second
+  // manual migrate step. Agents on OTHER runtimes stay put; arbitrary
+  // pairs remain available via the explicit 迁移 menu. Setting the default
+  // for the first time (no previous) just sets it. The default write wins
+  // even when the migration fails — the toast says so instead of silently
+  // leaving the fleet behind.
   const workspace = useCurrentWorkspace();
   const defaultRuntimeId = workspaceDefaultRuntimeId(workspace);
   const storeDefaultRuntime = useSetDefaultRuntime(workspace);
   const handleSetDefaultRuntime = useCallback(
     async (runtimeId: string | null) => {
+      const previousDefault = defaultRuntimeId;
       try {
         await storeDefaultRuntime(runtimeId);
-        toast.success(
-          runtimeId === null
-            ? t(($) => $.list.default_cleared_toast)
-            : t(($) => $.list.default_set_toast),
-        );
       } catch (e) {
         toast.error(
           e instanceof Error
             ? e.message
             : t(($) => $.list.default_update_failed),
         );
+        return;
+      }
+      if (runtimeId === null) {
+        toast.success(t(($) => $.list.default_cleared_toast));
+        return;
+      }
+      if (!previousDefault || previousDefault === runtimeId) {
+        toast.success(t(($) => $.list.default_set_toast));
+        return;
+      }
+      try {
+        const result = await api.bulkMoveAgentRuntime({
+          from_runtime_id: previousDefault,
+          to_runtime_id: runtimeId,
+          include_archived: true,
+        });
+        qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
+        if (result.moved_count > 0) {
+          toast.success(
+            t(($) => $.list.default_set_migrated, {
+              count: result.moved_count,
+            }),
+          );
+        } else {
+          toast.success(t(($) => $.list.default_set_toast));
+        }
+      } catch (e) {
+        toast.warning(
+          `${t(($) => $.list.default_set_migration_failed)} ${
+            e instanceof Error ? e.message : ""
+          }`.trim(),
+        );
       }
     },
-    [storeDefaultRuntime, t],
+    [storeDefaultRuntime, defaultRuntimeId, qc, wsId, t],
   );
 
   useEffect(() => {
