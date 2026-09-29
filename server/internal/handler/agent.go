@@ -65,8 +65,8 @@ type AgentResponse struct {
 	// 0.5.22 MUL-3963 port: PermissionMode ("private" | "public_to") and
 	// InvocationTargets (the per-agent allow-list). Visibility stays as
 	// a derived legacy field (see agent_permission.go::deriveLegacyVisibility).
-	PermissionMode     string                      `json:"permission_mode"`
-	InvocationTargets  []AgentInvocationTargetDTO `json:"invocation_targets"`
+	PermissionMode    string                     `json:"permission_mode"`
+	InvocationTargets []AgentInvocationTargetDTO `json:"invocation_targets"`
 	// SystemKey (0.3.51) — optional system-prompt binding, empty when
 	// the agent runs its own instructions verbatim. Reserved for
 	// future system-prompt bindings — see daemon.go::loadSystemPromptBinding
@@ -144,20 +144,20 @@ func agentToResponse(a db.Agent) AgentResponse {
 	}
 
 	return AgentResponse{
-		ID:                 uuidToString(a.ID),
-		WorkspaceID:        uuidToString(a.WorkspaceID),
-		RuntimeID:          uuidToString(a.RuntimeID),
-		Name:               a.Name,
-		Description:        a.Description,
-		Instructions:       a.Instructions,
-		AvatarURL:          textToPtr(a.AvatarUrl),
-		RuntimeMode:        a.RuntimeMode,
-		RuntimeConfig:      rc,
-		CustomArgs:         customArgs,
-		McpConfig:          mcpConfig,
-		HasCustomEnv:       envKeyCount > 0,
-		CustomEnvKeyCount:  envKeyCount,
-		Visibility:         a.Visibility,
+		ID:                uuidToString(a.ID),
+		WorkspaceID:       uuidToString(a.WorkspaceID),
+		RuntimeID:         uuidToString(a.RuntimeID),
+		Name:              a.Name,
+		Description:       a.Description,
+		Instructions:      a.Instructions,
+		AvatarURL:         textToPtr(a.AvatarUrl),
+		RuntimeMode:       a.RuntimeMode,
+		RuntimeConfig:     rc,
+		CustomArgs:        customArgs,
+		McpConfig:         mcpConfig,
+		HasCustomEnv:      envKeyCount > 0,
+		CustomEnvKeyCount: envKeyCount,
+		Visibility:        a.Visibility,
 		// 0.5.22 MUL-3963: mirror the new permission_mode column. Without
 		// this the response would always echo permission_mode="" and the
 		// client would have to refetch the agent to learn its access
@@ -823,8 +823,8 @@ type CreateAgentRequest struct {
 	// 'private' in CreateAgent (the column default). Visibility is now a
 	// derived legacy field; new clients should pass permission_mode +
 	// invocation_targets instead.
-	PermissionMode     string                      `json:"permission_mode"`
-	InvocationTargets  []AgentInvocationTargetDTO `json:"invocation_targets"`
+	PermissionMode    string                     `json:"permission_mode"`
+	InvocationTargets []AgentInvocationTargetDTO `json:"invocation_targets"`
 	// SystemKey (0.3.51) — optional system-prompt binding. Empty/NULL
 	// means the agent runs its own instructions verbatim. Forward-
 	// compatible: a future binding key can be added without a schema
@@ -993,7 +993,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 		// in the request body to 'private' if absent). The legacy visibility
 		// column stays in sync as a derived field (see applyPermissionToResponse
 		// / deriveLegacyVisibility in agent_permission.go).
-		PermissionMode:     req.PermissionMode,
+		PermissionMode: req.PermissionMode,
 	})
 	if err != nil {
 		// Unique constraint on (workspace_id, name) — return a clear conflict error
@@ -1473,6 +1473,198 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	actorType, actorID := h.resolveActor(r, userID, uuidToString(updated.WorkspaceID))
 	h.publish(protocol.EventAgentStatus, uuidToString(updated.WorkspaceID), actorType, actorID, map[string]any{"agent": broadcastAgentResponse(resp)})
 	redactAgentResponseForActor(&resp, actorType)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// BulkMoveAgentRuntimeRequest — move every agent bound to one runtime onto
+// another in one shot. The companion to the 0.5.127 default-runtime
+// setting: the setting only seeds NEW agents (CreateAgent requires an
+// explicit runtime_id and the form seeds it from the default), so the
+// existing fleet stays wherever it was created until moved explicitly.
+type BulkMoveAgentRuntimeRequest struct {
+	FromRuntimeID string `json:"from_runtime_id"`
+	ToRuntimeID   string `json:"to_runtime_id"`
+	// IncludeArchived defaults to true: archived agents carry the same
+	// runtime binding, and "switch back" (the reverse move) must restore
+	// the whole fleet, not just the live slice.
+	IncludeArchived *bool `json:"include_archived"`
+}
+
+// BulkMoveAgentRuntimeResponse — counts only; the caller invalidates the
+// agents query rather than patching from a payload that would have to
+// carry per-agent skill lists to stay truthful (#3459).
+type BulkMoveAgentRuntimeResponse struct {
+	MovedCount           int      `json:"moved_count"`
+	ClearedModelCount    int      `json:"cleared_model_count"`
+	ClearedThinkingCount int      `json:"cleared_thinking_count"`
+	AgentIDs             []string `json:"agent_ids"`
+}
+
+// BulkMoveAgentRuntime — POST /api/agents/bulk-move-runtime (owner/admin).
+// Per-agent semantics are EXACTLY UpdateAgent's runtime-switch path:
+// runtime_id + runtime_mode rewritten, a known provider-incompatible model
+// cleared so the new CLI never receives a foreign model id (MUL-3341), and
+// a thinking_level literal-invalid for the new provider cleared.
+//
+// The one deliberate divergence from UpdateAgent: a literal-invalid
+// thinking_level is CLEARED here instead of 400-ing. Single-update rejects
+// so a human notices; a bulk migration that stopped at agent #37 because
+// it stored `max` would be unusable as an escape hatch — the admin intent
+// is "move everyone, reset provider-native fields".
+func (h *Handler) BulkMoveAgentRuntime(w http.ResponseWriter, r *http.Request) {
+	workspaceID := h.resolveWorkspaceID(r)
+	member, ok := h.requireWorkspaceRole(w, r, workspaceID, "workspace not found", "owner", "admin")
+	if !ok {
+		return
+	}
+
+	var req BulkMoveAgentRuntimeRequest
+	if _, err := decodeJSONBodyWithRawFields(r.Body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	fromUUID, ok := parseUUIDOrBadRequest(w, req.FromRuntimeID, "from_runtime_id")
+	if !ok {
+		return
+	}
+	toUUID, ok := parseUUIDOrBadRequest(w, req.ToRuntimeID, "to_runtime_id")
+	if !ok {
+		return
+	}
+	if fromUUID == toUUID {
+		writeError(w, http.StatusBadRequest, "from_runtime_id and to_runtime_id must differ")
+		return
+	}
+	wsUUID, ok := parseUUIDOrBadRequest(w, workspaceID, "workspace id")
+	if !ok {
+		return
+	}
+
+	// Existence-only check on the source runtime: the move reads agents by
+	// runtime_id, so a gone source just means "nothing to move" — but a
+	// typo'd id should 400 rather than silently move zero agents.
+	if _, err := h.Queries.GetAgentRuntimeForWorkspace(r.Context(), db.GetAgentRuntimeForWorkspaceParams{
+		ID:          fromUUID,
+		WorkspaceID: wsUUID,
+	}); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid from_runtime_id")
+		return
+	}
+	toRuntime, err := h.Queries.GetAgentRuntimeForWorkspace(r.Context(), db.GetAgentRuntimeForWorkspaceParams{
+		ID:          toUUID,
+		WorkspaceID: wsUUID,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid to_runtime_id")
+		return
+	}
+	// Same gate as UpdateAgent's runtime switch: a private runtime cannot
+	// receive agents from a caller who cannot use it, bulk or not.
+	if !canUseRuntimeForAgent(member, toRuntime) {
+		writeError(w, http.StatusForbidden, "the target runtime is private; only its owner can move agents onto it")
+		return
+	}
+
+	includeArchived := true
+	if req.IncludeArchived != nil {
+		includeArchived = *req.IncludeArchived
+	}
+	var candidates []db.Agent
+	if includeArchived {
+		candidates, err = h.Queries.ListAllAgents(r.Context(), wsUUID)
+	} else {
+		candidates, err = h.Queries.ListAgents(r.Context(), wsUUID)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list agents")
+		return
+	}
+	targets := make([]db.Agent, 0, len(candidates))
+	for _, a := range candidates {
+		if a.RuntimeID == fromUUID {
+			targets = append(targets, a)
+		}
+	}
+
+	resp := BulkMoveAgentRuntimeResponse{AgentIDs: make([]string, 0, len(targets))}
+	if len(targets) == 0 {
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		slog.Error("bulk move runtime: begin tx failed", append(logger.RequestAttrs(r), "error", err)...)
+		writeError(w, http.StatusInternalServerError, "failed to move agents")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	qtx := h.Queries.WithTx(tx)
+
+	moved := make([]db.Agent, 0, len(targets))
+	for _, a := range targets {
+		params := db.UpdateAgentParams{
+			ID:          a.ID,
+			RuntimeID:   toRuntime.ID,
+			RuntimeMode: pgtype.Text{String: toRuntime.RuntimeMode, Valid: true},
+		}
+		if a.Model.Valid && agent.ModelKnownIncompatibleWithProvider(toRuntime.Provider, a.Model.String) {
+			params.Model = pgtype.Text{String: "", Valid: true}
+			resp.ClearedModelCount++
+		}
+		// Bulk divergence from UpdateAgent (see func comment): clear
+		// instead of 400 on a literal-invalid thinking_level.
+		clearThinking := a.ThinkingLevel.Valid && a.ThinkingLevel.String != "" &&
+			!agent.IsKnownThinkingValue(toRuntime.Provider, a.ThinkingLevel.String)
+		if clearThinking {
+			resp.ClearedThinkingCount++
+		} else {
+			params.ThinkingLevel = a.ThinkingLevel
+		}
+		updated, err := qtx.UpdateAgent(r.Context(), params)
+		if err != nil {
+			slog.Warn("bulk move runtime: update agent failed",
+				append(logger.RequestAttrs(r), "error", err, "agent_id", uuidToString(a.ID))...)
+			writeError(w, http.StatusInternalServerError, "failed to move agents")
+			return
+		}
+		if clearThinking {
+			updated, err = qtx.ClearAgentThinkingLevel(r.Context(), updated.ID)
+			if err != nil {
+				slog.Warn("bulk move runtime: clear thinking failed",
+					append(logger.RequestAttrs(r), "error", err, "agent_id", uuidToString(a.ID))...)
+				writeError(w, http.StatusInternalServerError, "failed to move agents")
+				return
+			}
+		}
+		moved = append(moved, updated)
+		resp.AgentIDs = append(resp.AgentIDs, uuidToString(updated.ID))
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		slog.Error("bulk move runtime: commit failed", append(logger.RequestAttrs(r), "error", err)...)
+		writeError(w, http.StatusInternalServerError, "failed to move agents")
+		return
+	}
+
+	resp.MovedCount = len(moved)
+	slog.Info("agents bulk moved to runtime",
+		append(logger.RequestAttrs(r),
+			"from_runtime_id", req.FromRuntimeID,
+			"to_runtime_id", req.ToRuntimeID,
+			"moved_count", resp.MovedCount,
+			"cleared_model_count", resp.ClearedModelCount,
+			"cleared_thinking_count", resp.ClearedThinkingCount)...)
+
+	// Broadcast per agent so every open surface (agent detail, pickers)
+	// refetches off the same event the single-update path uses. After the
+	// commit: a rolled-back tx must never reach the wire.
+	userID := requestUserID(r)
+	actorType, actorID := h.resolveActor(r, userID, wsUUID.String())
+	for _, a := range moved {
+		broadcast := broadcastAgentResponse(agentToResponse(a))
+		h.publish(protocol.EventAgentStatus, wsUUID.String(), actorType, actorID, map[string]any{"agent": broadcast})
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

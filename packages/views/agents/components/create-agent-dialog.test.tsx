@@ -9,6 +9,7 @@ import { WorkspaceSlugProvider } from "@multica/core/paths";
 import { NavigationProvider, type NavigationAdapter } from "../../navigation";
 import enCommon from "../../locales/en/common.json";
 import enAgents from "../../locales/en/agents.json";
+import { workspaceListOptions } from "@multica/core/workspace/queries";
 
 const navigationStub: NavigationAdapter = {
   push: vi.fn(),
@@ -119,10 +120,33 @@ function makeTemplate(runtimeId: string): Agent {
   };
 }
 
-function renderDialog(runtimes: RuntimeDevice[], template?: Agent) {
+function renderDialog(
+  runtimes: RuntimeDevice[],
+  template?: Agent,
+  workspaceSettings?: Record<string, unknown>,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  if (workspaceSettings) {
+    // useCurrentWorkspace resolves the active workspace out of the cached
+    // list; seed it so the dialog sees settings.default_runtime_id.
+    queryClient.setQueryData(workspaceListOptions().queryKey, [
+      {
+        id: "ws-1",
+        name: "Test WS",
+        slug: "test-ws",
+        description: null,
+        context: null,
+        settings: workspaceSettings,
+        repos: [],
+        issue_prefix: "TST",
+        avatar_url: null,
+        created_at: "2026-04-01T00:00:00Z",
+        updated_at: "2026-04-01T00:00:00Z",
+      },
+    ]);
+  }
   const onCreate = vi.fn().mockResolvedValue(undefined);
   const onClose = vi.fn();
   render(
@@ -225,6 +249,61 @@ describe("CreateAgentDialog runtime visibility gate", () => {
     // first in the input list.
     expect(screen.queryByText("Others Private", { selector: "span.truncate" })).toBeNull();
     expect(screen.getByText("My Runtime", { selector: "span.truncate" })).toBeInTheDocument();
+  });
+
+  it("seeds the workspace default runtime over first-in-list (0.5.127 default-CLI switch)", () => {
+    // The API list is registration-ordered (created_at ASC), so without a
+    // default every new agent pinned to whichever CLI registered first —
+    // empirically always Claude. With the Runtimes-page default set to the
+    // opencode runtime, the empty selection must seed there instead.
+    const claude = makeRuntime({
+      id: "rt-claude",
+      name: "Claude Runtime",
+      provider: "claude",
+    });
+    const opencode = makeRuntime({
+      id: "rt-opencode",
+      name: "Opencode Runtime",
+      provider: "opencode",
+    });
+    renderDialog([claude, opencode], undefined, {
+      default_runtime_id: "rt-opencode",
+    });
+
+    expect(
+      screen.getByText("Opencode Runtime", { selector: "span.truncate" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Claude Runtime", { selector: "span.truncate" }),
+    ).toBeNull();
+  });
+
+  it("ignores a workspace default that is not usable for the caller", () => {
+    // Default points at another member's private runtime — the seeding
+    // must fall back to a usable one rather than pin a selection that
+    // would 403 on create.
+    const mine = makeRuntime({
+      id: "rt-mine",
+      name: "My Runtime",
+      owner_id: ME,
+      visibility: "private",
+    });
+    const othersPrivate = makeRuntime({
+      id: "rt-others-private",
+      name: "Others Private",
+      owner_id: OTHER,
+      visibility: "private",
+    });
+    renderDialog([mine, othersPrivate], undefined, {
+      default_runtime_id: "rt-others-private",
+    });
+
+    expect(
+      screen.getByText("My Runtime", { selector: "span.truncate" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Others Private", { selector: "span.truncate" }),
+    ).toBeNull();
   });
 
   it("in duplicate mode, does not pre-fill the template's runtime when it's now locked", async () => {

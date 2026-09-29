@@ -11,6 +11,8 @@ import { AvatarPicker } from "./avatar-picker";
 import { api } from "@multica/core/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { workspaceKeys } from "@multica/core/workspace/queries";
+import { useCurrentWorkspace } from "@multica/core/paths";
+import { workspaceDefaultRuntimeId } from "@multica/core/runtimes";
 import type {
   Agent,
   AgentVisibility,
@@ -77,6 +79,11 @@ export function CreateAgentDialog({
   const isDuplicate = !!template;
   const queryClient = useQueryClient();
   const wsId = useWorkspaceId();
+  const workspace = useCurrentWorkspace();
+  // Workspace default CLI (set from the Runtimes page). The RuntimePicker
+  // prefers it when seeding a fresh selection so new agents land on the
+  // chosen default instead of whichever runtime registered first.
+  const defaultRuntimeId = workspaceDefaultRuntimeId(workspace);
 
   // Name defaults: duplicate uses "<original> copy". Manual-create starts blank.
   const [name, setName] = useState(
@@ -332,6 +339,7 @@ export function CreateAgentDialog({
               currentUserId={currentUserId}
               selectedRuntimeId={selectedRuntimeId}
               onSelect={setSelectedRuntimeId}
+              defaultRuntimeId={defaultRuntimeId}
             />
 
             <ModelDropdown

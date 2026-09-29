@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
+import { toast } from "sonner";
 import {
   Cloud,
   Monitor,
@@ -12,8 +13,13 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspaceId } from "@multica/core/hooks";
+import { useCurrentWorkspace } from "@multica/core/paths";
 import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { runtimeListOptions, runtimeKeys } from "@multica/core/runtimes/queries";
+import {
+  useSetDefaultRuntime,
+  workspaceDefaultRuntimeId,
+} from "@multica/core/runtimes";
 import { useUpdatableRuntimeIds } from "@multica/core/runtimes/hooks";
 import { useWSEvent } from "@multica/core/realtime";
 import { agentListOptions } from "@multica/core/workspace/queries";
@@ -149,6 +155,33 @@ export function RuntimesPage({
   const updatableIds = useUpdatableRuntimeIds(wsId);
   const now = useNowTick();
 
+  // Workspace default CLI runtime (0.5.127): the row the agent form seeds
+  // its picker from. owner/admin sets it per row; a stale id (runtime
+  // deleted) degrades gracefully — no badge, form falls back to first
+  // usable.
+  const workspace = useCurrentWorkspace();
+  const defaultRuntimeId = workspaceDefaultRuntimeId(workspace);
+  const storeDefaultRuntime = useSetDefaultRuntime(workspace);
+  const handleSetDefaultRuntime = useCallback(
+    async (runtimeId: string | null) => {
+      try {
+        await storeDefaultRuntime(runtimeId);
+        toast.success(
+          runtimeId === null
+            ? t(($) => $.list.default_cleared_toast)
+            : t(($) => $.list.default_set_toast),
+        );
+      } catch (e) {
+        toast.error(
+          e instanceof Error
+            ? e.message
+            : t(($) => $.list.default_update_failed),
+        );
+      }
+    },
+    [storeDefaultRuntime, t],
+  );
+
   useEffect(() => {
     if (pendingProfiles.length === 0) return;
     const registeredProfileIds = new Set(
@@ -280,6 +313,8 @@ export function RuntimesPage({
             updatableIds={updatableIds}
             now={now}
             bootstrapping={bootstrapping}
+            defaultRuntimeId={defaultRuntimeId}
+            onSetDefault={handleSetDefaultRuntime}
             actions={
               selectedMachine?.isCurrent ? localMachineActions : undefined
             }
@@ -320,6 +355,8 @@ export function RuntimesPage({
                 updatableIds={updatableIds}
                 now={now}
                 bootstrapping={bootstrapping}
+                defaultRuntimeId={defaultRuntimeId}
+                onSetDefault={handleSetDefaultRuntime}
                 actions={
                   selectedMachine?.isCurrent ? localMachineActions : undefined
                 }
@@ -680,12 +717,17 @@ function MachineDetail({
   updatableIds,
   now,
   bootstrapping,
+  defaultRuntimeId,
+  onSetDefault,
   actions,
 }: {
   machine: RuntimeMachine | null;
   updatableIds: Set<string>;
   now: number;
   bootstrapping?: boolean;
+  /** Workspace default runtime id; drives the badge + row menu. */
+  defaultRuntimeId?: string | null;
+  onSetDefault?: (runtimeId: string | null) => Promise<void>;
   actions?: React.ReactNode;
 }) {
   const { t } = useT("runtimes");
@@ -795,6 +837,8 @@ function MachineDetail({
         runtimes={machine.runtimes}
         updatableIds={updatableIds}
         now={now}
+        defaultRuntimeId={defaultRuntimeId}
+        onSetDefault={onSetDefault}
       />
     </main>
   );

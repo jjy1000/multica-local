@@ -276,6 +276,13 @@
     "badge_builtin": "Built-in",
     "badge_custom": "Custom",
     "badge_registering": "Registering",
+    "badge_default": "Default",
+    "badge_default_hint": "New agents default to this runtime (CLI)",
+    "set_default_action": "Set as default runtime",
+    "unset_default_action": "Clear default runtime",
+    "default_set_toast": "Set as default — new agents will use this runtime",
+    "default_cleared_toast": "Default runtime cleared",
+    "default_update_failed": "Failed to set the default runtime",
     "pending_health": "Registering with daemon",
     "pending_health_warning": "Waiting for daemon sync",
     "pending_health_error": "Registration error",
@@ -416,5 +423,20 @@
     "table_cache_r": "Cache R",
     "table_cache_w": "Cache W",
     "no_data": "No usage data yet"
+  },
+  "migrate": {
+    "action": "Migrate agents to another runtime…",
+    "title": "Migrate agents off \"{{name}}\"",
+    "description": "Move every agent bound to this runtime (archived included) onto another runtime — or move them back the same way. Queued/running tasks keep executing on their original runtime.",
+    "target_label": "Target runtime",
+    "no_targets": "No other runtime available",
+    "reset_hint": "Models and thinking levels incompatible with the target CLI are reset to its default",
+    "cancel": "Cancel",
+    "confirm": "Migrate",
+    "toast_failed": "Migration failed",
+    "affected_count_one": "{{count}} agent",
+    "affected_count_other": "{{count}} agents",
+    "toast_moved_one": "Moved {{count}} agent",
+    "toast_moved_other": "Moved {{count}} agents"
   }
 }

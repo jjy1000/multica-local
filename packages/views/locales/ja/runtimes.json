@@ -265,6 +265,13 @@
     "badge_builtin": "組み込み",
     "badge_custom": "カスタム",
     "badge_registering": "登録中",
+    "badge_default": "デフォルト",
+    "badge_default_hint": "新しいエージェントはこのランタイム（CLI）を既定で使用します",
+    "set_default_action": "既定のランタイムに設定",
+    "unset_default_action": "既定のランタイムを解除",
+    "default_set_toast": "既定に設定しました。新しいエージェントはこのランタイムを使用します",
+    "default_cleared_toast": "既定のランタイムを解除しました",
+    "default_update_failed": "既定のランタイムの設定に失敗しました",
     "pending_health": "Daemon に登録中",
     "pending_health_warning": "Daemon 同期待ち",
     "pending_health_error": "登録エラー",
@@ -402,5 +409,18 @@
     "table_cache_r": "キャッシュ R",
     "table_cache_w": "キャッシュ W",
     "no_data": "まだ使用量データがありません"
+  },
+  "migrate": {
+    "action": "エージェントを別のランタイムへ移行…",
+    "title": "「{{name}}」のエージェントを移行",
+    "description": "このランタイムにバインドされたエージェント（アーカイブ済みを含む）を別のランタイムへまとめて移動します。逆方向の移動も同じ手順です。実行中/待機中のタスクは元のランタイムで継続します。",
+    "target_label": "移行先ランタイム",
+    "no_targets": "利用できる他のランタイムがありません",
+    "reset_hint": "移行先の CLI と互換性のないモデルと thinking レベルは既定値にリセットされます",
+    "cancel": "キャンセル",
+    "confirm": "移行",
+    "toast_failed": "移行に失敗しました",
+    "affected_count_other": "{{count}} 件のエージェント",
+    "toast_moved_other": "{{count}} 件のエージェントを移行しました"
   }
 }

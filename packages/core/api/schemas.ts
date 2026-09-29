@@ -1032,6 +1032,25 @@ export const CreateAgentFromTemplateResponseSchema = z.object({
   reused_skill_ids: z.array(z.string()).default([]),
 }).loose();
 
+// Bulk runtime migration (0.5.127). Counts-only response — the caller
+// invalidates the agents query instead of patching from a payload that
+// would have to carry per-agent skill lists to stay truthful.
+export const BulkMoveAgentRuntimeResponseSchema = z.object({
+  moved_count: z.number().default(0),
+  cleared_model_count: z.number().default(0),
+  cleared_thinking_count: z.number().default(0),
+  agent_ids: z.array(z.string()).default([]),
+}).loose();
+
+export type BulkMoveAgentRuntimeResponse = z.infer<typeof BulkMoveAgentRuntimeResponseSchema>;
+
+export const EMPTY_BULK_MOVE_AGENT_RUNTIME_RESPONSE: BulkMoveAgentRuntimeResponse = {
+  moved_count: 0,
+  cleared_model_count: 0,
+  cleared_thinking_count: 0,
+  agent_ids: [],
+};
+
 // Fallback when the success response fails to parse. The agent server-side
 // has likely been created already, so we can't pretend nothing happened —
 // the caller (`create-agent-dialog.tsx`) is responsible for noticing

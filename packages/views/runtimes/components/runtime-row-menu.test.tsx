@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import type { AgentRuntime, RuntimeProfile } from "@multica/core/types";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../../locales/en/common.json";
@@ -140,7 +140,14 @@ function makeRow(
 
 // The row menu is a plain exported component on the ListGrid version of the
 // list — render it directly with the row fields it reads.
-function renderActionsCell(row: RuntimeRow) {
+function renderActionsCell(
+  row: RuntimeRow,
+  menuOverrides: {
+    isDefault?: boolean;
+    canSetDefault?: boolean;
+    onSetDefault?: (runtimeId: string | null) => Promise<void>;
+  } = {},
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   return render(
@@ -151,6 +158,9 @@ function renderActionsCell(row: RuntimeRow) {
           profile={row.profile}
           wsId="ws-1"
           canDelete={row.canDelete}
+          isDefault={menuOverrides.isDefault ?? false}
+          canSetDefault={menuOverrides.canSetDefault ?? false}
+          onSetDefault={menuOverrides.onSetDefault}
         />
       </QueryClientProvider>
     </I18nProvider>,
@@ -159,6 +169,14 @@ function renderActionsCell(row: RuntimeRow) {
 
 describe("runtime list row menu", () => {
   beforeEach(() => vi.clearAllMocks());
+  // Base UI Dialog/Popover render into a portal on document.body and leave
+  // wrapper residue after unmount (see create-agent-dialog.test.tsx for the
+  // same class of pollution). The set-default tests assert on menu item
+  // text, which double-matches against a prior test's leftover popup.
+  afterEach(() => {
+    cleanup();
+    document.body.innerHTML = "";
+  });
 
   it("renders the kebab menu for an online local runtime (self-healing is no longer hidden)", () => {
     // MUL-3352: hiding the kebab on a self-healing row left owners reading
@@ -207,6 +225,55 @@ describe("runtime list row menu", () => {
       ),
     );
     expect(screen.queryByLabelText("Row actions")).not.toBeInTheDocument();
+  });
+
+  it("shows the kebab for a member who can only set the default (no delete)", () => {
+    // The 0.5.127 default-runtime action is workspace-admin-gated and
+    // independent of delete permission; it must keep the kebab alive on
+    // its own.
+    renderActionsCell(
+      makeRow(
+        makeRuntime({ runtime_mode: "local", status: "offline" }),
+        /* canDelete */ false,
+      ),
+      { canSetDefault: true, onSetDefault: vi.fn().mockResolvedValue(undefined) },
+    );
+    expect(screen.getByLabelText("Row actions")).toBeInTheDocument();
+  });
+
+  it("offers set-default on a non-default row and calls back with its id", () => {
+    const onSetDefault = vi.fn().mockResolvedValue(undefined);
+    renderActionsCell(
+      makeRow(makeRuntime({ id: "rt-1", runtime_mode: "local" })),
+      { canSetDefault: true, onSetDefault },
+    );
+    fireEvent.click(screen.getByLabelText("Row actions"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set as default runtime" }));
+    expect(onSetDefault).toHaveBeenCalledWith("rt-1");
+  });
+
+  it("offers clear-default on the default row and calls back with null", () => {
+    const onSetDefault = vi.fn().mockResolvedValue(undefined);
+    renderActionsCell(
+      makeRow(makeRuntime({ id: "rt-1", runtime_mode: "local" })),
+      { canSetDefault: true, isDefault: true, onSetDefault },
+    );
+    fireEvent.click(screen.getByLabelText("Row actions"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Clear default runtime" }));
+    expect(onSetDefault).toHaveBeenCalledWith(null);
+  });
+
+  it("omits the default action when the caller cannot set it", () => {
+    renderActionsCell(
+      makeRow(makeRuntime({ id: "rt-1", runtime_mode: "local" })),
+      // canDelete true, but no canSetDefault — only the delete item shows.
+      {},
+    );
+    fireEvent.click(screen.getByLabelText("Row actions"));
+    expect(
+      screen.queryByRole("menuitem", { name: "Set as default runtime" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
   });
 });
 

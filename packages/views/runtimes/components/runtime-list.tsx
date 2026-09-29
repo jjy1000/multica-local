@@ -3,9 +3,12 @@
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRightLeft,
   Globe,
   Loader2,
   MoreHorizontal,
+  Star,
+  StarOff,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -56,6 +59,7 @@ import { ProviderLogo } from "./provider-logo";
 import { HealthIcon, useHealthLabel } from "./shared";
 import { DeleteRuntimeDialog } from "./delete-runtime-dialog";
 import { DeleteRuntimeProfileDialog } from "./delete-runtime-profile-dialog";
+import { MigrateAgentsDialog } from "./migrate-agents-dialog";
 import {
   computeCostInWindow,
   formatLastSeen,
@@ -183,7 +187,13 @@ export function buildWorkloadIndex(
 // Cells
 // ---------------------------------------------------------------------------
 
-function RuntimeNameCell({ runtime }: { runtime: AgentRuntime }) {
+function RuntimeNameCell({
+  runtime,
+  isDefault,
+}: {
+  runtime: AgentRuntime;
+  isDefault: boolean;
+}) {
   const { base: baseName } = splitRuntimeName(runtime.name);
   return (
     <ListGridCell className="gap-2">
@@ -194,11 +204,32 @@ function RuntimeNameCell({ runtime }: { runtime: AgentRuntime }) {
         <span className="block min-w-0 shrink truncate text-sm font-medium">
           {baseName}
         </span>
+        {isDefault && <DefaultRuntimeBadge />}
         <RuntimeKindBadge runtime={runtime} />
         <PendingRuntimeBadge runtime={runtime} />
         <VisibilityBadge runtime={runtime} />
       </div>
     </ListGridCell>
+  );
+}
+
+// Marks the workspace default CLI runtime — the one new-agent forms seed
+// their picker from. A tooltip says so, because "default" next to
+// built-in/custom kind badges otherwise reads as another kind.
+function DefaultRuntimeBadge() {
+  const { t } = useT("runtimes");
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-primary/10 px-1 text-[10px] font-medium text-primary">
+            <Star className="h-2.5 w-2.5" />
+            {t(($) => $.list.badge_default)}
+          </span>
+        }
+      />
+      <TooltipContent>{t(($) => $.list.badge_default_hint)}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -501,14 +532,24 @@ export function RuntimeRowMenu({
   profile,
   wsId,
   canDelete,
+  isDefault,
+  canSetDefault,
+  onSetDefault,
+  canMigrate,
 }: {
   runtime: AgentRuntime;
   profile: RuntimeProfile | null;
   wsId: string;
   canDelete: boolean;
+  isDefault: boolean;
+  canSetDefault: boolean;
+  onSetDefault?: (runtimeId: string | null) => Promise<void>;
+  canMigrate?: boolean;
 }) {
   const { t } = useT("runtimes");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [migrateOpen, setMigrateOpen] = useState(false);
+  const [pendingDefault, setPendingDefault] = useState(false);
   const isCustomRuntime = !!runtime.profile_id;
   // Delete is currently the only row action; if the row can't run it, drop
   // the kebab entirely so the column doesn't render an empty popover. We
@@ -518,9 +559,19 @@ export function RuntimeRowMenu({
   // would undo this". The dialog now carries the self-heal warning and
   // the user gets to decide.
 
-  if (!canDelete) {
+  if (!canDelete && !canSetDefault && !canMigrate) {
     return <span aria-hidden />;
   }
+
+  const handleToggleDefault = async () => {
+    if (!onSetDefault || pendingDefault) return;
+    setPendingDefault(true);
+    try {
+      await onSetDefault(isDefault ? null : runtime.id);
+    } finally {
+      setPendingDefault(false);
+    }
+  };
 
   return (
     <>
@@ -537,16 +588,49 @@ export function RuntimeRowMenu({
           }
         />
         <DropdownMenuContent align="end" className="w-40">
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => setDeleteOpen(true)}
-            title={t(($) => $.list.delete_permission_hint)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            {t(($) => $.list.delete_action)}
-          </DropdownMenuItem>
+          {canMigrate && (
+            <DropdownMenuItem onClick={() => setMigrateOpen(true)}>
+              <ArrowRightLeft className="h-3.5 w-3.5" />
+              {t(($) => $.migrate.action)}
+            </DropdownMenuItem>
+          )}
+          {canSetDefault && onSetDefault && (
+            <DropdownMenuItem
+              disabled={pendingDefault}
+              onClick={handleToggleDefault}
+            >
+              {isDefault ? (
+                <>
+                  <StarOff className="h-3.5 w-3.5" />
+                  {t(($) => $.list.unset_default_action)}
+                </>
+              ) : (
+                <>
+                  <Star className="h-3.5 w-3.5" />
+                  {t(($) => $.list.set_default_action)}
+                </>
+              )}
+            </DropdownMenuItem>
+          )}
+          {canDelete && (
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => setDeleteOpen(true)}
+              title={t(($) => $.list.delete_permission_hint)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {t(($) => $.list.delete_action)}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {canMigrate && (
+        <MigrateAgentsDialog
+          open={migrateOpen}
+          onOpenChange={setMigrateOpen}
+          source={runtime}
+        />
+      )}
       {isCustomRuntime && profile ? (
         <DeleteRuntimeProfileDialog
           open={deleteOpen}
@@ -579,6 +663,8 @@ export function RuntimeList({
   runtimes,
   updatableIds,
   now,
+  defaultRuntimeId,
+  onSetDefault,
 }: {
   runtimes: AgentRuntime[];
   // Kept on the API surface for callers, but unused here: the CLI column
@@ -588,6 +674,9 @@ export function RuntimeList({
   // on the page-level wrapper that still computes the set.
   updatableIds?: Set<string>;
   now: number;
+  /** Workspace default runtime id — badge + set/unset row action. */
+  defaultRuntimeId?: string | null;
+  onSetDefault?: (runtimeId: string | null) => Promise<void>;
 }) {
   void updatableIds;
 
@@ -660,8 +749,11 @@ export function RuntimeList({
   }, [runtimes, profileById, memberById, workloadIndex, isAdmin, user]);
 
   // Mirrors RuntimeRowMenu's render guard: the kebab track only earns its
-  // width when at least one row will actually show the menu.
-  const showActions = rows.some((row) => row.canDelete);
+  // width when at least one row will actually show the menu. A workspace
+  // admin sees set-default + migrate actions on every row.
+  const canSetDefault = isAdmin && !!onSetDefault;
+  const canMigrate = isAdmin;
+  const showActions = canSetDefault || canMigrate || rows.some((row) => row.canDelete);
 
   return (
     <div className="overflow-x-auto overflow-y-hidden @container">
@@ -702,7 +794,10 @@ export function RuntimeList({
                 ? rowLink(wsPaths.runtimeDetail(row.runtime.id))
                 : {})}
             >
-              <RuntimeNameCell runtime={row.runtime} />
+              <RuntimeNameCell
+                runtime={row.runtime}
+                isDefault={row.runtime.id === defaultRuntimeId}
+              />
               <HealthCell
                 runtime={row.runtime}
                 workload={row.workload}
@@ -753,6 +848,10 @@ export function RuntimeList({
                     profile={row.profile}
                     wsId={wsId}
                     canDelete={row.canDelete}
+                    isDefault={row.runtime.id === defaultRuntimeId}
+                    canSetDefault={canSetDefault}
+                    onSetDefault={onSetDefault}
+                    canMigrate={canMigrate}
                   />
                 </span>
               </ListGridCell>

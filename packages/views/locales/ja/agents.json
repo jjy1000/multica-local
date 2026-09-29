@@ -300,6 +300,7 @@
     "runtime_loading": "ランタイムを読み込み中...",
     "runtime_none": "利用可能なランタイムがありません",
     "runtime_cloud_badge": "クラウド",
+    "runtime_default_badge": "デフォルト",
     "runtime_private_badge": "非公開",
     "runtime_private_locked_tooltip": "非公開ランタイムです。オーナーのみがこのランタイム上にエージェントを作成できます。共有するには、オーナーに公開へ切り替えるよう依頼してください。",
     "duplicate_copy_suffix": " (コピー)",

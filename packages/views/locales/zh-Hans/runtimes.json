@@ -265,6 +265,13 @@
     "badge_builtin": "内置",
     "badge_custom": "自定义",
     "badge_registering": "注册中",
+    "badge_default": "默认",
+    "badge_default_hint": "新建智能体默认使用此运行时（CLI）",
+    "set_default_action": "设为默认运行时",
+    "unset_default_action": "取消默认运行时",
+    "default_set_toast": "已设为默认运行时，新建智能体将默认使用它",
+    "default_cleared_toast": "已取消默认运行时",
+    "default_update_failed": "设置默认运行时失败",
     "pending_health": "正在向守护进程注册",
     "pending_health_warning": "等待守护进程同步",
     "pending_health_error": "注册错误",
@@ -402,5 +409,18 @@
     "table_cache_r": "缓存读",
     "table_cache_w": "缓存写",
     "no_data": "还没有使用数据"
+  },
+  "migrate": {
+    "action": "迁移智能体到其他运行时…",
+    "title": "迁移「{{name}}」上的智能体",
+    "description": "把绑定在该运行时上的智能体（含已归档）整体搬到另一个运行时，或再搬回来。排队/运行中的任务仍按原运行时执行。",
+    "target_label": "目标运行时",
+    "no_targets": "没有其他可用运行时",
+    "reset_hint": "与目标 CLI 不兼容的模型和 thinking 等级会被重置为默认",
+    "cancel": "取消",
+    "confirm": "迁移",
+    "toast_failed": "迁移失败",
+    "affected_count_other": "{{count}} 个智能体",
+    "toast_moved_other": "已迁移 {{count}} 个智能体"
   }
 }

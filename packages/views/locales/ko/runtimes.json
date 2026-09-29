@@ -275,6 +275,13 @@
     "badge_builtin": "기본 제공",
     "badge_custom": "사용자 지정",
     "badge_registering": "등록 중",
+    "badge_default": "기본",
+    "badge_default_hint": "새 에이전트는 이 런타임(CLI)을 기본으로 사용합니다",
+    "set_default_action": "기본 런타임으로 설정",
+    "unset_default_action": "기본 런타임 해제",
+    "default_set_toast": "기본으로 설정되었습니다. 새 에이전트가 이 런타임을 사용합니다",
+    "default_cleared_toast": "기본 런타임이 해제되었습니다",
+    "default_update_failed": "기본 런타임 설정에 실패했습니다",
     "pending_health": "Daemon에 등록 중",
     "pending_health_warning": "Daemon 동기화 대기 중",
     "pending_health_error": "등록 오류",
@@ -415,5 +422,18 @@
     "table_cache_r": "캐시 R",
     "table_cache_w": "캐시 W",
     "no_data": "아직 사용량 데이터가 없습니다"
+  },
+  "migrate": {
+    "action": "에이전트를 다른 런타임으로 마이그레이션…",
+    "title": "\"{{name}}\"의 에이전트 마이그레이션",
+    "description": "이 런타임에 바인딩된 에이전트(보관됨 포함)를 다른 런타임으로 한 번에 이동합니다. 되돌리기도 같은 방법입니다. 대기/실행 중인 작업은 기존 런타임에서 계속됩니다.",
+    "target_label": "대상 런타임",
+    "no_targets": "사용 가능한 다른 런타임이 없습니다",
+    "reset_hint": "대상 CLI와 호환되지 않는 모델 및 thinking 레벨은 기본값으로 초기화됩니다",
+    "cancel": "취소",
+    "confirm": "마이그레이션",
+    "toast_failed": "마이그레이션 실패",
+    "affected_count_other": "에이전트 {{count}}개",
+    "toast_moved_other": "에이전트 {{count}}개를 이동했습니다"
   }
 }

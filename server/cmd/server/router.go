@@ -1355,6 +1355,11 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				// workspace (find-or-create by name) and creates the agent
 				// with the template's instructions in one transaction.
 				r.Post("/from-template", h.CreateAgentFromTemplate)
+				// 0.5.127 default-CLI companion: move the whole existing
+				// fleet from one runtime to another (and back). Literal
+				// slug BEFORE /{id} — chi captures the literal as the id
+				// param otherwise (Active Contract #2).
+				r.Post("/bulk-move-runtime", h.BulkMoveAgentRuntime)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.GetAgent)
 					r.Put("/", h.UpdateAgent)

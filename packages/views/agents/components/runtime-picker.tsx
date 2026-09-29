@@ -23,6 +23,7 @@ export function RuntimePicker({
   currentUserId,
   selectedRuntimeId,
   onSelect,
+  defaultRuntimeId,
 }: {
   runtimes: RuntimeDevice[];
   runtimesLoading?: boolean;
@@ -30,6 +31,15 @@ export function RuntimePicker({
   currentUserId: string | null;
   selectedRuntimeId: string;
   onSelect: (id: string) => void;
+  /**
+   * Workspace default runtime (workspace.settings.default_runtime_id).
+   * When set and usable it wins the empty-selection seeding over "first
+   * usable in the list" — that list's order is registration-order
+   * (created_at), which would otherwise pin every new agent to whichever
+   * CLI registered first. Optional: callers without workspace context
+   * keep the old fallback.
+   */
+  defaultRuntimeId?: string | null;
 }) {
   const { t } = useT("agents");
   const [open, setOpen] = useState(false);
@@ -47,6 +57,17 @@ export function RuntimePicker({
     [runtimes, filter, currentUserId],
   );
 
+  // The workspace default only influences seeding when it is actually in
+  // the current filter set and usable — an other-owner default under the
+  // "mine" filter must not override a usable own runtime.
+  const preferredDefault = useMemo(() => {
+    if (!defaultRuntimeId) return null;
+    const match = filteredRuntimes.find((r) => r.id === defaultRuntimeId);
+    return match && isRuntimeUsableForUser(match, currentUserId)
+      ? match
+      : null;
+  }, [defaultRuntimeId, filteredRuntimes, currentUserId]);
+
   const selectedRuntime =
     runtimes.find((d) => d.id === selectedRuntimeId) ?? null;
 
@@ -54,14 +75,14 @@ export function RuntimePicker({
   // — first mount with no template runtime, runtimes arriving later over
   // WS, or filter toggle clearing to a set with no usable item. Only fires
   // when `selectedRuntimeId === ""` so a duplicate-mode pre-fill (template
-  // runtime) is never silently overwritten.
+  // runtime) is never silently overwritten. The workspace default runtime
+  // wins over "first usable" when present (0.5.127 default-CLI switch).
   useEffect(() => {
     if (selectedRuntimeId !== "") return;
-    const firstUsable = filteredRuntimes.find((r) =>
-      isRuntimeUsableForUser(r, currentUserId),
-    );
-    if (firstUsable) onSelect(firstUsable.id);
-  }, [filteredRuntimes, selectedRuntimeId, currentUserId, onSelect]);
+    const seed = preferredDefault ??
+      filteredRuntimes.find((r) => isRuntimeUsableForUser(r, currentUserId));
+    if (seed) onSelect(seed.id);
+  }, [filteredRuntimes, selectedRuntimeId, currentUserId, onSelect, preferredDefault]);
 
   // On filter toggle, recompute the picker's selection to a usable item
   // in the new filter set. Pushes `""` when nothing matches; the seeding
@@ -70,9 +91,16 @@ export function RuntimePicker({
     if (next === filter) return;
     setFilter(next);
     const nextList = computeFilteredRuntimes(runtimes, next, currentUserId);
-    const firstUsable = nextList.find((r) =>
-      isRuntimeUsableForUser(r, currentUserId),
-    );
+    const preferred = defaultRuntimeId
+      ? nextList.find(
+          (r) =>
+            r.id === defaultRuntimeId &&
+            isRuntimeUsableForUser(r, currentUserId),
+        )
+      : undefined;
+    const firstUsable =
+      preferred ??
+      nextList.find((r) => isRuntimeUsableForUser(r, currentUserId));
     onSelect(firstUsable?.id ?? "");
   };
 
@@ -190,6 +218,11 @@ export function RuntimePicker({
                     {device.runtime_mode === "cloud" && (
                       <span className="shrink-0 rounded bg-info/10 px-1.5 py-0.5 text-caption font-medium text-info">
                         {t(($) => $.create_dialog.runtime_cloud_badge)}
+                      </span>
+                    )}
+                    {device.id === defaultRuntimeId && (
+                      <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-caption font-medium text-primary">
+                        {t(($) => $.create_dialog.runtime_default_badge)}
                       </span>
                     )}
                     {disabled && (

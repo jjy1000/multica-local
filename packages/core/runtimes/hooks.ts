@@ -1,8 +1,11 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth";
-import type { AgentRuntime } from "../types";
+import { api } from "../api";
+import type { AgentRuntime, Workspace } from "../types";
+import { workspaceListOptions } from "../workspace/queries";
 import { runtimeListOptions, latestCliVersionOptions } from "./queries";
+import { withDefaultRuntimeId } from "./default";
 
 function stripV(v: string): string {
   return v.replace(/^v/, "");
@@ -80,4 +83,34 @@ export function useUpdatableRuntimeIds(wsId: string | undefined): Set<string> {
     }
     return ids;
   }, [runtimes, latestVersion, userId]);
+}
+
+/**
+ * Sets (id) or clears (null) the workspace's default agent runtime —
+ * `workspace.settings.default_runtime_id`, the value new-agent forms seed
+ * their runtime picker from. The workspace list cache is patched in place
+ * (mirroring the settings tab's updateWorkspace save), so both the
+ * Runtimes page badge and the agent form react without a refetch.
+ *
+ * Caller supplies the current workspace object (it already has it) and
+ * owns error/success toasts. Throws on failure so the caller can toast
+ * the message; the cache is only touched on success.
+ */
+export function useSetDefaultRuntime(
+  workspace: Pick<Workspace, "id" | "settings"> | null,
+): (runtimeId: string | null) => Promise<void> {
+  const qc = useQueryClient();
+  return useMemo(
+    () => async (runtimeId: string | null) => {
+      if (!workspace) return;
+      const updated = await api.updateWorkspace(workspace.id, {
+        settings: withDefaultRuntimeId(workspace.settings, runtimeId),
+      });
+      qc.setQueryData<Workspace[]>(
+        workspaceListOptions().queryKey,
+        (old) => old?.map((ws) => (ws.id === updated.id ? updated : ws)),
+      );
+    },
+    [qc, workspace],
+  );
 }

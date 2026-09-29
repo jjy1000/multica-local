@@ -149,11 +149,12 @@ import { type Logger, noopLogger } from "../logger";
 import { createRequestId } from "../utils";
 import { getCurrentSlug } from "../platform/workspace-storage";
 import { parseWithFallback } from "./schema";
-import type { LabArtifactStub } from "./schemas";
+import type { LabArtifactStub, BulkMoveAgentRuntimeResponse } from "./schemas";
 import {
   AgentTemplateSchema,
   AgentTemplateSummaryListSchema,
   AttachmentResponseSchema,
+  BulkMoveAgentRuntimeResponseSchema,
   CancelTaskResponseSchema,
   ExperimentalFlagsListSchema,
   ChildIssuesResponseSchema,
@@ -173,6 +174,7 @@ import {
   EMPTY_AGENT_TEMPLATE_SUMMARY_LIST,
   EMPTY_APP_CONFIG,
   EMPTY_ATTACHMENT,
+  EMPTY_BULK_MOVE_AGENT_RUNTIME_RESPONSE,
   EMPTY_CLOUD_RUNTIME_NODE,
   EMPTY_CLOUD_RUNTIME_NODE_LIST,
   EMPTY_CREATE_AGENT_FROM_TEMPLATE_RESPONSE,
@@ -1187,6 +1189,33 @@ export class ApiClient {
 
   async restoreAgent(id: string): Promise<Agent> {
     return this.fetch(`/api/agents/${id}/restore`, { method: "POST" });
+  }
+
+  /**
+   * Moves every agent bound to one runtime onto another (the reverse move
+   * is the same endpoint with the arguments swapped). Owner/admin only
+   * server-side. Per-agent semantics mirror the single UpdateAgent
+   * runtime-switch: known provider-incompatible models and
+   * literal-invalid thinking levels are reset to the target's default
+   * (unknown model families — e.g. any model onto an opencode target —
+   * are preserved). Returns counts only; callers invalidate the agents
+   * query.
+   */
+  async bulkMoveAgentRuntime(data: {
+    from_runtime_id: string;
+    to_runtime_id: string;
+    include_archived?: boolean;
+  }): Promise<BulkMoveAgentRuntimeResponse> {
+    const raw = await this.fetch<unknown>("/api/agents/bulk-move-runtime", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return parseWithFallback(
+      raw,
+      BulkMoveAgentRuntimeResponseSchema,
+      EMPTY_BULK_MOVE_AGENT_RUNTIME_RESPONSE,
+      { endpoint: "POST /api/agents/bulk-move-runtime" },
+    );
   }
 
   // Bulk-cancel every active task (queued/dispatched/running) for the agent.
