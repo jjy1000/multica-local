@@ -257,7 +257,7 @@ DMG install **only replaces `/Applications/Multica.app`**. All user data lives i
 
 | Data | Path |
 |------|------|
-| PostgreSQL | Docker volume `multica_pgdata` |
+| PostgreSQL | Bundled **native** PG — pgdata at `~/Library/Application Support/Multica/pgdata` (NOT a Docker volume; the `multica_pgdata` Docker volume is upstream's dev form and this machine has no Docker) |
 | Config / tokens | `~/.multica/profiles/<name>/config.json` |
 | Server env | `~/.multica/profiles/<name>/.env` |
 | Workspace files | `~/multica_workspaces_<profile>/` |
@@ -269,7 +269,7 @@ Rules:
 - **Migrations are forward-only**: never drop a table or column. Schema changes must be additive.
 - **Config fields are append-only**: don't delete/rename existing keys in `config.json` or `.env`. New fields have defaults.
 - **Pre-update snapshot** mandatory before DMG rebuild (script `~/.multica/scripts/pre-update-snapshot.sh`).
-- **Verify data integrity** after upgrade: `docker exec multica-postgres-1 psql -U multica -d multica -c "SELECT COUNT(*) FROM workspace"` should return expected count.
+- **Verify data integrity** after upgrade — the server's PG is the bundled native instance on `127.0.0.1:5432`: `PGPASSWORD=multica psql -U multica -d multica -h 127.0.0.1 -p 5432 -tAc "SELECT COUNT(*) FROM workspace"` should return expected count. If 5432 isn't listening, check 5433 (same fallback as `pre-update-snapshot.sh`). The upstream form `docker exec multica-postgres-1 psql ...` cannot work here (no Docker).
 
 ## Testing
 
@@ -318,7 +318,7 @@ Do NOT claim verification passed unless you ran it. If you skip (docs-only or as
 
 **`cmd/server` is NOT covered by the ship-gate go-test list (0.5.121 audit finding).** The mandatory command above runs `./internal/... ./pkg/agent/...`; `cmd/server` integration tests (`TestCommentTriggerOnComment`, `TestCommentTriggerAtAllSuppression` — comment-trigger semantics) went red sometime around 0.5.117/0.5.118 and stayed red because no gate runs them. Before shipping anything that touches comment triggers or the claim/dispatch path, run `go test ./cmd/server/` explicitly. The reds are a recorded baseline pending a dedicated fix batch — do not cite them as pre-existing cover for new failures in other packages, and fix-forward is expected.
 
-**Silent-skip trap (0.5.79 lesson)**: with `DATABASE_URL` unset, DB-backed tests SKIP silently — suite "passes" in ~15s having run nothing. Export first: `export $(grep -E '^DATABASE_URL=' .env | xargs)` and confirm the runner printed its DB-set marker before trusting a suspiciously fast green run. `scripts/check.sh` hard-fails on that precondition.
+**Silent-skip trap (0.5.79 lesson)**: with `DATABASE_URL` unset, DB-backed tests SKIP silently — suite "passes" in ~15s having run nothing. `.env` lives at the **repo root**, NOT `server/` — export it from the repo root BEFORE `cd server`: `export $(grep -E '^DATABASE_URL=' .env | xargs)`. Running that same command after `cd server` silently no-ops (grep finds no `server/.env`, the substitution expands empty, `DATABASE_URL` stays unset) and the trap stays armed. Confirm the runner printed its DB-set marker before trusting a suspiciously fast green run. `scripts/check.sh` hard-fails on that precondition (it sources repo-root `.env` itself).
 
 ## Upstream Port Workflow
 

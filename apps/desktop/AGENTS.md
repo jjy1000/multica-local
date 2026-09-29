@@ -112,6 +112,12 @@ Before touching either, read root `CLAUDE.md` → "Desktop Rules" and memory
   NOT write the final sentinel before the operation succeeds.
 - **Migrations are forward-only** (never drop tables/columns); **config fields
   are append-only** (no deletions/renames in `config.json` / `.env`).
+- **Daemon log path is per-profile**: the live log is
+  `~/.multica/profiles/<name>/daemon.log` (`profileLogPath()` in
+  daemon-manager.ts). `~/.multica/daemon.log` is a legacy leftover that froze
+  when the per-profile path landed — it ends mid-incident on 401 re-auth
+  warnings and is NOT being written. Diagnosing daemon/auth issues from it
+  yields false conclusions; always read the profile log.
 - Packaged path resolution: `child_process` does not resolve asar paths — use
   `resolveResourcePath()` in server-manager.ts.
 
