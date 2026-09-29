@@ -360,7 +360,12 @@ function CascadeBody({
         <p className="mt-1 text-sm leading-5 text-muted-foreground">
           {t(($) => $.detail.delete_dialog.cascade.description, {
             name: runtime.name,
-          })}
+          })}{" "}
+          {
+            // 0.5.128 tombstone: the delete is reversible by re-registering
+            // the daemon — say so right where the user reads the scary part.
+            t(($) => $.detail.delete_dialog.cascade_description_suffix)
+          }
         </p>
 
         <DeletePersistenceNotice runtime={runtime} />

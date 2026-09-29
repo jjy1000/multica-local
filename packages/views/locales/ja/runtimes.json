@@ -110,7 +110,7 @@
     "visibility_toast_updated": "公開範囲を {{visibility}} に設定しました",
     "visibility_toast_failed": "公開範囲を更新できませんでした",
     "delete_dialog": {
-      "self_heal_notice": "このランタイムは実行中のローカルデーモンに管理されています。削除自体は成功しますが、デーモンプロセスを停止しない限り、数秒以内に新しいランタイムとして再登録されます。完全に削除するには先にデーモンを停止してください。",
+      "self_heal_notice": "このランタイムは実行中のローカルデーモンが管理しています。削除はリストから外すだけです。デーモンが次に登録すると同じランタイムがそのまま復活し、削除時にアーカイブされたエージェントも自動的に復元されます（使用量履歴も保持）。完全に削除するには先にデーモンを停止してください。",
       "profile_backed_notice": "このランタイムはカスタムランタイムプロファイルから登録されています。ここで削除しても現在のランタイムインスタンスだけが削除され、プロファイルが残っている間は実行中のデーモンが再登録できます。完全に削除するには、Custom runtimes からカスタムランタイムプロファイルを削除してください。",
       "light": {
         "title": "ランタイムを削除しますか?",
@@ -146,7 +146,8 @@
           "visibility_workspace": "ワークスペース",
           "visibility_private": "非公開"
         }
-      }
+      },
+      "cascade_description_suffix": "ランタイムはリストから外れますがデータは保持されます。デーモンが再登録すると、このランタイムとアーカイブされたエージェントは自動的に復元されます。"
     },
     "toast_deleted": "ランタイムを削除しました",
     "toast_delete_failed": "ランタイムを削除できませんでした",
@@ -279,7 +280,8 @@
     "set_default_action_hint": "以前の既定ランタイム上のエージェントも自動的に移行されます",
     "default_set_migrated_one": "既定に設定し、{{count}} 件のエージェントを移行しました",
     "default_set_migrated_other": "既定に設定し、{{count}} 件のエージェントを移行しました",
-    "default_set_migration_failed": "既定は有効ですが、移行に失敗しました："
+    "default_set_migration_failed": "既定は有効ですが、移行に失敗しました：",
+    "default_migration_running": "既定に設定してエージェントを移行中…"
   },
   "profiles": {
     "cta": "ランタイムを追加",

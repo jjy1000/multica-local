@@ -115,7 +115,7 @@
     "visibility_toast_updated": "Visibility set to {{visibility}}",
     "visibility_toast_failed": "Failed to update visibility",
     "delete_dialog": {
-      "self_heal_notice": "This runtime is managed by a running local daemon. Deleting it will succeed, but the daemon will re-register a fresh runtime within seconds — stop the daemon process first to remove it permanently.",
+      "self_heal_notice": "This runtime is managed by a running local daemon. Deleting only removes it from the list — the daemon will bring the SAME runtime back on its next registration, and agents archived by the delete are restored automatically (usage history kept). Stop the daemon process first to remove it permanently.",
       "profile_backed_notice": "This runtime was registered from a custom runtime profile. Deleting it removes only the current runtime instance; a running daemon can register it again while the profile remains. Delete the custom runtime profile from Custom runtimes to remove it permanently.",
       "light": {
         "title": "Delete Runtime?",
@@ -154,7 +154,8 @@
           "visibility_workspace": "Workspace",
           "visibility_private": "Private"
         }
-      }
+      },
+      "cascade_description_suffix": "The runtime leaves the list but its data is kept: when the daemon re-registers, the runtime and the agents archived by this delete come back automatically."
     },
     "toast_deleted": "Runtime deleted",
     "toast_delete_failed": "Failed to delete runtime",
@@ -290,7 +291,8 @@
     "set_default_action_hint": "Agents on the previous default runtime move over automatically",
     "default_set_migrated_one": "Set as default — migrated {{count}} agent",
     "default_set_migrated_other": "Set as default — migrated {{count}} agents",
-    "default_set_migration_failed": "Default is active, but the fleet migration failed:"
+    "default_set_migration_failed": "Default is active, but the fleet migration failed:",
+    "default_migration_running": "Setting default and migrating agents…"
   },
   "profiles": {
     "cta": "Add runtime",

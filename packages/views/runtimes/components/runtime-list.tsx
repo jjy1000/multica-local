@@ -638,7 +638,16 @@ export function RuntimeRowMenu({
           onOpenChange={setDeleteOpen}
           profile={profile}
           wsId={wsId}
-          onDeleted={() => setDeleteOpen(false)}
+          onDeleted={() => {
+            setDeleteOpen(false);
+            // Same clear-the-default contract as the built-in branch below:
+            // a deleted runtime must not stay the workspace default (the
+            // stale id degrades gracefully, but clearing keeps the badge and
+            // the one-click semantics honest).
+            if (isDefault) {
+              void onSetDefault?.(null);
+            }
+          }}
         />
       ) : (
         <DeleteRuntimeDialog

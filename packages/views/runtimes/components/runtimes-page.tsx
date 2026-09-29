@@ -196,6 +196,12 @@ export function RuntimesPage({
         toast.success(t(($) => $.list.default_set_toast));
         return;
       }
+      // Fleet migration is one big transaction (sequential per-agent updates)
+      // — on an 80-agent default it runs for seconds, so keep a visible
+      // loading toast up for the whole wait and replace it with the outcome.
+      const loadingToast = toast.loading(
+        t(($) => $.list.default_migration_running),
+      );
       try {
         const result = await api.bulkMoveAgentRuntime({
           from_runtime_id: previousDefault,
@@ -203,6 +209,7 @@ export function RuntimesPage({
           include_archived: true,
         });
         qc.invalidateQueries({ queryKey: workspaceKeys.agents(wsId) });
+        toast.dismiss(loadingToast);
         if (result.moved_count > 0) {
           toast.success(
             t(($) => $.list.default_set_migrated, {
@@ -213,6 +220,7 @@ export function RuntimesPage({
           toast.success(t(($) => $.list.default_set_toast));
         }
       } catch (e) {
+        toast.dismiss(loadingToast);
         toast.warning(
           `${t(($) => $.list.default_set_migration_failed)} ${
             e instanceof Error ? e.message : ""

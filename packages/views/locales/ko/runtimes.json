@@ -115,7 +115,7 @@
     "visibility_toast_updated": "공개 범위를 {{visibility}}(으)로 설정했습니다",
     "visibility_toast_failed": "공개 범위를 업데이트하지 못했습니다",
     "delete_dialog": {
-      "self_heal_notice": "이 런타임은 실행 중인 로컬 데몬이 관리합니다. 삭제는 성공하지만, 데몬 프로세스를 멈추지 않으면 몇 초 안에 새 런타임이 다시 등록됩니다. 완전히 제거하려면 먼저 데몬을 중지하세요.",
+      "self_heal_notice": "이 런타임은 실행 중인 로컬 데몬이 관리합니다. 삭제는 목록에서 제거할 뿐이며, 데몬이 다음 등록 시 동일한 런타임을 그대로 복원하고 삭제 시 보관된 에이전트도 자동으로 복원됩니다(사용량 기록 유지). 완전히 제거하려면 먼저 데몬을 중지하세요.",
       "profile_backed_notice": "이 런타임은 사용자 지정 런타임 프로필에서 등록되었습니다. 여기서 삭제하면 현재 런타임 인스턴스만 제거되며, 프로필이 남아 있는 동안 실행 중인 데몬이 다시 등록할 수 있습니다. 완전히 제거하려면 Custom runtimes에서 사용자 지정 런타임 프로필을 삭제하세요.",
       "light": {
         "title": "런타임을 삭제할까요?",
@@ -154,7 +154,8 @@
           "visibility_workspace": "워크스페이스",
           "visibility_private": "비공개"
         }
-      }
+      },
+      "cascade_description_suffix": "런타임은 목록에서 사라지지만 데이터는 유지됩니다. 데몬이 재등록하면 이 런타임과 보관된 에이전트가 자동으로 복원됩니다."
     },
     "toast_deleted": "런타임을 삭제했습니다",
     "toast_delete_failed": "런타임을 삭제하지 못했습니다",
@@ -289,7 +290,8 @@
     "set_default_action_hint": "이전 기본 런타임의 에이전트가 자동으로 이동합니다",
     "default_set_migrated_one": "기본으로 설정하고 에이전트 {{count}}개를 이동했습니다",
     "default_set_migrated_other": "기본으로 설정하고 에이전트 {{count}}개를 이동했습니다",
-    "default_set_migration_failed": "기본값은 적용되었지만 마이그레이션 실패:"
+    "default_set_migration_failed": "기본값은 적용되었지만 마이그레이션 실패:",
+    "default_migration_running": "기본 설정 및 에이전트 마이그레이션 중…"
   },
   "profiles": {
     "cta": "런타임 추가",

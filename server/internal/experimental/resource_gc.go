@@ -11,10 +11,14 @@
 // orphan row proves the underlying resource was hard-deleted without
 // releasing its lock:
 //
-//   - runtime teardown cascade (DeleteArchivedAgentsByRuntime +
-//     DeleteSquadsByArchivedAgentsOnRuntime inside DeleteAgentRuntime /
-//     ArchiveAgentsAndDeleteRuntime) hard-deletes archived lab agents
-//     and their squads;
+//   - runtime teardown — since 0.5.128 the built-in runtime delete paths
+//     (DeleteAgentRuntime / ArchiveAgentsAndDeleteRuntime) tombstone the
+//     row instead of deleting anything, so they no longer orphan
+//     visibility/lock rows at all; the HARD-DELETE cascade survives only
+//     on the custom-profile path (runtime_profile.go: profile-instance
+//     teardown still runs DeleteArchivedAgentsByRuntime +
+//     DeleteSquadsByArchivedAgentsOnRuntime), which hard-deletes archived
+//     lab agents and their squads;
 //   - workspace delete cascades agent/squad/skill/member rows, and
 //     lock.resource_id has no FK at all (migration 148).
 //

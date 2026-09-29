@@ -110,7 +110,7 @@
     "visibility_toast_updated": "可见性已设为「{{visibility}}」",
     "visibility_toast_failed": "更新可见性失败",
     "delete_dialog": {
-      "self_heal_notice": "该运行时由正在运行的本地守护进程托管。删除会成功，但守护进程会在数秒内重新注册一个新的运行时——若想彻底移除，请先停止守护进程。",
+      "self_heal_notice": "该运行时由正在运行的本地守护进程托管。删除只是把它从列表移除——守护进程下次注册时会原样恢复同一运行时，删除时归档的智能体也会自动恢复（用量历史保留）。若想彻底移除，请先停止守护进程。",
       "profile_backed_notice": "该运行时来自自定义运行时配置。删除它只会移除当前运行时实例；只要配置仍存在，运行中的守护进程就可以再次注册它。若要彻底移除，请在“自定义运行时”中删除对应配置。",
       "light": {
         "title": "删除运行时？",
@@ -146,7 +146,8 @@
           "visibility_workspace": "工作区",
           "visibility_private": "私有"
         }
-      }
+      },
+      "cascade_description_suffix": "运行时会从列表移除，但数据保留：守护进程重新注册时，本运行时与这批被归档的智能体会自动恢复。"
     },
     "toast_deleted": "已删除运行时",
     "toast_delete_failed": "删除运行时失败",
@@ -279,7 +280,8 @@
     "set_default_action_hint": "原默认运行时上的智能体会一并迁移过来",
     "default_set_migrated_one": "已设为默认，并迁移了 {{count}} 个智能体",
     "default_set_migrated_other": "已设为默认，并迁移了 {{count}} 个智能体",
-    "default_set_migration_failed": "默认已生效，但存量迁移失败："
+    "default_set_migration_failed": "默认已生效，但存量迁移失败：",
+    "default_migration_running": "正在设为默认并迁移智能体…"
   },
   "profiles": {
     "cta": "添加运行时",
