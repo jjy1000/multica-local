@@ -20,7 +20,10 @@
 // does nothing, which users will rightly treat as a bug.
 package experimental
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
 
 // LocalizedString is a minimal en+zh bilingual pair used for flag titles
 // and descriptions. The HTTP API returns both fields so the client can
@@ -499,6 +502,40 @@ func UserPluginFlags() []Flag {
 	for _, f := range userPlugins {
 		out = append(out, f)
 	}
+	return out
+}
+
+// EffectiveEnabledKeys returns every flag key whose EFFECTIVE enabled
+// state is true, applying the same semantics as the Labs UI
+// (experimental_flags.go pickEnabled): a stored pref row overrides the
+// flag's DefaultVal; an ABSENT row falls back to the default. The
+// candidate universe is the static catalog plus the registered
+// user-plugin layer; the result is sorted for deterministic consumers.
+//
+// Consumers must use this instead of projecting
+// `experimental_pref WHERE enabled = true` (ListEnabledFlagKeys)
+// whenever "enabled" must agree with what the Labs tab shows — a
+// DefaultVal=true flag the user never toggled (claude_science_lab,
+// pythia_oracle since 0.5.114) has NO pref row and is invisible to the
+// prefs-only projection, yet is fully usable.
+func EffectiveEnabledKeys(prefs map[string]bool) []string {
+	out := make([]string, 0, len(Catalog))
+	consider := func(f Flag) {
+		enabled := f.DefaultVal
+		if stored, ok := prefs[f.Key]; ok {
+			enabled = stored
+		}
+		if enabled {
+			out = append(out, f.Key)
+		}
+	}
+	for i := range Catalog {
+		consider(Catalog[i])
+	}
+	for _, f := range UserPluginFlags() {
+		consider(f)
+	}
+	sort.Strings(out)
 	return out
 }
 

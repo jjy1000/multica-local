@@ -62,6 +62,42 @@ func (q *Queries) GetExperimentalPref(ctx context.Context, arg GetExperimentalPr
 	return i, err
 }
 
+const listAllExperimentalPrefs = `-- name: ListAllExperimentalPrefs :many
+SELECT flag_key, enabled FROM experimental_pref
+`
+
+type ListAllExperimentalPrefsRow struct {
+	FlagKey string `json:"flag_key"`
+	Enabled bool   `json:"enabled"`
+}
+
+// Every stored pref row regardless of user. Consumers that must apply
+// catalog/user-plugin DefaultVal semantics (pickEnabled: an absent row
+// falls back to the default, a present row overrides it) need the
+// ABSENCE of a row as information, which the enabled=true projection of
+// ListEnabledFlagKeys throws away. In this single-user fork the table
+// holds one user's rows; the unfiltered shape keeps the contract
+// correct if a second user ever exists.
+func (q *Queries) ListAllExperimentalPrefs(ctx context.Context) ([]ListAllExperimentalPrefsRow, error) {
+	rows, err := q.db.Query(ctx, listAllExperimentalPrefs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAllExperimentalPrefsRow{}
+	for rows.Next() {
+		var i ListAllExperimentalPrefsRow
+		if err := rows.Scan(&i.FlagKey, &i.Enabled); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEnabledFlagKeys = `-- name: ListEnabledFlagKeys :many
 SELECT DISTINCT flag_key FROM experimental_pref WHERE enabled = true
 `

@@ -19,26 +19,30 @@
 //	Delegate a sub-task with: multica lab delegate --parent <issue-id>
 //	<flag-key> "<task>"
 //
-// Enumeration contract: the ENABLED flag keys come from the existing
-// ListEnabledFlagKeys query layer (the same "any user" semantics the
-// agent skill loader uses — in this single-user fork the set collapses
-// to the one user). Each key is then filtered through the catalog's
-// own metadata (experimental.FlagByKey — single source of truth):
+// Enumeration contract: the candidate universe is every catalog flag
+// plus every registered user plugin, filtered down through the
+// catalog's own metadata (experimental.EffectiveEnabledKeys +
+// experimental.FlagByKey — single source of truth). Effective enabled
+// is pickEnabled semantics — a stored pref row overrides DefaultVal, an
+// ABSENT row falls back to it — so a default-on flag the user never
+// toggled (claude_science_lab, pythia_oracle since 0.5.114) is still
+// enumerated. A prefs-only projection (ListEnabledFlagKeys) misses
+// exactly those flags and silently rendered this brief empty on every
+// default-on install; the 0.5.126 live verification caught that.
 //
 //   - interaction_model must be "assignee" (独立工作型) — auxiliary
 //     labs (causal_graph, llm_wiki_bridge) are never delegation
 //     targets.
-//   - Frozen labs are skipped (swarm_topology) — advertising a lab
-//     that cannot accept work is exactly the trap the 0.5.86
-//     consolidation retired.
+//   - Frozen labs are skipped — advertising a lab that cannot accept
+//     work is exactly the trap the 0.5.86 consolidation retired.
 //   - a resolvable, non-empty leader name is required — the
 //     delegation dispatch itself requires capabilities.leader
-//     (cmd_lab.go's documented prerequisite), so a roster lab like
-//     mythos_swarm would only produce a "no run was dispatched"
-//     timeout.
-//   - AutoDispatch=false labs (pythia_oracle, timesfm — the 0.5.81
-//     records-only opt-out) are skipped: they never enqueue a run on
-//     issue assignment, so `lab delegate` against them deterministically
+//     (cmd_lab.go's documented prerequisite), so a roster lab would
+//     only produce a "no run was dispatched" timeout.
+//   - AutoDispatch=false labs (pythia_oracle — the 0.5.81 records-only
+//     opt-out; timesfm carried the same opt-out until its 0.5.122
+//     retirement) are skipped: they never enqueue a run on issue
+//     assignment, so `lab delegate` against them deterministically
 //     dies in the 30s "no run was dispatched" grace. The 0.5.88 live
 //     verification caught the first cut of this briefing advertising
 //     pythia_oracle — the briefing and the delegate loop must never
@@ -118,20 +122,38 @@ func BuildDelegateBrief(ctx context.Context, q *db.Queries, leaderFor func(flagK
 	timeoutCtx, cancel := context.WithTimeout(ctx, DelegateBriefTimeout)
 	defer cancel()
 
-	enabled, err := q.ListEnabledFlagKeys(timeoutCtx)
+	prefs, err := q.ListAllExperimentalPrefs(timeoutCtx)
 	if err != nil {
 		// WRN — silent to the caller ("", nil), but ops can
 		// correlate "claim ran with no labs briefing" with the DB
 		// error.
-		slog.Warn("delegate brief: enabled-flag lookup failed",
+		slog.Warn("delegate brief: pref lookup failed",
 			"issue_id", issueID,
 			"error", err,
 		)
 		return "", nil
 	}
 
-	labs := make([]DelegateLabEntry, 0, len(enabled))
-	for _, key := range enabled {
+	// Effective-enabled set over catalog + user plugins (pickEnabled
+	// semantics — see the enumeration-contract comment above). The
+	// prefs-only ListEnabledFlagKeys projection is wrong here: a
+	// default-on flag the user never toggled has no pref row yet is
+	// fully usable, and skipping it rendered this brief empty on
+	// default-on installs.
+	prefByKey := make(map[string]bool, len(prefs))
+	for _, p := range prefs {
+		prefByKey[p.FlagKey] = p.Enabled
+	}
+	return renderDelegateBrief(selectDelegateLabs(experimental.EffectiveEnabledKeys(prefByKey), leaderFor), issueID), nil
+}
+
+// selectDelegateLabs filters the effective-enabled flag keys down to the
+// delegatable set: assignee-model, not frozen, auto-dispatching, and with
+// a resolvable non-empty leader. Pure so the filter contract is testable
+// without DATABASE_URL — the DB-side inputs are just a list of flag keys.
+func selectDelegateLabs(enabledKeys []string, leaderFor func(flagKey string) (string, bool)) []DelegateLabEntry {
+	labs := make([]DelegateLabEntry, 0, len(enabledKeys))
+	for _, key := range enabledKeys {
 		f, ok := experimental.FlagByKey(key)
 		if !ok || f.Frozen {
 			continue
@@ -152,8 +174,7 @@ func BuildDelegateBrief(ctx context.Context, q *db.Queries, leaderFor func(flagK
 		}
 		labs = append(labs, DelegateLabEntry{FlagKey: key, Leader: leader})
 	}
-
-	return renderDelegateBrief(labs, issueID), nil
+	return labs
 }
 
 // renderDelegateBrief assembles the final markdown section and applies

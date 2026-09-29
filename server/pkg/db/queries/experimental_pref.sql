@@ -35,6 +35,16 @@ ORDER BY flag_key ASC;
 -- skills become available to every agent while the plugin flag is enabled).
 SELECT DISTINCT flag_key FROM experimental_pref WHERE enabled = true;
 
+-- name: ListAllExperimentalPrefs :many
+-- Every stored pref row regardless of user. Consumers that must apply
+-- catalog/user-plugin DefaultVal semantics (pickEnabled: an absent row
+-- falls back to the default, a present row overrides it) need the
+-- ABSENCE of a row as information, which the enabled=true projection of
+-- ListEnabledFlagKeys throws away. In this single-user fork the table
+-- holds one user's rows; the unfiltered shape keeps the contract
+-- correct if a second user ever exists.
+SELECT flag_key, enabled FROM experimental_pref;
+
 -- name: DeleteExperimentalPref :exec
 DELETE FROM experimental_pref
 WHERE user_id = $1 AND flag_key = $2;

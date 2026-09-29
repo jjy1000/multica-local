@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/multica-ai/multica/server/internal/cli"
+	"github.com/multica-ai/multica/server/internal/experimental"
 	"github.com/multica-ai/multica/server/internal/util"
 )
 
@@ -358,6 +359,7 @@ func init() {
 	issueCreateCmd.Flags().String("priority", "", "Issue priority")
 	issueCreateCmd.Flags().String("assignee", "", "Assignee name (member, agent, or squad; fuzzy match)")
 	issueCreateCmd.Flags().String("assignee-id", "", "Assignee UUID — member, agent, or squad (mutually exclusive with --assignee)")
+	issueCreateCmd.Flags().String("lab-source", "", "Bind the issue to a lab (key from `multica lab list`); the lab's leader agent is auto-assigned — claude_science_lab also auto-dispatches its run")
 	issueCreateCmd.Flags().String("parent", "", "Parent issue ID")
 	issueCreateCmd.Flags().Int("stage", 0, "Stage ordinal (>=1) grouping this sub-issue into an ordered barrier group under its parent; omit for unstaged. The parent assignee is woken only when every sub-issue in a stage finishes.")
 	issueCreateCmd.Flags().String("project", "", "Project ID")
@@ -377,6 +379,7 @@ func init() {
 	issueUpdateCmd.Flags().String("priority", "", "New priority")
 	issueUpdateCmd.Flags().String("assignee", "", "New assignee name (member, agent, or squad; fuzzy match)")
 	issueUpdateCmd.Flags().String("assignee-id", "", "New assignee UUID — member, agent, or squad (mutually exclusive with --assignee)")
+	issueUpdateCmd.Flags().String("lab-source", "", "Bind the issue to a lab (key from `multica lab list`; the lab's leader agent is auto-assigned) or pass an empty string to remove the binding")
 	issueUpdateCmd.Flags().String("project", "", "Project ID")
 	issueUpdateCmd.Flags().String("start-date", "", "New start date (calendar day, YYYY-MM-DD; pass empty string to clear)")
 	issueUpdateCmd.Flags().String("due-date", "", "New due date (calendar day, YYYY-MM-DD)")
@@ -932,6 +935,13 @@ func runIssueCreate(cmd *cobra.Command, _ []string) error {
 		body["assignee_type"] = aType
 		body["assignee_id"] = aID
 	}
+	if v, _ := cmd.Flags().GetString("lab-source"); v != "" {
+		key, labErr := resolveLabSourceArg(v)
+		if labErr != nil {
+			return labErr
+		}
+		body["lab_source"] = key
+	}
 
 	// Quick-create stamp: when the daemon sets MULTICA_QUICK_CREATE_TASK_ID
 	// before invoking the agent, the agent's `multica issue create` call
@@ -1135,6 +1145,19 @@ func runIssueUpdate(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("--stage must be >= 1")
 		}
 		body["stage"] = stage
+	}
+	if cmd.Flags().Changed("lab-source") {
+		v, _ := cmd.Flags().GetString("lab-source")
+		if v == "" {
+			// Explicit null removes the binding (server PATCH contract).
+			body["lab_source"] = nil
+		} else {
+			key, labErr := resolveLabSourceArg(v)
+			if labErr != nil {
+				return labErr
+			}
+			body["lab_source"] = key
+		}
 	}
 
 	if len(body) == 0 {
@@ -2208,6 +2231,37 @@ func resolveAssigneeByID(ctx context.Context, client *cli.APIClient, id string, 
 	}
 
 	return "", "", fmt.Errorf("no %s found with ID %q", kinds.describe(), input)
+}
+
+// resolveLabSourceArg validates a --lab-source value with the same
+// fail-fast gates runLabDelegate applies, so `issue create/update
+// --lab-source` rejects an unknown or frozen lab client-side instead of
+// letting the server 400 after the caller has already composed the rest
+// of the request. Returns the normalized flag key the server accepts
+// (built-in key pass-through, bare slug prefixed into the user_ plugin
+// namespace — one resolution scheme with `lab delegate`).
+//
+// AutoDispatch=false labs are allowed but warned: binding one still
+// assigns its leader (the 0.5.86 leader-rewrite is independent of the
+// dispatch gate), only the automatic run enqueue is skipped — unlike
+// `lab delegate`, whose wait loop makes a non-dispatching bind a
+// guaranteed timeout and therefore hard-fails there.
+func resolveLabSourceArg(v string) (string, error) {
+	key := resolveLabFlagKey(v)
+	f, ok := experimental.FlagByKey(key)
+	if !ok {
+		return "", fmt.Errorf("lab-source %q is not a known lab; run `multica lab list` for the available keys", v)
+	}
+	if f.Frozen {
+		if f.SuccessorKey != "" {
+			return "", fmt.Errorf("lab %s is frozen and superseded by %s: use %s instead", key, f.SuccessorKey, f.SuccessorKey)
+		}
+		return "", fmt.Errorf("lab %s is frozen: it cannot accept new bindings", key)
+	}
+	if f.AutoDispatch != nil && !*f.AutoDispatch {
+		fmt.Fprintf(os.Stderr, "note: %s opts out of auto-dispatch; the lab leader is assigned but no run dispatches until the lab panel or a mention triggers it\n", key)
+	}
+	return key, nil
 }
 
 // pickAssigneeFromFlags reads a (name-flag, id-flag) pair off cmd and resolves

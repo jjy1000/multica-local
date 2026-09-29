@@ -1,6 +1,6 @@
 ---
 name: multica-claude-science
-description: "科研实验室 / 多步研究任务首选 — 派工时优先用本 Skill, 不要自己扮演研究员或编造结论顶替. 触发词: 科研 / 研究 / 深入研究 / 调研 / 文献调研 / 综述 / 复现 / 复现论文 / 验证假设 / 实验设计 / 可行性分析 / 差异分析 / 跑个实验. 入口: `multica issue create --title … --description … --assignee research` 建 issue 交给 research leader(或在已有 issue 上继续), 逐步产出以顶层评论交付, 报告/表格/图落在该 issue 的实验 session 上. 要真跑代码见 multica-claude-science-runtime. 平台操作(建普通 issue / @mention / 派工)走 multica-working-on-issues 与 multica-mentioning."
+description: "科研实验室 / 多步研究任务首选 — 派工时优先用本 Skill, 不要自己扮演研究员或编造结论顶替. 触发词: 科研 / 研究 / 深入研究 / 调研 / 文献调研 / 综述 / 复现 / 复现论文 / 验证假设 / 实验设计 / 可行性分析 / 差异分析 / 跑个实验. 入口: 已有 issue 一步绑定 `multica issue update <id> --lab-source claude_science_lab`; 自包含子任务用 `multica lab delegate --parent <id> claude_science_lab \"<task>\"` 阻塞等结果并回贴; 新建研究 issue 用 `multica issue create … --lab-source claude_science_lab`. 逐步产出以顶层评论交付, 报告/表格/图落在该 issue 的实验 session 上. 要真跑代码见 multica-claude-science-runtime. 平台操作(建普通 issue / @mention / 派工)走 multica-working-on-issues 与 multica-mentioning."
 user-invocable: true
 allowed-tools: Bash(multica *), Bash(git *)
 ---
@@ -18,39 +18,40 @@ no separate binary to manage.
 Research work in Multica is durable: it lives on an issue, gets comments,
 shows up in the squad's queue. Before kicking off anything, decide whether
 the user already has an open issue to attach to. If yes, read it first. If
-no, create one and capture the topic in the title.
+no, create one and capture the topic in the title. Three entry shapes,
+pick by what you need:
 
 ```sh
+# A. The issue already exists and the research IS the issue — bind it
+#    in one step. The server rewrites the assignee to the lab leader
+#    and enqueues the research run.
+multica issue update "$ISSUE_ID" --lab-source claude_science_lab
+
+# B. New research issue — create and bind in one command.
 multica issue create \
   --title "科研: <short topic>" \
   --description "<expanded scope, hypotheses, success criteria>" \
-  --assignee research \
+  --lab-source claude_science_lab \
   --output json
+
+# C. Self-contained sub-task you need a result FROM (delegation):
+#    creates a lab-bound child issue under --parent, blocks until the
+#    run finishes, prints the final reply, and posts a result summary
+#    comment back on the parent issue.
+multica lab delegate --parent "$ISSUE_ID" claude_science_lab "<research task>"
 ```
 
 There is no `--slug` / `--workspace-id` flag: the workspace comes from
 `MULTICA_WORKSPACE_ID` (the daemon injects it into every agent task) or
-your local profile. `--assignee` is the key one — naming `research`
-puts the lab leader on the issue, which is what makes the run pick up
-the lab's skills.
+your local profile. `--lab-source` accepts any key from
+`multica lab list`; for research it is `claude_science_lab`. Naming the
+lab leader (`research`) as `--assignee` also works, but the lab binding
+is what picks up the lab's session / artifact / critique machinery, so
+prefer `--lab-source`.
 
-The response carries `id` and `key`. Keep both.
-
-**Binding the issue to the lab itself** is a separate step — the CLI has
-no `--lab-source` flag, so use the API (your task token is in
-`MULTICA_API_TOKEN`, and the API base is in `MULTICA_SERVER_URL`):
-
-```sh
-curl -sS -X PATCH "$MULTICA_SERVER_URL/api/issues/$ISSUE_ID" \
-  -H "Authorization: Bearer $MULTICA_API_TOKEN" \
-  -H "X-Workspace-ID: $MULTICA_WORKSPACE_ID" \
-  -H "Content-Type: application/json" \
-  -d '{"lab_source":"claude_science_lab"}'
-```
-
-The server rewrites the assignee to the lab leader and enqueues the
-research task. If the issue is already lab-bound, skip this — setting
-`lab_source` on an issue that already has it is a no-op.
+For A and B the response carries `id` and `key`. Keep both. (C blocks
+until the delegated run returns; you do not need the child issue's ids
+unless you want to reference the run later.)
 
 ## Step 2 — plan the steps
 

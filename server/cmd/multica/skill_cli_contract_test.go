@@ -39,6 +39,7 @@ const builtinSkillsDir = "../../internal/service/builtin_skills"
 var labSkillsUnderContract = []string{
 	"multica-claude-science",
 	"multica-claude-science-runtime",
+	"multica-labs",
 }
 
 // shBlockRE captures fenced ```sh blocks only. Prose that merely names a

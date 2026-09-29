@@ -368,13 +368,19 @@ func TestCreatePlainSubIssueRecordsCausalDependsOnEdge(t *testing.T) {
 }
 
 // TestDelegationBriefListsEnabledAssigneeLabs — the daemon briefing
-// builder against the real DB + the real leader tables. claude_science_lab
-// (assignee-model, auto-dispatch standard contract) must be listed when
-// enabled; pythia_oracle must NEVER be listed even when enabled (0.5.88
-// AutoDispatch=false skip — the live verification caught the first cut
-// advertising a lab `lab delegate` can never dispatch), swarm_topology
-// must NEVER be listed even when enabled (0.5.88 Frozen), and nothing
-// renders when nothing delegatable is enabled.
+// builder against the real DB + the real leader tables. Effective
+// enabled follows pickEnabled semantics (0.5.126 fix): a stored pref
+// row overrides DefaultVal, an ABSENT row falls back to it. The
+// pre-0.5.126 prefs-only projection rendered this brief EMPTY on every
+// default-on install, because the one delegatable lab
+// (claude_science_lab, DefaultVal=true since 0.5.114) had no pref row
+// until the user toggled it — the old pin below asserted exactly that
+// bug as the "empty-when-none baseline" and was rewritten to the new
+// contract. claude_science_lab must be listed with NO pref row at all;
+// pythia_oracle must NEVER be listed even when explicitly enabled
+// (0.5.88 AutoDispatch=false skip — `lab delegate` fails fast on it);
+// swarm_topology (catalog entry removed 0.5.122) must never be listed;
+// and an explicit enabled=false override must suppress claude.
 func TestDelegationBriefListsEnabledAssigneeLabs(t *testing.T) {
 	if testHandler == nil || testPool == nil {
 		t.Skip("handler fixture unavailable (no DATABASE_URL)")
@@ -382,9 +388,9 @@ func TestDelegationBriefListsEnabledAssigneeLabs(t *testing.T) {
 	ctx := t.Context()
 	userUUID := mustParseUUID(t, testUserID)
 
-	// The dev DB is shared and long-lived: leftover enabled pref rows for
-	// the assignee-model labs would defeat the empty-when-none baseline.
-	// Clear the whole assignee-model family up front (same
+	// The dev DB is shared and long-lived: leftover pref rows for the
+	// assignee-model labs would blur the "no pref row = catalog default"
+	// baseline. Clear the whole assignee-model family up front (same
 	// key-targeted discipline as TestCausalGraphRecorderFlagGate — the
 	// user's non-lab pref rows are untouched).
 	const assigneeModelKeys = "'claude_science_lab','pythia_oracle','mythos_swarm','semantica','timesfm','swarm_topology'"
@@ -397,20 +403,32 @@ func TestDelegationBriefListsEnabledAssigneeLabs(t *testing.T) {
 
 	leaderFor := func(key string) (string, bool) { return defaultLabLeaderForKey(key) }
 
-	// Nothing enabled → nothing rendered (empty-when-none against the
-	// live DB).
+	// NO pref row at all → the default-on delegatable lab is still
+	// advertised (the 0.5.126 bug pin: the old prefs-only source
+	// rendered nothing here).
 	brief, err := causalgraph.BuildDelegateBrief(ctx, testHandler.Queries, leaderFor, "issue-1")
 	if err != nil {
-		t.Fatalf("empty brief: %v", err)
+		t.Fatalf("brief with default-on lab: %v", err)
 	}
-	if brief != "" {
-		t.Fatalf("expected no section with no labs enabled, got %q", brief)
+	if !strings.Contains(brief, "## Available Labs (delegation)") {
+		t.Fatalf("missing heading, got %q", brief)
+	}
+	if !strings.Contains(brief, "- claude_science_lab (leader: research)") {
+		t.Errorf("expected claude_science_lab line with no pref row (DefaultVal=true), got %q", brief)
+	}
+	if strings.Contains(brief, "pythia_oracle") {
+		t.Errorf("AutoDispatch=false pythia_oracle must never be advertised (guaranteed delegate timeout), got %q", brief)
+	}
+	if strings.Contains(brief, "swarm_topology") {
+		t.Errorf("frozen/retired swarm_topology must never be advertised, got %q", brief)
+	}
+	if !strings.Contains(brief, "multica lab delegate --parent issue-1") {
+		t.Errorf("expected delegate command line, got %q", brief)
 	}
 
-	// Enable claude_science_lab (delegatable) AND pythia_oracle
-	// (AutoDispatch=false) AND the frozen swarm_topology: only claude
-	// may appear.
-	for _, key := range []string{"claude_science_lab", "pythia_oracle", "swarm_topology"} {
+	// Explicitly enabling pythia_oracle + swarm_topology must not change
+	// the set — only claude is delegatable.
+	for _, key := range []string{"pythia_oracle", "swarm_topology"} {
 		if _, err := testHandler.Queries.UpsertExperimentalPref(ctx, db.UpsertExperimentalPrefParams{
 			UserID:  userUUID,
 			FlagKey: key,
@@ -421,21 +439,29 @@ func TestDelegationBriefListsEnabledAssigneeLabs(t *testing.T) {
 	}
 	brief, err = causalgraph.BuildDelegateBrief(ctx, testHandler.Queries, leaderFor, "issue-1")
 	if err != nil {
-		t.Fatalf("brief with labs: %v", err)
-	}
-	if !strings.Contains(brief, "## Available Labs (delegation)") {
-		t.Fatalf("missing heading, got %q", brief)
+		t.Fatalf("brief after enabling non-delegatable labs: %v", err)
 	}
 	if !strings.Contains(brief, "- claude_science_lab (leader: research)") {
-		t.Errorf("expected claude_science_lab line, got %q", brief)
+		t.Errorf("claude_science_lab line must survive, got %q", brief)
 	}
-	if strings.Contains(brief, "pythia_oracle") {
-		t.Errorf("AutoDispatch=false pythia_oracle must never be advertised (guaranteed delegate timeout), got %q", brief)
+	if strings.Contains(brief, "pythia_oracle") || strings.Contains(brief, "swarm_topology") {
+		t.Errorf("non-delegatable labs leaked into the brief: %q", brief)
 	}
-	if strings.Contains(brief, "swarm_topology") {
-		t.Errorf("frozen swarm_topology must never be advertised, got %q", brief)
+
+	// Explicit enabled=false override suppresses the default-on lab —
+	// the override wins over the catalog default.
+	if _, err := testHandler.Queries.UpsertExperimentalPref(ctx, db.UpsertExperimentalPrefParams{
+		UserID:  userUUID,
+		FlagKey: "claude_science_lab",
+		Enabled: false,
+	}); err != nil {
+		t.Fatalf("disable claude_science_lab: %v", err)
 	}
-	if !strings.Contains(brief, "multica lab delegate --parent issue-1") {
-		t.Errorf("expected delegate command line, got %q", brief)
+	brief, err = causalgraph.BuildDelegateBrief(ctx, testHandler.Queries, leaderFor, "issue-1")
+	if err != nil {
+		t.Fatalf("brief with explicit-off override: %v", err)
+	}
+	if brief != "" {
+		t.Fatalf("explicit enabled=false override must suppress the default-on lab (empty-when-none), got %q", brief)
 	}
 }

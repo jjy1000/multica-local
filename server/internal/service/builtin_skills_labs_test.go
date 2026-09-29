@@ -103,3 +103,40 @@ func TestPythiaSkillBodyDoesNotGateIssueForecastOnStatusProbe(t *testing.T) {
 	t.Fatal("multica-pythia not loaded")
 }
 
+// TestLabsCatalogSkillAdvertisesClaudeScienceDelegation pins the 2026-09-29
+// delegation-discovery incident. The catalog skill told agents that
+// claude_science_lab "需用户绑定 / 不要试图用 CLI 驱动" while the CLI's
+// `multica lab delegate` (0.5.88) and `issue create/update --lab-source`
+// (0.5.126) both bind and dispatch the lab without any user action — and the
+// claim-time delegation brief was simultaneously empty because its
+// prefs-only source query missed the default-on flag. An agent that read
+// this skill thus refused to delegate and asked the user to click instead.
+// If this regresses, agents fall back to asking the user to bind manually.
+func TestLabsCatalogSkillAdvertisesClaudeScienceDelegation(t *testing.T) {
+	desc := builtinSkillFrontmatter(t, "multica-labs")
+	if !strings.Contains(desc, "multica lab delegate") {
+		t.Errorf("multica-labs description must name the lab delegate command for claude_science_lab; it is the one-shot agent-initiated delegation path.\n got: %s", desc)
+	}
+
+	var body string
+	for _, s := range loadBuiltinSkills() {
+		if s.Name == "multica-labs" {
+			body = s.Content
+			break
+		}
+	}
+	if body == "" {
+		t.Fatal("multica-labs not loaded")
+	}
+	if !strings.Contains(body, `multica lab delegate --parent`) || !strings.Contains(body, "claude_science_lab") {
+		t.Errorf("multica-labs body must teach `multica lab delegate --parent <issue-id> claude_science_lab \"<task>\"`; an agent that cannot find the command will ask the user to bind the lab manually")
+	}
+	// Needles are chosen so the pythia phrase 无需用户绑定 cannot
+	// substring-match them: the stale claims being pinned are the
+	// ⚠️ table row and the "CLI 已废弃 / 不要试图用 CLI 驱动" clause.
+	for _, stale := range []string{"⚠️ 需用户绑定", "不要试图用 CLI 驱动", "CLI 已废弃"} {
+		if strings.Contains(body, stale) {
+			t.Errorf("multica-labs body still claims claude_science_lab needs user binding / refuses CLI (%q) — the delegate + --lab-source paths contradict it and the agent will follow the stale claim (2026-09-29 incident)", stale)
+		}
+	}
+}

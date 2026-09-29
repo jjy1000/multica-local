@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/multica-ai/multica/server/internal/experimental"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
@@ -182,4 +183,75 @@ func itoa(i int) string {
 		i /= 10
 	}
 	return digits
+}
+
+// TestSelectDelegateLabs derives its expectations from the LIVE catalog
+// and pins the filter contract that turns effective-enabled flag keys
+// into briefing lines: assignee-model only, never frozen, auto-dispatch
+// only, leader resolvable only. The load-bearing pin is the first
+// subtest — on the 0.5.126 shipped build the delegation brief rendered
+// EMPTY on the default-on install (the source query projected only pref
+// rows, and the one delegatable lab had no pref row), so an agent
+// working an issue was never told it could delegate to the research
+// lab.
+func TestSelectDelegateLabs(t *testing.T) {
+	var claudeFlag, pythiaFlag experimental.Flag
+	var hasClaude, hasPythia bool
+	for i := range experimental.Catalog {
+		switch experimental.Catalog[i].Key {
+		case "claude_science_lab":
+			claudeFlag, hasClaude = experimental.Catalog[i], true
+		case "pythia_oracle":
+			pythiaFlag, hasPythia = experimental.Catalog[i], true
+		}
+	}
+	if !hasClaude {
+		t.Fatalf("claude_science_lab missing from catalog — the sole delegatable built-in lab disappeared; rewrite this pin against the new assignee-model lab")
+	}
+
+	t.Run("default-on assignee lab with no pref row is advertised", func(t *testing.T) {
+		if !claudeFlag.DefaultVal {
+			t.Fatalf("claude_science_lab is no longer default-on; the no-pref-row scenario below no longer reproduces the original bug")
+		}
+		if claudeFlag.AutoDispatch != nil && !*claudeFlag.AutoDispatch {
+			t.Fatalf("claude_science_lab opted out of auto-dispatch; it can no longer be delegated to — rewrite this pin")
+		}
+		got := selectDelegateLabs([]string{"claude_science_lab"}, staticLeaderFor("research"))
+		if len(got) != 1 || got[0].FlagKey != "claude_science_lab" || got[0].Leader != "research" {
+			t.Fatalf("expected exactly claude_science_lab with leader research, got %+v", got)
+		}
+	})
+
+	t.Run("auto-dispatch opt-out labs are never advertised", func(t *testing.T) {
+		if !hasPythia {
+			t.Skip("pythia_oracle removed from catalog")
+		}
+		if pythiaFlag.AutoDispatch == nil || *pythiaFlag.AutoDispatch {
+			t.Fatalf("pythia_oracle must keep AutoDispatch=false — lab delegate fails fast on it, so advertising it would make the briefing lie")
+		}
+		got := selectDelegateLabs([]string{"pythia_oracle"}, staticLeaderFor("pythia_runtime"))
+		if len(got) != 0 {
+			t.Fatalf("pythia_oracle must not be advertised, got %+v", got)
+		}
+	})
+
+	t.Run("auxiliary and unknown keys are never advertised", func(t *testing.T) {
+		keys := []string{"causal_graph", "llm_wiki_bridge", "not_a_real_flag"}
+		for i := range experimental.Catalog {
+			if experimental.Catalog[i].InteractionModel != experimental.InteractionModelAssignee {
+				keys = append(keys, experimental.Catalog[i].Key)
+			}
+		}
+		got := selectDelegateLabs(keys, staticLeaderFor("someone"))
+		if len(got) != 0 {
+			t.Fatalf("auxiliary/unknown keys must not be advertised, got %+v", got)
+		}
+	})
+
+	t.Run("leaderless labs are never advertised", func(t *testing.T) {
+		got := selectDelegateLabs([]string{"claude_science_lab"}, noopLeaderFor)
+		if len(got) != 0 {
+			t.Fatalf("unresolvable leader must drop the lab, got %+v", got)
+		}
+	})
 }

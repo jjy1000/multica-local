@@ -236,6 +236,7 @@ func newIssueCreateTestCmd() *cobra.Command {
 	cmd.Flags().String("priority", "", "")
 	cmd.Flags().String("assignee", "", "")
 	cmd.Flags().String("assignee-id", "", "")
+	cmd.Flags().String("lab-source", "", "")
 	cmd.Flags().String("parent", "", "")
 	cmd.Flags().String("project", "", "")
 	cmd.Flags().String("due-date", "", "")
@@ -2436,4 +2437,151 @@ func TestRunIssueUpdateRejectsInvalidPriorityBeforeRequest(t *testing.T) {
 	if !strings.Contains(err.Error(), "valid values") {
 		t.Fatalf("expected valid values error, got: %v", err)
 	}
+}
+
+// TestRunIssueCreateSendsLabSource pins the agent delegation path that
+// replaces the raw-curl PATCH the skills taught until 0.5.126: the
+// built-in lab key rides the create body as lab_source, letting the
+// server leader-rewrite + auto-dispatch from one command.
+func TestRunIssueCreateSendsLabSource(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/issues" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"id": "issue-1", "identifier": "MUL-1",
+			"title": "Lab bound", "status": "todo", "priority": "none",
+		})
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	t.Setenv("MULTICA_TOKEN", "test-token")
+
+	cmd := newIssueCreateTestCmd()
+	_ = cmd.Flags().Set("title", "Lab bound")
+	_ = cmd.Flags().Set("lab-source", "claude_science_lab")
+	if err := runIssueCreate(cmd, nil); err != nil {
+		t.Fatalf("runIssueCreate: %v", err)
+	}
+	if got := body["lab_source"]; got != "claude_science_lab" {
+		t.Fatalf("lab_source = %#v, want claude_science_lab in request body", got)
+	}
+}
+
+// TestRunIssueCreateRejectsUnknownLabSource pins the client-side
+// fail-fast: an unknown lab must error before any HTTP call so an agent
+// never composes a request the server will 400.
+func TestRunIssueCreateRejectsUnknownLabSource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request to %s — unknown lab must fail before any HTTP call", r.URL.Path)
+	}))
+	defer srv.Close()
+
+	t.Setenv("MULTICA_SERVER_URL", srv.URL)
+	t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+	t.Setenv("MULTICA_TOKEN", "test-token")
+
+	cmd := newIssueCreateTestCmd()
+	_ = cmd.Flags().Set("title", "Never lands")
+	_ = cmd.Flags().Set("lab-source", "not_a_real_lab")
+	err := runIssueCreate(cmd, nil)
+	if err == nil {
+		t.Fatal("runIssueCreate should reject unknown lab-source")
+	}
+	if !strings.Contains(err.Error(), "not a known lab") {
+		t.Fatalf("expected not-a-known-lab error, got: %v", err)
+	}
+}
+
+// TestRunIssueUpdateLabSourcePinAndClear pins both update shapes: a lab
+// key binds (string body field) and an empty --lab-source clears
+// (explicit JSON null — the server PATCH contract for removal).
+func TestRunIssueUpdateLabSourceBindAndClear(t *testing.T) {
+	newUpdateCmd := func() *cobra.Command {
+		cmd := &cobra.Command{Use: "update"}
+		cmd.Flags().String("status", "", "")
+		cmd.Flags().String("priority", "", "")
+		cmd.Flags().String("lab-source", "", "")
+		cmd.Flags().String("output", "json", "")
+		return cmd
+	}
+
+	t.Run("bind", func(t *testing.T) {
+		var body map[string]any
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// resolveIssueRef issues a GET before the update; only the
+			// write request carries the JSON body under test.
+			if r.Method == http.MethodGet {
+				json.NewEncoder(w).Encode(map[string]any{
+					"id": "issue-1", "identifier": "MUL-1", "title": "t",
+				})
+				return
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode body: %v", err)
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": "issue-1", "identifier": "MUL-1",
+				"title": "t", "status": "todo", "priority": "none",
+			})
+		}))
+		defer srv.Close()
+		t.Setenv("MULTICA_SERVER_URL", srv.URL)
+		t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+		t.Setenv("MULTICA_TOKEN", "test-token")
+
+		cmd := newUpdateCmd()
+		_ = cmd.Flags().Set("lab-source", "claude_science_lab")
+		if err := runIssueUpdate(cmd, []string{"issue-1"}); err != nil {
+			t.Fatalf("runIssueUpdate: %v", err)
+		}
+		if got := body["lab_source"]; got != "claude_science_lab" {
+			t.Fatalf("lab_source = %#v, want the built-in key", got)
+		}
+	})
+
+	t.Run("clear sends explicit null", func(t *testing.T) {
+		var raw []byte
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				json.NewEncoder(w).Encode(map[string]any{
+					"id": "issue-1", "identifier": "MUL-1", "title": "t",
+				})
+				return
+			}
+			raw, _ = io.ReadAll(r.Body)
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": "issue-1", "identifier": "MUL-1",
+				"title": "t", "status": "todo", "priority": "none",
+			})
+		}))
+		defer srv.Close()
+		t.Setenv("MULTICA_SERVER_URL", srv.URL)
+		t.Setenv("MULTICA_WORKSPACE_ID", "ws-1")
+		t.Setenv("MULTICA_TOKEN", "test-token")
+
+		cmd := newUpdateCmd()
+		_ = cmd.Flags().Set("lab-source", "")
+		if err := runIssueUpdate(cmd, []string{"issue-1"}); err != nil {
+			t.Fatalf("runIssueUpdate: %v", err)
+		}
+		var body map[string]any
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		got, present := body["lab_source"]
+		if !present {
+			t.Fatalf("lab_source key missing from request body %s", raw)
+		}
+		if got != nil {
+			t.Fatalf("lab_source = %#v, want explicit null to clear the binding", got)
+		}
+	})
 }
