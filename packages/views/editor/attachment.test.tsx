@@ -238,6 +238,29 @@ describe("Attachment — image dispatch", () => {
     expect(screen.queryByTitle("Delete")).toBeNull();
   });
 
+  // MUL-7736: a standalone-attachments list renders every image full size
+  // but height-capped ("card"), so a phone screenshot keeps its shape
+  // instead of running the length of the page. The cap is CSS on the
+  // image-standalone class — this pins that the class lands on the figure
+  // in card layout and stays off in block layout.
+  it("card layout marks the figure image-standalone; block layout does not", () => {
+    const att = makeRecord();
+    const { container, unmount } = renderWithQuery(
+      <Attachment attachment={{ kind: "record", attachment: att }} />,
+    );
+    expect(container.querySelector(".image-figure")?.className).not.toContain(
+      "image-standalone",
+    );
+    unmount();
+
+    const { container: cardContainer } = renderWithQuery(
+      <Attachment attachment={{ kind: "record", attachment: att }} layout="card" />,
+    );
+    expect(
+      cardContainer.querySelector(".image-figure")?.className,
+    ).toContain("image-standalone");
+  });
+
   it("editable image shows Trash button and wires onDelete", () => {
     const att = makeRecord();
     const onDelete = vi.fn();

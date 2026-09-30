@@ -196,11 +196,15 @@ export function AttachmentList({
 
   return (
     <AttachmentDownloadProvider attachments={attachments}>
-      <div className={cn("flex flex-col gap-1", className)}>
+      {/* Every image shows at its full size, one under another, so it reads
+          without opening (MUL-7736) — capped at 36rem so a phone screenshot
+          keeps its shape instead of running the length of the page. */}
+      <div className={cn("flex flex-col gap-2", className)}>
         {standalone.map((a) => (
           <AttachmentRenderer
             key={a.id}
             attachment={{ kind: "record", attachment: a }}
+            layout="card"
             editable={!!onRemove}
             onDelete={onRemove ? () => onRemove(a.id) : undefined}
           />

@@ -95,6 +95,12 @@ export interface AttachmentProps {
   selected?: boolean;
   /** Editor hint — wired to Tiptap deleteNode(). */
   onDelete?: () => void;
+  /**
+   * "block" (default) renders each kind at full width, as a body renders it.
+   * "card" is the form a list of standalone attachments lays out: an image
+   * keeps its full size up to a height cap, any other file becomes a card.
+   */
+  layout?: "block" | "card";
   className?: string;
 }
 
@@ -304,6 +310,7 @@ export function Attachment({
   editable,
   selected,
   onDelete,
+  layout,
   className,
 }: AttachmentProps) {
   const { resolveAttachment, openByUrl } = useAttachmentDownloadResolver();
@@ -392,7 +399,7 @@ export function Attachment({
           onView={openPreview}
           onDownload={handleDownload}
           onDelete={onDelete}
-          className={className}
+          className={cn(layout === "card" && "image-standalone", className)}
         />
         {preview.modal}
       </>
