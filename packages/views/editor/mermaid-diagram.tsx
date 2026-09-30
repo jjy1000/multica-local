@@ -180,12 +180,41 @@ function buildExpandedMermaidDocument(svg: string, host: HTMLElement | null): st
   return `<!doctype html><html><head><style>:root { ${cssVariables} } html, body { width: 100%; height: 100%; } body { margin: 0; display: flex; align-items: center; justify-content: center; background: transparent; } svg { max-width: 100%; max-height: 100%; width: auto; height: auto; }</style></head><body>${svg}</body></html>`;
 }
 
+/**
+ * Everything that decides which mermaid theme renders: the attributes that
+ * pick a theme and what they resolve to on the root. Read resolved so a theme
+ * written straight into `style` still counts.
+ */
+function readThemeSignature(): string {
+  const root = document.documentElement;
+  const styles = getComputedStyle(root);
+  return [
+    root.className,
+    root.getAttribute("data-theme"),
+    document.body?.className,
+    document.body?.getAttribute("data-theme"),
+    styles.colorScheme,
+    styles.fontFamily,
+  ].join("|");
+}
+
 function useThemeVersion() {
   const [themeVersion, setThemeVersion] = useState(0);
 
   useEffect(() => {
-    const bumpThemeVersion = () => setThemeVersion((version) => version + 1);
-    const observer = new MutationObserver(bumpThemeVersion);
+    // Attribute mutations only prompt a check: this bumps when the signature
+    // actually moved. A dialog's scroll lock writes `overflow` into body
+    // style on every open and close, and taking it for a theme switch
+    // re-rendered every diagram on the page — on close, a long task that
+    // stalled the dialog's exit and made the page flash (MUL-7760).
+    let signature = readThemeSignature();
+    const bumpIfThemeChanged = () => {
+      const next = readThemeSignature();
+      if (next === signature) return;
+      signature = next;
+      setThemeVersion((version) => version + 1);
+    };
+    const observer = new MutationObserver(bumpIfThemeChanged);
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["class", "style", "data-theme"],
@@ -198,11 +227,11 @@ function useThemeVersion() {
     }
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    mediaQuery.addEventListener("change", bumpThemeVersion);
+    mediaQuery.addEventListener("change", bumpIfThemeChanged);
 
     return () => {
       observer.disconnect();
-      mediaQuery.removeEventListener("change", bumpThemeVersion);
+      mediaQuery.removeEventListener("change", bumpIfThemeChanged);
     };
   }, []);
 
