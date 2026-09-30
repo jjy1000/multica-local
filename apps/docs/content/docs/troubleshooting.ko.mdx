@@ -61,6 +61,20 @@ multica issue show <issue-id>             # inspect task history
 - 에이전트 보관됨 → `multica agent restore <id>`
 - 런타임 미등록 → `multica daemon restart`하면 데몬이 다시 등록합니다
 
+## CLI 업그레이드 후 macOS에서 작업이 멈춤
+
+`brew upgrade`, `multica update`, **런타임** 페이지의 업데이트 이후에 `~/Desktop`, `~/Documents`, `~/Downloads`, iCloud Drive 같은 보호된 폴더를 읽는 작업이 더 이상 진행되지 않을 수 있습니다: 에이전트 프로세스는 CPU를 사용하지 않고, 작업은 완료도 실패도 하지 않습니다.
+
+원인은 macOS가 프라이버시 권한(TCC)을 데몬 자체에 귀속시키기 때문입니다. 대기 중인 대화상자에는 `multica`가 표시되고, 에이전트가 실행하는 모든 도구는 데몬의 권한을 사용합니다. Homebrew版 CLI 바이너리는 고정된 서명 ID가 없어서 macOS는 권한을 해당 빌드와 확인된 경로(예: `/opt/homebrew/Cellar/multica/<버전>/bin/multica`)에 묶습니다. 업그레이드 후 macOS는 새 바이너리를 다른 앱으로 취급하고 다시 권한을 요청합니다. 누군가 "허용"을 누를 때까지 파일 접근은 차단되며, 데몬은 대화상자가 대기 중임을 감지할 수 없습니다. 본 포크의 데스크톱 번들 CLI 역시 Developer ID 서명이 없으므로 동일하게 적용됩니다.
+
+접근을 복구하려면:
+
+1. 해당 Mac에서 대기 중인 "접근하려고 합니다" 대화상자에 **허용**으로 응답합니다. 멈춘 작업이 재개됩니다.
+2. 무인 Mac에는 새 바이너리에 전체 디스크 접근 권한을 부여합니다. `realpath "$(command -v multica)"`로 경로를 확인한 뒤 **시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 권한**에서 기존 `multica` 항목을 삭제하고 해당 경로를 추가합니다(파일 선택기에서 ⌘⇧G를 누르면 경로를 붙여넣을 수 있습니다).
+3. 처음 실행한 것과 같은 방식으로 데몬을 재시작합니다. 일반적으로 `multica daemon restart`, LaunchAgent라면 `launchctl kickstart -k gui/$(id -u)/<label>`입니다.
+
+CLI를 업그레이드할 때마다 이 절차를 반복해야 합니다(본 포크에는 자동 업데이트가 없으므로 업그레이드는 직접 실행할 때만 발생합니다).
+
 ## WebSocket이 연결되지 않음
 
 **증상**: 브라우저 콘솔에 `WebSocket is closed`가 기록됩니다. 페이지에 실시간 업데이트(작업 진행 상황, 댓글, 인박스)가 표시되지 않아 새로고침해야 보입니다. 백엔드 작업은 여전히 실행됩니다.

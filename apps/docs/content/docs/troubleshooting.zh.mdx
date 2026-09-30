@@ -61,6 +61,20 @@ multica issue show <issue-id>             # 看 task 历史
 - Agent 被 archive → `multica agent restore <id>`
 - Runtime 未注册 → `multica daemon restart`，daemon 会重新注册
 
+## CLI 升级后任务在 macOS 上卡住不动
+
+`brew upgrade`、`multica update` 或 **Runtimes** 页的更新之后，一个要读取 `~/Desktop`、`~/Documents`、`~/Downloads`、iCloud Drive 等受保护目录的任务可能不再前进：agent 进程不占 CPU，任务既不完成也不失败。
+
+原因是 macOS 把隐私权限（TCC）授予了 daemon 本身：待授权弹窗上显示的是 `multica`，agent 启动的所有工具都沿用 daemon 的权限。Homebrew 版 CLI 的二进制没有稳定的签名身份，macOS 把权限绑定到具体构建及其解析路径（如 `/opt/homebrew/Cellar/multica/<版本>/bin/multica`）。升级后 macOS 把新二进制当成另一个应用，重新请求授权；在有人点「允许」之前文件访问一直阻塞，而 daemon 无法感知有弹窗在等待。本 fork 桌面版内置的 CLI 同样未做 Developer ID 签名，升级后同样适用。
+
+恢复访问：
+
+1. 在这台 Mac 上回应待弹窗「想要访问」为**允许**，卡住的任务会继续。
+2. 无人值守的 Mac，给新二进制授予完全磁盘访问权限：用 `realpath "$(command -v multica)"` 查看路径，然后在**系统设置 → 隐私与安全性 → 完全磁盘访问权限**里删除旧的 `multica` 条目、添加该路径（文件选择器里按 ⌘⇧G 可粘贴路径）。
+3. 按原来的启动方式重启 daemon：`multica daemon restart`；LaunchAgent 用 `launchctl kickstart -k gui/$(id -u)/<label>`。
+
+每次升级 CLI 后都需重复这些步骤（本 fork 无自动更新，升级只在你主动执行时发生）。
+
 ## WebSocket 连不上
 
 **症状**：浏览器控制台报 `WebSocket is closed`；页面不显示实时更新（任务进度、评论、inbox），刷新才能看到；但后台任务仍在执行。
