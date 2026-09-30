@@ -167,6 +167,11 @@ export interface AgentActivityBucket {
   bucket_at: string;
   task_count: number;
   failed_count: number;
+  // Sum of completed-minus-started over tasks that have both, inside the
+  // bucket. Absent on older servers; do not estimate duration from a task
+  // page.
+  duration_ms?: number;
+  duration_count?: number;
 }
 
 // 30-day total run count per agent, drives the Agents-list RUNS column.

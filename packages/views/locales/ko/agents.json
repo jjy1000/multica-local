@@ -591,6 +591,7 @@
       "empty_30d": "최근 30일 동안 완료된 작업이 없습니다.",
       "empty_recent": "이 에이전트는 아직 완료한 작업이 없습니다.",
       "show_more": "더 보기 →",
+      "loading_more": "불러오는 중…",
       "runs_one": "회 실행",
       "runs_other": "회 실행",
       "success_pct": "성공률 {{percent}}%",

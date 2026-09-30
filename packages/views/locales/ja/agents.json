@@ -574,6 +574,7 @@
       "empty_30d": "過去30日間に完了した作業はありません。",
       "empty_recent": "このエージェントはまだ何も完了していません。",
       "show_more": "もっと見る →",
+      "loading_more": "読み込み中…",
       "runs_other": "回実行",
       "success_pct": "成功率 {{percent}}%",
       "avg_duration": "平均 {{value}}",

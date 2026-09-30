@@ -17,7 +17,7 @@ import {
   TooltipTrigger,
 } from "@multica/ui/components/ui/tooltip";
 import { NumberFlow } from "@multica/ui/components/ui/number-flow";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import type {
   Agent,
   AgentTask,
@@ -71,7 +71,21 @@ export function ActivityTab({ agent }: ActivityTabProps) {
   const wsId = useWorkspaceId();
 
   const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
-  const { data: agentTasks = [] } = useQuery(agentTasksOptions(wsId, agent.id));
+  // History is fetched one bounded page at a time; "Show more" pulls the
+  // next page only after the local reveal window runs out.
+  const {
+    data,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery(agentTasksOptions(wsId, agent.id));
+  const agentTasks = useMemo(() => {
+    const tasks = new Map<string, AgentTask>();
+    for (const page of data?.pages ?? []) {
+      for (const task of page.tasks) tasks.set(task.id, task);
+    }
+    return [...tasks.values()];
+  }, [data]);
   const { byAgent: activityMap } = useWorkspaceActivityMap(wsId);
   const activity = activityMap.get(agent.id);
 
@@ -118,12 +132,12 @@ export function ActivityTab({ agent }: ActivityTabProps) {
     () => recentTasksAll.slice(0, recentDisplayLimit),
     [recentTasksAll, recentDisplayLimit],
   );
-  const hasMoreRecent = recentTasksAll.length > recentTasks.length;
+  const hasMoreRecent =
+    recentTasksAll.length > recentTasks.length || hasNextPage;
 
-  const avgDurationMs = useMemo(
-    () => deriveAvgDurationLast30d(agentTasks, Date.now()),
-    [agentTasks],
-  );
+  // Server-aggregated over the full 30-day window (all pages of history),
+  // not derived from whatever pages happen to be open.
+  const avgDurationMs = activity?.avgDurationMs ?? 0;
 
   // Resolve issue identifiers + titles for any task we'll render. Going
   // through `issueDetailOptions` is the same lookup the rest of the app
@@ -157,11 +171,16 @@ export function ActivityTab({ agent }: ActivityTabProps) {
       <Last30dSection activity={activity} avgDurationMs={avgDurationMs} />
       <RecentWorkSection
         tasks={recentTasks}
-        totalCount={recentTasksAll.length}
+        totalCount={hasNextPage ? undefined : recentTasksAll.length}
         hasMore={hasMoreRecent}
-        onShowMore={() =>
-          setRecentDisplayLimit((n) => n + RECENT_PAGE)
-        }
+        fetchingMore={isFetchingNextPage}
+        onShowMore={() => {
+          if (recentTasksAll.length > recentTasks.length) {
+            setRecentDisplayLimit((n) => n + RECENT_PAGE);
+            return;
+          }
+          void fetchNextPage();
+        }}
         issueMap={issueMap}
         agent={agent}
       />
@@ -275,13 +294,16 @@ function RecentWorkSection({
   tasks,
   totalCount,
   hasMore,
+  fetchingMore,
   onShowMore,
   issueMap,
   agent,
 }: {
   tasks: AgentTask[];
-  totalCount: number;
+  /** Known only once the last page is open; undefined while more pages exist. */
+  totalCount?: number;
   hasMore: boolean;
+  fetchingMore?: boolean;
   onShowMore: () => void;
   issueMap: Map<string, Issue>;
   agent: Agent;
@@ -290,7 +312,7 @@ function RecentWorkSection({
   const subtitle =
     tasks.length === 0
       ? t(($) => $.tab_body.activity.subtitle_no_recent)
-      : totalCount > tasks.length
+      : totalCount != null && totalCount > tasks.length
         ? t(($) => $.tab_body.activity.subtitle_recent_progress, { shown: tasks.length, total: totalCount })
         : t(($) => $.tab_body.activity.subtitle_recent_latest, { count: tasks.length });
   return (
@@ -309,9 +331,12 @@ function RecentWorkSection({
             <button
               type="button"
               onClick={onShowMore}
-              className="mt-2 self-start rounded text-caption text-muted-foreground transition-colors hover:text-foreground"
+              disabled={fetchingMore}
+              className="mt-2 self-start rounded text-caption text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
             >
-              {t(($) => $.tab_body.activity.show_more)}
+              {fetchingMore
+                ? t(($) => $.tab_body.activity.loading_more)
+                : t(($) => $.tab_body.activity.show_more)}
             </button>
           )}
         </>

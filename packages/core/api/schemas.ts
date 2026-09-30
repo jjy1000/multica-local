@@ -820,6 +820,12 @@ const AgentTaskResponseSchema = z.object({
 /** Execution-log rows for an issue's task-runs endpoint. */
 export const AgentTaskListSchema = z.array(AgentTaskResponseSchema);
 
+/** One bounded keyset page of agent task history (cursor from a header). */
+export const AgentTaskPageSchema = z.object({
+  tasks: AgentTaskListSchema,
+  nextCursor: z.string().min(1).nullable(),
+});
+
 const CancelledChatMessageSchema = z.object({
   chat_session_id: z.string(),
   message_id: z.string(),
