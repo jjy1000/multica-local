@@ -44,10 +44,10 @@
 
 | Commit | What | Files | Note |
 | --- | --- | --- | --- |
-| ~~`815fe37b1`~~ | ~~task history pagination (MUL-7685)~~ → **SKIP-defer** | 24 | 25-file full-stack feature; fork `handler/agent.go` 1686 lines behind (ListAgentTasks evolution line never taken) + needs sqlc regen + CLI + activity-tab. Value real (bounded history reads), cost = its own project |
-| ~~`3125bd2ea`~~ | ~~justified image rows (MUL-7736)~~ → **SKIP-defer** | 8 | integration host `comment-card.tsx` 789 lines behind |
+| `815fe37b1` | task history pagination (MUL-7685) → **DONE in round 2 as rewrite-port** | 24 | file-level moat (agent.go 1686) was real but the ListAgentTasks function itself was fork-identical — measure the FUNCTION, not the file |
+| `3125bd2ea` | full-size stacked images (MUL-7736) → **DONE in round 2 as rewrite-port** | 8 | direction reversal caught at port time: upstream commit REMOVES its own justified rows; ported the end state (image-standalone + 36rem cap) |
 | ~~`e8a16d334`~~ | ~~one verdict per PR (MUL-7753)~~ → **SKIP-defer** | 10 | verdict base absent (see MUL-7767) |
-| ~~`13094caf7`~~ + ~~`67d61a207`~~ | ~~issue runs timeline + run charts (MUL-7758/7780)~~ → **SKIP-defer** | 26+11 | host `issue-detail.tsx` 1917 lines behind |
+| ~~`13094caf7`~~ + ~~`67d61a207`~~ | ~~issue runs timeline + run charts (MUL-7758/7780)~~ → **SKIP-defer** | 26+11 | re-measured in round 2: issue-detail mount is only 1 line, but the meat sits in `agent-transcript-dialog.tsx` (2092 lines behind) — still a real moat |
 | ~~`6dc6a0b9a`~~ + ~~`0a51a6cc4`~~ + ~~`344ffaf1b`~~ | ~~attachment viewer wave (MUL-7650/7759/7737)~~ → **SKIP-defer** | 31+10+17 | page wrapper is near-current (20-line delta) but the real hosts diverged: `attachment-preview-modal.tsx` 735, `handler/file.go` 721, ui `data-table.tsx` 607. Carrying only the 10 new modules would be dead code |
 
 ### PORT — Wave 3 (large, P1/P2)
@@ -95,6 +95,15 @@ Nothing renumbered this batch — every landed port is migration-free. The defer
 - A deep Mimosa audit of the repo has NOT been run this session (hook's own words: 不能把未发现更多问题解释为项目安全).
 
 ## Ledger updates
+
+### Round 2 — rewrite-ports of high-value deferred items (same day, user request)
+
+- **`815fe37b1` MUL-7685 task-history pagination — DONE as a rewrite-port** (commits `8efee0e3e` server + `aa479410d` FE/CLI). The agent.go moat was real but ListAgentTasks itself was identical shape in fork, so the feature transplanted cleanly: keyset `(created_at,id)` pages via limit+1 read, cursor on `X-Agent-Tasks-Next-Cursor`, visibility predicate moved into SQL ahead of LIMIT (behavior change on fork — escalation placeholder rows were previously returned unfiltered), 30d buckets gain duration_ms/duration_count, FE infinite query + Show-more-fetches-next-page + server-aggregated mean duration, CLI --limit/--before. Migration 552 → **fork 293** (partial index; bundle-cli mirror committed; applied to local DB). Tests: 205-task cursor walk + boundaries + duration-from-201-runs (Go, fork harness) + core queries.test (paged lifecycle).
+- **`3125bd2ea` MUL-7736 full-size stacked images — DONE as a rewrite-port** (commit `1f27b5d6a`). Direction reversal caught at port time: this upstream commit REMOVES the justified rows (introduced and reverted within the same upstream window); fork never had them. Ported the end state: `layout="card"` on the standalone list marks figures `image-standalone` (natural width, column-capped, max-height 36rem, hairline border) instead of fork's width:100% that stretched phone screenshots down the page.
+- **Re-deferred after integration-hunk measurement**: `13094caf7`/`67d61a207` runs timeline (the meat sits in `agent-transcript-dialog.tsx`, 2092 lines behind — the 1-line issue-detail mount was never the cost), attachment viewer wave (main host `attachment-preview-modal.tsx` 735 behind), local search (client.ts 3639). Lesson: measure the COMMIT's own hunks against fork hosts, not just the file-list absence rate — a commit touching 26 files may carry only 1 line into a "diverged" file, and vice versa.
+- Gates re-run after round 2: typecheck 6/6; go internal/... rc=0 + pkg/agent package green on rerun (2 Codex timer tests flaked once under full-suite load, passed in isolation and package-wide — same flake class as the recorded vitest 5s ones); views **1915**/33 skip; core **968**; cmd/server 2 known reds only.
+
+### Round 1
 
 - **`82847e275` DONE** — fork had the same bug shape but NO `trace-event-presenter.ts` host → semantic minimal port: hardened `getToolSummary` (chat-message-list.tsx) to string-only candidates (Record<string,unknown> + text/short/clip helpers); regression test reuses fork's `renderSettled` harness. Mutation-verified: without fix, `Objects are not valid as a React child (keys {email})` reproduces. → commit dd39efb10
 - **`04cdd4857` DONE** — 3-line guard in `notifyMentionedMembers` + 2 tests in fork idiom. Fork twist: local `parseUUID` = `MustParseUUID` → **panics**, so the bug was a whole-listener kill (comment:created notifications die on one bad mention), stronger than upstream's failed insert. Mutation-verified: `panic ... invalid UUID "all"`. → commit 5c940ca98
