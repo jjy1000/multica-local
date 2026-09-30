@@ -625,23 +625,33 @@ function shortenPath(p: string): string {
 
 function getToolSummary(item: ChatTimelineItem): string {
   if (!item.input) return "";
-  const inp = item.input as Record<string, string>;
-  if (inp.query) return inp.query;
-  if (inp.file_path) return shortenPath(inp.file_path);
-  if (inp.path) return shortenPath(inp.path);
-  if (inp.pattern) return inp.pattern;
-  if (inp.description) return String(inp.description);
-  if (inp.command) {
-    const cmd = String(inp.command);
-    return cmd.length > 100 ? cmd.slice(0, 100) + "..." : cmd;
-  }
-  if (inp.prompt) {
-    const p = String(inp.prompt);
-    return p.length > 100 ? p.slice(0, 100) + "..." : p;
-  }
-  if (inp.skill) return String(inp.skill);
+  // Tool input is arbitrary JSON: an MCP tool can pass `query` or `path` as an
+  // object, and returning one as a React child crashes the expanded fold —
+  // only string fields may serve as the summary.
+  const inp = item.input as Record<string, unknown>;
+  const text = (v: unknown): string | null =>
+    typeof v === "string" && v.length > 0 ? v : null;
+  const short = (v: unknown): string | null => {
+    const t = text(v);
+    return t ? shortenPath(t) : null;
+  };
+  const clip = (v: unknown): string | null => {
+    const t = text(v);
+    return t ? (t.length > 100 ? t.slice(0, 100) + "..." : t) : null;
+  };
+  const found =
+    text(inp.query) ??
+    short(inp.file_path) ??
+    short(inp.path) ??
+    text(inp.pattern) ??
+    clip(inp.description) ??
+    clip(inp.command) ??
+    clip(inp.prompt) ??
+    text(inp.skill);
+  if (found) return found;
   for (const v of Object.values(inp)) {
-    if (typeof v === "string" && v.length > 0 && v.length < 120) return v;
+    const t = text(v);
+    if (t && t.length < 120) return t;
   }
   return "";
 }

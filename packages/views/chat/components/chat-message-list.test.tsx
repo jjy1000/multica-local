@@ -145,4 +145,33 @@ describe("ChatMessageList settled rendering (MUL-7458)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     expect(copyTextMock).toHaveBeenCalledWith("canonical persisted answer");
   });
+
+  // An HTTP-proxy MCP tool passes `query` as an object of URL parameters. The
+  // row summary used to return it as-is, React threw on an object child, and
+  // expanding the settled fold took down the whole chat (upstream #8835).
+  it("expands a settled fold whose tool input carries non-string summary fields", () => {
+    renderSettled(
+      "The email is verified.",
+      [
+        taskMsg(0, "tool_use", {
+          tool: "mcp__treg__call",
+          input: {
+            endpoint_id: "zerobounce.people.email.verify",
+            query: { email: "a@example.com" },
+          },
+        }),
+        taskMsg(1, "tool_result", {
+          tool: "mcp__treg__call",
+          output: "{\"status\": 200, \"body\": {\"email_status\": \"Verified\"}}",
+        }),
+        taskMsg(2, "tool_use", { tool: "Read", input: { path: { dir: "/tmp" } } }),
+      ],
+    );
+
+    fireEvent.click(screen.getByText("3 steps"));
+
+    expect(screen.getByText("mcp__treg__call")).toBeVisible();
+    expect(screen.getByText("zerobounce.people.email.verify")).toBeVisible();
+    expect(screen.getByText("Read")).toBeVisible();
+  });
 });
