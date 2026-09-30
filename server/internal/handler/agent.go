@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -21,6 +23,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/logger"
 	obsmetrics "github.com/multica-ai/multica/server/internal/metrics"
 	"github.com/multica-ai/multica/server/internal/service"
+	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
@@ -1854,6 +1857,42 @@ func (h *Handler) CancelAgentTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, cancelAgentTasksResponse{Cancelled: len(cancelled)})
 }
 
+// HeaderAgentTasksNextCursor carries the keyset cursor for the next history
+// page; an absent header means the last page was reached.
+const HeaderAgentTasksNextCursor = "X-Agent-Tasks-Next-Cursor"
+
+const (
+	defaultAgentTasksLimit = 200
+	maxAgentTasksLimit     = 200
+)
+
+// agentTasksCursor encodes a (created_at, id) pair into the opaque ?before
+// cursor. History pages by the same (created_at, id) tuple as created_at
+// DESC, id DESC ordering, so the cursor must carry both halves; RFC3339Nano
+// keeps the timestamp lossless and readable to an agent that inspects it.
+func agentTasksCursor(createdAt time.Time, id pgtype.UUID) string {
+	return createdAt.UTC().Format(time.RFC3339Nano) + "|" + uuidToString(id)
+}
+
+// parseAgentTasksCursor splits a ?before cursor back into the (created_at, id)
+// tuple ListAgentTasks pages by. A missing or malformed cursor returns zero
+// values so the read starts at the most recent tasks.
+func parseAgentTasksCursor(before string) (pgtype.Timestamptz, pgtype.UUID) {
+	ts, id, ok := strings.Cut(before, "|")
+	if !ok {
+		return pgtype.Timestamptz{}, pgtype.UUID{}
+	}
+	t, err := time.Parse(time.RFC3339Nano, ts)
+	if err != nil {
+		return pgtype.Timestamptz{}, pgtype.UUID{}
+	}
+	uid, err := util.ParseUUID(id)
+	if err != nil {
+		return pgtype.Timestamptz{}, pgtype.UUID{}
+	}
+	return pgtype.Timestamptz{Time: t, Valid: true}, uid
+}
+
 func (h *Handler) ListAgentTasks(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	agent, ok := h.loadAgentForUser(w, r, id)
@@ -1869,27 +1908,64 @@ func (h *Handler) ListAgentTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tasks, err := h.Queries.ListAgentTasks(r.Context(), agent.ID)
+	limit := defaultAgentTasksLimit
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		limit = min(n, maxAgentTasksLimit)
+	}
+	// An infinite upper bound gives both first and subsequent pages an indexed
+	// tuple comparison, without an optional-cursor OR in the query plan.
+	beforeCreatedAt := pgtype.Timestamptz{InfinityModifier: pgtype.Infinity, Valid: true}
+	beforeID := agent.ID
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		beforeCreatedAt, beforeID = parseAgentTasksCursor(raw)
+		if !beforeCreatedAt.Valid || !beforeID.Valid {
+			writeError(w, http.StatusBadRequest, "invalid before cursor")
+			return
+		}
+	}
+	tasks, err := h.Queries.ListAgentTasks(r.Context(), db.ListAgentTasksParams{
+		AgentID: agent.ID, BeforeCreatedAt: beforeCreatedAt, BeforeID: beforeID,
+		PageLimit: int32(limit + 1),
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list agent tasks")
 		return
 	}
 
+	nextCursor := ""
+	if len(tasks) > limit {
+		tasks = tasks[:limit]
+		last := tasks[len(tasks)-1]
+		nextCursor = agentTasksCursor(last.CreatedAt.Time, last.ID)
+	}
 	resp := make([]AgentTaskResponse, len(tasks))
 	for i, t := range tasks {
 		resp[i] = taskToResponse(t, workspaceID)
 	}
 
+	if nextCursor != "" {
+		w.Header().Set(HeaderAgentTasksNextCursor, nextCursor)
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
 // AgentActivityBucket is one day-bucketed throughput sample for the
 // Agents-list ACTIVITY sparkline. bucket_at is midnight UTC of the day.
+// DurationMs/DurationCount back the runs-duration aggregate: the sum of
+// completed-minus-started over tasks that have both, so a still-running or
+// never-started task contributes nothing.
 type AgentActivityBucket struct {
-	AgentID     string `json:"agent_id"`
-	BucketAt    string `json:"bucket_at"`
-	TaskCount   int32  `json:"task_count"`
-	FailedCount int32  `json:"failed_count"`
+	AgentID       string  `json:"agent_id"`
+	BucketAt      string  `json:"bucket_at"`
+	TaskCount     int32   `json:"task_count"`
+	FailedCount   int32   `json:"failed_count"`
+	DurationMs    float64 `json:"duration_ms"`
+	DurationCount int32   `json:"duration_count"`
 }
 
 // AgentRunCount is the trailing-30-day total task run count per agent,
@@ -1970,10 +2046,12 @@ func (h *Handler) GetWorkspaceAgentActivity30d(w http.ResponseWriter, r *http.Re
 			continue
 		}
 		resp = append(resp, AgentActivityBucket{
-			AgentID:     agentID,
-			BucketAt:    timestampToString(row.Bucket),
-			TaskCount:   row.TaskCount,
-			FailedCount: row.FailedCount,
+			AgentID:       agentID,
+			BucketAt:      timestampToString(row.Bucket),
+			TaskCount:     row.TaskCount,
+			FailedCount:   row.FailedCount,
+			DurationMs:    row.DurationMs,
+			DurationCount: row.DurationCount,
 		})
 	}
 
