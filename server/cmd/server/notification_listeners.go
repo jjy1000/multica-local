@@ -465,6 +465,12 @@ func notifyMentionedMembers(
 			continue
 		}
 		if m.Type == "member" {
+			// Mention text is free-form; a non-UUID member ID would die at the
+			// parseUUID inside the insert loop and take the whole notification
+			// pass down, so drop it before fan-out.
+			if _, err := util.ParseUUID(m.ID); err != nil {
+				continue
+			}
 			recipientIDs[m.ID] = true
 		}
 		if m.Type == "squad" {

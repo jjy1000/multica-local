@@ -1278,3 +1278,81 @@ func TestNotification_StatusChange_ReopenSurfacesNewTaskFailed(t *testing.T) {
 		t.Fatalf("expected 1 archived task_failed row preserved from prior cycle, got %d", archived)
 	}
 }
+
+// countInboxForIssue counts every inbox row pointing at an issue, across all
+// recipients. Used to prove a malformed mention produced no row for anyone.
+func countInboxForIssue(t *testing.T, issueID string) int {
+	t.Helper()
+	var count int
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT count(*) FROM inbox_item WHERE issue_id = $1`, issueID).Scan(&count); err != nil {
+		t.Fatalf("countInboxForIssue: %v", err)
+	}
+	return count
+}
+
+// TestNotification_MalformedMemberMentionSkipped guards the upstream #8876
+// fix: a comment body can carry member mentions whose ID is not a UUID
+// ("deadbeef", the bare "all"). Without the guard those IDs reach the
+// recipient set and die at the parseUUID call inside the insert loop —
+// taking the whole notification pass down with them — while the valid
+// recipients in the same batch must still be notified exactly once.
+func TestNotification_MalformedMemberMentionSkipped(t *testing.T) {
+	queries := db.New(testPool)
+	bus := newNotificationBus(t, queries)
+
+	recipientEmail := "notif-mention-valid@multica.ai"
+	recipientID := createTestUser(t, recipientEmail)
+	t.Cleanup(func() { cleanupTestUser(t, recipientEmail) })
+
+	issueID := createTestIssue(t, testWorkspaceID, testUserID)
+	t.Cleanup(func() {
+		cleanupInboxForIssue(t, issueID)
+		cleanupTestIssue(t, issueID)
+	})
+
+	content := "[@Valid](mention://member/" + recipientID + ") " +
+		"[@Bad](mention://member/deadbeef) [@Bad all](mention://member/all) " +
+		"[@Valid again](mention://member/" + recipientID + ")"
+
+	bus.Publish(events.Event{
+		Type:        protocol.EventCommentCreated,
+		WorkspaceID: testWorkspaceID,
+		ActorType:   "member",
+		ActorID:     testUserID,
+		Payload: map[string]any{
+			"comment": handler.CommentResponse{
+				ID:         "00000000-0000-0000-0000-000000000000",
+				IssueID:    issueID,
+				AuthorType: "member",
+				AuthorID:   testUserID,
+				Content:    content,
+				Type:       "comment",
+			},
+			"issue_title":  "malformed mention",
+			"issue_status": "todo",
+		},
+	})
+
+	items := inboxItemsForRecipient(t, queries, recipientID)
+	if len(items) != 1 {
+		t.Fatalf("valid recipient got %d inbox items, want 1", len(items))
+	}
+	if items[0].Type != "mentioned" {
+		t.Fatalf("expected type 'mentioned', got %q", items[0].Type)
+	}
+	// Exactly one row exists for the whole issue: the malformed IDs must not
+	// have produced inbox rows for anyone.
+	if count := countInboxForIssue(t, issueID); count != 1 {
+		t.Fatalf("issue has %d inbox items, want only the valid recipient's", count)
+	}
+}
+
+// TestNotifyMentionedMembersOnlyMalformedIDs calls the boundary directly so
+// the event bus cannot hide a panic: with no valid recipients, neither the
+// database nor the bus is touched.
+func TestNotifyMentionedMembersOnlyMalformedIDs(t *testing.T) {
+	notifyMentionedMembers(nil, nil, events.Event{},
+		parseMentions("[@Bad](mention://member/deadbeef) [@Bad all](mention://member/all)"),
+		"", "", "", "", nil, nil)
+}
