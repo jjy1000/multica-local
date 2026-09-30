@@ -361,6 +361,29 @@ describe("ContentEditor", () => {
 
     expect(onUpdate).toHaveBeenCalledTimes(1);
   });
+
+  describe("clearContent", () => {
+    it("parks the caret at the start so a select-all send cannot leave a highlight", () => {
+      const ref = createRef<ContentEditorRef>();
+      render(<ContentEditor ref={ref} defaultValue="sent text" />);
+      const { clearContent } = (
+        editorRef.current as { commands: { clearContent: ReturnType<typeof vi.fn> } }
+      ).commands;
+      // The memoized editor mock outlives beforeEach's clearAllMocks for
+      // invocation-call-order bookkeeping — scope both mocks to this test
+      // before comparing their order.
+      clearContent.mockClear();
+      mockSetTextSelection.mockClear();
+
+      ref.current?.clearContent();
+
+      expect(clearContent).toHaveBeenCalledTimes(1);
+      expect(mockSetTextSelection).toHaveBeenCalledWith(0);
+      expect(clearContent.mock.invocationCallOrder[0]).toBeLessThan(
+        mockSetTextSelection.mock.invocationCallOrder[0]!,
+      );
+    });
+  });
 });
 
 function makeAttachment(id: string, overrides: Partial<Attachment> = {}): Attachment {
