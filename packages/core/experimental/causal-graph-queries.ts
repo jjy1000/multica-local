@@ -125,15 +125,43 @@ export function useCausalGraphPath(from: string | null, to: string | null) {
 // Workspace-wide graph read (the unbound view mode): the nodes and
 // edges list endpoints, first page each (limit 100 — the S1 ceiling;
 // curator/evolver growth lands with pagination in the S2 phase).
+//
+// 0.5.131: `filters` threads the edges endpoint's server-side
+// type/status/min_confidence params (present since 0.5.83 but
+// previously unsent by any client). Nodes are never filtered
+// server-side; the caller prunes nodes not touched by the filtered
+// edge set.
+export interface CausalEdgeFilters {
+  type?: string;
+  status?: string;
+  minConfidence?: number;
+}
+
+export function causalEdgeFilterKey(filters?: CausalEdgeFilters): string {
+  if (!filters) return "none";
+  return `${filters.type ?? ""}|${filters.status ?? ""}|${filters.minConfidence ?? 0}`;
+}
+
 export function useCausalWorkspaceGraph(
   wsId: string | null | undefined,
-  options?: { pollPaused?: boolean },
+  options?: { pollPaused?: boolean; filters?: CausalEdgeFilters },
 ) {
+  const filters = options?.filters;
   return useQuery({
-    queryKey: [...causalGraphKeys.all, "workspace", wsId ?? ""],
+    queryKey: [
+      ...causalGraphKeys.all,
+      "workspace",
+      wsId ?? "",
+      causalEdgeFilterKey(filters),
+    ],
     queryFn: async (): Promise<CausalSubgraph> => {
       const nodesBase = `/api/causal-graph/nodes?workspace_id=${encodeURIComponent(wsId ?? "")}&limit=100`;
-      const edgesBase = `/api/causal-graph/edges?workspace_id=${encodeURIComponent(wsId ?? "")}&limit=100`;
+      let edgesBase = `/api/causal-graph/edges?workspace_id=${encodeURIComponent(wsId ?? "")}&limit=100`;
+      if (filters?.type) edgesBase += `&type=${encodeURIComponent(filters.type)}`;
+      if (filters?.status) edgesBase += `&status=${encodeURIComponent(filters.status)}`;
+      if (filters?.minConfidence && filters.minConfidence > 0) {
+        edgesBase += `&min_confidence=${filters.minConfidence}`;
+      }
       const [nRes, eRes] = await Promise.all([api.rawRequest(nodesBase), api.rawRequest(edgesBase)]);
       if (nRes.status === 404 || eRes.status === 404) throw new CausalFlagOffError();
       if (!nRes.ok) throw new Error(`causal nodes ${nRes.status}`);

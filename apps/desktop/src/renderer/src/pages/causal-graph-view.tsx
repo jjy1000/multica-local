@@ -10,10 +10,11 @@ import {
   useExperimentalFlag,
   useCausalSubgraph,
   useCausalWorkspaceGraph,
+  useCausalGraphPath,
   causalConfirmEdge,
   causalRejectEdge,
 } from "@multica/core/experimental";
-import type { CausalEdge, CausalNode } from "@multica/core/types/api";
+import type { CausalEdge, CausalNode, CausalPath } from "@multica/core/types/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useT } from "@multica/views/i18n";
 import { IssueBreadcrumb } from "@multica/views/experimental/components";
@@ -21,9 +22,11 @@ import {
   CausalGraphCanvas,
   CAUSAL_NODE_TYPE_COLORS,
 } from "@multica/views/experimental/components";
-import { buildGraphDigest } from "@multica/views/experimental/components";
+import { buildGraphDigest, summarizeCausalPath } from "@multica/views/experimental/components";
+import type { CausalPathHighlight } from "@multica/views/experimental/components";
 import { AppLink } from "@multica/views/navigation";
 import type { CausalPositionOverride } from "@multica/views/experimental/components";
+import { ArrowUpDown, Route, X } from "lucide-react";
 
 // CausalGraphView (0.5.83 WL3) — the workspace-wide causal graph
 // surface at /experimental/causal-graph (manifest sidebar entry point).
@@ -67,7 +70,7 @@ export function CausalGraphView() {
         <IssueBreadcrumb />
       </div>
       {issueId ? (
-        <FocusedGraph issueId={issueId} />
+        <FocusedGraph issueId={issueId} wsId={wsId} />
       ) : (
         <WorkspaceGraph wsId={wsId} />
       )}
@@ -94,7 +97,7 @@ function GraphLoadingOverlay({ label }: { label: string }) {
   );
 }
 
-function FocusedGraph({ issueId }: { issueId: string }) {
+function FocusedGraph({ issueId, wsId }: { issueId: string; wsId?: string }) {
   const { t } = useT("causal-graph");
   const [depth, setDepth] = useState(2);
   const [selected, setSelected] = useState<CausalNode | null>(null);
@@ -214,10 +217,27 @@ function FocusedGraph({ issueId }: { issueId: string }) {
         </div>
         <NodeDetail node={selected} />
       </div>
-      <SuggestedQueue wsId={nodes[0]?.workspace_id ?? ""} />
+      {/* 0.5.131: wsId comes from the route context, NOT
+          nodes[0].workspace_id — a node-less issue (sub-issues not yet
+          materialized) used to derive "" here and the queue went
+          silently inert. */}
+      <SuggestedQueue wsId={wsId ?? ""} />
     </div>
   );
 }
+
+// Edge filter vocabulary (mirrors the causal_edge type CHECK + status
+// CHECK; the server accepts these verbatim on GET /api/causal-graph/edges).
+const CAUSAL_EDGE_TYPES = [
+  "causes",
+  "supports",
+  "contradicts",
+  "depends_on",
+  "enables",
+  "blocks",
+] as const;
+const CAUSAL_EDGE_STATUSES = ["active", "suggested", "rejected"] as const;
+const CAUSAL_MIN_CONFIDENCE_STEPS = [0.3, 0.6, 0.9] as const;
 
 function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
   const { t } = useT("causal-graph");
@@ -226,12 +246,71 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
   const [positionOverrides, setPositionOverrides] = useState<Map<string, CausalPositionOverride>>(
     () => new Map(),
   );
-  const graph = useCausalWorkspaceGraph(wsId, { pollPaused: dragging });
+  // 0.5.131 edge filter bar — the server has accepted type/status/
+  // min_confidence since 0.5.83, but no client ever sent them (the
+  // locale keys existed unused since then too).
+  const [filterType, setFilterType] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterMinConf, setFilterMinConf] = useState("0");
+  const filterActive = filterType !== "" || filterStatus !== "" || filterMinConf !== "0";
+  // 0.5.131 path trace (semantica path-intelligence port): toggle on,
+  // click a start node, click an end node — the server's directed BFS
+  // path renders as a flowing chain with a summary card.
+  const [pathMode, setPathMode] = useState(false);
+  const [pathFrom, setPathFrom] = useState<string | null>(null);
+  const [pathTo, setPathTo] = useState<string | null>(null);
+  const graph = useCausalWorkspaceGraph(wsId, {
+    pollPaused: dragging,
+    filters: {
+      type: filterType || undefined,
+      status: filterStatus || undefined,
+      minConfidence: filterMinConf !== "0" ? Number(filterMinConf) : undefined,
+    },
+  });
 
   const nodes = useMemo(() => graph.data?.nodes ?? [], [graph.data]);
   const edges = useMemo(() => graph.data?.edges ?? [], [graph.data]);
+  // Nodes are not filterable server-side — prune to the ones the
+  // filtered edge set still touches so the canvas has no floaters.
+  const visibleNodes = useMemo(() => {
+    if (!filterActive) return nodes;
+    const ids = new Set<string>();
+    for (const e of edges) {
+      ids.add(e.from_node_id);
+      ids.add(e.to_node_id);
+    }
+    return nodes.filter((n) => ids.has(n.id));
+  }, [filterActive, nodes, edges]);
 
-  const nodeIds = useMemo(() => new Set(nodes.map((n) => n.id)), [nodes]);
+  const pathQuery = useCausalGraphPath(pathMode ? pathFrom : null, pathMode ? pathTo : null);
+  const path = pathQuery.data ?? null;
+  const nodesById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+  const pathSummary = useMemo(() => (path ? summarizeCausalPath(path, edges) : null), [path, edges]);
+  const pathHighlight = useMemo<CausalPathHighlight | null>(() => {
+    if (!pathMode || !path || path.edges.length === 0) return null;
+    return {
+      key: `${pathFrom ?? ""}->${pathTo ?? ""}`,
+      orderedEdgeIds: path.edges.map((e) => e.id),
+      nodeIds: new Set(path.nodes.map((n) => n.id)),
+      fromNodeId: path.nodes[0]?.id ?? "",
+      toNodeId: path.nodes[path.nodes.length - 1]?.id ?? "",
+    };
+  }, [pathMode, path, pathFrom, pathTo]);
+
+  const handleSelectNode = (node: CausalNode) => {
+    setSelected(node);
+    if (!pathMode) return;
+    // Two-click picking; a click after a completed pair restarts.
+    if (!pathFrom || pathTo) {
+      setPathFrom(node.id);
+      setPathTo(null);
+      return;
+    }
+    if (node.id === pathFrom) return;
+    setPathTo(node.id);
+  };
+
+  const nodeIds = useMemo(() => new Set(visibleNodes.map((n) => n.id)), [visibleNodes]);
   useEffect(() => {
     setPositionOverrides((prev) => {
       let changed = false;
@@ -273,7 +352,7 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-foreground">{t(($) => $.title)}</h2>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <DigestButton nodes={nodes} edges={edges} />
+          <DigestButton nodes={visibleNodes} edges={edges} />
           <button
             type="button"
             onClick={() => setPositionOverrides(new Map())}
@@ -289,43 +368,145 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
           </button>
           <span>
             {t(($) => $.counts_label, {
-              nodes: String(nodes.length),
+              nodes: String(visibleNodes.length),
               edges: String(edges.length),
             })}
           </span>
         </div>
       </div>
+      {/* Edge filter bar (0.5.131). Selects stay native + compact —
+          they sit beside the digest/reset row, not in the canvas HUD. */}
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        <label className="flex items-center gap-1 text-muted-foreground">
+          {t(($) => $.filter_type)}
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            aria-label={t(($) => $.filter_type)}
+            className="h-7 rounded border border-border bg-background px-1.5 text-[11px] text-foreground"
+            data-testid="causal-filter-type"
+          >
+            <option value="">{t(($) => $.filter_all_types)}</option>
+            {CAUSAL_EDGE_TYPES.map((ty) => (
+              <option key={ty} value={ty}>
+                {ty}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-1 text-muted-foreground">
+          {t(($) => $.filter_status)}
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            aria-label={t(($) => $.filter_status)}
+            className="h-7 rounded border border-border bg-background px-1.5 text-[11px] text-foreground"
+            data-testid="causal-filter-status"
+          >
+            <option value="">{t(($) => $.filter_all_statuses)}</option>
+            {CAUSAL_EDGE_STATUSES.map((st) => (
+              <option key={st} value={st}>
+                {st}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-1 text-muted-foreground">
+          {t(($) => $.min_confidence_label)}
+          <select
+            value={filterMinConf}
+            onChange={(e) => setFilterMinConf(e.target.value)}
+            aria-label={t(($) => $.min_confidence_label)}
+            className="h-7 rounded border border-border bg-background px-1.5 text-[11px] text-foreground"
+            data-testid="causal-filter-confidence"
+          >
+            <option value="0">{t(($) => $.filter_any)}</option>
+            {CAUSAL_MIN_CONFIDENCE_STEPS.map((c) => (
+              <option key={c} value={String(c)}>
+                ≥ {c.toFixed(1)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => {
+            setPathMode((v) => !v);
+            setPathFrom(null);
+            setPathTo(null);
+          }}
+          aria-pressed={pathMode}
+          data-testid="causal-path-toggle"
+          className={
+            "inline-flex h-7 items-center gap-1 rounded border px-1.5 transition-colors " +
+            (pathMode
+              ? "border-purple-500/50 bg-purple-500/10 text-purple-700 dark:text-purple-300"
+              : "border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground")
+          }
+        >
+          <Route className="size-3" aria-hidden />
+          {t(($) => $.path_toggle)}
+        </button>
+        {pathMode && (!pathFrom || !pathTo) ? (
+          <span
+            className="animate-pulse text-[10px] font-medium text-purple-700 dark:text-purple-300"
+            data-testid="causal-path-pick-hint"
+          >
+            {pathFrom ? t(($) => $.path_pick_to) : t(($) => $.path_pick_from)}
+          </span>
+        ) : null}
+      </div>
       {/* Pending keeps the canvas mounted under the overlay so the first
           load doesn't pop the graph in; the "no nodes" empty state only
-          applies AFTER a successful fetch. */}
-      {!graph.isPending && nodes.length === 0 ? (
+          applies AFTER a successful fetch. A filter matching nothing is
+          a different message than a workspace with no graph at all. */}
+      {!graph.isPending && visibleNodes.length === 0 ? (
         <div className="rounded-md border border-dashed border-border/60 px-3 py-3 text-xs text-muted-foreground">
-          {t(($) => $.suggested_empty)}
+          {filterActive ? t(($) => $.search_empty) : t(($) => $.graph_empty)}
         </div>
       ) : (
         <div className="grid grid-cols-[1fr_260px] gap-3">
           <div className="relative">
             <CausalGraphCanvas
-              nodes={nodes}
+              nodes={visibleNodes}
               edges={edges}
               width={760}
               height={560}
               selectedNodeId={selected?.id ?? null}
-              onSelectNode={setSelected}
+              onSelectNode={handleSelectNode}
               positionOverrides={positionOverrides}
               onPositionOverride={handleOverride}
               onDragStateChange={setDragging}
+              pathHighlight={pathHighlight}
               labels={{
                 zoomIn: t(($) => $.zoom_in),
                 zoomOut: t(($) => $.zoom_out),
                 resetView: t(($) => $.reset_view),
               }}
             />
-            <GraphSearch nodes={nodes} onSelect={setSelected} />
+            <GraphSearch nodes={visibleNodes} onSelect={setSelected} />
             <Legend />
             {graph.isPending ? <GraphLoadingOverlay label={t(($) => $.loading)} /> : null}
           </div>
-          <NodeDetail node={selected} />
+          <div className="space-y-3">
+            {pathMode && pathFrom && pathTo ? (
+              <PathTraceCard
+                summary={pathSummary}
+                path={path}
+                nodesById={nodesById}
+                isLoading={pathQuery.isPending}
+                onSwap={() => {
+                  setPathFrom(pathTo);
+                  setPathTo(pathFrom);
+                }}
+                onClear={() => {
+                  setPathFrom(null);
+                  setPathTo(null);
+                }}
+              />
+            ) : null}
+            <NodeDetail node={selected} />
+          </div>
         </div>
       )}
     </div>
@@ -353,7 +534,7 @@ function NodeDetail({ node }: { node: CausalNode | null }) {
         {t(($) => $.node_type_label)}: {node.type}
         {agentName ? (
           <span className="ml-1 rounded bg-muted px-1 py-px text-[9px]">
-            by {agentName}
+            {t(($) => $.attributed_by, { agent: agentName })}
           </span>
         ) : null}
       </p>
@@ -454,7 +635,7 @@ function GraphSearch({
                 <span className="truncate text-foreground">{n.label}</span>
                 {typeof n.metadata?.agent === "string" && n.metadata.agent ? (
                   <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
-                    by {n.metadata.agent}
+                    {t(($) => $.attributed_by, { agent: n.metadata.agent })}
                   </span>
                 ) : null}
               </button>
@@ -545,6 +726,164 @@ function Legend() {
           {type}
         </span>
       ))}
+    </div>
+  );
+}
+
+// PathTraceCard (0.5.131, semantica GraphInspectorPanel port) — the
+// path-intelligence companion to the canvas trace: hop count, distance
+// band, weakest-link confidence with traffic-light fill, bottleneck
+// hub, and endpoint labels. Purely presentational; every number comes
+// from summarizeCausalPath (unit-pinned).
+function PathTraceCard({
+  summary,
+  path,
+  nodesById,
+  isLoading,
+  onSwap,
+  onClear,
+}: {
+  summary: ReturnType<typeof summarizeCausalPath> | null;
+  path: CausalPath | null;
+  nodesById: Map<string, CausalNode>;
+  isLoading: boolean;
+  onSwap: () => void;
+  onClear: () => void;
+}) {
+  const { t } = useT("causal-graph");
+  if (isLoading) {
+    return (
+      <div
+        className="space-y-1.5 rounded-md border border-purple-500/30 bg-purple-500/5 px-3 py-2.5"
+        data-testid="causal-path-card-loading"
+      >
+        <p className="text-[11px] text-muted-foreground">{t(($) => $.loading)}</p>
+      </div>
+    );
+  }
+  if (!path) {
+    // The hook resolves an unreachable pair to null — an answer, not an
+    // error (no directed chain between the two nodes).
+    return (
+      <div
+        className="space-y-1.5 rounded-md border border-dashed border-border/70 px-3 py-2.5"
+        data-testid="causal-path-card-unreachable"
+      >
+        <p className="text-[11px] text-muted-foreground">{t(($) => $.path_unreachable)}</p>
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-[10px] text-muted-foreground underline hover:text-foreground"
+        >
+          {t(($) => $.path_clear)}
+        </button>
+      </div>
+    );
+  }
+  if (!summary) return null;
+
+  const fromNode = nodesById.get(path.nodes[0]?.id ?? "");
+  const toNode = nodesById.get(path.nodes[path.nodes.length - 1]?.id ?? "");
+  const bottleneck = summary.bottleneckNodeId ? nodesById.get(summary.bottleneckNodeId) : null;
+  const bandLabel =
+    summary.band === "direct"
+      ? t(($) => $.path_band_direct)
+      : summary.band === "near"
+        ? t(($) => $.path_band_near)
+        : summary.band === "mid"
+          ? t(($) => $.path_band_mid)
+          : t(($) => $.path_band_distant);
+  const verdictLabel =
+    summary.verdict == null
+      ? null
+      : summary.verdict === "strong"
+        ? t(($) => $.path_verdict_strong)
+        : summary.verdict === "ok"
+          ? t(($) => $.path_verdict_ok)
+          : t(($) => $.path_verdict_weak);
+  // Traffic-light fill keyed on the verdict thresholds (>0.6 / >0.3).
+  const confFill =
+    summary.verdict === "strong"
+      ? "bg-emerald-500"
+      : summary.verdict === "ok"
+        ? "bg-amber-500"
+        : "bg-red-500";
+  const confPct = summary.minConfidence != null ? Math.round(summary.minConfidence * 100) : null;
+
+  return (
+    <div
+      className="space-y-2 rounded-md border border-purple-500/30 bg-purple-500/5 px-3 py-2.5"
+      data-testid="causal-path-card"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1 text-xs font-medium text-foreground">
+          <Route className="size-3 text-purple-500" aria-hidden />
+          {t(($) => $.path_title)}
+        </p>
+        <span className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={onSwap}
+            aria-label={t(($) => $.path_swap)}
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ArrowUpDown className="size-3" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            aria-label={t(($) => $.path_clear)}
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="size-3" aria-hidden />
+          </button>
+        </span>
+      </div>
+      <p className="truncate text-[11px] text-muted-foreground">
+        {fromNode?.label ?? "—"} → {toNode?.label ?? "—"}
+      </p>
+      <div className="flex flex-wrap gap-1 text-[10px]">
+        <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground/85">
+          {t(($) => $.path_hops, { n: String(summary.hops) })}
+        </span>
+        <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">{bandLabel}</span>
+        {verdictLabel ? (
+          <span
+            className={
+              "rounded px-1.5 py-0.5 font-medium " +
+              (summary.verdict === "strong"
+                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : summary.verdict === "ok"
+                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                  : "bg-red-500/10 text-red-700 dark:text-red-300")
+            }
+          >
+            {verdictLabel}
+          </span>
+        ) : null}
+      </div>
+      {confPct != null && (
+        <div className="space-y-0.5">
+          <div className="flex items-baseline justify-between text-[10px] text-muted-foreground">
+            <span>{t(($) => $.path_confidence_label)}</span>
+            <span className="font-mono">{confPct}%</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full rounded-full ${confFill} transition-[width] duration-500`}
+              style={{ width: `${confPct}%` }}
+              data-testid="causal-path-confidence"
+            />
+          </div>
+        </div>
+      )}
+      {bottleneck ? (
+        <p className="text-[10px] leading-snug text-muted-foreground">
+          {t(($) => $.path_bottleneck_label)}:{" "}
+          <span className="font-medium text-foreground/85">{bottleneck.label}</span>
+          <span className="ml-1 font-mono opacity-70">deg {summary.bottleneckDegree}</span>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -707,7 +1046,7 @@ function SuggestedQueue({ wsId }: { wsId: string }) {
       )}
       <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
         <AlertTriangle className="size-3" aria-hidden />
-        proposed_by: curator | evolver → human-confirm gate
+        {t(($) => $.suggested_queue_footer)}
       </p>
     </div>
   );

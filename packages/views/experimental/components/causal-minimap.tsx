@@ -461,6 +461,20 @@ export interface CausalViewportTransform {
 
 export type CausalPositionOverride = { x: number; y: number };
 
+// 0.5.131 path trace (semantica GraphInspectorPanel port): the page
+// resolves a directed path between two nodes (server BFS) and passes it
+// down for highlighting. `orderedEdgeIds` preserves the traversal order
+// so the overlay can light the chain up sequentially; `key` (typically
+// "<from>-><to>") re-mounts the overlay on every new path so the sweep
+// replays.
+export interface CausalPathHighlight {
+  key: string;
+  orderedEdgeIds: string[];
+  nodeIds: Set<string>;
+  fromNodeId: string;
+  toNodeId: string;
+}
+
 interface NodeDragState {
   node: CausalNode;
   pointerId: number;
@@ -501,6 +515,7 @@ export function CausalMinimap({
   onDragStateChange,
   viewportTransform,
   onBackgroundPointerDown,
+  pathHighlight,
 }: {
   nodes: CausalNode[];
   edges: CausalEdge[];
@@ -518,6 +533,8 @@ export function CausalMinimap({
   viewportTransform?: CausalViewportTransform;
   /** Fired when a pointer press lands on the svg background (no node under it). */
   onBackgroundPointerDown?: (event: ReactPointerEvent<SVGSVGElement>) => void;
+  /** Active path trace overlay (0.5.131) — takes precedence over hover focus-dim. */
+  pathHighlight?: CausalPathHighlight | null;
 }) {
   const reducedMotion = useReducedMotion() ?? false;
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -604,9 +621,12 @@ export function CausalMinimap({
 
   // Past 14 nodes, only the selected/hovered node and its direct
   // neighbours keep their labels (full names always live in <title>).
+  // A path trace keeps the whole chain labeled — the trace is the
+  // current reading context (0.5.131).
   const labelIds = useMemo(() => {
     if (laid.length <= 14) return null;
     const ids = new Set<string>();
+    if (pathHighlight) for (const id of pathHighlight.nodeIds) ids.add(id);
     for (const anchor of [selectedNodeId, hoveredId]) {
       if (!anchor) continue;
       ids.add(anchor);
@@ -616,7 +636,7 @@ export function CausalMinimap({
       }
     }
     return ids;
-  }, [laid.length, edges, selectedNodeId, hoveredId]);
+  }, [laid.length, edges, selectedNodeId, hoveredId, pathHighlight]);
 
   // 0.5.120 focus mode: hovering (or selecting) a node dims everything
   // not adjacent to it, so the anchor's immediate causal neighbourhood
@@ -632,6 +652,12 @@ export function CausalMinimap({
     }
     return ids;
   }, [focusAnchor, edges]);
+
+  // 0.5.131 path trace: an active path takes precedence over the hover
+  // focus — the chain and its endpoints stay lit, everything else
+  // recedes, exactly like focus-dim but keyed on the path's node set.
+  const activeFocusIds = pathHighlight ? pathHighlight.nodeIds : focusIds;
+  const edgesById = useMemo(() => new Map(edges.map((e) => [e.id, e])), [edges]);
 
   const degree = useMemo(() => degreeMap(edges), [edges]);
 
@@ -766,9 +792,11 @@ export function CausalMinimap({
   // Dash-flow is CSS-animated and only ever applied to status ===
   // "active" edges that carry a dash pattern (superseded/suggested/
   // rejected never animate). Precedent for an inline <style> tag in a
-  // views component: priority-icon.tsx.
+  // views component: priority-icon.tsx. The path overlay carries its
+  // own faster flow (7+6 dash period → -13 offset loops seamlessly).
   const hasFlowEdges =
     !reducedMotion && edges.some((e) => e.status === "active" && resolveEdgeTone(e.type, e.status).dashed);
+  const hasPathFlow = !reducedMotion && pathHighlight != null;
 
   return (
     <svg
@@ -783,8 +811,8 @@ export function CausalMinimap({
       onPointerCancel={handleSvgPointerCancel}
       onLostPointerCapture={handleSvgLostPointerCapture}
     >
-      {hasFlowEdges ? (
-        <style>{`@keyframes causal-edge-flow{to{stroke-dashoffset:-14}}.causal-edge-flow{animation:causal-edge-flow 0.9s linear infinite}`}</style>
+      {hasFlowEdges || hasPathFlow ? (
+        <style>{`@keyframes causal-edge-flow{to{stroke-dashoffset:-14}}.causal-edge-flow{animation:causal-edge-flow 0.9s linear infinite}@keyframes causal-path-flow{to{stroke-dashoffset:-13}}.causal-path-flow{animation:causal-path-flow 0.7s linear infinite}`}</style>
       ) : null}
       <defs>
         {/* Subtle dot grid — gives the canvas a spatial substrate so
@@ -847,7 +875,8 @@ export function CausalMinimap({
           const flow = !reducedMotion && e.status === "active" && tone.dashed;
           // Focus dimming: when an anchor is active, only edges touching
           // it keep their authored opacity — the rest recede to 0.12×.
-          const focused = !focusIds || (focusIds.has(e.from_node_id) && focusIds.has(e.to_node_id));
+          // (An active path trace dims everything off the chain.)
+          const focused = !activeFocusIds || (activeFocusIds.has(e.from_node_id) && activeFocusIds.has(e.to_node_id));
           const opacity = focused ? tone.opacity : tone.opacity * 0.12;
           const marker = focused ? markerIdFor(e.type, tone.stroke) : undefined;
           if (reducedMotion) {
@@ -885,6 +914,55 @@ export function CausalMinimap({
             />
           );
         })}
+        {/* Path trace overlay (0.5.131, semantica pathPulse/pathFlow
+            port): the chain draws over the base edges — sequentially
+            light-up (staggered fade per traversal index) + a flowing
+            dash that reads as causality moving from cause to effect.
+            Keyed on pathHighlight.key so a new trace re-mounts the
+            whole overlay and the sweep replays. */}
+        {pathHighlight ? (
+          <g key={pathHighlight.key} data-testid="causal-path-overlay" pointerEvents="none">
+            {pathHighlight.orderedEdgeIds.map((edgeId, i) => {
+              const e = edgesById.get(edgeId);
+              if (!e) return null;
+              const from = posById.get(e.from_node_id);
+              const to = posById.get(e.to_node_id);
+              if (!from || !to) return null;
+              const mx = (from.x + to.x) / 2;
+              const my = (from.y + to.y) / 2;
+              const bend = Math.hypot(to.x - from.x, to.y - from.y) * 0.12;
+              const d = `M ${from.x} ${from.y} Q ${mx + bend} ${my - bend} ${to.x} ${to.y}`;
+              if (reducedMotion) {
+                return (
+                  <path
+                    key={edgeId}
+                    d={d}
+                    fill="none"
+                    stroke={toneFor(e.type)}
+                    strokeWidth={2.5}
+                    strokeLinecap="round"
+                    opacity={0.95}
+                  />
+                );
+              }
+              return (
+                <motion.path
+                  key={edgeId}
+                  d={d}
+                  fill="none"
+                  stroke={toneFor(e.type)}
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeDasharray="7 6"
+                  className="causal-path-flow"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 0.95 }}
+                  transition={{ duration: 0.25, delay: i * 0.07, ease: UI_EASE_OUT }}
+                />
+              );
+            })}
+          </g>
+        ) : null}
         {laid.map((n) => {
           const color = CAUSAL_NODE_TYPE_COLORS[n.type] ?? "#94a3b8";
           const pos = posById.get(n.id) ?? n;
@@ -895,8 +973,18 @@ export function CausalMinimap({
           // graph's connective tissue is findable without labels.
           const r = nodeRadius(degree.get(n.id) ?? 0);
           // Focus dimming mirrors the edges: non-neighbours recede.
-          const focused = !focusIds || focusIds.has(n.id);
+          const focused = !activeFocusIds || activeFocusIds.has(n.id);
           const dim = focused ? 1 : 0.15;
+          // Path endpoints get distinct rings (0.5.131): the origin a
+          // dashed ring, the terminus a solid double ring — direction
+          // readable even before the dash-flow settles.
+          const pathEndpoint = pathHighlight
+            ? n.id === pathHighlight.fromNodeId
+              ? ("from" as const)
+              : n.id === pathHighlight.toNodeId
+                ? ("to" as const)
+                : null
+            : null;
           // Side-anchor ring labels so neighbouring rings stop stacking
           // text on text; centre (ring 0) nodes keep the below-node
           // middle label.
@@ -961,6 +1049,18 @@ export function CausalMinimap({
                     strokeWidth={selected ? 2 : 1.5}
                   />
                 </g>
+                {pathEndpoint === "from" ? (
+                  <circle
+                    r={r + 7.5}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.25}
+                    strokeDasharray="3 3"
+                    opacity={0.7}
+                  />
+                ) : pathEndpoint === "to" ? (
+                  <circle r={r + 7.5} fill="none" stroke="currentColor" strokeWidth={2} opacity={0.85} />
+                ) : null}
                 <title>{`${n.type}: ${n.label}`}</title>
                 {labelsVisible ? (
                   <text

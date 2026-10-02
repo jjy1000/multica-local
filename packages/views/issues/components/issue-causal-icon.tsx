@@ -175,7 +175,7 @@ export function IssueCausalGraphIcon({ issueId }: { issueId: string }) {
             <p className="text-[10px] leading-snug text-muted-foreground">
               {selected.type}
               {typeof selected.metadata?.agent === "string" && selected.metadata.agent
-                ? ` · by ${selected.metadata.agent}`
+                ? ` · ${t(($) => $.attributed_by, { agent: selected.metadata.agent })}`
                 : ""}
               {selected.description ? ` · ${selected.description}` : ""}
             </p>

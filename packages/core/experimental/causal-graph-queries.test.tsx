@@ -37,6 +37,7 @@ import {
   CausalFlagOffError,
   useCausalGraphPath,
   useCausalSubgraph,
+  useCausalWorkspaceGraph,
 } from "./causal-graph-queries";
 
 function makeResponse(status: number, body: unknown): Response {
@@ -186,5 +187,43 @@ describe("useCausalGraphPath", () => {
     const { result } = renderHook(() => useCausalGraphPath("node-b", "node-a"), { wrapper });
     await waitFor(() => expect(result.current.data?.nodes).toHaveLength(2));
     expect(result.current.data?.edges[0]?.type).toBe("enables");
+  });
+});
+
+describe("useCausalWorkspaceGraph", () => {
+  it("threads the server-side edge filters and re-keys the cache when they change (0.5.131)", async () => {
+    // The /edges endpoint has accepted type/status/min_confidence since
+    // 0.5.83; until 0.5.131 no client ever sent them.
+    mockRawRequest.mockImplementation((url: unknown) => {
+      const u = String(url);
+      if (u.includes("/api/causal-graph/nodes")) {
+        return Promise.resolve(makeResponse(200, wellFormedSubgraph.nodes));
+      }
+      return Promise.resolve(makeResponse(200, wellFormedSubgraph.edges));
+    });
+    const { result, rerender } = renderHook(
+      (filters?: { type?: string; status?: string; minConfidence?: number }) =>
+        useCausalWorkspaceGraph("ws-1", { filters }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.data?.nodes).toHaveLength(2));
+    const plainEdges = mockRawRequest.mock.calls
+      .map((c) => String(c[0]))
+      .find((u) => u.includes("/api/causal-graph/edges"));
+    expect(plainEdges).toContain("workspace_id=ws-1");
+    expect(plainEdges).not.toContain("type=");
+    expect(plainEdges).not.toContain("min_confidence=");
+
+    rerender({ type: "causes", status: "suggested", minConfidence: 0.3 });
+    await waitFor(() =>
+      expect(
+        mockRawRequest.mock.calls.some((c) => String(c[0]).includes("type=causes")),
+      ).toBe(true),
+    );
+    const filteredEdges = mockRawRequest.mock.calls
+      .map((c) => String(c[0]))
+      .filter((u) => u.includes("type=causes"));
+    expect(filteredEdges[0]).toContain("status=suggested");
+    expect(filteredEdges[0]).toContain("min_confidence=0.3");
   });
 });

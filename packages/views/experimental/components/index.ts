@@ -26,6 +26,8 @@ export {
 // 0.5.105 (audit H3): SwarmTopologyGraph / SwarmInterruptBar removed
 // with the swarm_topology runtime retirement.
 export { CausalMinimap, CAUSAL_NODE_TYPE_COLORS } from "./causal-minimap";
-export type { CausalPositionOverride, CausalViewportTransform } from "./causal-minimap";
+export type { CausalPositionOverride, CausalViewportTransform, CausalPathHighlight } from "./causal-minimap";
 export { CausalGraphCanvas } from "./causal-graph-canvas";
 export { buildGraphDigest } from "./causal-graph-digest";
+export { summarizeCausalPath, causalPathBand } from "./causal-path-summary";
+export type { CausalPathSummary, CausalPathBand, CausalPathVerdict } from "./causal-path-summary";

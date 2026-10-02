@@ -41,6 +41,7 @@ import {
 } from "../../editor/utils/zoom-transform";
 import {
   CausalMinimap,
+  type CausalPathHighlight,
   type CausalPositionOverride,
   type CausalViewportTransform,
 } from "./causal-minimap";
@@ -78,6 +79,7 @@ export function CausalGraphCanvas({
   onPositionOverride,
   onDragStateChange,
   labels,
+  pathHighlight,
 }: {
   nodes: CausalNode[];
   edges: CausalEdge[];
@@ -91,6 +93,8 @@ export function CausalGraphCanvas({
   onDragStateChange?: (dragging: boolean) => void;
   /** Localised aria-labels for the corner controls (English defaults). */
   labels?: { zoomIn?: string; zoomOut?: string; resetView?: string };
+  /** Active path trace overlay (0.5.131) — forwarded verbatim. */
+  pathHighlight?: CausalPathHighlight | null;
 }) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   // Target vs rendered transform (0.5.86 polish): discrete gestures (wheel,
@@ -274,6 +278,7 @@ export function CausalGraphCanvas({
         onDragStateChange={onDragStateChange}
         viewportTransform={viewport}
         onBackgroundPointerDown={handleBackgroundPointerDown}
+        pathHighlight={pathHighlight}
       />
       <div className="absolute right-2 top-2 flex flex-col gap-1">
         <button
