@@ -51,6 +51,7 @@ import { ChatInput } from "./chat-input";
 import { ChatResizeHandles } from "./chat-resize-handles";
 import { useChatContextItems } from "./use-chat-context-items";
 import { useChatResize } from "./use-chat-resize";
+import { useReleaseFocusWhenHidden } from "./use-release-focus-when-hidden";
 import { createLogger } from "@multica/core/logger";
 import type { Agent, Attachment, ChatMessage, ChatMessagesPage, ChatPendingTask, ChatSession, PendingChatTasksResponse } from "@multica/core/types";
 import { useLocale, useT } from "../../i18n";
@@ -683,6 +684,11 @@ export function ChatWindow({ wsId: wsIdOverride }: ChatWindowProps = {}) {
 
   const contextItems = useChatContextItems(wsId);
 
+  // The window stays mounted while closed; release any focus it holds so the
+  // next keystroke can't enter the hidden composer. inert on the container
+  // below is the browser-native half of the same contract.
+  useReleaseFocusWhenHidden(isOpen, windowRef);
+
   // Rules-of-hooks: the no-workspace guard MUST run after every hook above.
   // Pre-0.3.66 it sat before the hook block (right under the `wsId` compute),
   // so a `wsId` that flipped falsy↔truthy within one mount changed the hook
@@ -700,6 +706,8 @@ export function ChatWindow({ wsId: wsIdOverride }: ChatWindowProps = {}) {
   return (
     <motion.div
       ref={windowRef}
+      inert={!isOpen}
+      aria-hidden={!isOpen}
       className={containerClass}
       style={containerStyle}
       initial={{ opacity: 0, scale: 0.95, width: renderWidth, height: renderHeight }}
