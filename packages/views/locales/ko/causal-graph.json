@@ -67,5 +67,14 @@
   "path_verdict_weak": "근거 취약",
   "path_unreachable": "두 노드 사이에 유향 인과 경로가 없습니다",
   "path_swap": "방향 뒤집기",
-  "path_clear": "경로 지우기"
+  "path_clear": "경로 지우기",
+  "constellation_title": "인과 성도",
+  "constellation_no_focus": "초점 노드 없음",
+  "constellation_suggested_n": "확인 대기 {{n}}",
+  "constellation_wave": "영향 추론",
+  "constellation_impacted": "영향권 {{n}} 노드",
+  "constellation_tier_confirmed": "확인됨",
+  "constellation_tier_suggested": "확인 대기",
+  "constellation_tier_rejected": "기각됨",
+  "constellation_tier_note": "확인 대기 엣지(Tier D LLM 제안)는 신뢰도 0.5 이하로만 저장되며 사람이 확인하기 전까지 경로에 들어가지 않습니다. 기각은 표식이지 삭제가 아닙니다."
 }

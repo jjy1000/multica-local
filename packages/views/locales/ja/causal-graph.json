@@ -67,5 +67,14 @@
   "path_verdict_weak": "証拠薄弱",
   "path_unreachable": "この2ノード間に有向因果パスはありません",
   "path_swap": "方向を反転",
-  "path_clear": "パスをクリア"
+  "path_clear": "パスをクリア",
+  "constellation_title": "因果星図",
+  "constellation_no_focus": "フォーカス节点なし",
+  "constellation_suggested_n": "承認待ち {{n}}",
+  "constellation_wave": "影響を推論",
+  "constellation_impacted": "影響範囲 {{n}} ノード",
+  "constellation_tier_confirmed": "確定済み",
+  "constellation_tier_suggested": "承認待ち",
+  "constellation_tier_rejected": "棄却済み",
+  "constellation_tier_note": "承認待ちエッジ（Tier D の LLM 提案）は信頼度 0.5 以下でしか入庫せず、人が確認するまで経路に入りません。棄却は墓碑であり、削除はしません。"
 }

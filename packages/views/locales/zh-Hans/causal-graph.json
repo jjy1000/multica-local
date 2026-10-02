@@ -67,5 +67,14 @@
   "path_verdict_weak": "证据薄弱",
   "path_unreachable": "这两个节点之间没有有向因果路径",
   "path_swap": "反转方向",
-  "path_clear": "清除路径"
+  "path_clear": "清除路径",
+  "constellation_title": "因果星图",
+  "constellation_no_focus": "无焦点节点",
+  "constellation_suggested_n": "待确认 {{n}}",
+  "constellation_wave": "推演影响",
+  "constellation_impacted": "影响面 {{n}} 节点",
+  "constellation_tier_confirmed": "已确认",
+  "constellation_tier_suggested": "待确认",
+  "constellation_tier_rejected": "已驳回",
+  "constellation_tier_note": "待确认边（Tier D LLM 提议）恒以置信度 ≤ 0.5 落库，人工确认前不进入路径；驳回是墓碑，永不物理删除。"
 }

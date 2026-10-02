@@ -44,3 +44,29 @@ export type {
   ClaudeBrainNode,
   ClaudeBrainRosterEntry,
 } from "./claude-lab/claude-brain-derive";
+// 0.5.132: Pythia council chamber + causal constellation (round-2 ports)
+export { PythiaCouncilCanvas } from "./pythia/pythia-council-canvas";
+export {
+  COUNCIL_SPLIT_THRESHOLD,
+  deriveConsensusTrajectory,
+  deriveCouncilSeats,
+  deriveSpreadBand,
+  deriveVerdict,
+  latestCouncil,
+} from "./pythia/pythia-council-derive";
+export type { CouncilSeat, CouncilVerdict } from "./pythia/pythia-council-derive";
+export { CausalConstellationCanvas } from "./causal-constellation-canvas";
+export {
+  constellationNodeDegree,
+  countTiers,
+  defaultFocusId,
+  deriveImpactLayers,
+  projectConstellation,
+} from "./causal-constellation-derive";
+export type {
+  ConstellationEdge,
+  ConstellationProjection,
+  ConstellationStar,
+  ImpactLayer,
+  TrustTierCount,
+} from "./causal-constellation-derive";

@@ -67,5 +67,14 @@
   "path_verdict_weak": "Weakly evidenced",
   "path_unreachable": "No directed causal path between these nodes",
   "path_swap": "Swap direction",
-  "path_clear": "Clear path"
+  "path_clear": "Clear path",
+  "constellation_title": "Causal constellation",
+  "constellation_no_focus": "no focus node",
+  "constellation_suggested_n": "{{n}} pending",
+  "constellation_wave": "Trace impact",
+  "constellation_impacted": "impact cone: {{n}} nodes",
+  "constellation_tier_confirmed": "confirmed",
+  "constellation_tier_suggested": "suggested",
+  "constellation_tier_rejected": "rejected",
+  "constellation_tier_note": "Suggested edges (Tier D LLM proposals) land at confidence ≤ 0.5 and stay out of paths until a human confirms; reject is a tombstone, never a delete."
 }

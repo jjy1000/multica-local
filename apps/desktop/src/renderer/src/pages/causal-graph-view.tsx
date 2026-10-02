@@ -17,7 +17,11 @@ import {
 import type { CausalEdge, CausalNode, CausalPath } from "@multica/core/types/api";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useT } from "@multica/views/i18n";
-import { IssueBreadcrumb } from "@multica/views/experimental/components";
+import {
+  CausalConstellationCanvas,
+  defaultFocusId,
+  IssueBreadcrumb,
+} from "@multica/views/experimental/components";
 import {
   CausalGraphCanvas,
   CAUSAL_NODE_TYPE_COLORS,
@@ -154,6 +158,15 @@ function FocusedGraph({ issueId, wsId }: { issueId: string; wsId?: string }) {
 
   return (
     <div className="flex flex-col gap-3 px-6 py-4">
+      {/* 0.5.132 constellation star map — focus-centric hero projection of
+          the same nodes/edges (upstream left / downstream right, active-edge
+          flow, impact-cone BFS wave). Focus follows the selection below;
+          default is the highest-degree node. */}
+      <CausalConstellationCanvas
+        nodes={nodes}
+        edges={edges}
+        focusId={selected?.id ?? defaultFocusId(nodes, edges)}
+      />
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-foreground">{t(($) => $.title)}</h2>
         <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
