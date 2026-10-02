@@ -11,6 +11,7 @@ const hookState = vi.hoisted(() => ({
   status: "idle",
   latest: null as Record<string, unknown> | null,
   liveTask: null as Record<string, unknown> | null,
+  isError: false,
   artifacts: [] as Array<{ id: string; name: string; kind: string; bytes: number; sha256: string; url: string; session_id: string }>,
 }));
 const rawRequestMock = vi.hoisted(() => vi.fn());
@@ -23,6 +24,8 @@ vi.mock("../../hooks/use-claude-lab-issue", () => ({
     status: hookState.status,
     hasLive: hookState.status === "running" || hookState.status === "queued",
     artifacts: hookState.artifacts,
+    isError: hookState.isError,
+    refetch: vi.fn(),
   }),
 }));
 vi.mock("@multica/core/api", () => ({
@@ -47,12 +50,47 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     vi.clearAllMocks();
     hookState.latest = null;
     hookState.liveTask = null;
+    hookState.isError = false;
     rawRequestMock.mockResolvedValue(new Response("x"));
   });
 
   it("collapses to null with no tasks and no artifacts (0-runs-ready law)", () => {
     const { container } = render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("surfaces a fetch outage as an error strip with retry instead of the empty state (0.5.131)", () => {
+    // Snapshot/artifacts fetch failures used to render identically to
+    // "no runs" — the pill vanished and the embed showed the empty hint
+    // with no retry affordance.
+    hookState.isError = true;
+    const { container } = render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    expect(container).not.toBeEmptyDOMElement();
+    expect(screen.getByTestId("claude-issue-embed-error")).toBeTruthy();
+    expect(screen.getByText(enExperimental.claude_lab.embed_error)).toBeTruthy();
+    expect(screen.getByText(enExperimental.lab_output_panel.retry)).toBeTruthy();
+  });
+
+  it("run-status strip animates by state (open-science session-card pattern)", () => {
+    // idle with artifacts present → no strip; running → shimmer sweep;
+    // completed → emerald fill + check pop.
+    hookState.tasks = [{ id: "t1" }];
+    hookState.artifacts = [{ id: "a1", session_id: "s1", name: "r.md", kind: "md", bytes: 8, sha256: "x", url: "/x" }];
+
+    hookState.status = "completed";
+    const { unmount } = render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    const done = screen.getByTestId("claude-run-status-strip");
+    expect(done.getAttribute("data-status")).toBe("completed");
+    // the check pop lives in the header, not inside the strip element
+    expect(document.querySelector(".claude-strip-pop")).not.toBeNull();
+    unmount();
+
+    hookState.status = "running";
+    hookState.liveTask = { id: "t1", status: "running", attempt: 1, started_at: new Date().toISOString() };
+    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    const live = screen.getByTestId("claude-run-status-strip");
+    expect(live.getAttribute("data-status")).toBe("running");
+    expect(live.querySelector(".claude-strip-shimmer")).not.toBeNull();
   });
 
   it("renders artifact rows with name + download", async () => {

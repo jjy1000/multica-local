@@ -62,6 +62,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { agentTaskSnapshotOptions } from "@multica/core/agents";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { useT } from "@multica/views/i18n";
@@ -455,9 +456,15 @@ function IssueContextBar({
     onSuccess: () => {
       // The lab context query carries the new task row; refetch so the
       // PlanTimeline + lab_seq refresh immediately instead of waiting
-      // for the 5s polling beat.
+      // for the 5s polling beat. (0.5.131: this used to invalidate
+      // ["claude-lab-context", issueId] — a key nothing owned, so the
+      // refresh promise silently never fired. The snapshot invalidation
+      // also updates the issue-side pill/embed + LabProgressCard.)
       queryClient.invalidateQueries({
-        queryKey: ["claude-lab-context", selectedIssueId],
+        queryKey: ["claude-lab-workbench-context", wsId, selectedIssueId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: agentTaskSnapshotOptions(wsId).queryKey,
       });
     },
   });
@@ -849,6 +856,19 @@ function Header({
 }) {
   const { t } = useT("layout");
   const { t: tLab } = useT("claude-lab");
+  // Arrow-expression selectors per key (never a dynamic template string
+  // through a cast — a missing key would render the raw key path; the
+  // proxy contract in this file's header + the 2026-07-14 incident).
+  const tabLabel = (key: LabTab): string =>
+    key === "plan"
+      ? tLab(($) => $.tab_plan)
+      : key === "artifact"
+        ? tLab(($) => $.tab_artifact)
+        : key === "forecast"
+          ? tLab(($) => $.tab_forecast)
+          : key === "code"
+            ? tLab(($) => $.tab_code)
+            : tLab(($) => $.tab_knowledge);
   return (
     <header className="flex h-9 shrink-0 items-center gap-3 border-b border-border bg-background px-6 text-xs text-muted-foreground">
       <div className="flex items-center gap-1.5">
@@ -871,7 +891,7 @@ function Header({
             }
             aria-pressed={active === key}
           >
-            {(tLab as unknown as (k: string) => string)(`tab_${key}`)}
+            {tabLabel(key)}
           </button>
         ))}
       </nav>

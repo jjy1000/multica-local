@@ -25,6 +25,7 @@ import { ChevronRight, FlaskConical, Loader2 } from "lucide-react";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@multica/core/api";
+import { useT } from "@multica/views/i18n";
 
 interface RuntimeArtifactStub {
   id: string;
@@ -73,6 +74,7 @@ const LIVE_RUNTIME_SESSION_STATUSES = new Set<RuntimeSession["status"]>([
 
 export function ExperimentalArtifactView({ workspaceId }: { workspaceId: string }) {
   const runtimeEnabled = useExperimentalFlag("claude_science_lab", false);
+  const { t } = useT("claude-lab");
   const qc = useQueryClient();
 
   const sessions = useQuery({
@@ -98,31 +100,31 @@ export function ExperimentalArtifactView({ workspaceId }: { workspaceId: string 
 
   return (
     <section
-      aria-label="实验运行时产物"
+      aria-label={t(($) => $.runtime_aria)}
       className="rounded-2xl border border-border bg-card p-5 shadow-sm"
     >
       <header className="mb-4 flex items-center gap-2">
         <FlaskConical className="size-4 text-primary" />
-        <h2 className="text-base font-medium">实验产物</h2>
+        <h2 className="text-base font-medium">{t(($) => $.runtime_header)}</h2>
         <span className="ml-auto text-xs text-muted-foreground">
           {sessions.data ? `${sessions.data.total} sessions` : "loading…"}
         </span>
       </header>
       {sessions.isLoading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" /> 加载 sessions…
+          <Loader2 className="size-4 animate-spin" /> {t(($) => $.runtime_sessions_loading)}
         </div>
       )}
       {sessions.isError && (
-        <div className="text-sm text-destructive">无法加载实验会话</div>
+        <div className="text-sm text-destructive">{t(($) => $.runtime_sessions_error)}</div>
       )}
       {sessions.data && sessions.data.sessions.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          尚无实验会话。让 claude-science 智能体通过
+          {t(($) => $.runtime_empty_a)}
           <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
             multica-claude-science-runtime
           </code>
-          技能跑一段代码,产物会出现在这里。
+          {t(($) => $.runtime_empty_b)}
         </p>
       )}
       {sessions.data && sessions.data.sessions.length > 0 && (
@@ -137,6 +139,7 @@ export function ExperimentalArtifactView({ workspaceId }: { workspaceId: string 
 }
 
 function SessionRow({ session, onInvalidate }: { session: RuntimeSession; onInvalidate: () => void }) {
+  const { t } = useT("claude-lab");
   const [open, setOpen] = useState(false);
   const artifacts = useQuery({
     queryKey: ["claude-science-runtime", "artifacts", session.id],
@@ -192,10 +195,10 @@ function SessionRow({ session, onInvalidate }: { session: RuntimeSession; onInva
       {open && (
         <div className="mt-3 flex flex-col gap-3">
           {artifacts.isLoading && (
-            <div className="text-xs text-muted-foreground">加载产物…</div>
+            <div className="text-xs text-muted-foreground">{t(($) => $.runtime_artifacts_loading)}</div>
           )}
           {artifacts.data && artifacts.data.length === 0 && (
-            <div className="text-xs text-muted-foreground">无产物</div>
+            <div className="text-xs text-muted-foreground">{t(($) => $.runtime_artifacts_empty)}</div>
           )}
           {artifacts.data && artifacts.data.length > 0 && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -205,15 +208,36 @@ function SessionRow({ session, onInvalidate }: { session: RuntimeSession; onInva
             </div>
           )}
           {session.stdout && (
-            <details className="text-xs">
+            <details className="text-xs" data-testid="runtime-stdout">
               <summary className="cursor-pointer text-muted-foreground">stdout</summary>
-              <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/40 p-2 font-mono">{session.stdout}</pre>
+              {/* 0.5.131 open-science JobTerminalOutput pattern: the
+                  sandbox console reads as a terminal — traffic-light
+                  header, dark mono body — not a muted gray block. */}
+              <div className="mt-1 overflow-hidden rounded-md border border-zinc-800">
+                <div className="flex items-center gap-1 border-b border-zinc-800 bg-zinc-900 px-2 py-1">
+                  <span className="size-1.5 rounded-full bg-red-500/80" aria-hidden />
+                  <span className="size-1.5 rounded-full bg-amber-500/80" aria-hidden />
+                  <span className="size-1.5 rounded-full bg-emerald-500/80" aria-hidden />
+                  <span className="ml-1 font-mono text-[9px] text-zinc-400">stdout</span>
+                </div>
+                <pre className="max-h-48 overflow-auto bg-zinc-950 p-2 font-mono text-[11px] leading-snug text-zinc-200">
+                  {session.stdout}
+                </pre>
+              </div>
             </details>
           )}
           {session.stderr && (
-            <details className="text-xs">
+            <details className="text-xs" data-testid="runtime-stderr">
               <summary className="cursor-pointer text-muted-foreground">stderr</summary>
-              <pre className="mt-1 max-h-48 overflow-auto rounded bg-muted/40 p-2 font-mono text-destructive">{session.stderr}</pre>
+              <div className="mt-1 overflow-hidden rounded-md border border-red-900/60">
+                <div className="flex items-center gap-1 border-b border-red-900/60 bg-red-950/60 px-2 py-1">
+                  <span className="size-1.5 rounded-full bg-red-500" aria-hidden />
+                  <span className="font-mono text-[9px] text-red-300/90">stderr</span>
+                </div>
+                <pre className="max-h-48 overflow-auto bg-zinc-950 p-2 font-mono text-[11px] leading-snug text-red-200/90">
+                  {session.stderr}
+                </pre>
+              </div>
             </details>
           )}
           <button
@@ -222,7 +246,7 @@ function SessionRow({ session, onInvalidate }: { session: RuntimeSession; onInva
             disabled={del.isPending}
             className="self-end rounded-md border border-border bg-background/40 px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50"
           >
-            {del.isPending ? "删除中…" : "删除 session"}
+            {del.isPending ? t(($) => $.runtime_delete_pending) : t(($) => $.runtime_delete)}
           </button>
         </div>
       )}
@@ -231,6 +255,7 @@ function SessionRow({ session, onInvalidate }: { session: RuntimeSession; onInva
 }
 
 function ArtifactTile({ artifact }: { artifact: RuntimeArtifactStub }) {
+  const { t } = useT("claude-lab");
   // 0.3.51: artifact bytes are now fetched through `api.rawRequest`
   // and rendered via `URL.createObjectURL` so the renderer can carry
   // the desktop session's Bearer token. The pre-0.3.51 implementation
@@ -289,7 +314,7 @@ function ArtifactTile({ artifact }: { artifact: RuntimeArtifactStub }) {
         <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
           <span>{artifact.name}</span>
           <ArtifactDownloadLink src={fetchUrl} downloadName={artifact.name}>
-            下载
+            {t(($) => $.runtime_download)}
           </ArtifactDownloadLink>
         </div>
         <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono text-xs">
@@ -358,17 +383,19 @@ function useArtifactBlobUrl(url: string): string | null {
 }
 
 function ArtifactImage({ src, alt }: { src: string; alt: string }) {
+  const { t } = useT("claude-lab");
   const blobUrl = useArtifactBlobUrl(src);
   if (!blobUrl) {
-    return <div className="flex h-48 items-center justify-center text-xs text-muted-foreground">加载图片…</div>;
+    return <div className="flex h-48 items-center justify-center text-xs text-muted-foreground">{t(($) => $.runtime_img_loading)}</div>;
   }
   return <img src={blobUrl} alt={alt} className="block max-h-72 w-full object-contain" />;
 }
 
 function ArtifactIframe({ src, title }: { src: string; title: string }) {
+  const { t } = useT("claude-lab");
   const blobUrl = useArtifactBlobUrl(src);
   if (!blobUrl) {
-    return <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">加载 HTML…</div>;
+    return <div className="flex h-64 items-center justify-center text-xs text-muted-foreground">{t(($) => $.runtime_html_loading)}</div>;
   }
   // 0.3.51: keep the existing `sandbox=""` policy — even though the
   // blob URL is now same-origin as the renderer, the artifact body
@@ -423,6 +450,7 @@ function ArtifactDownloadLink({ src, downloadName, className, children }: Artifa
 }
 
 function SvgInline({ url }: { url: string }) {
+  const { t } = useT("claude-lab");
   // 0.5.81: three-state instead of the old two-value markup sentinel.
   // Previously `if (!r.ok) return;` left markup null on any HTTP error
   // and the component rendered "loading svg…" forever — a failed
@@ -452,7 +480,7 @@ function SvgInline({ url }: { url: string }) {
   if (state.kind === "error") {
     return (
       <div className="flex h-32 items-center justify-center text-xs text-destructive">
-        SVG 加载失败
+        {t(($) => $.runtime_svg_failed)}
       </div>
     );
   }
@@ -490,6 +518,7 @@ function InteractiveChartCard({
   artifact: { id: string; name: string; bytes: number };
   artifactId: string;
 }) {
+  const { t } = useT("claude-lab");
   const [payload, setPayload] = useState<{ schema?: ChartSchema; data?: unknown[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -506,12 +535,14 @@ function InteractiveChartCard({
         const parsed = JSON.parse(text) as { schema?: ChartSchema; data?: unknown[] };
         if (!cancelled) setPayload(parsed);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "无法读取图表");
+        if (!cancelled) setError(e instanceof Error ? e.message : t(($) => $.runtime_chart_read_failed));
       }
     })();
     return () => {
       cancelled = true;
     };
+    // t is stable per locale; the fetch is keyed on the artifact only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [artifactId]);
 
   return (
@@ -521,11 +552,13 @@ function InteractiveChartCard({
         <span>{artifact.bytes} B</span>
       </div>
       {error ? (
-        <p className="text-xs text-destructive">图表加载失败：{error}</p>
+        <p className="text-xs text-destructive">
+          {t(($) => $.runtime_chart_failed, { error })}
+        </p>
       ) : !payload ? (
-        <p className="text-xs text-muted-foreground">正在解析图表…</p>
+        <p className="text-xs text-muted-foreground">{t(($) => $.runtime_chart_parsing)}</p>
       ) : !payload.schema || !payload.data ? (
-        <p className="text-xs text-muted-foreground">缺少 schema 或 data,无法渲染</p>
+        <p className="text-xs text-muted-foreground">{t(($) => $.runtime_chart_missing)}</p>
       ) : (
         <ChartRenderer schema={payload.schema} data={payload.data} />
       )}
@@ -542,6 +575,7 @@ interface ChartSchema {
 }
 
 function ChartRenderer({ schema, data }: { schema: ChartSchema; data: unknown[] }) {
+  const { t } = useT("claude-lab");
   // Local Recharts import — desktop renderer only. The shared
   // @multica/ui/chart primitive (packages/ui/components/ui/chart.tsx)
   // is reserved for shadcn-style thuimbnails, not full-bleed
@@ -551,7 +585,7 @@ function ChartRenderer({ schema, data }: { schema: ChartSchema; data: unknown[] 
   const { ResponsiveContainer, LineChart, Line, BarChart, Bar, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip } = recharts;
 
   if (!Array.isArray(data) || data.length === 0) {
-    return <p className="text-xs text-muted-foreground">数据为空</p>;
+    return <p className="text-xs text-muted-foreground">{t(($) => $.runtime_chart_empty)}</p>;
   }
   const xKey = schema.x.field;
   const yKey = schema.y.field;

@@ -31,7 +31,8 @@ function taskTime(t: AgentTask): number {
 }
 
 export function useClaudeLabIssue(wsId: string, issueId: string) {
-  const { data: snapshot = [] } = useQuery(agentTaskSnapshotOptions(wsId));
+  const snapshotQuery = useQuery(agentTaskSnapshotOptions(wsId));
+  const { data: snapshot = [] } = snapshotQuery;
 
   const tasks = useMemo(
     () => snapshot.filter((task) => task.issue_id === issueId),
@@ -87,5 +88,13 @@ export function useClaudeLabIssue(wsId: string, issueId: string) {
     status,
     hasLive: status === "running" || status === "queued",
     artifacts: artifacts.data ?? [],
+    // 0.5.131: a failed snapshot/artifacts fetch used to render
+    // identically to "no runs" (the pill vanished, the embed showed the
+    // empty hint). Surface the outage so the embed can offer a retry.
+    isError: snapshotQuery.isError || artifacts.isError,
+    refetch: () => {
+      void snapshotQuery.refetch();
+      void artifacts.refetch();
+    },
   };
 }

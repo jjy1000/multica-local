@@ -26,6 +26,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  CheckCircle2,
   ChevronRight,
   Download,
   File as FileIcon,
@@ -39,13 +40,54 @@ import {
 import { api } from "@multica/core/api";
 import type { LabArtifactStub } from "@multica/core/api/schemas";
 import { formatElapsedSecs } from "../../../chat/lib/format";
-import { useClaudeLabIssue } from "../../hooks/use-claude-lab-issue";
+import { useClaudeLabIssue, type ClaudeLabRunStatus } from "../../hooks/use-claude-lab-issue";
 import { ArtifactInlineView, hasInlineView } from "./artifact-inline-view";
 import { useT } from "../../../i18n";
 
 const INLINE_PREVIEW_KINDS = new Set(["png", "svg", "jpg", "jpeg"]);
 const MAX_INLINE_PREVIEWS = 4;
 const MAX_ROWS = 20;
+
+// RunStatusStrip (0.5.131, open-science session-card pattern): a thin
+// state bar under the embed header — shimmer sweep while running,
+// amber pulse while queued, emerald fill on completion, amber/red on
+// failure. CSS-only keyframes (media-query reduced-motion gate covers
+// every consumer without per-component hooks); the <style> tag mounts
+// only while a state that animates is showing.
+const RUN_STRIP_STYLE = `
+@keyframes claude-strip-shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.claude-strip-shimmer{animation:claude-strip-shimmer 1.4s linear infinite}
+@keyframes claude-strip-pop{from{transform:scale(0.4);opacity:0}to{transform:scale(1);opacity:1}}
+.claude-strip-pop{animation:claude-strip-pop 0.35s ease-out}
+@media (prefers-reduced-motion: reduce){
+  .claude-strip-shimmer,.claude-strip-pop{animation:none}
+}`;
+
+function RunStatusStrip({ status }: { status: ClaudeLabRunStatus }) {
+  if (status === "idle") return null;
+  const animate = status === "running" || status === "queued" || status === "completed";
+  const fill =
+    status === "running"
+      ? "bg-sky-500/40"
+      : status === "queued"
+        ? "bg-amber-500/60 animate-pulse"
+        : status === "completed"
+          ? "bg-emerald-500/80"
+          : "bg-amber-600/80";
+  return (
+    <div data-testid="claude-run-status-strip" data-status={status}>
+      {animate ? <style>{RUN_STRIP_STYLE}</style> : null}
+      <div className="relative h-0.5 w-full overflow-hidden">
+        <div className={`h-full w-full ${fill}`} />
+        {status === "running" && (
+          <div className="absolute inset-0 overflow-hidden">
+            <div className="claude-strip-shimmer h-full w-1/2 bg-gradient-to-r from-transparent via-sky-400/80 to-transparent" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function artifactIcon(kind: string) {
   const k = kind.toLowerCase();
@@ -73,7 +115,8 @@ export function ClaudeIssueEmbed({
   issueId: string;
 }) {
   const { t } = useT("experimental");
-  const { tasks, latest, liveTask, status, hasLive, artifacts } = useClaudeLabIssue(wsId, issueId);
+  const { tasks, latest, liveTask, status, hasLive, artifacts, isError, refetch } =
+    useClaudeLabIssue(wsId, issueId);
 
   // Ticking clock for the live progress row — 1s cadence so the elapsed
   // counter visibly moves while a run is in flight; interval mounted only
@@ -149,8 +192,29 @@ export function ClaudeIssueEmbed({
     setTimeout(() => URL.revokeObjectURL(url), 5_000);
   }
 
-  // 0-runs-ready law (pythia analogue): nothing to show → no card.
-  if (!tasks.length && artifacts.length === 0) return null;
+  // 0-runs-ready law (pythia analogue): nothing to show → no card. A
+  // failed fetch is NOT "nothing to show" — without this branch the
+  // outage rendered exactly like the empty state (0.5.131).
+  if (!tasks.length && artifacts.length === 0) {
+    if (!isError) return null;
+    return (
+      <div
+        className="mt-4 flex items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-1.5"
+        data-testid="claude-issue-embed-error"
+      >
+        <span className="text-[11px] text-destructive">
+          {t(($) => $.claude_lab.embed_error)}
+        </span>
+        <button
+          type="button"
+          onClick={refetch}
+          className="shrink-0 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted"
+        >
+          {t(($) => $.lab_output_panel.retry)}
+        </button>
+      </div>
+    );
+  }
 
   const rows = artifacts.slice(0, MAX_ROWS);
 
@@ -171,11 +235,13 @@ export function ClaudeIssueEmbed({
           </span>
         )}
         {!hasLive && status === "completed" && (
-          <span className="ml-1 text-[10px] text-muted-foreground">
+          <span className="ml-1 flex items-center gap-0.5 text-[10px] text-muted-foreground">
+            <CheckCircle2 className="claude-strip-pop size-2.5 text-emerald-500" aria-hidden />
             {t(($) => $.claude_lab.embed_status_done)}
           </span>
         )}
       </div>
+      <RunStatusStrip status={status} />
       <div className="space-y-2 px-3 py-2">
         {hasLive && liveLabel && (
           <div className="flex items-center gap-2" data-testid="claude-embed-live-progress">
