@@ -235,7 +235,15 @@
     "survey_pick_hint": "응답자 선택",
     "council_act_support": "더 높게",
     "council_act_challenge": "더 낮게",
-    "council_act_neutral": "기준선 근접"
+    "council_act_neutral": "기준선 근접",
+    "council_title": "추론 평의회",
+    "council_consensus": "합의 확률",
+    "council_round": "라운드 {{round}}/{{total}}",
+    "council_trajectory": "라운드별 합의 궤적",
+    "council_verdict_split": "수렴 · 실제 이견 남음",
+    "council_verdict_likely": "합의 · 발생 쪽",
+    "council_verdict_unlikely": "합의 · 미발생 쪽",
+    "council_verdict_pending": "투표 대기"
   },
   "claude_lab": {
     "pill_running": "실험 실행 중",

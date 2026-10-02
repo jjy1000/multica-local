@@ -235,7 +235,15 @@
     "survey_pick_hint": "回答者を選択",
     "council_act_support": "より高く",
     "council_act_challenge": "より低く",
-    "council_act_neutral": "ベースライン近く"
+    "council_act_neutral": "ベースライン近く",
+    "council_title": "推論評議会",
+    "council_consensus": "合意確率",
+    "council_round": "第 {{round}}/{{total}} ラウンド",
+    "council_trajectory": "ラウンド別合意の軌跡",
+    "council_verdict_split": "収束 · 真の意見分裂が残る",
+    "council_verdict_likely": "合意 · 発生寄り",
+    "council_verdict_unlikely": "合意 · 不発生寄り",
+    "council_verdict_pending": "投票待ち"
   },
   "claude_lab": {
     "pill_running": "実験を実行中",

@@ -18,6 +18,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Loader2, Sparkles, ChevronDown } from "lucide-react";
 import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { usePythiaIssueLab } from "../../hooks/use-pythia-issue-lab";
+import { PythiaCouncilCanvas } from "./pythia-council-canvas";
 import { PythiaRoundTimeline, PythiaTrajectory } from "./pythia-round-view";
 import { useLocale, useT } from "../../../i18n";
 
@@ -105,6 +106,16 @@ function LiveEmbed({
 }) {
   return (
     <div className="space-y-2" data-testid="pythia-embed-live">
+      {/* 0.5.132 council chamber — the dial/seats/trajectory projection of
+          the same envelopes; sits ABOVE the per-round cards so the
+          convergence view is the first thing read while a run executes. */}
+      {envelopes.length > 0 && (
+        <PythiaCouncilCanvas
+          envelopes={envelopes}
+          totalRounds={totalRounds}
+          running
+        />
+      )}
       <PythiaRoundTimeline
         envelopes={envelopes}
         totalRounds={Math.max(totalRounds, envelopes.length)}
@@ -172,6 +183,12 @@ function HistoryEmbed({
       </button>
       {open && envelopes.length > 0 && (
         <div className="space-y-2">
+          <PythiaCouncilCanvas
+            envelopes={envelopes}
+            totalRounds={run.rounds || envelopes.length}
+            running={false}
+            defaultOpen={false}
+          />
           <PythiaRoundTimeline envelopes={envelopes} totalRounds={run.rounds || envelopes.length} running={false} />
           <PythiaTrajectory envelopes={envelopes} totalRounds={run.rounds || envelopes.length} />
         </div>

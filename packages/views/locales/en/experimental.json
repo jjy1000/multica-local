@@ -235,7 +235,15 @@
     "survey_pick_hint": "Pick respondents",
     "council_act_support": "Leans higher",
     "council_act_challenge": "Leans lower",
-    "council_act_neutral": "Near baseline"
+    "council_act_neutral": "Near baseline",
+    "council_title": "Council chamber",
+    "council_consensus": "Consensus probability",
+    "council_round": "Round {{round}}/{{total}}",
+    "council_trajectory": "Per-round consensus trajectory",
+    "council_verdict_split": "Converged — real disagreement remains",
+    "council_verdict_likely": "Consensus — leans yes",
+    "council_verdict_unlikely": "Consensus — leans no",
+    "council_verdict_pending": "Awaiting votes"
   },
   "claude_lab": {
     "pill_running": "Experiment running",
