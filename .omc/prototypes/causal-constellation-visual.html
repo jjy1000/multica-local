@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>因果决策 · 因果星图动态图设计原型</title>
+<style>
+  :root{
+    --bg:#09090b; --panel:#111114; --panel-2:#18181b; --border:#27272a;
+    --tx:#fafafa; --tx-2:#a1a1aa; --tx-3:#71717a;
+    --canvas-glow:rgba(20,184,166,.06); --grid:rgba(250,250,250,.045);
+    --star-fill:#12161a; --star-line:rgba(250,250,250,.22);
+    --label:#d4d4d8; --sub:#8e8e96; --track:rgba(250,250,250,.12);
+    /* 边色对齐 tokens.css --causal-edge-* */
+    --causes:#38bdf8; --supports:#34d399; --contradicts:#fb7185;
+    --depends_on:#fbbf24; --enables:#a78bfa; --blocks:#f87171;
+    --teal:#14b8a6; --emerald:#10b981; --amber:#f59e0b; --red:#ef4444;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  body.light{
+    --bg:#f6f7f9; --panel:#ffffff; --panel-2:#f1f2f4; --border:#e2e4e8;
+    --tx:#18181b; --tx-2:#52525b; --tx-3:#71717a;
+    --canvas-glow:rgba(20,184,166,.08); --grid:rgba(9,9,11,.06);
+    --star-fill:#ffffff; --star-line:rgba(9,9,11,.22);
+    --label:#3f3f46; --sub:#71717a; --track:rgba(9,9,11,.14);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(1100px 640px at 30% -10%, var(--canvas-glow), transparent 60%),
+      var(--bg);
+    color:var(--tx);
+    font:14px/1.6 -apple-system,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    padding:22px 26px 30px;
+  }
+  .app{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+  .topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+  .brand{display:flex;gap:12px;align-items:center}
+  .brand-glyph{
+    width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:22px;
+    background:linear-gradient(135deg,rgba(20,184,166,.2),rgba(56,189,248,.14));
+    border:1px solid rgba(20,184,166,.4);box-shadow:0 0 24px rgba(20,184,166,.16);
+  }
+  .brand h1{font-size:17px;font-weight:650;letter-spacing:.2px}
+  .brand .badge{
+    font-size:10px;color:var(--teal);border:1px solid rgba(20,184,166,.45);
+    border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:2px;font-family:var(--mono);
+  }
+  .brand .sub{font-size:12px;color:var(--tx-3);margin-top:2px}
+  .mono{font-family:var(--mono);color:var(--tx-2)}
+  .top-right{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .status-pill{
+    display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;
+    border:1px solid var(--border);background:var(--panel);border-radius:999px;padding:5px 14px;color:var(--tx-2);
+  }
+  .status-pill .dot{width:8px;height:8px;border-radius:99px;background:var(--teal)}
+  .status-pill.live{border-color:rgba(20,184,166,.5)}
+  @keyframes blink{50%{opacity:.25}}
+  .seg{display:inline-flex;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--panel)}
+  .seg button,.qbtn,.theme-btn{
+    appearance:none;border:0;background:transparent;color:var(--tx-3);font:12px/1 inherit;
+    padding:7px 13px;cursor:pointer;transition:color .15s,background .15s;
+  }
+  .seg button:hover{color:var(--tx)}
+  .seg button.on{background:var(--panel-2);color:var(--tx)}
+  .seg button:focus-visible,.theme-btn:focus-visible{outline:2px solid var(--teal);outline-offset:-2px}
+  .theme-btn{border:1px solid var(--border);background:var(--panel);border-radius:10px;padding:6px 12px;font-size:13px;color:var(--tx-2)}
+  .theme-btn:hover{color:var(--tx)}
+  .card{background:linear-gradient(180deg,var(--panel-2),var(--panel));border:1px solid var(--border);border-radius:14px;overflow:hidden}
+  .card-head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border)}
+  .card-head h2{font-size:12.5px;font-weight:600;color:var(--tx-2);letter-spacing:.5px}
+  .card-head .hint{font-size:11px;color:var(--tx-3)}
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;align-items:stretch}
+
+  /* ---------- 星图 ---------- */
+  .sky-wrap{position:relative;height:470px}
+  .sky-wrap::before{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+                     linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:44px 44px;
+    mask-image:radial-gradient(closest-side at 50% 46%,#000 30%,transparent 100%);
+  }
+  #sky{position:absolute;inset:0;width:100%;height:100%}
+  .cedge{fill:none;transition:opacity .4s}
+  .cedge .flow{animation:dashflow 1s linear infinite}
+  @keyframes dashflow{to{stroke-dashoffset:-26}}
+  .cedge.suggested .flow{animation-duration:1.6s}
+  .cedge.rejected{opacity:.16}
+  .cedge.rejected .flow{animation:none}
+  .spark{fill:none;stroke:var(--sub);stroke-width:1.5;opacity:0;transform-box:fill-box;transform-origin:center;animation:sparkpop .5s cubic-bezier(.2,1.6,.4,1) forwards}
+  @keyframes sparkpop{0%{transform:scale(.4);opacity:0}100%{transform:scale(1.6);opacity:0}}
+  .star{cursor:pointer}
+  .star .core{fill:var(--star-fill);stroke:var(--star-line);stroke-width:2;transition:filter .3s}
+  .star.focus .core{stroke:var(--teal);filter:drop-shadow(0 0 14px rgba(20,184,166,.7))}
+  .star.glow .core{filter:drop-shadow(0 0 10px rgba(20,184,166,.5))}
+  .star .glyph{font-size:13px;text-anchor:middle;pointer-events:none}
+  .star .slabel{font-size:11px;fill:var(--label);text-anchor:middle;font-weight:550}
+  .star .smeta{font-size:9.5px;fill:var(--sub);text-anchor:middle;font-family:var(--mono)}
+  .star .conf-arc{fill:none;stroke-width:2.5;stroke-linecap:round;transform:rotate(-90deg);transform-box:fill-box;transform-origin:center}
+  .wave{fill:none;stroke:rgba(20,184,166,.6);stroke-width:2;transform-box:fill-box;transform-origin:center;animation:wave 1.3s ease-out forwards}
+  @keyframes wave{0%{transform:scale(.6);opacity:.9}100%{transform:scale(2.6);opacity:0}}
+  .impact-num{font-size:13px;font-weight:650;text-anchor:middle;fill:var(--teal);font-family:var(--mono)}
+
+  .tip{
+    position:absolute;pointer-events:none;opacity:0;transition:opacity .15s;z-index:5;
+    background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:9px 11px;
+    max-width:250px;box-shadow:0 8px 30px rgba(0,0,0,.35);
+  }
+  .tip.show{opacity:1}
+  .tip b{font-size:12px;display:block;margin-bottom:3px}
+  .tip p{font-size:11px;color:var(--tx-2);line-height:1.5}
+
+  /* ---------- 右栏 ---------- */
+  .col{display:flex;flex-direction:column;gap:14px}
+  .tiers{list-style:none;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+  .tiers li{
+    display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:center;
+    border:1px solid var(--border);border-radius:10px;padding:7px 9px;font-size:11.5px;
+  }
+  .tiers .tb{font-family:var(--mono);font-weight:700;font-size:12px}
+  .tiers .tn{color:var(--tx-2)}
+  .tiers .tc{font-family:var(--mono);color:var(--tx-3);font-size:11px}
+  .tiers li.a{border-color:rgba(16,185,129,.4)} .tiers li.a .tb{color:#34d399}
+  .tiers li.b{border-color:rgba(56,189,248,.35)} .tiers li.b .tb{color:#38bdf8}
+  .tiers li.c{border-color:rgba(167,139,250,.35)} .tiers li.c .tb{color:#a78bfa}
+  .tiers li.d{border-color:rgba(245,158,11,.4)} .tiers li.d .tb{color:#fbbf24}
+  .tier-law{padding:0 14px 12px;font-size:10.5px;color:var(--tx-3)}
+
+  .qlist{list-style:none;padding:8px 10px;display:flex;flex-direction:column;gap:6px;max-height:190px;overflow-y:auto}
+  .qitem{
+    display:flex;align-items:center;gap:8px;border:1px dashed rgba(245,158,11,.5);
+    border-radius:9px;padding:6px 8px;font-size:11px;background:rgba(245,158,11,.05);
+    animation:slidein .35s ease-out;
+  }
+  @keyframes slidein{from{opacity:0;transform:translateY(-6px)}}
+  .qitem .qq{flex:1;min-width:0;color:var(--tx-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .qbtn{
+    border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:10.5px;color:var(--tx-2);background:var(--panel);
+  }
+  .qbtn.ok:hover{color:#34d399;border-color:rgba(16,185,129,.5)}
+  .qbtn.no:hover{color:#fb7185;border-color:rgba(251,113,133,.5)}
+  .qempty{padding:12px 14px;font-size:11px;color:var(--tx-3)}
+
+  .legend{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px}
+  .lgd{display:inline-flex;align-items:center;gap:5px;font-size:10px;color:var(--tx-3)}
+  .lgd i{display:inline-block;width:14px;height:2.5px;border-radius:2px}
+
+  /* 路径追溯卡 */
+  .path-card{margin:10px 14px 14px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;animation:slidein .4s ease-out}
+  .path-card h4{font-size:12px;color:var(--tx);margin-bottom:6px}
+  .path-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+  .pill{font-family:var(--mono);font-size:10px;border:1px solid var(--border);border-radius:6px;padding:1px 7px;color:var(--tx-2)}
+  .pill.band{border-color:rgba(20,184,166,.5);color:var(--teal)}
+  .path-traffic{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--tx-3)}
+  .tbar{flex:1;height:5px;border-radius:99px;background:var(--track);overflow:hidden}
+  .tbar i{display:block;height:100%;border-radius:99px;background:#34d399;transition:width .8s cubic-bezier(.4,0,.2,1)}
+
+  .term-head{display:flex;align-items:center;gap:7px;padding:8px 12px;background:var(--panel-2);border-bottom:1px solid var(--border)}
+  .term-head .dot{width:10px;height:10px;border-radius:99px}
+  .dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+  .term-title{margin-left:6px;font-family:var(--mono);font-size:10.5px;color:var(--tx-3);letter-spacing:.4px}
+  .term-body{height:126px;overflow:hidden;padding:10px 14px;font-family:var(--mono);font-size:11px;line-height:1.9;color:var(--tx-2)}
+  .term-body .ln{display:flex;gap:10px;animation:slideup .3s ease-out}
+  .term-body .ln .ts{color:var(--tx-3);flex:none;opacity:.7}
+  .term-body .ln .who{flex:none;font-weight:600}
+  @keyframes slideup{from{opacity:0;transform:translateY(9px)}}
+
+  .foot{font-size:11px;color:var(--tx-3);text-align:center;padding-top:2px}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none !important;transition:none !important}
+    .cedge .flow{display:none}
+  }
+</style>
+</head>
+<body>
+<script>window.__errs=[];window.addEventListener("error",e=>window.__errs.push(e.message+" @"+(e.linno||"")+" @"+(e.lineno||"")));window.addEventListener("unhandledrejection",e=>window.__errs.push("rejection: "+e.reason));</script>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-glyph">🧭</div>
+      <div>
+        <h1>因果决策 · 因果星图<span class="badge">CONSTELLATION · 设计原型</span></h1>
+        <p class="sub">焦点 <span class="mono">ISSUE-1231 · 群体智能方法的可复现性研究</span> · 左=上游成因 · 右=下游影响</p>
+      </div>
+    </div>
+    <div class="top-right">
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="theme-btn" id="themeBtn" title="切换日间/夜间">🌙 夜间</button>
+        <div class="status-pill live" id="statusPill"><span class="dot"></span><span id="pillText">因果网络 · 12 节点 14 边</span></div>
+      </div>
+      <div class="seg" id="stateSeg">
+        <button data-mode="auto" class="on">自动演示</button>
+        <button data-mode="wave">影响推演</button>
+        <button data-mode="path">路径追溯</button>
+        <button data-mode="idle">静态星图</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <div class="card-head">
+        <h2>因果星图 · 影响传播</h2>
+        <span class="hint">实线=已确认 · 虚线=待人工确认(Tier D 恒 ≤0.5) · 悬停节点查看详情</span>
+      </div>
+      <div class="sky-wrap" id="wrap">
+        <svg id="sky" viewBox="0 0 900 470" aria-label="因果星图影响传播动态图"></svg>
+        <div class="tip" id="tip"></div>
+      </div>
+      <div class="legend" id="legend"></div>
+    </section>
+
+    <aside class="col">
+      <section class="card">
+        <div class="card-head"><h2>信任阶梯</h2><span class="tag mono" style="font-size:10px;color:var(--tx-3);border:1px solid var(--border);border-radius:6px;padding:1px 7px">A&gt;B&gt;C&gt;D</span></div>
+        <ul class="tiers" id="tiers"></ul>
+        <p class="tier-law">Tier D（LLM 提议）恒以 suggested ≤0.5 落库，人工确认前不进入路径与子图；驳回=墓碑，永不物理删除（mig 280）。</p>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>待确认建议</h2><span class="tag mono" id="qCount" style="font-size:10px;color:var(--tx-3);border:1px solid var(--border);border-radius:6px;padding:1px 7px">0</span></div>
+        <ul class="qlist" id="qlist"></ul>
+        <p class="qempty" id="qempty" style="display:none">队列已清空 —— 图中再无待确认边。</p>
+      </section>
+    </aside>
+  </main>
+
+  <section class="card">
+    <div class="card-head"><h2>路径追溯</h2><span class="hint" id="pathHint">点击「路径追溯」或自动演示查看</span></div>
+    <div id="pathSlot"><p style="padding:12px 14px;font-size:11px;color:var(--tx-3)">焦点到最远影响节点的因果链会在此亮起：逐跳点亮 → 最弱环节置信度 → 瓶颈节点。</p></div>
+  </section>
+
+  <section class="card">
+    <div class="term-head">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="term-title">causal_graph · 图事件日志</span>
+    </div>
+    <div class="term-body" id="ticker"></div>
+  </section>
+
+  <footer class="foot">
+    设计原型（演示数据）· 边类型对齐 tokens.css --causal-edge-*（causes/supports/contradicts/depends_on/enables/blocks）·
+    状态=active/suggested/rejected · 信任阶梯 Tier A(原生任务钩子)&gt;B(Semantica)&gt;C(Pythia 闭合)&gt;D(LLM 提议) ——
+    通过后移植为 <span class="mono">causal-constellation-canvas.tsx</span>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ================= 数据（类型/状态对齐产品） ================= */
+const EDGE_COLORS = {causes:"#38bdf8", supports:"#34d399", contradicts:"#fb7185",
+                     depends_on:"#fbbf24", enables:"#a78bfa", blocks:"#f87171"};
+const EDGE_LABEL = {causes:"导致", supports:"支持", contradicts:"相悖", depends_on:"依赖", enables:"促成", blocks:"阻碍"};
+
+const FOCUS = {x:450, y:220, r:30};
+// 上游成因（左弧） / 下游影响（右弧）
+const NODES = [
+  {id:"n-open", label:"基准数据未开源", side:"up",  x:128, y:96,  deg:3, conf:.82},
+  {id:"n-seed", label:"随机种子未公布", side:"up",  x:96,  y:250, deg:2, conf:.74},
+  {id:"n-compute",label:"复现算力门槛高",side:"up", x:150, y:392, deg:2, conf:.61},
+  {id:"n-paper", label:"论文省略超参",  side:"up",  x:280, y:430, deg:1, conf:.55},
+  {id:"n-irr",   label:"复现实验不可控", side:"down",x:624, y:430, deg:2, conf:.70},
+  {id:"n-claim", label:"结论可信度受疑", side:"down",x:752, y:392, deg:3, conf:.78},
+  {id:"n-review",label:"同行评审收紧",  side:"down",x:806, y:250, deg:2, conf:.58},
+  {id:"n-survey",label:"综述引用下滑",  side:"down",x:774, y:96,  deg:1, conf:.49},
+];
+const EDGES = [
+  {from:"n-open",    to:"focus", type:"causes",      status:"active",    conf:.82},
+  {from:"n-seed",    to:"focus", type:"depends_on",  status:"active",    conf:.74},
+  {from:"n-compute", to:"focus", type:"blocks",      status:"active",    conf:.61},
+  {from:"n-paper",   to:"focus", type:"causes",      status:"suggested", conf:.48},
+  {from:"focus",     to:"n-irr", type:"causes",      status:"active",    conf:.70},
+  {from:"focus",     to:"n-claim",type:"causes",     status:"active",    conf:.78},
+  {from:"n-irr",     to:"n-claim",type:"supports",   status:"active",    conf:.66},
+  {from:"n-claim",   to:"n-review",type:"causes",    status:"active",    conf:.58},
+  {from:"n-review",  to:"n-survey",type:"enables",   status:"suggested", conf:.44},
+  {from:"n-seed",    to:"n-irr", type:"contradicts", status:"rejected",  conf:.35},
+  {from:"focus",     to:"n-survey",type:"supports",  status:"superseded",conf:.40},
+  {from:"n-open",    to:"n-claim",type:"enables",    status:"active",    conf:.63},
+];
+const PATH = ["n-open","focus","n-claim","n-review"];   // 追溯路径
+const TIERS = [
+  {t:"A", name:"原生任务钩子（子任务/依赖/阻塞）", n:5},
+  {t:"B", name:"Semantica 语义解析", n:3},
+  {t:"C", name:"Pythia 推演闭合", n:2},
+  {t:"D", name:"LLM 提议（suggested ≤0.5）", n:2},
+];
+
+const $ = s => document.querySelector(s);
+const SVGNS = "http://www.w3.org/2000/svg";
+const svgEl = (t,a) => { const e = document.createElementNS(SVGNS,t); for (const k in a) e.setAttribute(k,a[k]); return e; };
+const nodeById = id => id === "focus" ? {id:"focus", label:"群体智能可复现性", x:FOCUS.x, y:FOCUS.y, deg:EDGES.length, conf:.76} : NODES.find(n=>n.id===id);
+
+/* ================= 构建 ================= */
+const sky = $("#sky");
+function edgeEndpoints(e){
+  const a = nodeById(e.from), b = nodeById(e.to);
+  const dx = b.x-a.x, dy = b.y-a.y, L = Math.hypot(dx,dy)||1;
+  const ra = (a.id==="focus"?FOCUS.r:16)+6, rb = (b.id==="focus"?FOCUS.r:16)+6;
+  return {x1:a.x+dx/L*ra, y1:a.y+dy/L*ra, x2:b.x-dx/L*rb, y2:b.y-dy/L*rb, mx:(a.x+b.x)/2 - dy/L*16, my:(a.y+b.y)/2 + dx/L*16};
+}
+const edgeEls = [];
+EDGES.forEach((e,i) => {
+  const p = edgeEndpoints(e);
+  const color = e.status === "superseded" ? "#71717a" : EDGE_COLORS[e.type];
+  const g = svgEl("g", {class:"cedge "+e.status, "data-i":i});
+  const base = svgEl("path", {
+    d:`M ${p.x1.toFixed(1)} ${p.y1.toFixed(1)} Q ${p.mx.toFixed(1)} ${p.my.toFixed(1)} ${p.x2.toFixed(1)} ${p.y2.toFixed(1)}`,
+    stroke:color, "stroke-width":(1.2 + e.conf*2).toFixed(1),
+    "stroke-dasharray": e.status==="active" ? "none" : e.status==="suggested" ? "6 7" : "3 5",
+    opacity: e.status==="active" ? .8 : e.status==="suggested" ? .6 : .3,
+    id:`ce-${i}`,
+  });
+  g.appendChild(base);
+  // 因果流：沿边运动的粒子（方向=成因→焦点→影响）
+  const flow = svgEl("circle", {class:"flow", r:2.6, fill:color, opacity:.9});
+  const am = svgEl("animateMotion", {dur:(1.8 - e.conf*0.7).toFixed(2)+"s", repeatCount:"indefinite"});
+  const mp = svgEl("mpath", {}); mp.setAttribute("href", `#ce-${i}`);
+  am.appendChild(mp); flow.appendChild(am);
+  g.appendChild(flow);
+  if (e.status === "suggested"){
+    const mid = {x:(p.x1+p.x2)/2 + (p.mx-(p.x1+p.x2)/2)*.7, y:(p.y1+p.y2)/2 + (p.my-(p.y1+p.y2)/2)*.7};
+    const q = svgEl("text", {x:mid.x.toFixed(1), y:(mid.y-6).toFixed(1), "font-size":11, "font-weight":700, fill:"#fbbf24", "text-anchor":"middle"});
+    q.textContent = "?"; q.style.animation = "blink 1.6s infinite";
+    g.appendChild(q);
+  }
+  sky.appendChild(g);
+  edgeEls.push({e, g, base});
+});
+/* 焦点星 */
+const focusG = svgEl("g", {class:"star focus", transform:`translate(${FOCUS.x} ${FOCUS.y})`, "data-id":"focus"});
+focusG.appendChild(svgEl("circle", {r:FOCUS.r+12, fill:"none", stroke:"rgba(20,184,166,.4)", "stroke-dasharray":"2 8", class:"fring"}));
+focusG.appendChild(svgEl("circle", {r:FOCUS.r+5, fill:"none", stroke:"rgba(20,184,166,.25)", "stroke-width":1.5}));
+focusG.appendChild(svgEl("circle", {r:FOCUS.r, class:"core"}));
+const fg = svgEl("text", {class:"glyph", y:5, "font-size":17}); fg.textContent = "🧭"; focusG.appendChild(fg);
+const fl = svgEl("text", {class:"slabel", y:FOCUS.r+22}); fl.textContent = "焦点 · 群体智能可复现性"; focusG.appendChild(fl);
+const fm = svgEl("text", {class:"smeta", y:FOCUS.r+36}); fm.textContent = "12 边 · 平均置信 0.66"; focusG.appendChild(fm);
+sky.appendChild(focusG);
+
+/* 星节点（置信弧 = 度数光环） */
+const starEls = {};
+NODES.forEach(n => {
+  const r = 15 + Math.min(n.deg,3)*1.5;
+  const g = svgEl("g", {class:"star", transform:`translate(${n.x} ${n.y})`, "data-id":n.id});
+  const ARCL = 2*Math.PI*r;
+  g.appendChild(svgEl("circle", {r, class:"core"}));
+  const arc = svgEl("circle", {r:r+4, class:"conf-arc", stroke:EDGE_COLORS.causes,
+    "stroke-dasharray":`${(n.conf*ARCL).toFixed(1)} ${ARCL.toFixed(1)}`, opacity:.85});
+  g.appendChild(arc);
+  const gl = svgEl("text", {class:"glyph", y:4}); gl.textContent = n.side==="up" ? "◈" : "◇"; g.appendChild(gl);
+  const lb = svgEl("text", {class:"slabel", y:r+18}); lb.textContent = n.label; g.appendChild(lb);
+  const meta = svgEl("text", {class:"smeta", y:r+31}); meta.textContent = `deg ${n.deg} · ${(n.conf*100).toFixed(0)}%`; g.appendChild(meta);
+  sky.appendChild(g);
+  starEls[n.id] = g;
+});
+
+/* 影响波纹（决策光锥：按跳层扩散） */
+let waveSeq = 0;
+function spawnWave(x, y){
+  const w = svgEl("circle", {class:"wave", r:26, cx:x, cy:y});
+  sky.appendChild(w);
+  setTimeout(()=>w.remove(), 1400);
+}
+function runImpactWave(){
+  waveSeq++;
+  // BFS 两跳：焦点 → 一跳邻居 → 二跳
+  const hop1 = [...new Set(EDGES.filter(e => e.status==="active" && (e.from==="focus"||e.to==="focus")).flatMap(e => e.from==="focus"?e.to:e.from))];
+  const hop2 = [...new Set(EDGES.filter(e => e.status==="active" && hop1.includes(e.from) && e.to!=="focus" && !hop1.includes(e.to)).map(e=>e.to))];
+  spawnWave(FOCUS.x, FOCUS.y);
+  glowStar("focus");
+  pushLog("impact","决策光锥自焦点展开（Tier A/B 边传播）","#14b8a6");
+  hop1.forEach((id,i) => setTimeout(() => { spawnWave(nodeById(id).x, nodeById(id).y); glowStar(id); }, 450+i*160));
+  setTimeout(() => {
+    hop2.forEach((id,i) => setTimeout(() => { spawnWave(nodeById(id).x, nodeById(id).y); glowStar(id, true); }, i*160));
+    pushLog("impact",`影响面 ${1+hop1.length+hop2.length} 节点 · 二跳 ${hop2.length}`,"#14b8a6");
+    const inEl = document.getElementById("impactNum");
+    if (inEl) inEl.textContent = `影响 ${1+hop1.length+hop2.length} 节点 / ${hop1.length+hop2.length} 条传播边`;
+  }, 450+hop1.length*160);
+  return 1+hop1.length+hop2.length;
+}
+function glowStar(id, soft){
+  const g = id==="focus" ? focusG : starEls[id];
+  g.classList.add("glow");
+  setTimeout(()=>g.classList.remove("glow"), soft?900:1500);
+}
+
+/* 路径追溯：逐跳点亮 + 卡片 */
+let pathSeq = 0;
+function runPathTrace(){
+  const seq = ++pathSeq;
+  const inPath = new Set(PATH);
+  edgeEls.forEach(({e,g}) => {
+    g.classList.remove("pathlit");
+  });
+  document.querySelectorAll(".star").forEach(s => s.classList.remove("glow"));
+  glowStar(PATH[0]);
+  PATH.forEach((id,i) => {
+    setTimeout(() => {
+      if (seq !== pathSeq) return;
+      if (i>0){
+        const eg = edgeEls.find(({e}) => (e.from===PATH[i-1]&&e.to===id)||(e.from===id&&e.to===PATH[i-1]));
+        if (eg){ eg.g.classList.add("pathlit"); eg.base.style.strokeWidth = "3.5"; eg.base.style.opacity = "1"; }
+      }
+      glowStar(id);
+    }, i*700);
+  });
+  const edges = PATH.slice(1)
+    .map((id,i) => edgeEls.find(({e}) => (e.from===PATH[i]&&e.to===id)||(e.from===id&&e.to===PATH[i])))
+    .map(hit => hit && hit.e)
+    .filter(Boolean);
+  const confs = edges.map(e=>e.conf);
+  const min = Math.min(...confs), avg = (confs.reduce((a,b)=>a+b)/confs.length);
+  const hops = edges.length;
+  const band = hops<=1 ? "直达" : hops<=3 ? "近程" : hops<=5 ? "中程" : "远程";
+  const verdict = min>.6?"强链":min>.3?"可用":"弱链";
+  const vColor = min>.6?"#34d399":min>.3?"#fbbf24":"#fb7185";
+  setTimeout(() => {
+    if (seq !== pathSeq) return;
+    $("#pathSlot").innerHTML = `<div class="path-card">
+      <h4>基准数据未开源 → 群体智能可复现性 → 结论可信度受疑 → 同行评审收紧</h4>
+      <div class="path-row">
+        <span class="pill">${hops} 跳</span>
+        <span class="pill band">${band}</span>
+        <span class="pill" style="border-color:${vColor};color:${vColor}">${verdict}</span>
+        <span class="pill mono">瓶颈 n-seed 0.74</span>
+      </div>
+      <div class="path-traffic">
+        <span>最弱环节</span>
+        <div class="tbar"><i style="width:${(min*100).toFixed(0)}%;background:${vColor}"></i></div>
+        <span class="mono">${min.toFixed(2)} · 均值 ${avg.toFixed(2)}</span>
+      </div></div>`;
+    $("#pathHint").textContent = `R 逐跳点亮完成 · 最弱环节 ${min.toFixed(2)}`;
+    pushLog("path", `路径追溯：${hops} 跳 ${band} · 最弱 ${min.toFixed(2)}（瓶颈 n-seed）`, "#38bdf8");
+  }, PATH.length*700 + 200);
+}
+/* 复位边样式 */
+function resetEdges(){
+  edgeEls.forEach(({e,g,base}) => {
+    g.classList.remove("pathlit");
+    base.style.strokeWidth = (1.2 + e.conf*2).toFixed(1);
+    base.style.opacity = e.status==="active" ? .8 : e.status==="suggested" ? .6 : .3;
+  });
+}
+
+/* ================= 右栏 ================= */
+const tiersEl = $("#tiers");
+TIERS.forEach(t => {
+  const li = document.createElement("li"); li.className = t.t.toLowerCase();
+  li.innerHTML = `<span class="tb">${t.t}</span><span class="tn">${t.name}</span><span class="tc">×${t.n}</span>`;
+  tiersEl.appendChild(li);
+});
+const legendEl = $("#legend");
+Object.entries(EDGE_LABEL).forEach(([k,v]) => {
+  const s = document.createElement("span"); s.className = "lgd";
+  s.innerHTML = `<i style="background:${EDGE_COLORS[k]}"></i>${v} ${k}`;
+  legendEl.appendChild(s);
+});
+const s2 = document.createElement("span"); s2.className="lgd";
+s2.innerHTML = `<i style="background:#71717a;opacity:.4"></i>superseded`;
+legendEl.appendChild(s2);
+
+/* 待确认队列 */
+const queue = [
+  {i:3,  text:"论文省略超参 → 焦点（causes 0.48）"},
+  {i:8,  text:"同行评审收紧 → 综述引用下滑（enables 0.44）"},
+];
+function renderQueue(){
+  const ul = $("#qlist"); ul.innerHTML = "";
+  $("#qCount").textContent = queue.length;
+  $("#qempty").style.display = queue.length ? "none" : "block";
+  queue.forEach((q, qi) => {
+    const li = document.createElement("li"); li.className = "qitem";
+    li.innerHTML = `<span class="qq">${q.text}</span>
+      <button class="qbtn ok">确认</button><button class="qbtn no">驳回</button>`;
+    li.querySelector(".ok").addEventListener("click", () => resolveSuggested(qi, true));
+    li.querySelector(".no").addEventListener("click", () => resolveSuggested(qi, false));
+    ul.appendChild(li);
+  });
+}
+function resolveSuggested(qi, confirm){
+  const q = queue.splice(qi,1)[0];
+  const {e,g,base} = edgeEls[q.i];
+  e.status = confirm ? "active" : "rejected";
+  g.setAttribute("class", "cedge "+e.status);
+  base.setAttribute("stroke-dasharray", confirm ? "none" : "3 5");
+  base.setAttribute("opacity", confirm ? .8 : .18);
+  const qm = g.querySelector("text"); if (qm) qm.remove();
+  if (confirm){
+    e.conf = .5;
+    base.setAttribute("stroke-width", "2.4");
+    const a = nodeById(e.from), b = nodeById(e.to);
+    spawnWave(b.x, b.y);
+    TIERS[3].n--; TIERS[0].n++;
+    pushLog("human", `确认边 #${q.i}：晋升 active @0.50（D→A 需复核来源）`, "#34d399");
+  } else {
+    pushLog("human", `驳回边 #${q.i}：置为墓碑 rejected（不删除,防再提议）`, "#fb7185");
+  }
+  renderQueue(); renderTiers();
+}
+function renderTiers(){
+  tiersEl.innerHTML = "";
+  TIERS.forEach(t => {
+    const li = document.createElement("li"); li.className = t.t.toLowerCase();
+    li.innerHTML = `<span class="tb">${t.t}</span><span class="tn">${t.name}</span><span class="tc">×${t.n}</span>`;
+    tiersEl.appendChild(li);
+  });
+}
+renderQueue();
+
+/* impact 数字（画布右上角） */
+const inTxt = svgEl("text", {x:890, y:26, class:"impact-num", "text-anchor":"end", id:"impactNum"});
+inTxt.textContent = ""; sky.appendChild(inTxt);
+
+/* tooltip */
+const tip = $("#tip"), wrap = $("#wrap");
+function bindTip(g, n){
+  g.addEventListener("mouseenter", () => {
+    const inDeg = EDGES.filter(e=>e.to===n.id).length, outDeg = EDGES.filter(e=>e.from===n.id).length;
+    tip.innerHTML = `<b>${n.id==="focus"?"🧭":"◆"} ${n.label}</b>
+      <p>${n.id==="focus" ? "当前决策焦点" : (inDeg?"上游成因":"下游影响")} · 入度 ${inDeg} · 出度 ${outDeg}</p>
+      <p style="margin-top:4px;color:var(--tx-3);font-family:var(--mono);font-size:10px">avg_conf=${n.conf.toFixed(2)}</p>`;
+    tip.classList.add("show");
+  });
+  g.addEventListener("mousemove", e => {
+    const r = wrap.getBoundingClientRect();
+    let x = e.clientX-r.left+14, y = e.clientY-r.top+14;
+    if (x > r.width-260) x -= 280;
+    if (y > r.height-100) y -= 120;
+    tip.style.left = x+"px"; tip.style.top = y+"px";
+  });
+  g.addEventListener("mouseleave", () => tip.classList.remove("show"));
+}
+NODES.forEach(n => bindTip(starEls[n.id], n));
+bindTip(focusG, nodeById("focus"));
+
+/* ================= 日志 ================= */
+let lines = [];
+function pushLog(who, msg, color){
+  const d = new Date();
+  const ts = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
+  lines.unshift({ts,who,msg,color}); lines = lines.slice(0,5);
+  $("#ticker").innerHTML = lines.map((l,i) =>
+    `<div class="ln"${i?' style="animation:none"':""}><span class="ts">${l.ts}</span><span class="who" style="color:${l.color}">[${l.who}]</span><span>${l.msg}</span></div>`).join("");
+}
+
+/* ================= 演示脚本 ================= */
+let mode = "auto", fired = 0, autoT0 = performance.now();
+const SCRIPT = [
+  [600,  () => { pushLog("graph","星图加载 · 12 节点 14 边（4 suggested / 1 rejected / 1 superseded）","#14b8a6"); }],
+  [1800, () => { pushLog("flow","因果流常亮：confirmed 边按置信定速传输粒子","#38bdf8"); }],
+  [3200, () => { pushLog("impact","开始影响推演…","#14b8a6"); runImpactWave(); }],
+  [8000, () => { pushLog("path","开始路径追溯…","#38bdf8"); runPathTrace(); }],
+  [14000,() => { resetEdges(); pushLog("graph","复位 — 等待下一循环","#71717a"); }],
+  [15500,() => { pushLog("human","演示：确认一条 Tier D 建议","#34d399");
+    if (queue.length) resolveSuggested(0, true); }],
+  [21500,() => { pushLog("graph","演示循环重启","#71717a");
+    setTimeout(()=>{ autoT0 = performance.now(); fired = 0; }, 0); }],
+];
+$("#stateSeg").addEventListener("click", e => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  [...$("#stateSeg").children].forEach(b => b.classList.toggle("on", b===btn));
+  mode = btn.dataset.mode;
+  fired = SCRIPT.length;
+  resetEdges();
+  document.querySelectorAll(".star").forEach(s => s.classList.remove("glow"));
+  $("#pathSlot").innerHTML = `<p style="padding:12px 14px;font-size:11px;color:var(--tx-3)">焦点到最远影响节点的因果链会在此亮起：逐跳点亮 → 最弱环节置信度 → 瓶颈节点。</p>`;
+  if (mode === "auto"){ fired = 0; pushLog("graph","自动演示已启动","#14b8a6"); return; }
+  if (mode === "wave"){ runImpactWave(); }
+  if (mode === "path"){ runPathTrace(); }
+  if (mode === "idle"){ pushLog("graph","静态星图 · 因果流持续","#71717a"); }
+});
+
+$("#themeBtn").addEventListener("click", () => {
+  const light = document.body.classList.toggle("light");
+  $("#themeBtn").textContent = light ? "☀️ 日间" : "🌙 夜间";
+});
+
+/* 主循环（setInterval，禁依赖 rAF） */
+function tick(){
+  const now = performance.now();
+  if (mode === "auto"){
+    while (fired < SCRIPT.length && now - autoT0 >= SCRIPT[fired][0]){ SCRIPT[fired][1](); fired++; }
+  }
+}
+pushLog("causal_graph","因果星图 · 设计原型已加载","#14b8a6");
+setInterval(tick, 120);
+</script>
+</body>
+</html>
