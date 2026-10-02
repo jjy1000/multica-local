@@ -362,6 +362,15 @@ function WorkspaceGraph({ wsId }: { wsId: string | null | undefined }) {
 
   return (
     <div className="flex flex-col gap-3 px-6 py-4">
+      {/* 0.5.134: constellation hero on the UNBOUND workspace view too —
+          0.5.132 mounted it only in FocusedGraph, so the default route
+          (this component, the full force-directed graph) had no visual.
+          Focus follows selection; default is the highest-degree node. */}
+      <CausalConstellationCanvas
+        nodes={visibleNodes}
+        edges={edges}
+        focusId={selected?.id ?? defaultFocusId(visibleNodes, edges)}
+      />
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-foreground">{t(($) => $.title)}</h2>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">

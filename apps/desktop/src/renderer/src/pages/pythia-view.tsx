@@ -5,12 +5,16 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { useExperimentalFlag } from "@multica/core/experimental";
 import { api, parseWithFallback } from "@multica/core/api";
-import { PythiaMonitorRunListSchema } from "@multica/core/api/schemas";
-import type { PythiaMonitorRun } from "@multica/core/types/api";
+import {
+  PythiaForecastRunListSchema,
+  PythiaMonitorRunListSchema,
+} from "@multica/core/api/schemas";
+import type { PythiaForecastRun, PythiaMonitorRun } from "@multica/core/types/api";
 import { getCurrentSlug, getCurrentWsId } from "@multica/core/platform";
 import { paths } from "@multica/core/paths";
 import { useNavigation } from "@multica/views/navigation";
 import { useT } from "@multica/views/i18n";
+import { PythiaCouncilCanvas } from "@multica/views/experimental/components";
 
 // PythiaView (0.3.18+, monitor rewrite 0.5.112)
 //
@@ -165,6 +169,36 @@ export function PythiaView({ issueId: _initialIssueId = null }: { issueId?: stri
     nav.push(paths.workspace(slug).issueDetail(issueId));
   };
 
+  // 0.5.134 council hero — the monitor list is envelope-less by design
+  // (PythiaMonitorRun), so the chamber pulls the newest run's envelopes
+  // through the issue-runs endpoint (same lenient schema as the embed).
+  // No runs yet → the canvas seats the standby roster; a failed fetch
+  // degrades to the same standby view (the hero is presentational).
+  // Hooks law: this useQuery sits BEFORE the early returns below.
+  const latestMonitorRun = (runsQuery.data ?? [])[0] ?? null;
+  const hasLive = (runsQuery.data ?? []).some((run) => run.status === "running");
+  const chamberQuery = useQuery({
+    queryKey: ["pythia-monitor-chamber", wsId, latestMonitorRun?.id ?? null],
+    enabled: Boolean(pythiaOracleEnabled && wsId),
+    queryFn: async (): Promise<PythiaForecastRun | null> => {
+      if (!latestMonitorRun) return null;
+      const r = await api.rawRequest(
+        `/api/experimental/pythia-oracle/forecast/issue/runs?issue_id=${encodeURIComponent(latestMonitorRun.issue_id)}&limit=1`,
+      );
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error(`pythia chamber runs ${r.status}`);
+      const raw: unknown = await r.json();
+      const parsed = parseWithFallback<PythiaForecastRun[]>(
+        raw,
+        PythiaForecastRunListSchema,
+        [],
+        { endpoint: "GET /api/experimental/pythia-oracle/forecast/issue/runs" },
+      );
+      return parsed[0] ?? null;
+    },
+    refetchInterval: hasLive ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS,
+  });
+
   if (error) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground">
@@ -185,7 +219,7 @@ export function PythiaView({ issueId: _initialIssueId = null }: { issueId?: stri
   }
 
   const runs = runsQuery.data ?? [];
-  const hasLive = runs.some((run) => run.status === "running");
+  const chamberRun = chamberQuery.data ?? null;
 
   return (
     <div className="flex h-full w-full flex-col overflow-y-auto">
@@ -219,6 +253,17 @@ export function PythiaView({ issueId: _initialIssueId = null }: { issueId?: stri
             offText={t(($) => $.monitor_off)}
           />
         </div>
+      </div>
+
+      {/* 0.5.134: council chamber hero — the deliberation visual lives on
+          this page too (standby roster between runs, live votes while the
+          newest run executes). */}
+      <div className="px-6 pt-4">
+        <PythiaCouncilCanvas
+          envelopes={chamberRun?.envelopes ?? []}
+          totalRounds={chamberRun?.rounds ?? 0}
+          running={chamberRun?.status === "running"}
+        />
       </div>
 
       <div className="flex-1 px-6 py-4">

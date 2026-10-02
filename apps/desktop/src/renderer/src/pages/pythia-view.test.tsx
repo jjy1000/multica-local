@@ -63,24 +63,39 @@ import { PythiaView } from "./pythia-view";
 describe("PythiaView monitor query — explicit workspace_id (0.5.115)", () => {
   it("carries workspace_id as a query param (rawRequest never sends X-Workspace-ID)", async () => {
     render(<PythiaView />);
-    expect(useQuerySpy).toHaveBeenCalledTimes(1);
-    const opts = useQuerySpy.mock.calls[0][0] as {
-      enabled: boolean;
-      queryFn: () => Promise<unknown>;
-    };
-    expect(opts.enabled).toBe(true);
-    await opts.queryFn();
+    // 0.5.134: two queries on this page — the monitor list + the council
+    // chamber's newest-run fetch. Pick the monitor one by queryKey.
+    expect(useQuerySpy).toHaveBeenCalledTimes(2);
+    const monitorCall = useQuerySpy.mock.calls
+      .map((c) => c[0] as { queryKey: unknown[]; enabled: boolean; queryFn: () => Promise<unknown> })
+      .find((o) => o.queryKey?.[0] === "pythia-monitor-runs");
+    expect(monitorCall).toBeTruthy();
+    expect(monitorCall!.enabled).toBe(true);
+    await monitorCall!.queryFn();
     expect(rawRequestSpy).toHaveBeenCalledTimes(1);
     const url = rawRequestSpy.mock.calls[0][0] as string;
     expect(url).toContain("/api/experimental/pythia-oracle/forecast/monitor?limit=30");
     expect(url).toContain("workspace_id=11111111-2222-3333-4444-555555555555");
   });
 
+  it("council chamber query targets the newest run's issue and degrades without runs (0.5.134)", async () => {
+    render(<PythiaView />);
+    const chamberCall = useQuerySpy.mock.calls
+      .map((c) => c[0] as { queryKey: unknown[]; enabled: boolean; queryFn: () => Promise<unknown> })
+      .find((o) => o.queryKey?.[0] === "pythia-monitor-chamber");
+    expect(chamberCall).toBeTruthy();
+    expect(chamberCall!.enabled).toBe(true);
+    // empty monitor → the chamber stays idle (returns null, no fetch)
+    await chamberCall!.queryFn();
+    expect(rawRequestSpy).not.toHaveBeenCalled();
+  });
+
   it("disables the query when no workspace id is known", () => {
     wsIdRef.value = "";
     render(<PythiaView />);
-    const opts = useQuerySpy.mock.calls[0][0] as { enabled: boolean };
-    expect(opts.enabled).toBe(false);
+    for (const call of useQuerySpy.mock.calls) {
+      expect((call[0] as { enabled: boolean }).enabled).toBe(false);
+    }
     expect(rawRequestSpy).not.toHaveBeenCalled();
     wsIdRef.value = "11111111-2222-3333-4444-555555555555";
   });
