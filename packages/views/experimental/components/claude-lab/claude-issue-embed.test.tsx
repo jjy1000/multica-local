@@ -69,9 +69,16 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     listAgentsMock.mockResolvedValue([]);
   });
 
-  it("collapses to null with no tasks and no artifacts (0-runs-ready law)", () => {
+  it("idle lab-bound issue renders the always-animating brain card (0.5.133)", () => {
+    // 0-runs no longer collapses the embed: the brain canvas is the lab's
+    // presence on the issue and stays up (idle breathing layer) even with
+    // zero tasks and zero artifacts.
     const { container } = renderEmbed();
-    expect(container).toBeEmptyDOMElement();
+    expect(container).not.toBeEmptyDOMElement();
+    expect(screen.getByTestId("claude-brain-canvas")).toBeTruthy();
+    // expanded by default even while idle
+    expect(screen.getByTestId("claude-brain-stage")).toBeTruthy();
+    expect(screen.getAllByTestId("claude-brain-node")).toHaveLength(6);
   });
 
   it("surfaces a fetch outage as an error strip with retry instead of the empty state (0.5.131)", () => {

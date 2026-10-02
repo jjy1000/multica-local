@@ -193,26 +193,37 @@ export function ClaudeIssueEmbed({
     setTimeout(() => URL.revokeObjectURL(url), 5_000);
   }
 
-  // 0-runs-ready law (pythia analogue): nothing to show → no card. A
-  // failed fetch is NOT "nothing to show" — without this branch the
-  // outage rendered exactly like the empty state (0.5.131).
+  // 0.5.133: the 0-runs-ready law is narrowed — the embed no longer
+  // collapses to null on an idle lab-bound issue. The brain canvas IS
+  // the lab presence on the issue (always animating, see its idle
+  // layer); hiding it entirely read as "not implemented". A failed
+  // fetch still surfaces the retry strip instead of the empty state
+  // (0.5.131 law).
   if (!tasks.length && artifacts.length === 0) {
-    if (!isError) return null;
-    return (
-      <div
-        className="mt-4 flex items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-1.5"
-        data-testid="claude-issue-embed-error"
-      >
-        <span className="text-[11px] text-destructive">
-          {t(($) => $.claude_lab.embed_error)}
-        </span>
-        <button
-          type="button"
-          onClick={refetch}
-          className="shrink-0 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted"
+    if (isError) {
+      return (
+        <div
+          className="mt-4 flex items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-1.5"
+          data-testid="claude-issue-embed-error"
         >
-          {t(($) => $.lab_output_panel.retry)}
-        </button>
+          <span className="text-[11px] text-destructive">
+            {t(($) => $.claude_lab.embed_error)}
+          </span>
+          <button
+            type="button"
+            onClick={refetch}
+            className="shrink-0 rounded-md border border-input bg-background px-2 py-0.5 text-[11px] font-medium text-foreground hover:bg-muted"
+          >
+            {t(($) => $.lab_output_panel.retry)}
+          </button>
+        </div>
+      );
+    }
+    // idle lab-bound issue: the always-animating brain card alone (the
+    // artifact list has nothing to add yet)
+    return (
+      <div className="mt-4" data-testid="claude-issue-embed">
+        <ClaudeBrainCanvas wsId={wsId} issueId={issueId} variant="embed" />
       </div>
     );
   }

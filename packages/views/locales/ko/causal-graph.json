@@ -76,5 +76,6 @@
   "constellation_tier_confirmed": "확인됨",
   "constellation_tier_suggested": "확인 대기",
   "constellation_tier_rejected": "기각됨",
-  "constellation_tier_note": "확인 대기 엣지(Tier D LLM 제안)는 신뢰도 0.5 이하로만 저장되며 사람이 확인하기 전까지 경로에 들어가지 않습니다. 기각은 표식이지 삭제가 아닙니다."
+  "constellation_tier_note": "확인 대기 엣지(Tier D LLM 제안)는 신뢰도 0.5 이하로만 저장되며 사람이 확인하기 전까지 경로에 들어가지 않습니다. 기각은 표식이지 삭제가 아닙니다.",
+  "constellation_empty": "아직 인과 노드가 없습니다 — 하위 작업·의존성·실험실 종결이 성도를 밝힙니다"
 }

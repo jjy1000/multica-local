@@ -76,5 +76,6 @@
   "constellation_tier_confirmed": "確定済み",
   "constellation_tier_suggested": "承認待ち",
   "constellation_tier_rejected": "棄却済み",
-  "constellation_tier_note": "承認待ちエッジ（Tier D の LLM 提案）は信頼度 0.5 以下でしか入庫せず、人が確認するまで経路に入りません。棄却は墓碑であり、削除はしません。"
+  "constellation_tier_note": "承認待ちエッジ（Tier D の LLM 提案）は信頼度 0.5 以下でしか入庫せず、人が確認するまで経路に入りません。棄却は墓碑であり、削除はしません。",
+  "constellation_empty": "因果ノードはまだありません — サブタスク・依存・ラボの閉包で星図が点灯します"
 }

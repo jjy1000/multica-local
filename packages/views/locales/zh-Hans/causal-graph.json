@@ -76,5 +76,6 @@
   "constellation_tier_confirmed": "已确认",
   "constellation_tier_suggested": "待确认",
   "constellation_tier_rejected": "已驳回",
-  "constellation_tier_note": "待确认边（Tier D LLM 提议）恒以置信度 ≤ 0.5 落库，人工确认前不进入路径；驳回是墓碑，永不物理删除。"
+  "constellation_tier_note": "待确认边（Tier D LLM 提议）恒以置信度 ≤ 0.5 落库，人工确认前不进入路径；驳回是墓碑，永不物理删除。",
+  "constellation_empty": "还没有因果节点 —— 创建子任务/依赖或实验室闭合后，星图会被点亮"
 }

@@ -131,7 +131,9 @@ const BRAIN_STYLE = `
 @keyframes brain-dashflow{to{stroke-dashoffset:-32}}
 .brain-edge-active{stroke-dasharray:7 9;stroke-width:2;animation:brain-dashflow .9s linear infinite}
 .brain-edge-done{stroke-dasharray:none;opacity:.45}
-.brain-edge-idle{stroke-dasharray:3 6;opacity:.8}
+.brain-edge-idle{stroke-dasharray:3 6;opacity:.8;animation:brain-dashflow 2.6s linear infinite}
+@keyframes brain-idle-breathe{50%{opacity:.45}}
+.brain-node-idle-ring{animation:brain-idle-breathe 3.2s ease-in-out infinite}
 @keyframes brain-halo{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.85);opacity:0}}
 .brain-halo{transform-box:fill-box;transform-origin:center;opacity:.8;animation:brain-halo 2s ease-out infinite}
 .brain-halo.h2{animation-delay:1s}
@@ -147,6 +149,8 @@ const BRAIN_STYLE = `
 .brain-ripple{transform-box:fill-box;transform-origin:center;animation:brain-ripple 1.5s ease-out forwards}
 @media (prefers-reduced-motion: reduce){
   .brain-edge-active{animation:none;stroke-dasharray:7 9}
+  .brain-edge-idle{animation:none}
+  .brain-node-idle-ring{animation:none}
   .brain-halo{display:none}
   .brain-arcspin{display:none}
   .brain-pop{animation:none;opacity:1}
@@ -213,6 +217,7 @@ function BrainNodeView({
   onSelect: (key: string) => void;
 }) {
   const { t } = useT("claude-lab");
+  const reduceMotion = useReducedMotion() ?? false;
   const entry = CLAUDE_LAB_ROSTER.find((r) => r.key === node.key)!;
   const pos = nodePosition(entry.angle);
   const Icon = ROLE_ICON[node.key] ?? BrainIcon;
@@ -253,14 +258,13 @@ function BrainNodeView({
         </>
       )}
       <circle
+        className={dimmed && !reduceMotion ? "brain-node-idle-ring" : undefined}
         r={NODE_R}
         fill="var(--brain-node-fill)"
         stroke={
           selected || running || node.state === "done"
             ? "currentColor"
-            : failed
-              ? "var(--brain-node-line)"
-              : "var(--brain-node-line)"
+            : "var(--brain-node-line)"
         }
         strokeWidth={selected ? 3 : 2.5}
         strokeDasharray={node.state === "queued" ? "4 4" : undefined}
@@ -525,7 +529,10 @@ export function ClaudeBrainCanvas({
   );
   const failedRun = status === "failed" || status === "cancelled";
 
-  const [open, setOpen] = useState(defaultOpen ?? hasLive);
+  // 0.5.133: always expanded by default — the idle brain IS the visual
+  // (slow edge drift + breathing nodes), collapsing it on idle made the
+  // panel look unimplemented. Users can still fold it per session.
+  const [open, setOpen] = useState(defaultOpen ?? true);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const selected = nodes.find((n) => n.key === selectedKey) ?? null;
 

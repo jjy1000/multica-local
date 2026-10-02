@@ -108,6 +108,18 @@ describe("PythiaCouncilCanvas — 0.5.132", () => {
     expect(screen.getByTestId("pythia-council-stage")).toBeTruthy();
   });
 
+  it("zero envelopes → standby chamber: fixed engine roster seats, empty dial (0.5.133)", () => {
+    render(<PythiaCouncilCanvas envelopes={[]} totalRounds={0} running={false} />);
+    const seats = screen.getAllByTestId("pythia-council-seat");
+    expect(seats.map((s) => s.getAttribute("data-persona"))).toEqual([
+      "Strategist", "Economist", "Naturalist", "Skeptic",
+    ]);
+    expect(seats.every((s) => s.querySelector(".council-seat-idle-ring"))).toBe(true);
+    expect(screen.getByTestId("pythia-council-dial").getAttribute("data-consensus")).toBe("");
+    // verdict stays pending — idle roster is presentation, not fabricated data
+    expect(screen.getByTestId("pythia-council-canvas").getAttribute("data-verdict")).toBe("pending");
+  });
+
   it("styles both themes via the scoped --council-* variables", () => {
     render(<PythiaCouncilCanvas envelopes={[withCouncil(0.5)]} totalRounds={1} running />);
     const style = screen.getByTestId("pythia-council-canvas").querySelector("style")!.textContent ?? "";

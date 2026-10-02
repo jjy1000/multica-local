@@ -47,16 +47,16 @@ export function PythiaIssueEmbed({
   // timeline as a `pythia_runtime` comment (writeback path in
   // pythiaWritebackReport). Rendering the full markdown inside the embed
   // duplicates that comment — readers see the same content twice and the
-  // second copy fights the first for attention. Collapse the embed to
-  // null at that point: the comment owns the report, the header pill
-  // keeps the status indicator alive, the history fold stays open only
-  // when there is a previously-completed run the user can re-inspect.
+  // second copy fights the first for attention. The comment owns the
+  // report; the header pill keeps the status indicator alive.
   const latestCompletedRun =
     !showLive && runs.length > 0 ? runs[0] ?? null : null;
   const showHistory = !showLive && latestCompletedRun != null;
-
-  // No run + no live → don't render anything (collapse to null).
-  if (!showLive && !showHistory) return null;
+  // 0.5.133: the full null-collapse is gone — an idle lab-bound issue
+  // (upstream gate: issue.lab_source === "pythia_oracle") now shows the
+  // council chamber in its standby state (fixed roster seats, slow
+  // standby orbit) instead of nothing, which read as "not implemented".
+  const showIdle = !showLive && !showHistory;
 
   return (
     <div
@@ -76,6 +76,11 @@ export function PythiaIssueEmbed({
             })}
           </span>
         )}
+        {showIdle && (
+          <span className="ml-1 text-[10px] text-muted-foreground">
+            {t(($) => $.pythia_lab.embed_idle)}
+          </span>
+        )}
       </div>
       <div className="space-y-2 px-3 py-2">
         {showLive ? (
@@ -87,7 +92,9 @@ export function PythiaIssueEmbed({
           />
         ) : showHistory ? (
           <HistoryEmbed run={latestCompletedRun!} />
-        ) : null}
+        ) : (
+          <PythiaCouncilCanvas envelopes={[]} totalRounds={0} running={false} />
+        )}
       </div>
     </div>
   );
@@ -108,14 +115,14 @@ function LiveEmbed({
     <div className="space-y-2" data-testid="pythia-embed-live">
       {/* 0.5.132 council chamber — the dial/seats/trajectory projection of
           the same envelopes; sits ABOVE the per-round cards so the
-          convergence view is the first thing read while a run executes. */}
-      {envelopes.length > 0 && (
-        <PythiaCouncilCanvas
-          envelopes={envelopes}
-          totalRounds={totalRounds}
-          running
-        />
-      )}
+          convergence view is the first thing read while a run executes.
+          0.5.133: rendered from the first frame (standby seats before the
+          first envelope) so the chamber never pops in mid-run. */}
+      <PythiaCouncilCanvas
+        envelopes={envelopes}
+        totalRounds={totalRounds}
+        running
+      />
       <PythiaRoundTimeline
         envelopes={envelopes}
         totalRounds={Math.max(totalRounds, envelopes.length)}
@@ -187,7 +194,6 @@ function HistoryEmbed({
             envelopes={envelopes}
             totalRounds={run.rounds || envelopes.length}
             running={false}
-            defaultOpen={false}
           />
           <PythiaRoundTimeline envelopes={envelopes} totalRounds={run.rounds || envelopes.length} running={false} />
           <PythiaTrajectory envelopes={envelopes} totalRounds={run.rounds || envelopes.length} />

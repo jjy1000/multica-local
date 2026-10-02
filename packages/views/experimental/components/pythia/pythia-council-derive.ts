@@ -29,6 +29,15 @@ export const COUNCIL_SEAT_HUES = [
   "text-slate-600 dark:text-slate-400",
 ];
 
+/**
+ * The engine roster is FIXED (swarm.py PERSONAS) — before the first
+ * council lands, the chamber still seats these four (unvoted) so the
+ * panel reads as a deliberation in waiting, not an empty box. If a
+ * future engine build renames/extends the roster, the data-driven
+ * seats simply replace this fallback.
+ */
+export const COUNCIL_IDLE_ROSTER = ["Strategist", "Economist", "Naturalist", "Skeptic"];
+
 /** Product split threshold (engine swarm.py _SPLIT_TRACK = 0.30). */
 export const COUNCIL_SPLIT_THRESHOLD = 0.3;
 
@@ -76,6 +85,16 @@ export function deriveCouncilSeats(envelopes: PythiaForecastEnvelope[]): Council
     persona,
     probability: byPersona.get(persona)!.probability,
     note: byPersona.get(persona)!.note,
+    hue: COUNCIL_SEAT_HUES[i % COUNCIL_SEAT_HUES.length]!,
+  }));
+}
+
+/** Idle chamber seats: the fixed engine roster, all unvoted. */
+export function idleCouncilSeats(): CouncilSeat[] {
+  return COUNCIL_IDLE_ROSTER.map((persona, i) => ({
+    persona,
+    probability: null,
+    note: "",
     hue: COUNCIL_SEAT_HUES[i % COUNCIL_SEAT_HUES.length]!,
   }));
 }

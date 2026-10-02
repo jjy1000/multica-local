@@ -243,7 +243,8 @@
     "council_verdict_split": "Converged — real disagreement remains",
     "council_verdict_likely": "Consensus — leans yes",
     "council_verdict_unlikely": "Consensus — leans no",
-    "council_verdict_pending": "Awaiting votes"
+    "council_verdict_pending": "Awaiting votes",
+    "embed_idle": "Standing by — chamber seats the council between runs"
   },
   "claude_lab": {
     "pill_running": "Experiment running",

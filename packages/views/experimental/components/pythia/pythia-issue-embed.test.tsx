@@ -94,9 +94,19 @@ describe("PythiaIssueEmbed — 0.5.131", () => {
     hookState.hasLiveRun = false;
   });
 
-  it("collapses to null with no runs and no live stream", () => {
-    const { container } = render(<PythiaIssueEmbed wsId="ws-1" issueId="issue-1" />);
-    expect(container).toBeEmptyDOMElement();
+  it("idle lab-bound issue renders the council chamber in standby (0.5.133)", () => {
+    // The full null-collapse is gone: with no runs and no live stream the
+    // embed still mounts — the chamber seats the fixed engine roster with
+    // a standby orbit instead of reading as "not implemented".
+    render(<PythiaIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    expect(screen.getByTestId("pythia-issue-embed")).toBeTruthy();
+    expect(screen.getByTestId("pythia-council-canvas")).toBeTruthy();
+    const seats = screen.getAllByTestId("pythia-council-seat");
+    expect(seats.map((s) => s.getAttribute("data-persona"))).toEqual([
+      "Strategist", "Economist", "Naturalist", "Skeptic",
+    ]);
+    expect(screen.getByTestId("pythia-council-dial").getAttribute("data-consensus")).toBe("");
+    expect(screen.getByText(enExperimental.pythia_lab.embed_idle)).toBeTruthy();
   });
 
   it("live embed renders timeline, pending slots from planned rounds, and the trajectory", () => {

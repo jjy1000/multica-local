@@ -63,10 +63,13 @@ const CONSTELLATION_STYLE = `
 .const-wave{transform-box:fill-box;transform-origin:center;animation:const-wave 1.3s ease-out forwards}
 @keyframes const-qblink{50%{opacity:.25}}
 .const-qmark{animation:const-qblink 1.6s infinite}
+@keyframes const-spin{to{transform:rotate(360deg)}}
+.const-orbit{transform-box:fill-box;transform-origin:center;animation:const-spin 26s linear infinite}
 @media (prefers-reduced-motion: reduce){
   .const-flow-line{animation:none}
   .const-wave{display:none}
   .const-qmark{animation:none}
+  .const-orbit{animation:none}
 }`;
 
 type CausalT = TFunction<"causal-graph">;
@@ -195,6 +198,23 @@ export function CausalConstellationCanvas({
         <div className="relative" style={{ height: 280 }} data-testid="causal-constellation-stage">
           <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="h-full w-full" role="img"
               aria-label={t(($) => $.constellation_title)}>
+            {/* 0.5.133 empty state: an animated placeholder (slowly orbiting
+                dashed ring + hint) so a fresh workspace still reads as a
+                live map rather than a blank box */}
+            {!projection.focus && (
+              <g data-testid="causal-constellation-empty">
+                <circle
+                  cx={VIEW_W / 2} cy={VIEW_H / 2} r={34}
+                  fill="none" stroke="var(--causal-edge-causes)" strokeWidth={1.5}
+                  strokeDasharray="3 9" opacity={0.5}
+                  className={reduceMotion ? undefined : "const-orbit"}
+                />
+                <text x={VIEW_W / 2} y={VIEW_H / 2 + 66} textAnchor="middle" fontSize={11}
+                      fill="var(--const-sub)">
+                  {t(($) => $.constellation_empty)}
+                </text>
+              </g>
+            )}
             {/* edges focus<->stars (+ star<->star within kept set) */}
             {projection.edges.map(({ edge, fromId, toId }) => {
               const a = fromId === projection.focus?.id
@@ -248,7 +268,10 @@ export function CausalConstellationCanvas({
                 {waveHop > 0 && !reduceMotion && (
                   <circle className="const-wave" r={FOCUS.r + 8} fill="none" stroke="var(--causal-edge-causes)" strokeWidth={2} />
                 )}
-                <circle r={FOCUS.r + 12} fill="none" stroke="rgba(20,184,166,.35)" strokeWidth={1} strokeDasharray="2 8" />
+                <circle
+                  r={FOCUS.r + 12} fill="none" stroke="rgba(20,184,166,.35)" strokeWidth={1}
+                  strokeDasharray="2 8" className={reduceMotion ? undefined : "const-orbit"}
+                />
                 <circle r={FOCUS.r} fill="var(--const-node)" stroke="var(--causal-edge-causes)" strokeWidth={2} />
                 <g transform="translate(-9 -9)">
                   <Compass width={18} height={18} strokeWidth={1.8} className="text-teal-600 dark:text-teal-300" />

@@ -76,5 +76,6 @@
   "constellation_tier_confirmed": "confirmed",
   "constellation_tier_suggested": "suggested",
   "constellation_tier_rejected": "rejected",
-  "constellation_tier_note": "Suggested edges (Tier D LLM proposals) land at confidence ≤ 0.5 and stay out of paths until a human confirms; reject is a tombstone, never a delete."
+  "constellation_tier_note": "Suggested edges (Tier D LLM proposals) land at confidence ≤ 0.5 and stay out of paths until a human confirms; reject is a tombstone, never a delete.",
+  "constellation_empty": "No causal nodes yet — subtasks, dependencies and lab closures will light this map up"
 }

@@ -24,6 +24,7 @@ import {
   deriveCouncilSeats,
   deriveSpreadBand,
   deriveVerdict,
+  idleCouncilSeats,
   latestCouncil,
 } from "./pythia-council-derive";
 
@@ -50,13 +51,18 @@ const COUNCIL_STYLE = `
 .council-halo{transform-box:fill-box;transform-origin:center;opacity:.85;animation:council-halo 1.6s ease-out infinite}
 @keyframes council-spin{to{transform:rotate(360deg)}}
 .council-lock{transform-box:fill-box;transform-origin:center;animation:council-spin 14s linear infinite}
+.council-standby{transform-box:fill-box;transform-origin:center;animation:council-spin 30s linear infinite}
 @keyframes council-blink{50%{opacity:.3}}
 .council-qmark{animation:council-blink 1.6s infinite}
+@keyframes council-idle-breathe{50%{opacity:.5}}
+.council-seat-idle-ring{animation:council-idle-breathe 3.4s ease-in-out infinite}
 @media (prefers-reduced-motion: reduce){
   .council-vote.speaking{animation:none;stroke-dasharray:6 8}
   .council-halo{display:none}
   .council-lock{animation:none}
+  .council-standby{animation:none}
   .council-qmark{animation:none}
+  .council-seat-idle-ring{animation:none}
 }`;
 
 function pol(t: number, r: number) {
@@ -94,7 +100,12 @@ export function PythiaCouncilCanvas({
   const reduceMotion = useReducedMotion() ?? false;
   const [open, setOpen] = useState(defaultOpen);
 
-  const seats = useMemo(() => deriveCouncilSeats(envelopes), [envelopes]);
+  // 0.5.133: idle chamber still seats the fixed engine roster — an empty
+  // stage read as "not implemented"; a waiting council reads as live.
+  const seats = useMemo(() => {
+    const dataSeats = deriveCouncilSeats(envelopes);
+    return dataSeats.length > 0 ? dataSeats : idleCouncilSeats();
+  }, [envelopes]);
   const latest = useMemo(() => latestCouncil(envelopes), [envelopes]);
   const consensus =
     latest?.council.consensus ??
@@ -198,6 +209,16 @@ export function PythiaCouncilCanvas({
 
             {/* consensus dial */}
             <g data-testid="pythia-council-dial" data-consensus={consensus ?? ""}>
+              {/* standby ring: slow dashed orbit while no votes have landed —
+                  the "in waiting" state stays visibly alive */}
+              {consensus == null && (
+                <circle
+                  cx={DIAL.cx} cy={DIAL.cy} r={DIAL.r + 22}
+                  fill="none" stroke="currentColor" strokeWidth={1.5}
+                  strokeDasharray="3 9" opacity={0.45}
+                  className="council-standby text-purple-500"
+                />
+              )}
               {!running && consensus != null && (
                 <circle
                   cx={DIAL.cx} cy={DIAL.cy} r={DIAL.r + 22}
@@ -276,8 +297,11 @@ export function PythiaCouncilCanvas({
                     {speaking && !reduceMotion && (
                       <circle className="council-halo" r={SEAT_R + 3} fill="none" stroke="currentColor" strokeWidth={2} />
                     )}
-                    <circle r={SEAT_R} fill="var(--council-node)" stroke="currentColor"
-                            strokeWidth={speaking ? 2.5 : 1.8} opacity={seat.probability == null ? 0.55 : 1} />
+                    <circle
+                      className={!speaking && seat.probability == null && !reduceMotion ? "council-seat-idle-ring" : undefined}
+                      r={SEAT_R} fill="var(--council-node)" stroke="currentColor"
+                      strokeWidth={speaking ? 2.5 : 1.8} opacity={seat.probability == null ? 0.55 : 1}
+                    />
                     <text y={-SEAT_R - 7} textAnchor="middle" fontSize={10.5} fontWeight={650}
                           className="fill-foreground font-mono">
                       {seat.probability == null ? "—" : `${(seat.probability * 100).toFixed(0)}%`}

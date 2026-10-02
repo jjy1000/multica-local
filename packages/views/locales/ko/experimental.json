@@ -243,7 +243,8 @@
     "council_verdict_split": "수렴 · 실제 이견 남음",
     "council_verdict_likely": "합의 · 발생 쪽",
     "council_verdict_unlikely": "합의 · 미발생 쪽",
-    "council_verdict_pending": "투표 대기"
+    "council_verdict_pending": "투표 대기",
+    "embed_idle": "대기 중 — 라운드 사이에도 평의회가 착석해 있습니다"
   },
   "claude_lab": {
     "pill_running": "실험 실행 중",

@@ -135,15 +135,15 @@ describe("ClaudeBrainCanvas — 0.5.132", () => {
     expect(mlEdge.getAttribute("class")).toContain("brain-edge-idle");
   });
 
-  it("collapses by default when idle and expands via the toggle", async () => {
+  it("expands by default even when idle (0.5.133 — the idle brain IS the visual)", async () => {
     renderBrain();
-    // idle + no defaultOpen → collapsed stage, header still present
-    expect(screen.queryByTestId("claude-brain-stage")).toBeNull();
-    fireEvent.click(screen.getByTestId("claude-brain-toggle"));
     await waitFor(() => {
       expect(screen.getByTestId("claude-brain-stage")).toBeTruthy();
     });
     expect(screen.getAllByTestId("claude-brain-node")).toHaveLength(6);
+    // and the toggle still folds it away
+    fireEvent.click(screen.getByTestId("claude-brain-toggle"));
+    expect(screen.queryByTestId("claude-brain-stage")).toBeNull();
   });
 
   it("defaults open while a run is live (embed behaviour)", async () => {

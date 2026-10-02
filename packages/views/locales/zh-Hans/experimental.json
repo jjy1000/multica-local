@@ -243,7 +243,8 @@
     "council_verdict_split": "收敛 · 保留真实分歧",
     "council_verdict_likely": "共识 · 倾向发生",
     "council_verdict_unlikely": "共识 · 倾向不发生",
-    "council_verdict_pending": "等待投票"
+    "council_verdict_pending": "等待投票",
+    "embed_idle": "待命中 —— 轮次之间议会保持就座"
   },
   "claude_lab": {
     "pill_running": "实验运行中",

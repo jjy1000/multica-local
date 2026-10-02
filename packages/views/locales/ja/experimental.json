@@ -243,7 +243,8 @@
     "council_verdict_split": "収束 · 真の意見分裂が残る",
     "council_verdict_likely": "合意 · 発生寄り",
     "council_verdict_unlikely": "合意 · 不発生寄り",
-    "council_verdict_pending": "投票待ち"
+    "council_verdict_pending": "投票待ち",
+    "embed_idle": "待機中 — ラウンドの合間も評議会は着席しています"
   },
   "claude_lab": {
     "pill_running": "実験を実行中",
