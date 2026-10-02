@@ -99,8 +99,12 @@ func runPythiaForecastJob(ctx context.Context, cancel context.CancelFunc, h *Han
 		payload, marshalErr := json.Marshal(envelopes)
 		if marshalErr == nil {
 			if _, err := h.Queries.UpdatePythiaForecastRunProgress(persistCtx, dbpkg.UpdatePythiaForecastRunProgressParams{
-				ID:        job.RunUUID,
-				Rounds:    int32(len(envelopes)),
+				ID: job.RunUUID,
+				// Planned total (matches the creation write): the SSE
+				// snapshot exposes run.rounds as the client's totalRounds,
+				// so a mid-run reload still renders the pending-round
+				// placeholders. Envelopes carries the landed count.
+				Rounds:    int32(job.Rounds),
 				Source:    forecastRunSource(envelopes),
 				Envelopes: payload,
 			}); err != nil {

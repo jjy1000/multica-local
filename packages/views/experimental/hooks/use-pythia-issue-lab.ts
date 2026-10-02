@@ -229,6 +229,13 @@ export function usePythiaIssueLab(wsId: string, issueId: string): PythiaIssueLab
   const runs = runsQuery.data ?? [];
   const [stream, setStream] = useState<PythiaStreamState>(IDLE_PYTHIA_STREAM);
   const [followRunId, setFollowRunId] = useState<string | null>(null);
+  // Bumped by the reconnect scheduler to re-arm the subscription effect
+  // without touching followRunId (a same-value set would be a no-op).
+  const [streamEpoch, setStreamEpoch] = useState(0);
+  // Exponential-backoff bookkeeping for transport retries. Reset when a
+  // frame parses (transport proven) or when the follow switches runs.
+  const reconnectAttemptRef = useRef(0);
+  const lastFollowRef = useRef<string | null>(null);
   const followingRef = useRef<string | null>(null);
   followingRef.current = followRunId;
 
@@ -245,10 +252,27 @@ export function usePythiaIssueLab(wsId: string, issueId: string): PythiaIssueLab
 
   // The live subscription. api.rawRequest returns the raw Response; SSE
   // frames are parsed off the ReadableStream with a block buffer.
+  // 0.5.131: a transport failure mid-run (reader error / server restart /
+  // proxy timeout) no longer strands the UI — the subscription re-arms
+  // with exponential backoff (1s→15s) and the server's snapshot frame
+  // replays persistence, so a reconnect loses nothing. A 404/410 run row
+  // drops the follow instead of retrying.
   useEffect(() => {
     if (!followRunId) return;
+    if (lastFollowRef.current !== followRunId) {
+      reconnectAttemptRef.current = 0;
+      lastFollowRef.current = followRunId;
+    }
     let cancelled = false;
     const controller = new AbortController();
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleReconnect = () => {
+      if (cancelled) return;
+      const attempt = reconnectAttemptRef.current;
+      reconnectAttemptRef.current = Math.min(attempt + 1, 5);
+      const delay = Math.min(1000 * 2 ** attempt, 15_000);
+      retryTimer = setTimeout(() => setStreamEpoch((e) => e + 1), delay);
+    };
     void (async () => {
       try {
         const r = await api.rawRequest(
@@ -256,7 +280,14 @@ export function usePythiaIssueLab(wsId: string, issueId: string): PythiaIssueLab
           { signal: controller.signal },
         );
         if (!r.ok || !r.body) {
-          if (!cancelled) setStream((s) => (s.runId === followRunId ? s : IDLE_PYTHIA_STREAM));
+          if (r.status === 404 || r.status === 410) {
+            if (!cancelled) {
+              setStream((s) => (s.runId === followRunId ? s : IDLE_PYTHIA_STREAM));
+              setFollowRunId(null);
+            }
+            return;
+          }
+          scheduleReconnect();
           return;
         }
         const reader = r.body.getReader();
@@ -272,20 +303,27 @@ export function usePythiaIssueLab(wsId: string, issueId: string): PythiaIssueLab
             const block = buffer.slice(0, idx);
             buffer = buffer.slice(idx + 2);
             const event = parsePythiaSSEBlock(block);
-            if (event) setStream((s) => reducePythiaStreamEvent(s, event));
+            if (event) {
+              reconnectAttemptRef.current = 0;
+              setStream((s) => reducePythiaStreamEvent(s, event));
+            }
             idx = buffer.indexOf("\n\n");
           }
         }
+        // Natural EOF: the server closes after the terminal status frame,
+        // and the terminal effect below drops the follow. If EOF arrives
+        // without one, treat it as a transport drop and re-arm.
+        scheduleReconnect();
       } catch {
-        // Aborted on cleanup, or the transport died mid-run — the runs
-        // poll re-discovers the run either way.
+        if (!cancelled) scheduleReconnect();
       }
     })();
     return () => {
       cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
       controller.abort();
     };
-  }, [followRunId]);
+  }, [followRunId, streamEpoch]);
 
   // Terminal → refresh the list (the row's status/report just changed
   // server-side) and drop the follow so the effect doesn't re-arm.

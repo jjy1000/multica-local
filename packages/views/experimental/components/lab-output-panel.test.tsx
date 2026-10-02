@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { I18nProvider } from "@multica/core/i18n/react";
@@ -338,6 +338,34 @@ describe("LabOutputPanel", () => {
     await openHistoryTab();
     await waitFor(() => expect(screen.getByText("No runs yet")).toBeInTheDocument());
     expect(screen.queryByText("Failed to load lab output")).not.toBeInTheDocument();
+  });
+
+  it("stop button reads the stop label and the continue form disables while a run is live (0.5.131)", async () => {
+    // The stop button's VISIBLE text used to be
+    // t(embed_running, {round: 0}) — "推演中 · 第 0 轮" — while its
+    // aria-label said "stop". The continue form was hard-coded
+    // disabled={false} despite its docstring.
+    mockRawRequest.mockResolvedValue(
+      makeResponse(200, [{ ...pythiaRun, id: "prun-live", status: "running" }]),
+    );
+    renderPythiaPanel();
+
+    const stop = await screen.findByTestId("lab-output-panel-pythia-stop");
+    expect(stop.textContent).toBe(enExperimental.lab_output_panel.pythia_stop_forecast);
+
+    expect(screen.getByTestId("pythia-continue-form")).toBeInTheDocument();
+    const variables = document.getElementById("pythia-continue-variables") as HTMLTextAreaElement;
+    expect(variables).toBeTruthy();
+    expect(variables.disabled).toBe(true);
+
+    // The module-level QueryClient is shared across tests — drop the
+    // cached "running" row so the next test's call-count assertions
+    // don't see this run's refetches / auto-follow stream fetch.
+    // Unmount FIRST: clearing the cache while the panel is still
+    // mounted triggers an immediate background refetch that would
+    // bleed into the next test's rawRequest call count.
+    cleanup();
+    client.clear();
   });
 
   it("shows an inline error bar and retries for pythia", async () => {

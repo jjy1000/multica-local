@@ -353,7 +353,11 @@ func pythiaIssueForecast(w http.ResponseWriter, r *http.Request) {
 	runRow, err := h.Queries.CreatePythiaForecastRun(r.Context(), dbpkg.CreatePythiaForecastRunParams{
 		WorkspaceID: issue.WorkspaceID,
 		IssueID:     issue.ID,
-		Rounds:      0,
+		// Planned total, not landed count: the SSE snapshot feeds this
+		// straight into the client's totalRounds so the pending-round
+		// placeholders survive a reload mid-run (the runner keeps this
+		// value, it never lowers it to len(envelopes)).
+		Rounds:      int32(rounds),
 		Source:      "synthetic",
 		Envelopes:   []byte("[]"),
 		ParentRunID: parentID,

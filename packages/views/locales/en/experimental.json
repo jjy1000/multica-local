@@ -225,7 +225,17 @@
     "pill_aborted": "Pythia · aborted",
     "pill_failed": "Pythia · failed",
     "pill_idle": "Pythia · idle",
-    "tab_continue": "continue"
+    "tab_continue": "continue",
+    "chat_mode_single": "Single",
+    "chat_mode_survey": "Survey all",
+    "survey_placeholder": "Ask every persona one question…",
+    "survey_ask": "Ask all",
+    "survey_pending": "thinking…",
+    "survey_error": "This persona failed to answer",
+    "survey_pick_hint": "Pick respondents",
+    "council_act_support": "Leans higher",
+    "council_act_challenge": "Leans lower",
+    "council_act_neutral": "Near baseline"
   },
   "claude_lab": {
     "pill_running": "Experiment running",
@@ -245,6 +255,7 @@
     "embed_working": "Lab agents are working…",
     "embed_queued": "Queued — waiting for a runtime…",
     "embed_retrying": "Previous step failed — retrying (attempt {{n}})",
-    "embed_attempt": "Attempt {{n}} in progress…"
+    "embed_attempt": "Attempt {{n}} in progress…",
+    "embed_error": "Failed to load lab status"
   }
 }

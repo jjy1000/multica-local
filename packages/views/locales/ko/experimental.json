@@ -225,7 +225,17 @@
     "pill_aborted": "Pythia · 중단됨",
     "pill_failed": "Pythia · 실패",
     "pill_idle": "Pythia · 대기",
-    "tab_continue": "계속"
+    "tab_continue": "계속",
+    "chat_mode_single": "1:1",
+    "chat_mode_survey": "전원 설문",
+    "survey_placeholder": "모든 페르소나에게 질문…",
+    "survey_ask": "질문 실행",
+    "survey_pending": "생각 중…",
+    "survey_error": "이 페르소나가 답변하지 못했습니다",
+    "survey_pick_hint": "응답자 선택",
+    "council_act_support": "더 높게",
+    "council_act_challenge": "더 낮게",
+    "council_act_neutral": "기준선 근접"
   },
   "claude_lab": {
     "pill_running": "실험 실행 중",
@@ -245,6 +255,7 @@
     "embed_working": "실험 에이전트가 실행 중…",
     "embed_queued": "대기열에 추가됨 — 런타임 할당 대기 중…",
     "embed_retrying": "이전 단계 실패 — 자동 재시도 중（{{n}}번째 시도）",
-    "embed_attempt": "{{n}}번째 실행 중…"
+    "embed_attempt": "{{n}}번째 실행 중…",
+    "embed_error": "랩 상태를 불러올 수 없습니다"
   }
 }

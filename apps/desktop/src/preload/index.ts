@@ -379,9 +379,10 @@ const experimentalAPI = {
     // 0.3.18 Phase 3: proxy POST /whatif /chat /predict from the
     // renderer to the loopback Pythia subprocess. The main process
     // owns allowlist + rate limit; the renderer only sees ok + body.
+    // 0.5.131: /links replaces /status (engine health strip route fix).
     proxy: (
       req: {
-        path: "/whatif" | "/chat" | "/predict" | "/status";
+        path: "/whatif" | "/chat" | "/predict" | "/links";
         method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
         body?: unknown;
         timeoutMs?: number;

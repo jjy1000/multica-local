@@ -245,8 +245,10 @@ interface ExperimentalAPI {
     // 0.3.18 Phase 3: forward /whatif /chat /predict to the loopback
     // Pythia subprocess via the main process. Returns the raw
     // response shape; renderer handles ok=false as a friendly error.
+    // 0.5.131: /links replaces /status (the engine never defined
+    // /status; /links is its real {engine, osiris, oracle} answer).
     proxy(req: {
-      path: "/whatif" | "/chat" | "/predict" | "/status";
+      path: "/whatif" | "/chat" | "/predict" | "/links";
       method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
       body?: unknown;
       timeoutMs?: number;

@@ -13,13 +13,13 @@
 // property-panel PythiaPanel now becomes a 3-tab structure (继续推演 /
 // 历史·回放 / 追问); the live animation and report view move here.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Loader2, Sparkles, ChevronDown } from "lucide-react";
 import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { usePythiaIssueLab } from "../../hooks/use-pythia-issue-lab";
-import { PythiaRoundTimeline } from "./pythia-round-view";
-import { useT } from "../../../i18n";
+import { PythiaRoundTimeline, PythiaTrajectory } from "./pythia-round-view";
+import { useLocale, useT } from "../../../i18n";
 
 export function PythiaIssueEmbed({
   wsId,
@@ -33,8 +33,13 @@ export function PythiaIssueEmbed({
   const lab = usePythiaIssueLab(wsId, issueId);
   const { stream, runs, hasLiveRun } = lab;
   const liveEnvelopes = stream.envelopes;
+  // Trust the optimistic stream while it says a run is executing: between
+  // start() returning and the runs query refetching, the list does not
+  // know the run yet, and gating on it made the embed flash to
+  // history/null for a beat. A run that truly vanished is cleaned up by
+  // the terminal-status effect + the runs poll.
   const streamTarget = stream.runId ? runs.find((r) => r.id === stream.runId) : null;
-  const useStream = streamTarget != null;
+  const useStream = stream.status === "running" || streamTarget != null;
 
   const showLive = hasLiveRun && useStream;
   // 0.5.114: when a run completes the report is delivered to the issue
@@ -98,10 +103,6 @@ function LiveEmbed({
   reduceMotion: boolean;
   emptyLabel: string;
 }) {
-  // When a new envelope lands the timeline needs to react to its insertion.
-  // We key the children by an incrementing id derived from the last envelope
-  // so AnimatePresence picks the change up cleanly.
-  const lastKey = envelopes.at(-1)?.id ?? "init";
   return (
     <div className="space-y-2" data-testid="pythia-embed-live">
       <PythiaRoundTimeline
@@ -112,21 +113,31 @@ function LiveEmbed({
       {envelopes.length === 0 && (
         <p className="text-[11px] text-muted-foreground">{emptyLabel}</p>
       )}
+      {/* Probability/confidence trajectory (0.5.131 — the chart existed
+          since 0.5.111 but was never wired in). Fades in ONCE when a
+          second round exists, then extends in place; per-round reveal is
+          already owned by the RoundCard transitions above. */}
       <AnimatePresence initial={false}>
-        <motion.div
-          key={lastKey}
-          initial={reduceMotion ? false : { opacity: 0, scale: 0.98 }}
-          animate={{
-            opacity: 1,
-            scale: 1,
-            transition: {
-              duration: UI_MOTION_DURATION.standard,
-              ease: UI_EASE_OUT,
-            },
-          }}
-          className="text-[10px] text-purple-700/70 dark:text-purple-300/70"
-        >
+        {envelopes.length >= 2 && (
+          <motion.div
+            key="pythia-trajectory"
+            initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              transition: {
+                duration: UI_MOTION_DURATION.standard,
+                ease: UI_EASE_OUT,
+              },
+            }}
+            exit={{ opacity: 0 }}
+          >
+            <PythiaTrajectory
+              envelopes={envelopes}
+              totalRounds={Math.max(totalRounds, envelopes.length)}
+            />
           </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
@@ -138,8 +149,13 @@ function HistoryEmbed({
   run: NonNullable<ReturnType<typeof usePythiaIssueLab>["runs"][number]>;
 }) {
   const { t } = useT("experimental");
+  const locale = useLocale();
   const [open, setOpen] = useState(false);
   const envelopes = run.envelopes ?? [];
+  const timeLabel = useMemo(() => {
+    const ms = Date.parse(run.created_at);
+    return Number.isFinite(ms) ? new Date(ms).toLocaleString(locale) : run.created_at;
+  }, [run.created_at, locale]);
   return (
     <div className="space-y-1.5" data-testid="pythia-embed-history">
       <button
@@ -152,10 +168,13 @@ function HistoryEmbed({
           className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "" : "-rotate-90"}`}
           aria-hidden
         />
-        <span className="truncate">{t(($) => $.pythia_lab.embed_history_toggle, { time: run.created_at })}</span>
+        <span className="truncate">{t(($) => $.pythia_lab.embed_history_toggle, { time: timeLabel })}</span>
       </button>
       {open && envelopes.length > 0 && (
-        <PythiaRoundTimeline envelopes={envelopes} totalRounds={run.rounds || envelopes.length} running={false} />
+        <div className="space-y-2">
+          <PythiaRoundTimeline envelopes={envelopes} totalRounds={run.rounds || envelopes.length} running={false} />
+          <PythiaTrajectory envelopes={envelopes} totalRounds={run.rounds || envelopes.length} />
+        </div>
       )}
     </div>
   );

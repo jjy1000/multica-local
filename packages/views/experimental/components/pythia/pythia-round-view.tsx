@@ -18,7 +18,9 @@
 // strings go through the i18n selector arrow form.
 
 import { useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { Brain, Loader2, Sparkles } from "lucide-react";
+import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import type { PythiaCouncil, PythiaForecastEnvelope } from "@multica/core/types/api";
 import { useT } from "../../../i18n";
 
@@ -133,6 +135,25 @@ export function PythiaRoundTimeline({
   );
 }
 
+/** Stance of one persona's vote vs the oracle baseline (percentage
+ *  points). Drives the typed act badge on the action card (MiroFish
+ *  Step3 per-action-card pattern, 0.5.131): a persona leaning ≥5pp
+ *  above baseline reads as "leans higher", ≤5pp below as "leans
+ *  lower", else "near baseline". ±0.05 keeps the badge honest — the
+ *  engine's own split threshold is 0.30 spread. Exported for tests. */
+export function voteStance(
+  vote: { probability: number },
+  baseProbability: number | null | undefined,
+): "support" | "challenge" | "neutral" | null {
+  if (baseProbability == null || !Number.isFinite(baseProbability)) return null;
+  // Integer tenth-of-a-percent compare — a raw float difference lets
+  // 0.45-0.5 = -0.04999… slip past the threshold (unit-pinned).
+  const d10 = Math.round((vote.probability - baseProbability) * 1000);
+  if (d10 >= 50) return "support";
+  if (d10 <= -50) return "challenge";
+  return "neutral";
+}
+
 export function PythiaCouncilPanel({
   council,
   baseProbability,
@@ -141,6 +162,7 @@ export function PythiaCouncilPanel({
   baseProbability?: number | null;
 }) {
   const { t } = useT("experimental");
+  const reduceMotion = useReducedMotion() ?? false;
   const [open, setOpen] = useState(false);
   const consensus = council.consensus;
   if (council.votes.length === 0 || consensus == null) return null;
@@ -176,21 +198,60 @@ export function PythiaCouncilPanel({
       </button>
       {open && (
         <div className="mt-1 space-y-1">
-          {council.votes.map((v) => (
-            <div key={v.persona} className="space-y-0.5">
-              <div className="flex items-baseline justify-between gap-2 text-[10px]">
-                <span className="truncate font-medium text-foreground/85">{v.persona}</span>
-                <span className="shrink-0 font-mono text-muted-foreground">{pct(v.probability)}%</span>
-              </div>
-              <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-purple-400/70"
-                  style={{ width: `${pct(v.probability)}%` }}
-                />
-              </div>
-              {v.note && <p className="text-[9px] leading-snug text-muted-foreground">{v.note}</p>}
-            </div>
-          ))}
+          {council.votes.map((v, i) => {
+            const stance = voteStance(v, baseProbability);
+            const stanceLabel =
+              stance === "support"
+                ? t(($) => $.pythia_lab.council_act_support)
+                : stance === "challenge"
+                  ? t(($) => $.pythia_lab.council_act_challenge)
+                  : stance === "neutral"
+                    ? t(($) => $.pythia_lab.council_act_neutral)
+                    : null;
+            return (
+              <motion.div
+                key={v.persona}
+                initial={reduceMotion ? false : { opacity: 0, x: -4 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{
+                  duration: UI_MOTION_DURATION.fast,
+                  delay: reduceMotion ? 0 : Math.min(i * 0.05, 0.25),
+                  ease: UI_EASE_OUT,
+                }}
+                className="space-y-0.5 rounded border border-border/50 bg-background/60 px-1.5 py-1"
+                data-testid="pythia-council-vote"
+                data-stance={stance ?? "none"}
+              >
+                <div className="flex items-baseline justify-between gap-2 text-[10px]">
+                  <span className="flex min-w-0 items-center gap-1">
+                    <span className="truncate font-medium text-foreground/85">{v.persona}</span>
+                    {stanceLabel ? (
+                      <span
+                        className={
+                          "shrink-0 rounded px-1 py-px text-[8px] font-medium " +
+                          (stance === "support"
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                            : stance === "challenge"
+                              ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                              : "bg-muted text-muted-foreground")
+                        }
+                      >
+                        {stanceLabel}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 font-mono text-muted-foreground">{pct(v.probability)}%</span>
+                </div>
+                <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-purple-400/70"
+                    style={{ width: `${pct(v.probability)}%` }}
+                  />
+                </div>
+                {v.note && <p className="text-[9px] leading-snug text-muted-foreground">{v.note}</p>}
+              </motion.div>
+            );
+          })}
         </div>
       )}
     </div>

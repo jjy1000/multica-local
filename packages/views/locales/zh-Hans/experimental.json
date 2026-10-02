@@ -225,7 +225,17 @@
     "pill_aborted": "Pythia · 已中止",
     "pill_failed": "Pythia · 已失败",
     "pill_idle": "Pythia · 空闲",
-    "tab_continue": "继续"
+    "tab_continue": "继续",
+    "chat_mode_single": "单聊",
+    "chat_mode_survey": "全员问卷",
+    "survey_placeholder": "向全体人设提一个问题…",
+    "survey_ask": "发起问卷",
+    "survey_pending": "思考中…",
+    "survey_error": "该人设未能作答",
+    "survey_pick_hint": "选择受访人设",
+    "council_act_support": "倾向更高",
+    "council_act_challenge": "倾向更低",
+    "council_act_neutral": "接近基线"
   },
   "claude_lab": {
     "pill_running": "实验运行中",
@@ -245,6 +255,7 @@
     "embed_working": "实验智能体正在执行…",
     "embed_queued": "已排队，等待运行时领取…",
     "embed_retrying": "上一步失败，正在自动重试（第 {{n}} 次尝试）",
-    "embed_attempt": "第 {{n}} 次执行中…"
+    "embed_attempt": "第 {{n}} 次执行中…",
+    "embed_error": "科研实验室状态加载失败"
   }
 }

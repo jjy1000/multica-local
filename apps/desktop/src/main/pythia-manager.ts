@@ -382,9 +382,14 @@ const PYTHIA_PROXY_ALLOWLIST: ReadonlySet<string> = new Set([
   "/drift",
   "/alerts/feed",
   "/brief",
-  // 0.5.112: the passive monitor page polls engine/oracle/osiris health.
-  "/status",
 ]);
+
+// NOTE (0.5.131): "/status" was removed from the allowlist. The engine
+// never defined a /status route — it was allowlisted for the 0.5.112
+// monitor health strip, which then 404'd on every poll for three
+// releases. The strip now polls /links (above), which is the engine's
+// real {engine, osiris, oracle} health answer. Do not allowlist an
+// engine path without checking vendor/pythia-src/engine/server.py.
 
 // PythiaProxy rate limit: 30 req / min per source. The renderer's
 // WhatIfPanel calls /whatif roughly once per user click; 30/min is

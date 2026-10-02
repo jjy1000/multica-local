@@ -498,6 +498,68 @@ func TestPythiaForecastStartEndToEnd(t *testing.T) {
 	}
 }
 
+// TestPythiaForecastPlannedRoundsPersistMidRun pins the planned-rounds
+// contract (0.5.131): run.rounds is the PLANNED total from creation and
+// the per-round progress write never lowers it to the landed count. The
+// SSE snapshot feeds this column straight into the client's totalRounds,
+// so a mid-run reload must still see the pending-round placeholders.
+// With rounds=2 and a 5s inter-round gap, sampling right after the first
+// envelope lands always observes status='running' with rounds=2.
+func TestPythiaForecastPlannedRoundsPersistMidRun(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	if testWorkspaceID == "" {
+		t.Skip("workspace fixture not initialized")
+	}
+
+	issue := createIssueForTest(t, map[string]any{
+		"title": "pythia-planned-rounds",
+	})
+
+	w := httptest.NewRecorder()
+	req := newForecastTestRequest("POST", "/api/experimental/pythia-oracle/forecast/issue", map[string]any{
+		"issue_id": issue.ID,
+		"rounds":   2,
+	})
+	pythiaIssueForecast(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST forecast: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var start issueForecastStartResponse
+	if err := json.NewDecoder(w.Body).Decode(&start); err != nil {
+		t.Fatalf("decode start response: %v", err)
+	}
+
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		var rounds int
+		var status string
+		var envelopes json.RawMessage
+		err := testPool.QueryRow(context.Background(),
+			`SELECT rounds, status, envelopes FROM pythia_forecast_run WHERE id = $1`, start.RunID,
+		).Scan(&rounds, &status, &envelopes)
+		if err != nil {
+			t.Fatalf("load run: %v", err)
+		}
+		var parsed []map[string]any
+		_ = json.Unmarshal(envelopes, &parsed)
+		if len(parsed) >= 1 {
+			if status != "running" {
+				t.Fatalf("sampled after run went terminal (status=%s) — poll missed the inter-round window", status)
+			}
+			if rounds != 2 {
+				t.Errorf("mid-run rounds = %d, want 2 (planned total must survive the progress write; got landed count?)", rounds)
+			}
+			return
+		}
+		if status != "running" || time.Now().After(deadline) {
+			t.Fatalf("run finished before first envelope was sampled (status=%s)", status)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // insertForecastRunForTest inserts a pythia_forecast_run row directly
 // (status 'completed', parent NULL) so continuation-validation tests can
 // stage parents with/without envelopes without running the engine.

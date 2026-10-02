@@ -152,12 +152,18 @@ export function PythiaPanel({
 
   const lab = usePythiaIssueLab(wsId, issueId);
   const { runs, hasLiveRun } = lab;
+  const [starting, setStarting] = useState(false);
 
   const startRun = async (input: { variables?: string; rounds?: number; parentRunId?: string }) => {
     setStartError(false);
-    const res = await lab.start(input);
-    if (!res) setStartError(true);
-    else setTab("continue");
+    setStarting(true);
+    try {
+      const res = await lab.start(input);
+      if (!res) setStartError(true);
+      else setTab("continue");
+    } finally {
+      setStarting(false);
+    }
   };
 
   if (flagsLoaded && !flagEnabled) {
@@ -238,13 +244,15 @@ export function PythiaPanel({
             onClick={lab.cancel}
             className="rounded p-1 text-purple-700 transition-colors hover:bg-purple-500/10 dark:text-purple-300"
           >
-            <span className="text-[10px] font-medium">{t(($) => $.pythia_lab.embed_running, { round: 0 })}</span>
+            <span className="text-[10px] font-medium">
+              {t(($) => $.lab_output_panel.pythia_stop_forecast)}
+            </span>
           </button>
         )}
       </div>
 
       {tab === "continue" && (
-        <ContinueForm disabled={false} busy={false} onSubmit={startRun} />
+        <ContinueForm disabled={hasLiveRun} busy={starting} onSubmit={startRun} />
       )}
       {startError && tab === "continue" && (
         <p className="text-[10px] text-destructive">{t(($) => $.pythia_lab.start_failed)}</p>

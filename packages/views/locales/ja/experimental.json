@@ -225,7 +225,17 @@
     "pill_aborted": "Pythia · 中止",
     "pill_failed": "Pythia · 失敗",
     "pill_idle": "Pythia · 待機",
-    "tab_continue": "続行"
+    "tab_continue": "続行",
+    "chat_mode_single": "1:1",
+    "chat_mode_survey": "全員調査",
+    "survey_placeholder": "全ペルソナに1つの質問を…",
+    "survey_ask": "調査開始",
+    "survey_pending": "考え中…",
+    "survey_error": "このペルソナは回答できませんでした",
+    "survey_pick_hint": "回答者を選択",
+    "council_act_support": "より高く",
+    "council_act_challenge": "より低く",
+    "council_act_neutral": "ベースライン近く"
   },
   "claude_lab": {
     "pill_running": "実験を実行中",
@@ -245,6 +255,7 @@
     "embed_working": "実験エージェントが実行中…",
     "embed_queued": "キューに追加済み — ランタイムの割り当て待ち…",
     "embed_retrying": "前のステップが失敗 — 自動リトライ中（{{n}} 回目）",
-    "embed_attempt": "{{n}} 回目の実行中…"
+    "embed_attempt": "{{n}} 回目の実行中…",
+    "embed_error": "ラボの状態を読み込めません"
   }
 }

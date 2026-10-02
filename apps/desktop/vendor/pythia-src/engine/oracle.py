@@ -67,15 +67,24 @@ class Oracle:
         self.model = CONFIG.llm_model
 
     async def health(self) -> bool:
-        # 0.3.32 desktop Multica-only contract: when bound by the
-        # desktop manager we never probe a local LLM and report
-        # "down" so any caller depending on oracle.health() learns
-        # to fetch Multica runtime liveness from the proxy instead.
-        # This oracle.health() is a vestigial signal kept for the
-        # standalone dev path.
+        # 0.5.131: under the desktop contract (MULTICA_REQUIRED=1) the
+        # LLM lives behind the Multica runtime bridge, so "oracle up"
+        # means the BRIDGE is reachable. The previous behaviour kept the
+        # standalone Ollama probe's "return False" for the desktop path,
+        # so /links reported oracle down on every healthy install and
+        # the monitor's oracle chip read "off" forever. Standalone dev
+        # (no MULTICA_REQUIRED) keeps the local-backend probe.
         if _multica_required_blocking():
-            log.debug("oracle.health: MULTICA_REQUIRED=1, skipping Ollama probe")
-            return False
+            runtime_url = os.environ.get("MULTICA_AGENT_RUNTIME_URL", "").rstrip("/")
+            if not runtime_url or not os.environ.get("MULTICA_API_TOKEN", "").strip():
+                log.debug("oracle.health: MULTICA_REQUIRED=1 but bridge env unset")
+                return False
+            try:
+                async with httpx.AsyncClient(verify=HTTPX_VERIFY, timeout=5) as c:
+                    r = await c.get(f"{runtime_url}/health")
+                    return r.status_code < 500
+            except Exception:  # noqa: BLE001 — health is a status dot; never raise
+                return False
         try:
             async with httpx.AsyncClient(verify=HTTPX_VERIFY, timeout=5) as c:
                 r = await c.get(f"{self.base}/models", headers={"Authorization": f"Bearer {self.key}"})

@@ -92,16 +92,19 @@ export function PythiaView({ issueId: _initialIssueId = null }: { issueId?: stri
     };
   }, [pythiaOracleEnabled]);
 
-  // Engine health strip (0.5.112): /status answers {engine, osiris, oracle}
-  // — the backend intel + oracle services the forecast rounds call. Loopback
-  // proxy IPC (allowlisted + rate-limited in pythia-manager.ts), NOT
-  // api.rawRequest — see apps/desktop/CLAUDE.md.
+  // Engine health strip (0.5.112; route fixed 0.5.131): the engine's
+  // /links endpoint answers {engine, osiris, oracle, model, ...} — the
+  // backend intel + oracle services the forecast rounds call. (The strip
+  // originally polled /status, a route the engine never defined, so the
+  // chips spun "…" forever.) Loopback proxy IPC (allowlisted +
+  // rate-limited in pythia-manager.ts), NOT api.rawRequest — see
+  // apps/desktop/CLAUDE.md.
   useEffect(() => {
     if (!url) return;
     let cancelled = false;
     const poll = async () => {
       const res = await window.experimentalAPI.pythia.proxy({
-        path: "/status",
+        path: "/links",
       });
       if (!cancelled) setHealth(res.ok ? (res.body as EngineHealth) : null);
     };
@@ -259,7 +262,13 @@ export function PythiaView({ issueId: _initialIssueId = null }: { issueId?: stri
         )}
         {hasLive && (
           <p className="mt-3 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" aria-hidden />
+            {/* 0.5.131: the pythia-pulse-ring keyframes finally have a
+                consumer — a live-feed heartbeat dot (previously dead CSS
+                since 0.5.112). Reduced-motion gates live in globals.css. */}
+            <span className="relative inline-flex size-2" aria-hidden>
+              <span className="animate-pythia-pulse-ring absolute inset-0 rounded-full bg-purple-500/50" />
+              <span className="relative inline-flex size-2 rounded-full bg-purple-500" />
+            </span>
             live · {POLL_INTERVAL_MS / 1000}s
           </p>
         )}
