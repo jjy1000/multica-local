@@ -230,6 +230,14 @@ export function ClaudeLabView({ issueId: initialIssueId = null }: { issueId?: st
       <Header active={tab} onTabChange={setTab} />
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-6">
         <Intro />
+        {/* 0.5.134: idle brain hero — the lab's presence on this page
+            BEFORE an issue is locked. With no selection the workbench
+            (and its issue-scoped brain) never mounts, which read as "no
+            visual"; now the brain is the first thing on the page and
+            hands over to the workbench copy once an issue is picked. */}
+        {!selectedIssueId && wsId && (
+          <ClaudeBrainCanvas wsId={wsId} issueId="" variant="workbench" />
+        )}
         {selectedIssueId ? (
           <div className="-mb-2 flex items-center justify-end gap-1.5 text-[10px] text-muted-foreground">
             <span className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-foreground/80">
