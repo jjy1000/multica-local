@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>科研实验室大脑 · 动态图设计原型</title>
+<style>
+  :root{
+    --bg:#09090b; --panel:#111114; --panel-2:#18181b; --border:#27272a;
+    --tx:#fafafa; --tx-2:#a1a1aa; --tx-3:#71717a;
+    --emerald:#10b981; --amber:#f59e0b; --teal:#14b8a6; --violet:#8b5cf6;
+    --sky:#0ea5e9; --rose:#f43f5e; --red:#ef4444;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:
+      radial-gradient(1200px 700px at 30% -10%, rgba(16,185,129,.07), transparent 60%),
+      radial-gradient(900px 600px at 90% 110%, rgba(139,92,246,.06), transparent 60%),
+      var(--bg);
+    color:var(--tx);
+    font:14px/1.6 -apple-system,"PingFang SC","Segoe UI",Roboto,sans-serif;
+    padding:22px 26px 30px;
+  }
+  .app{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+
+  /* ---------- top bar ---------- */
+  .topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+  .brand{display:flex;gap:12px;align-items:center}
+  .brand-glyph{
+    width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:22px;
+    background:linear-gradient(135deg,rgba(16,185,129,.18),rgba(14,165,233,.14));
+    border:1px solid rgba(16,185,129,.35);box-shadow:0 0 24px rgba(16,185,129,.18);
+  }
+  .brand h1{font-size:17px;font-weight:650;letter-spacing:.2px}
+  .brand .badge{
+    font-size:10px;color:var(--emerald);border:1px solid rgba(16,185,129,.4);
+    border-radius:999px;padding:1px 8px;margin-left:8px;vertical-align:2px;font-family:var(--mono);
+  }
+  .brand .sub{font-size:12px;color:var(--tx-3);margin-top:2px}
+  .mono{font-family:var(--mono);color:var(--tx-2)}
+  .top-right{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+  .status-pill{
+    display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;
+    border:1px solid var(--border);background:var(--panel);border-radius:999px;padding:5px 14px;color:var(--tx-2);
+  }
+  .status-pill .dot{width:8px;height:8px;border-radius:99px;background:var(--tx-3)}
+  .status-pill.run{border-color:rgba(16,185,129,.5);color:#d1fae5}
+  .status-pill.run .dot{background:var(--emerald);animation:blink 1.2s ease-in-out infinite}
+  .status-pill.ok{border-color:rgba(16,185,129,.5);color:#d1fae5}
+  .status-pill.ok .dot{background:var(--emerald)}
+  @keyframes blink{50%{opacity:.25}}
+  .seg{display:inline-flex;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--panel)}
+  .seg button{
+    appearance:none;border:0;background:transparent;color:var(--tx-3);font:12px/1 inherit;
+    padding:7px 13px;cursor:pointer;transition:color .15s,background .15s;
+  }
+  .seg button:hover{color:var(--tx)}
+  .seg button.on{background:var(--panel-2);color:var(--tx)}
+  .seg button:focus-visible{outline:2px solid var(--emerald);outline-offset:-2px}
+
+  /* ---------- cards ---------- */
+  .card{
+    background:linear-gradient(180deg,rgba(24,24,27,.55),rgba(17,17,20,.85));
+    border:1px solid var(--border);border-radius:14px;overflow:hidden;
+  }
+  .card-head{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:10px 14px;border-bottom:1px solid var(--border);
+  }
+  .card-head h2{font-size:12.5px;font-weight:600;color:var(--tx-2);letter-spacing:.5px}
+  .card-head .hint{font-size:11px;color:var(--tx-3)}
+  .tag{font-family:var(--mono);font-size:11px;color:var(--tx-3);border:1px solid var(--border);border-radius:6px;padding:1px 7px}
+
+  .grid{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;align-items:stretch}
+
+  /* ---------- brain canvas ---------- */
+  .brain-wrap{position:relative;height:520px;background:
+    radial-gradient(600px 340px at 50% 46%, rgba(16,185,129,.05), transparent 70%);}
+  .brain-wrap::before{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+    background-size:44px 44px;
+    mask-image:radial-gradient(closest-side at 50% 46%,#000 30%,transparent 100%);
+  }
+  #motes{position:absolute;inset:0;width:100%;height:100%}
+  #brain{position:absolute;inset:0;width:100%;height:100%}
+
+  /* edges */
+  .edge{fill:none;stroke:#3a3a42;stroke-width:1.5;stroke-dasharray:3 6;opacity:.8;transition:opacity .3s}
+  .edge.done{stroke-dasharray:none;opacity:.4}
+  .edge.running{
+    stroke-dasharray:7 9;opacity:1;stroke-width:2;
+    animation:dashflow .9s linear infinite;
+  }
+  @keyframes dashflow{to{stroke-dashoffset:-32}}
+  .edge.ping{stroke-dasharray:5 7;opacity:1;stroke-width:2;animation:dashflow .5s linear infinite}
+  .comet{opacity:0}
+  .edge.running .comet{opacity:1}
+  .edge.ping .comet{opacity:1}
+
+  /* agent nodes */
+  .node{cursor:pointer}
+  .node .ring-bg{fill:#141417;stroke:#45454d;stroke-width:2.5;transition:stroke .3s}
+  .node .icn{font-size:20px;text-anchor:middle;pointer-events:none;transition:opacity .3s}
+  .node.queued .ring-bg{stroke-dasharray:4 4;stroke:#3f3f46}
+  .node.queued .icn{opacity:.45}
+  .node.running .icn{animation:icn-bob 1.6s ease-in-out infinite}
+  @keyframes icn-bob{50%{transform:translateY(-2px)}}
+  .node .halo{fill:none;stroke-width:2;opacity:0;transform-box:fill-box;transform-origin:center}
+  .node.running .halo{opacity:.8;animation:halo 2s ease-out infinite}
+  .node.running .halo.h2{animation-delay:1s}
+  @keyframes halo{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.85);opacity:0}}
+  .node .arc{fill:none;stroke-width:3;stroke-linecap:round;transform:rotate(-90deg);transform-box:fill-box;transform-origin:center;transition:stroke-dasharray .2s linear}
+  .node .check{opacity:0;transform-box:fill-box;transform-origin:center}
+  .node.done .check{opacity:1;animation:pop .38s cubic-bezier(.2,1.6,.4,1)}
+  .node.done .icn{opacity:0}
+  @keyframes pop{0%{transform:scale(.3)}100%{transform:scale(1)}}
+  .node .nlabel{font-size:11.5px;fill:#e4e4e7;text-anchor:middle;font-weight:550}
+  .node .nstat{font-size:10px;fill:#8e8e96;text-anchor:middle;font-family:var(--mono)}
+  .node .pingtag{font-size:9.5px;text-anchor:middle;opacity:0;transition:opacity .25s;font-weight:600}
+  .node.ping .pingtag{opacity:1}
+  .node.failed .ring-bg{stroke:var(--red);animation:shake .4s ease-in-out}
+  @keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+
+  /* core */
+  #coreSpin{fill:none;stroke:rgba(16,185,129,.55);stroke-width:1.2;stroke-dasharray:3 12;transform-box:fill-box;transform-origin:center;animation:spin 26s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #coreBreathe{fill:none;stroke:rgba(16,185,129,.42);stroke-width:1.6;transform-box:fill-box;transform-origin:center;animation:breathe 3.2s ease-in-out infinite}
+  @keyframes breathe{50%{transform:scale(1.07)}}
+  .core-body{transition:filter .4s}
+  #core.hot .core-body{filter:drop-shadow(0 0 22px rgba(16,185,129,.5))}
+  .core-icon{font-size:26px;text-anchor:middle}
+  .core-phase{font-size:12.5px;fill:#e4e4e7;text-anchor:middle;font-weight:600}
+  .core-elapsed{font-size:10px;fill:#71717a;text-anchor:middle;font-family:var(--mono)}
+  .core-ripple{fill:none;stroke:rgba(16,185,129,.5);stroke-width:2;transform-box:fill-box;transform-origin:center;animation:ripple 1.5s ease-out forwards}
+  @keyframes ripple{0%{transform:scale(1);opacity:.9}100%{transform:scale(3.4);opacity:0}}
+
+  /* tooltip */
+  .tip{
+    position:absolute;pointer-events:none;opacity:0;transition:opacity .15s;z-index:5;
+    background:#0c0c0f;border:1px solid var(--border);border-radius:10px;padding:9px 11px;
+    max-width:230px;box-shadow:0 8px 30px rgba(0,0,0,.55);
+  }
+  .tip.show{opacity:1}
+  .tip b{font-size:12px;display:block;margin-bottom:3px}
+  .tip p{font-size:11px;color:var(--tx-2);line-height:1.5}
+  .tip .tlog{margin-top:5px;font-family:var(--mono);font-size:10px;color:var(--tx-3);border-top:1px dashed var(--border);padding-top:4px}
+
+  /* ---------- right column ---------- */
+  .col{display:flex;flex-direction:column;gap:14px}
+  .agents-list{list-style:none;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+  .agents-list li{
+    display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:9px;align-items:center;
+    padding:7px 8px;border-radius:9px;transition:background .2s;
+  }
+  .agents-list li:hover{background:rgba(255,255,255,.03)}
+  .agents-list .ai{font-size:15px;text-align:center;position:relative}
+  .agents-list .ai::after{
+    content:"";position:absolute;inset:-3px;border-radius:99px;border:1.5px solid transparent;
+  }
+  li.st-running .ai::after{border-color:currentColor;animation:blink 1.2s infinite}
+  li.st-done .ai::after{border-color:currentColor;opacity:.45}
+  .agents-list .an{font-size:12px;color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .agents-list .as{font-size:10px;color:var(--tx-3);font-family:var(--mono)}
+  .agents-list .ad{font-family:var(--mono);font-size:10.5px;color:var(--tx-3);text-align:right;white-space:nowrap}
+  .pbar{grid-column:2/4;height:3px;border-radius:99px;background:#232327;overflow:hidden;margin-top:-2px}
+  .pbar i{display:block;height:100%;width:0%;border-radius:99px;background:currentColor;transition:width .25s linear}
+  li.st-running .pbar i{background-image:linear-gradient(90deg,transparent,rgba(255,255,255,.45));background-size:200% 100%;animation:sheen 1.3s linear infinite}
+  @keyframes sheen{to{background-position:-200% 0}}
+  .artifacts-row{display:flex;gap:6px;flex-wrap:wrap;padding:4px 14px 12px}
+  .art-chip{
+    font-family:var(--mono);font-size:10px;color:var(--tx-2);border:1px solid var(--border);
+    border-radius:6px;padding:2px 8px;background:var(--panel-2);
+    animation:pop .35s cubic-bezier(.2,1.6,.4,1);
+  }
+
+  .phases{list-style:none;display:flex;align-items:center;padding:14px 14px 10px}
+  .ph{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;position:relative}
+  .ph .pd{width:10px;height:10px;border-radius:99px;background:#2e2e33;position:relative;z-index:1;transition:background .3s,box-shadow .3s}
+  .ph span{font-size:10.5px;color:var(--tx-3);white-space:nowrap;transition:color .3s}
+  .ph::before{content:"";position:absolute;top:5px;left:-50%;width:100%;height:1.5px;background:#26262b}
+  .ph:first-child::before{display:none}
+  .ph.done .pd{background:rgba(16,185,129,.9)}
+  .ph.done span{color:var(--tx-2)}
+  .ph.act .pd{background:var(--emerald);box-shadow:0 0 12px rgba(16,185,129,.9);animation:blink 1.4s infinite}
+  .ph.act span{color:var(--tx)}
+  .ph.act::before{background:linear-gradient(90deg,rgba(16,185,129,.8),rgba(16,185,129,.15))}
+  .phase-note{padding:0 14px 12px;font-size:11px;color:var(--tx-3)}
+
+  /* ---------- history ---------- */
+  .hist-body{display:grid;grid-template-columns:190px minmax(0,1fr);gap:0}
+  .spark{padding:14px 10px;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:8px}
+  .spark h3{font-size:10.5px;color:var(--tx-3);font-weight:550;letter-spacing:.4px}
+  .stats{display:flex;gap:14px;font-size:11px;color:var(--tx-3)}
+  .stats b{display:block;font-size:14px;color:var(--tx);font-family:var(--mono);font-weight:600}
+  .runs{list-style:none;max-height:196px;overflow-y:auto;
+    mask-image:linear-gradient(180deg,#000 82%,transparent)}
+  .runs li{
+    display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto auto auto;gap:12px;align-items:center;
+    padding:8px 16px;border-bottom:1px solid rgba(255,255,255,.04);font-size:12px;
+    animation:slidein .4s ease-out;
+  }
+  @keyframes slidein{from{opacity:0;transform:translateY(-8px)}}
+  .runs li:hover{background:rgba(255,255,255,.025)}
+  .runs .rdot{width:7px;height:7px;border-radius:99px}
+  .runs .rid{font-family:var(--mono);color:var(--tx-2);font-size:11px}
+  .runs .rt{color:var(--tx-3);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .runs .rd,.ra,.rw{font-family:var(--mono);font-size:10.5px;color:var(--tx-3);white-space:nowrap}
+  .runs .rw{color:#6ee7b7}
+  .empty-runs{padding:18px 16px;font-size:12px;color:var(--tx-3)}
+
+  /* ---------- terminal ticker ---------- */
+  .term-head{display:flex;align-items:center;gap:7px;padding:8px 12px;background:#0c0c0f;border-bottom:1px solid var(--border)}
+  .term-head .dot{width:10px;height:10px;border-radius:99px}
+  .dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+  .term-title{margin-left:6px;font-family:var(--mono);font-size:10.5px;color:var(--tx-3);letter-spacing:.4px}
+  .term-body{height:130px;overflow:hidden;padding:10px 14px;font-family:var(--mono);font-size:11px;line-height:1.9;color:#a1a1aa}
+  .term-body .ln{display:flex;gap:10px;animation:slideup .3s ease-out}
+  .term-body .ln .ts{color:#52525b;flex:none}
+  .term-body .ln .who{flex:none;font-weight:600}
+  @keyframes slideup{from{opacity:0;transform:translateY(9px)}}
+
+  .foot{font-size:11px;color:var(--tx-3);text-align:center;padding-top:2px}
+  .foot code{font-family:var(--mono);font-size:10.5px;color:#52525b}
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none !important;transition:none !important}
+    .edge.running{stroke-dasharray:7 9}
+    .comet{display:none}
+  }
+</style>
+</head>
+<body>
+<script>window.__errs = [];
+window.addEventListener("error", e => window.__errs.push(e.message + " @" + (e.filename||"") + ":" + e.lineno));
+window.addEventListener("unhandledrejection", e => window.__errs.push("rejection: " + e.reason));
+</script>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-glyph">⚗</div>
+      <div>
+        <h1>Claude 科研实验室<span class="badge">LAB BRAIN · 设计原型</span></h1>
+        <p class="sub">绑定任务 <span class="mono">ISSUE-1231 · 群体智能方法的可复现性研究</span></p>
+      </div>
+    </div>
+    <div class="top-right">
+      <div class="status-pill" id="statusPill"><span class="dot"></span><span id="pillText">空闲</span></div>
+      <div class="seg" id="stateSeg">
+        <button data-mode="auto" class="on">自动演示</button>
+        <button data-mode="running">运行中</button>
+        <button data-mode="done">已完成</button>
+        <button data-mode="idle">空闲</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <div class="card-head">
+        <h2>科研大脑 · 神经活动</h2>
+        <span class="hint">悬停节点查看智能体详情 · 中枢=任务调度核心</span>
+      </div>
+      <div class="brain-wrap" id="brainWrap">
+        <canvas id="motes"></canvas>
+        <svg id="brain" viewBox="0 0 900 520" aria-label="科研实验室智能体神经活动图"></svg>
+        <div class="tip" id="tip"></div>
+      </div>
+    </section>
+
+    <aside class="col">
+      <section class="card">
+        <div class="card-head"><h2>本轮执行</h2><span class="tag" id="runTag">#14 · 运行中</span></div>
+        <ul class="agents-list" id="agentList"></ul>
+        <div class="artifacts-row" id="artRow"></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>相位流水线</h2></div>
+        <ol class="phases" id="phaseRow"></ol>
+        <p class="phase-note" id="phaseNote">等待任务派发…</p>
+      </section>
+    </aside>
+  </main>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>历史运行</h2>
+      <div class="stats" id="histStats"></div>
+    </div>
+    <div class="hist-body">
+      <div class="spark">
+        <h3>近 14 天活动</h3>
+        <svg id="sparkline" viewBox="0 0 160 56" width="160" height="56"></svg>
+      </div>
+      <ul class="runs" id="runList"></ul>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="term-head">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="term-title">runtime · 实时动态</span>
+    </div>
+    <div class="term-body" id="ticker"></div>
+  </section>
+
+  <footer class="foot">
+    设计原型（演示数据）· 数据形态对齐 AgentTaskSnapshot 5s 轮询 / by-issue 产物端点 / 运行历史 —— 通过后移植为
+    <code>packages/views/experimental/components/claude-lab/claude-brain-canvas.tsx</code>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ================= 数据定义（对齐真实装包阵容 install bundle：6 agents / 5 squads） ================ */
+const AGENTS = [
+  {id:"research", label:"research · 主研究员", icon:"🔬", color:"#10b981", cat:"primary",   angle:-90,
+   desc:"统筹科研流程：拆解问题、检索文献、设计实验、调度领域专家，是「Claude Science 科研」squad 的领队。"},
+  {id:"critique", label:"critique · 审稿人",   icon:"⚖️", color:"#f59e0b", cat:"primary",   angle:-28,
+   desc:"研究完成后自动派发的同行评审（0.5.114 起内置），输出修订意见并阻断低质量结论。"},
+  {id:"ml",       label:"ml · 机器学习专家",   icon:"📊", color:"#8b5cf6", cat:"domain",    angle:34,
+   desc:"机器学习 squad 领队。建模、训练与基线对比咨询。"},
+  {id:"physics",  label:"physics · 物理学家",  icon:"⚛️", color:"#0ea5e9", cat:"domain",    angle:94,
+   desc:"物理 squad 领队。物理建模与仿真方法咨询。"},
+  {id:"biology",  label:"biology · 生物学家",  icon:"🧬", color:"#14b8a6", cat:"domain",    angle:152,
+   desc:"生物 squad 领队。生物数据与实验方法咨询。"},
+  {id:"write",    label:"write · 撰写员",      icon:"📝", color:"#f43f5e", cat:"subagent",  angle:212,
+   desc:"科研 squad 成员。汇总结果撰写结构化科研报告，落为任务评论。"},
+];
+const PHASES = ["问题解析","文献检索","实验复现","同行评审","报告撰写"];
+const CORE = {x:450, y:250, r:62};
+const NODE_R = 26, ARCL = 2*Math.PI*NODE_R;
+const EL = {rx:308, ry:182};
+
+/* ================= 运行时状态 ================= */
+const st = {};
+AGENTS.forEach(a => st[a.id] = {state:"idle", prog:0, dur:0, start:0});
+let mode = "auto", runClock = 0, running = false, runStart = 0, events = [], fired = 0;
+let histRuns = [], runSeq = 14;
+
+const $ = s => document.querySelector(s);
+const SVGNS = "http://www.w3.org/2000/svg";
+const svgEl = (tag, attrs) => {
+  const el = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+};
+
+/* ================= 构建 SVG：边 + 中枢 + 节点 ================= */
+const brain = $("#brain");
+const nodePos = {};
+AGENTS.forEach((a, i) => {
+  const rad = a.angle * Math.PI/180;
+  nodePos[a.id] = {x: CORE.x + Math.cos(rad)*EL.rx, y: CORE.y + Math.sin(rad)*EL.ry};
+});
+
+const gEdges = svgEl("g", {});
+AGENTS.forEach((a, i) => {
+  const p = nodePos[a.id];
+  const dx = p.x-CORE.x, dy = p.y-CORE.y, L = Math.hypot(dx,dy);
+  const sx = CORE.x+dx/L*(CORE.r+6), sy = CORE.y+dy/L*(CORE.r+6);
+  const ex = p.x-dx/L*(NODE_R+10),   ey = p.y-dy/L*(NODE_R+10);
+  const bend = (i%2 ? 1 : -1) * 30;
+  const mx = (sx+ex)/2 - dy/L*bend, my = (sy+ey)/2 + dx/L*bend;
+  const path = svgEl("path", {id:`edge-${a.id}`, class:"edge",
+    d:`M ${sx.toFixed(1)} ${sy.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${ex.toFixed(1)} ${ey.toFixed(1)}`});
+  // inline style (not the stroke attribute) so per-state restyling in
+  // setAgent() wins over the .edge base color in the stylesheet
+  path.style.stroke = "#2b2b30";
+  path.dataset.color = a.color;
+  gEdges.appendChild(path);
+});
+brain.appendChild(gEdges);
+
+/* 中枢 */
+const gCore = svgEl("g", {id:"core", transform:`translate(${CORE.x} ${CORE.y})`});
+gCore.appendChild(svgEl("circle", {id:"coreSpin", r:92}));
+gCore.appendChild(svgEl("circle", {id:"coreBreathe", r:76}));
+const coreBody = svgEl("circle", {class:"core-body", r:60, fill:"url(#coreGrad)", stroke:"rgba(16,185,129,.5)","stroke-width":1.5});
+gCore.appendChild(coreBody);
+const coreIcon = svgEl("text", {class:"core-icon", y:-8}); coreIcon.textContent = "🧠"; gCore.appendChild(coreIcon);
+const corePhaseT = svgEl("text", {class:"core-phase", y:20}); corePhaseT.textContent = "待命"; gCore.appendChild(corePhaseT);
+const coreElapsedT = svgEl("text", {class:"core-elapsed", y:38}); gCore.appendChild(coreElapsedT);
+const defs = svgEl("defs", {});
+const grad = svgEl("radialGradient", {id:"coreGrad"});
+grad.appendChild(svgEl("stop", {offset:"0%","stop-color":"#1c2b26"}));
+grad.appendChild(svgEl("stop", {offset:"100%","stop-color":"#101013"}));
+defs.appendChild(grad);
+brain.appendChild(defs);
+brain.appendChild(gCore);
+
+/* 节点 */
+const gNodes = svgEl("g", {});
+AGENTS.forEach(a => {
+  const p = nodePos[a.id];
+  const g = svgEl("g", {class:"node idle","data-id":a.id, transform:`translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`});
+  g.appendChild(svgEl("circle", {class:"halo",  r:NODE_R+3, stroke:a.color}));
+  g.appendChild(svgEl("circle", {class:"halo h2", r:NODE_R+3, stroke:a.color}));
+  g.appendChild(svgEl("circle", {class:"ring-bg", r:NODE_R}));
+  const arc = svgEl("circle", {class:"arc", r:NODE_R, stroke:a.color, "stroke-dasharray":`0 ${ARCL}`});
+  g.appendChild(arc);
+  const icn = svgEl("text", {class:"icn", y:7}); icn.textContent = a.icon; g.appendChild(icn);
+  const chk = svgEl("g", {class:"check"});
+  chk.appendChild(svgEl("circle", {r:NODE_R, fill:a.color}));
+  const ckPath = svgEl("path", {d:"M -9 1 L -2 8 L 10 -7", fill:"none", stroke:"#09090b","stroke-width":3,"stroke-linecap":"round","stroke-linejoin":"round"});
+  chk.appendChild(ckPath); g.appendChild(chk);
+  const lbl = svgEl("text", {class:"nlabel", y:NODE_R+22}); lbl.textContent = a.label; g.appendChild(lbl);
+  const nstat = svgEl("text", {class:"nstat", y:NODE_R+36}); nstat.textContent = "待命"; g.appendChild(nstat);
+  const pingT = svgEl("text", {class:"pingtag", y:-(NODE_R+14), fill:a.color}); pingT.textContent = "咨询"; g.appendChild(pingT);
+  gNodes.appendChild(g);
+});
+brain.appendChild(gNodes);
+
+/* 流光彗星（running 时可见，沿边运动） */
+AGENTS.forEach(a => {
+  [[0, 3.6, .95], [0.75, 2.4, .5]].forEach(([begin, r, op]) => {
+    const c = svgEl("circle", {class:"comet", r, fill:a.color, opacity:op});
+    const am = svgEl("animateMotion", {dur:"1.5s", repeatCount:"indefinite", begin:`${begin}s`});
+    const mp = svgEl("mpath", {});
+    mp.setAttributeNS("http://www.w3.org/1999/xlink", "href", `#edge-${a.id}`);
+    mp.setAttribute("href", `#edge-${a.id}`);
+    am.appendChild(mp); c.appendChild(am);
+    const edgeEl = document.getElementById(`edge-${a.id}`);
+    edgeEl.appendChild(c);
+  });
+});
+
+/* ================= 背景粒子（思想尘埃） ================= */
+const cv = $("#motes"), cx2 = cv.getContext("2d");
+let motes = [];
+function sizeCanvas(){
+  const r = cv.parentElement.getBoundingClientRect();
+  cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio;
+  cx2.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  motes = Array.from({length: 46}, () => ({
+    x: Math.random()*r.width, y: Math.random()*r.height,
+    r: .6+Math.random()*1.7, vy: -(4+Math.random()*10), wob: Math.random()*Math.PI*2,
+    tw: Math.random()*Math.PI*2,
+  }));
+}
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function drawMotes(dt){
+  const w = cv.width/devicePixelRatio, h = cv.height/devicePixelRatio;
+  cx2.clearRect(0,0,w,h);
+  for (const m of motes){
+    if (!reduceMotion){
+      m.y += m.vy*dt; m.wob += dt*.8; m.tw += dt*2;
+      if (m.y < -6){ m.y = h+6; m.x = Math.random()*w; }
+    }
+    const x = m.x + Math.sin(m.wob)*8;
+    const a = .12 + .16*(.5+.5*Math.sin(m.tw));
+    cx2.beginPath(); cx2.arc(x,m.y,m.r,0,7);
+    cx2.fillStyle = `rgba(110,231,183,${a.toFixed(3)})`; cx2.fill();
+  }
+}
+
+/* ================= 右栏：本轮执行列表 ================= */
+const listEl = $("#agentList");
+AGENTS.forEach(a => {
+  const li = document.createElement("li");
+  li.dataset.id = a.id; li.className = "st-idle"; li.style.color = a.color;
+  li.innerHTML = `
+    <span class="ai">${a.icon}</span>
+    <div><div class="an">${a.label}</div><div class="as" id="as-${a.id}">待命</div></div>
+    <span class="ad" id="ad-${a.id}"></span>
+    <span class="pbar" style="grid-column:2/4"><i id="pb-${a.id}"></i></span>`;
+  listEl.appendChild(li);
+});
+
+function setAgent(id, state, opt = {}){
+  const s = st[id];
+  s.state = state; s.frozen = !!opt.frozen;
+  if (state === "running" && !opt.frozen){ s.dur = opt.dur || 5000; s.start = performance.now(); }
+  if (state === "running" && opt.frozen){ s.prog = opt.prog ?? 0; }
+  const node = gNodes.querySelector(`[data-id="${id}"]`);
+  node.setAttribute("class", `node ${state}`);
+  const li = listEl.querySelector(`[data-id="${id}"]`);
+  li.className = `st-${state}`;
+  const edge = document.getElementById(`edge-${id}`);
+  edge.style.stroke = (state === "running" || state === "done") ? edge.dataset.color : "#2b2b30";
+  if (state !== "running") s.prog = state === "done" ? 1 : 0;
+  refreshAgentDom(id);
+}
+function agentStatText(id){
+  const s = st[id];
+  if (s.state === "running") return `运行中 ${Math.round(s.prog*100)}%`;
+  if (s.state === "queued")  return "排队中";
+  if (s.state === "done")    return "✓ 完成";
+  if (s.state === "failed")  return "✗ 失败";
+  return "待命";
+}
+// DOM refresh kept in one place so setAgent() can render synchronously
+// (manual state switches stay correct even if timers stall in odd hosts)
+function refreshAgentDom(id){
+  const s = st[id];
+  const node = gNodes.querySelector(`[data-id="${id}"]`);
+  node.querySelector(".arc").setAttribute("stroke-dasharray", `${(s.prog*ARCL).toFixed(1)} ${ARCL}`);
+  node.querySelector(".nstat").textContent = agentStatText(id);
+  const li = listEl.querySelector(`[data-id="${id}"]`);
+  li.querySelector(".as").textContent = agentStatText(id);
+  li.querySelector(".ad").textContent = s.state === "done" ? "完成" : s.state === "running" ? `${Math.round(s.prog*100)}%` : "";
+  li.querySelector(".pbar i").style.width = (s.prog*100).toFixed(1) + "%";
+}
+
+/* ================= 相位流水线 ================= */
+const phaseRow = $("#phaseRow");
+PHASES.forEach(p => {
+  const li = document.createElement("li"); li.className = "ph";
+  li.innerHTML = `<span class="pd"></span><span>${p}</span>`;
+  phaseRow.appendChild(li);
+});
+const phaseLis = [...phaseRow.children];
+function setPhase(i, note){
+  phaseLis.forEach((li, j) => {
+    li.className = "ph" + (j < i ? " done" : j === i ? " act" : "");
+  });
+  $("#phaseNote").textContent = note || "";
+}
+function setCorePhase(t){ corePhaseT.textContent = t; }
+
+/* ================= 状态徽章 / 计时 ================= */
+function fmt(ms){ const s = Math.floor(ms/1000); return `${String(Math.floor(s/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`; }
+function setPill(kind, text){
+  const p = $("#statusPill");
+  p.className = `status-pill ${kind}`;
+  $("#pillText").textContent = text;
+}
+
+/* ================= 终端 ticker ================= */
+const tickerEl = $("#ticker");
+let tickerLines = [];
+function pushLog(who, msg, color){
+  const d = new Date();
+  const ts = `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`;
+  tickerLines.unshift({ts, who, msg, color});
+  tickerLines = tickerLines.slice(0, 5);
+  tickerEl.innerHTML = tickerLines.map((l, i) =>
+    `<div class="ln"${i ? ' style="animation:none"' : ""}><span class="ts">${l.ts}</span><span class="who" style="color:${l.color}">[${l.who}]</span><span>${l.msg}</span></div>`
+  ).join("");
+}
+
+/* ================= 历史运行 ================= */
+const seedRuns = [
+  {id:13, status:"done",    title:"复现 GroupSAR 的消融实验表", dur:"2m 41s", arts:4, when:"昨天 21:14"},
+  {id:12, status:"done",    title:"对比 3 种 swarm 拓扑的收敛性", dur:"1m 58s", arts:2, when:"昨天 16:02"},
+  {id:11, status:"failed",  title:"拉取 arXiv 2408.xxxx 附录数据", dur:"0m 37s", arts:0, when:"昨天 15:40"},
+  {id:10, status:"done",    title:"文献综述：多智能体可复现性缺口", dur:"3m 12s", arts:5, when:"前天 10:26"},
+  {id:9,  status:"done",    title:"检验 benchmark 随机种子敏感性", dur:"2m 03s", arts:3, when:"3 天前"},
+  {id:8,  status:"aborted", title:"夜间批量综述（用户中止）", dur:"0m 51s", arts:1, when:"4 天前"},
+  {id:7,  status:"done",    title:"构建因果分析 baseline 表", dur:"2m 33s", arts:3, when:"5 天前"},
+];
+const DOT_COLOR = {done:"#10b981", failed:"#ef4444", aborted:"#71717a"};
+function renderRuns(){
+  const ul = $("#runList");
+  ul.innerHTML = histRuns.length ? "" : `<li class="empty-runs" style="display:block">暂无历史运行 —— 绑定任务并派发后，这里会出现运行记录。</li>`;
+  histRuns.forEach(r => {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <span class="rdot" style="background:${DOT_COLOR[r.status]}"></span>
+      <span class="rid">#${r.id}</span>
+      <span class="rt">${r.title}</span>
+      <span class="rd">${r.dur}</span>
+      <span class="ra">产物 ${r.arts}</span>
+      <span class="rw">${r.status === "done" ? "报告 ✓" : r.status === "failed" ? "失败" : "已中止"}</span>
+      <span class="rd" style="color:#52525b">${r.when}</span>`;
+    ul.appendChild(li);
+  });
+  const done = histRuns.filter(r => r.status === "done");
+  const avg = "2m 06s";
+  $("#histStats").innerHTML =
+    `<span><b>${histRuns.length}</b>总运行</span>
+     <span><b>${histRuns.length ? Math.round(done.length/histRuns.length*100) : 0}%</b>成功率</span>
+     <span><b>${avg}</b>平均时长</span>
+     <span><b>${histRuns.reduce((n,r)=>n+r.arts,0)}</b>产物</span>`;
+}
+histRuns = [...seedRuns]; renderRuns();
+
+/* 近 14 天 sparkline */
+(function spark(){
+  const data = [2,0,3,1,4,2,0,1,3,5,2,4,1,6];
+  const W=160, H=56, pad=6, max=Math.max(...data,1);
+  const px = i => pad + i*(W-2*pad)/(data.length-1);
+  const py = v => H-pad - (v/max)*(H-2*pad);
+  const s = $("#sparkline");
+  const pts = data.map((v,i)=>`${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(" ");
+  const area = svgEl("polygon", {points:`${px(0)},${H-pad} ${pts} ${px(data.length-1)},${H-pad}`, fill:"url(#sg)"});
+  const gd = svgEl("linearGradient", {id:"sg", x1:0,y1:0,x2:0,y2:1});
+  gd.appendChild(svgEl("stop",{offset:"0%","stop-color":"rgba(16,185,129,.35)"}));
+  gd.appendChild(svgEl("stop",{offset:"100%","stop-color":"rgba(16,185,129,0)"}));
+  const ln = svgEl("polyline", {points:pts, fill:"none", stroke:"#10b981","stroke-width":1.8,"stroke-linejoin":"round","stroke-linecap":"round"});
+  const len = 400; ln.style.strokeDasharray = len; ln.style.strokeDashoffset = len;
+  ln.style.transition = "stroke-dashoffset 1.1s ease-out";
+  const dot = svgEl("circle", {cx:px(data.length-1), cy:py(data[data.length-1]), r:3, fill:"#10b981"});
+  dot.style.transformBox = "fill-box"; dot.style.transformOrigin = "center";
+  dot.animate ? dot.animate([{opacity:.3},{opacity:1}],{duration:900,iterations:Infinity,direction:"alternate"}) : null;
+  const dd = svgEl("defs", {}); dd.appendChild(gd); s.appendChild(dd);
+  s.appendChild(area); s.appendChild(ln); s.appendChild(dot);
+  setTimeout(()=>{ ln.style.strokeDashoffset = 0; }, 60);
+})();
+
+/* ================= 产物 chips ================= */
+const ART_POOL = ["报告.md","消融表.csv","fig-roc.png","seeds.json"];
+let artCount = 0;
+function addArts(n){
+  for (let i=0;i<n;i++){
+    const chip = document.createElement("span");
+    chip.className = "art-chip"; chip.textContent = "📄 " + ART_POOL[artCount % ART_POOL.length];
+    $("#artRow").appendChild(chip); artCount++;
+  }
+}
+function clearArts(){ $("#artRow").innerHTML = ""; artCount = 0; }
+
+/* ================= 咨询 ping / 完成波纹 ================= */
+function ping(id){
+  const edge = document.getElementById(`edge-${id}`);
+  const node = gNodes.querySelector(`[data-id="${id}"]`);
+  edge.classList.add("ping"); node.classList.add("ping");
+  setTimeout(()=>{ edge.classList.remove("ping"); node.classList.remove("ping"); }, 1500);
+  const a = AGENTS.find(x=>x.id===id);
+  pushLog("research", `咨询 ${a.label.split(" ·")[0]} 的领域意见`, "#10b981");
+}
+function ripple(){
+  const c = svgEl("circle", {class:"core-ripple", r:70});
+  gCore.appendChild(c);
+  setTimeout(()=>c.remove(), 1600);
+}
+
+/* ================= tooltip ================= */
+const tip = $("#tip"), wrap = $("#brainWrap");
+AGENTS.forEach(a => {
+  const g = gNodes.querySelector(`[data-id="${a.id}"]`);
+  g.addEventListener("mouseenter", () => {
+    tip.innerHTML = `<b style="color:${a.color}">${a.icon} ${a.label}</b><p>${a.desc}</p><div class="tlog">state=${st[a.id].state} · category=${a.cat}</div>`;
+    tip.classList.add("show");
+  });
+  g.addEventListener("mousemove", e => {
+    const r = wrap.getBoundingClientRect();
+    let x = e.clientX - r.left + 14, y = e.clientY - r.top + 14;
+    if (x > r.width - 240) x -= 260;
+    if (y > r.height - 110) y -= 130;
+    tip.style.left = x+"px"; tip.style.top = y+"px";
+  });
+  g.addEventListener("mouseleave", () => tip.classList.remove("show"));
+});
+
+/* ================= 自动演示脚本 ================= */
+function resetRun(silent){
+  AGENTS.forEach(a => setAgent(a.id, "idle"));
+  setPhase(-1, "等待任务派发…");
+  setCorePhase("待命"); coreElapsedT.textContent = "";
+  $("#runTag").textContent = `#${runSeq} · 待命`;
+  clearArts(); running = false;
+  if (!silent){ setPill("", "空闲"); }
+}
+const SCRIPT = [
+  [500,  () => { running = true; runStart = performance.now();
+    setAgent("research","running",{dur:6000});
+    setPhase(0, "research 正在拆解研究问题…");
+    setCorePhase("问题解析");
+    setPill("run","● RUNNING · 00:00"); $("#runTag").textContent = `#${runSeq} · 运行中`;
+    pushLog("dispatch", "任务 #14 已派发给 research · 主研究员", "#10b981"); }],
+  [1400, () => { setPhase(1, "检索 295 个内置技能库与本地文献…"); setCorePhase("文献检索");
+    pushLog("research", "命中 biopython / pytorch 相关技能 7 个", "#10b981"); }],
+  [2600, () => ping("biology")],
+  [3800, () => ping("ml")],
+  [5200, () => { setPhase(2, "复现实验并收集消融数据…"); setCorePhase("实验复现");
+    pushLog("research", "复现脚本运行中 · 消融 3/4 组", "#10b981"); }],
+  [6500, () => { setAgent("research","done");
+    pushLog("research", "研究阶段完成，自动派发同行评审", "#10b981"); }],
+  [6900, () => { setAgent("critique","running",{dur:4800});
+    setPhase(3, "critique 正在审读结论与证据链…"); setCorePhase("同行评审");
+    pushLog("critique", "开始评审：3 处方法描述待补随机种子", "#f59e0b"); }],
+  [11700,() => { setAgent("critique","done"); ping("physics");
+    pushLog("critique", "评审通过（附 2 条修订意见）", "#f59e0b"); }],
+  [12300,() => { setAgent("write","running",{dur:4200});
+    setPhase(4, "撰写结构化报告并落为任务评论…"); setCorePhase("报告撰写");
+    pushLog("write", "汇总 4 份证据，生成报告草稿", "#f43f5e"); }],
+  [16500,() => { setAgent("write","done"); }],
+  [17000,() => {
+    running = false; ripple();
+    setCorePhase("本轮完成"); coreElapsedT.textContent = "";
+    setPill("ok", `✓ 已完成 · ${fmt(performance.now()-runStart)}`);
+    $("#runTag").textContent = `#${runSeq} · 已完成`;
+    addArts(3);
+    pushLog("runtime", "报告已落为任务评论 · 3 个产物归档", "#6ee7b7");
+    histRuns.unshift({id:runSeq, status:"done", title:"群体智能方法的可复现性研究", dur:fmt(performance.now()-runStart), arts:3, when:"刚刚"});
+    renderRuns();
+  }],
+  [22000,() => { runSeq++; resetRun();
+    pushLog("runtime", "等待下一次派发（演示循环重启）", "#71717a");
+    // defer the loop restart: resetting fired synchronously here would be
+    // undone by the caller's fired++ and skip the next cycle's dispatch event
+    setTimeout(() => { autoT0 = performance.now(); fired = 0; }, 0); }],
+];
+
+/* ================= 模式切换 ================= */
+$("#stateSeg").addEventListener("click", e => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  [...$("#stateSeg").children].forEach(b => b.classList.toggle("on", b === btn));
+  mode = btn.dataset.mode;
+  applyMode();
+});
+function applyMode(){
+  fired = SCRIPT.length; // stop auto script
+  if (mode === "auto"){ fired = 0; resetRun(true); pushLog("runtime","自动演示已启动", "#71717a"); return; }
+  resetRun(true);
+  if (mode === "running"){
+    setAgent("research","done"); setAgent("critique","done"); setAgent("write","done");
+    setAgent("ml","running",{frozen:true, prog:.64});
+    setAgent("biology","queued"); setAgent("physics","queued");
+    setPhase(2, "ml 专家正在拟合基线对比…"); setCorePhase("实验复现");
+    setPill("run","● RUNNING · 00:37"); $("#runTag").textContent = `#${runSeq} · 运行中`;
+    pushLog("ml", "基线对比拟合中 · 64%", "#8b5cf6");
+  } else if (mode === "done"){
+    AGENTS.forEach(a => setAgent(a.id, a.id === "research" || a.id === "write" ? "done" : a.id === "critique" ? "done" : "idle"));
+    setPhase(4, "本轮已完成，报告已落为任务评论。"); setCorePhase("本轮完成");
+    setPill("ok","✓ 已完成 · 2m 06s"); $("#runTag").textContent = `#${runSeq} · 已完成`;
+    addArts(3);
+    pushLog("runtime", "运行 #14 已归档 · 产物 3 · 报告 1", "#6ee7b7");
+  } else {
+    setPill("", "空闲"); pushLog("runtime", "实验室空闲 · 等待任务派发", "#71717a");
+  }
+}
+
+/* ================= 主循环 =================
+   逻辑（脚本事件/进度/计时）由 setInterval 驱动：requestAnimationFrame
+   在部分宿主（内嵌 webview、后台窗口）中完全不回调，若状态机依赖它，
+   整个演示会静默停在待命。rAF 仅作为粒子平滑渲染的增强路径。 */
+let lastDraw = performance.now();
+function drawOnce(){
+  const now = performance.now();
+  const dt = Math.min((now-lastDraw)/1000, .05);
+  lastDraw = now;
+  drawMotes(dt);
+}
+function tickLogic(){
+  const now = performance.now();
+  if (mode === "auto"){
+    while (fired < SCRIPT.length && now - autoT0 >= SCRIPT[fired][0]){
+      SCRIPT[fired][1](); fired++;
+    }
+  }
+  if (running){
+    const el = now - runStart;
+    coreElapsedT.textContent = fmt(el);
+    $("#pillText").textContent = `● RUNNING · ${fmt(el)}`;
+  }
+  AGENTS.forEach(a => {
+    const s = st[a.id];
+    if (s.state === "running" && !s.frozen){
+      s.prog = Math.min((now - s.start)/s.dur, 1);
+    }
+    refreshAgentDom(a.id);
+  });
+}
+function rafLoop(){ drawOnce(); requestAnimationFrame(rafLoop); }
+let autoT0 = performance.now();
+sizeCanvas(); addEventListener("resize", sizeCanvas);
+resetRun(true); pushLog("runtime","科研实验室大脑 · 设计原型已加载", "#6ee7b7");
+setInterval(() => { drawOnce(); tickLogic(); }, 120);
+requestAnimationFrame(rafLoop);
+</script>
+</body>
+</html>
