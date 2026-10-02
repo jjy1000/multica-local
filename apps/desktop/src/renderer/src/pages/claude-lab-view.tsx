@@ -68,6 +68,7 @@ import { UI_EASE_OUT, UI_MOTION_DURATION } from "@multica/ui/lib/motion";
 import { useT } from "@multica/views/i18n";
 import { ForecastStreamView, LabChatPanel, labChatPanelPropsFromContext } from "@multica/views/experimental";
 import {
+  ClaudeBrainCanvas,
   LabTaskResultView,
   useDeepLinkRun,
 } from "@multica/views/experimental/components";
@@ -325,6 +326,15 @@ function LabWorkbenchSection({
         <IssueContextBar
           wsId={wsId}
           selectedIssueId={selectedIssueId}
+        />
+        {/* 0.5.132: brain neural view — the lab's live multi-agent map
+            (per-roster-agent state from the AgentTaskSnapshot rows), full
+            variant with recent-runs strip. */}
+        <ClaudeBrainCanvas
+          wsId={wsId}
+          issueId={selectedIssueId}
+          variant="workbench"
+          className="mb-4"
         />
         <LatestResultPanel
           wsId={wsId}

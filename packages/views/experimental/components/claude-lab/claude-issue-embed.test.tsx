@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import enExperimental from "../../../locales/en/experimental.json";
 import { ClaudeIssueEmbed } from "./claude-issue-embed";
@@ -15,6 +16,7 @@ const hookState = vi.hoisted(() => ({
   artifacts: [] as Array<{ id: string; name: string; kind: string; bytes: number; sha256: string; url: string; session_id: string }>,
 }));
 const rawRequestMock = vi.hoisted(() => vi.fn());
+const listAgentsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../hooks/use-claude-lab-issue", () => ({
   useClaudeLabIssue: () => ({
@@ -29,7 +31,7 @@ vi.mock("../../hooks/use-claude-lab-issue", () => ({
   }),
 }));
 vi.mock("@multica/core/api", () => ({
-  api: { rawRequest: rawRequestMock },
+  api: { rawRequest: rawRequestMock, listAgents: listAgentsMock },
 }));
 vi.mock("../../../i18n", () => ({
   useT: () => ({
@@ -44,6 +46,18 @@ vi.mock("../../../i18n", () => ({
   }),
 }));
 
+// 0.5.132: the embed mounts ClaudeBrainCanvas, which resolves roster
+// agents through useQuery(agentListOptions) — every render needs a
+// QueryClientProvider and a mocked api.listAgents.
+function renderEmbed() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />
+    </QueryClientProvider>,
+  );
+}
+
 describe("ClaudeIssueEmbed — 0.5.114", () => {
   beforeEach(() => {
     cleanup();
@@ -52,10 +66,11 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     hookState.liveTask = null;
     hookState.isError = false;
     rawRequestMock.mockResolvedValue(new Response("x"));
+    listAgentsMock.mockResolvedValue([]);
   });
 
   it("collapses to null with no tasks and no artifacts (0-runs-ready law)", () => {
-    const { container } = render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    const { container } = renderEmbed();
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -64,7 +79,7 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     // "no runs" — the pill vanished and the embed showed the empty hint
     // with no retry affordance.
     hookState.isError = true;
-    const { container } = render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    const { container } = renderEmbed();
     expect(container).not.toBeEmptyDOMElement();
     expect(screen.getByTestId("claude-issue-embed-error")).toBeTruthy();
     expect(screen.getByText(enExperimental.claude_lab.embed_error)).toBeTruthy();
@@ -78,7 +93,7 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     hookState.artifacts = [{ id: "a1", session_id: "s1", name: "r.md", kind: "md", bytes: 8, sha256: "x", url: "/x" }];
 
     hookState.status = "completed";
-    const { unmount } = render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    const { unmount } = renderEmbed();
     const done = screen.getByTestId("claude-run-status-strip");
     expect(done.getAttribute("data-status")).toBe("completed");
     // the check pop lives in the header, not inside the strip element
@@ -87,7 +102,7 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
 
     hookState.status = "running";
     hookState.liveTask = { id: "t1", status: "running", attempt: 1, started_at: new Date().toISOString() };
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     const live = screen.getByTestId("claude-run-status-strip");
     expect(live.getAttribute("data-status")).toBe("running");
     expect(live.querySelector(".claude-strip-shimmer")).not.toBeNull();
@@ -100,7 +115,7 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
       { id: "a1", session_id: "s1", name: "figure-1.png", kind: "png", bytes: 2048, sha256: "aa", url: "/x/a1" },
       { id: "a2", session_id: "s1", name: "report.csv", kind: "csv", bytes: 12, sha256: "bb", url: "/x/a2" },
     ];
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     await waitFor(() => expect(screen.getByTestId("claude-embed-artifacts")).toBeTruthy());
     expect(screen.getByText("figure-1.png")).toBeTruthy();
     expect(screen.getByText("report.csv")).toBeTruthy();
@@ -113,7 +128,7 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     hookState.status = "running";
     hookState.liveTask = { id: "t1", status: "running", attempt: 1, started_at: new Date().toISOString() };
     hookState.artifacts = [];
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     // live progress row present with the working label + running header
     expect(screen.getByTestId("claude-embed-live-progress")).toBeTruthy();
     expect(screen.getByText(enExperimental.claude_lab.embed_working)).toBeTruthy();
@@ -128,7 +143,7 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     hookState.latest = { id: "t1", status: "failed" };
     hookState.liveTask = { id: "t2", status: "running", attempt: 2, started_at: new Date().toISOString() };
     hookState.artifacts = [];
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     expect(
       screen.getByText(
         enExperimental.claude_lab.embed_retrying.replace("{{n}}", "2"),
@@ -141,7 +156,7 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     hookState.status = "queued";
     hookState.liveTask = { id: "t1", status: "queued", attempt: 1, created_at: new Date().toISOString() };
     hookState.artifacts = [];
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     expect(screen.getByText(enExperimental.claude_lab.embed_queued)).toBeTruthy();
   });
 
@@ -150,7 +165,7 @@ describe("ClaudeIssueEmbed — 0.5.114", () => {
     hookState.status = "completed";
     hookState.liveTask = null;
     hookState.artifacts = [];
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     expect(screen.queryByTestId("claude-embed-live-progress")).toBeNull();
     expect(screen.getByText(enExperimental.claude_lab.embed_artifacts_empty)).toBeTruthy();
   });
@@ -181,7 +196,7 @@ describe("ClaudeIssueEmbed — 0.5.126 in-place artifact rendering", () => {
       { id: "a1", session_id: "s1", name: "report.md", kind: "md", bytes: 900, sha256: "aa", url: "/x/a1" },
     ];
     rawRequestMock.mockResolvedValue(new Response("# Findings\n\nThe effect replicated."));
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
 
     // Closed on mount: the report body is neither fetched nor mounted.
     // That is the contract that keeps this out of double-delivery with
@@ -205,7 +220,7 @@ describe("ClaudeIssueEmbed — 0.5.126 in-place artifact rendering", () => {
       { id: "a1", session_id: "s1", name: "report.md", kind: "md", bytes: 900, sha256: "aa", url: "/x/a1" },
     ];
     rawRequestMock.mockResolvedValue(new Response("body"));
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     const toggle = screen.getByTestId("claude-embed-toggle");
     fireEvent.click(toggle);
     await waitFor(() =>
@@ -222,7 +237,7 @@ describe("ClaudeIssueEmbed — 0.5.126 in-place artifact rendering", () => {
     rawRequestMock.mockResolvedValue(
       new Response('gene,log2fc\nTP53,4.2\nBRCA1,2.8\n"KIF11, quoted",1.1'),
     );
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     fireEvent.click(screen.getByTestId("claude-embed-toggle"));
     await waitFor(() => expect(screen.getByTestId("claude-embed-csv")).toBeTruthy());
     expect(screen.getByText("gene")).toBeTruthy();
@@ -237,7 +252,7 @@ describe("ClaudeIssueEmbed — 0.5.126 in-place artifact rendering", () => {
       { id: "a1", session_id: "s1", name: "figure.png", kind: "png", bytes: 2048, sha256: "aa", url: "/x/a1" },
     ];
     rawRequestMock.mockResolvedValue(new Response("x"));
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     await waitFor(() => expect(screen.getByTestId("claude-embed-artifacts")).toBeTruthy());
     expect(screen.getByText("figure.png")).toBeTruthy();
     expect(screen.queryByTestId("claude-embed-toggle")).toBeNull();
@@ -248,7 +263,7 @@ describe("ClaudeIssueEmbed — 0.5.126 in-place artifact rendering", () => {
       { id: "a3", session_id: "s1", name: "huge.md", kind: "md", bytes: 5_000_000, sha256: "cc", url: "/x/a3" },
     ];
     rawRequestMock.mockResolvedValue(new Response("x"));
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     await waitFor(() => expect(screen.getByTestId("claude-embed-artifacts")).toBeTruthy());
     expect(screen.queryByTestId("claude-embed-toggle")).toBeNull();
   });
@@ -258,7 +273,7 @@ describe("ClaudeIssueEmbed — 0.5.126 in-place artifact rendering", () => {
       { id: "a1", session_id: "s1", name: "report.md", kind: "md", bytes: 900, sha256: "aa", url: "/x/a1" },
     ];
     rawRequestMock.mockResolvedValue(new Response("", { status: 500 }));
-    render(<ClaudeIssueEmbed wsId="ws-1" issueId="issue-1" />);
+    renderEmbed();
     fireEvent.click(screen.getByTestId("claude-embed-toggle"));
     await waitFor(() =>
       expect(screen.getByTestId("claude-embed-inline-error")).toBeTruthy(),

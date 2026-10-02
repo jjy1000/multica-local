@@ -31,3 +31,16 @@ export { CausalGraphCanvas } from "./causal-graph-canvas";
 export { buildGraphDigest } from "./causal-graph-digest";
 export { summarizeCausalPath, causalPathBand } from "./causal-path-summary";
 export type { CausalPathSummary, CausalPathBand, CausalPathVerdict } from "./causal-path-summary";
+// 0.5.132: Claude Lab brain neural view (issue embed + lab workbench)
+export { ClaudeBrainCanvas } from "./claude-lab/claude-brain-canvas";
+export {
+  CLAUDE_LAB_ROSTER,
+  deriveBrainNodes,
+  deriveBrainPhase,
+  deriveRecentRuns,
+} from "./claude-lab/claude-brain-derive";
+export type {
+  BrainNodeState,
+  ClaudeBrainNode,
+  ClaudeBrainRosterEntry,
+} from "./claude-lab/claude-brain-derive";

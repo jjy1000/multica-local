@@ -42,6 +42,7 @@ import type { LabArtifactStub } from "@multica/core/api/schemas";
 import { formatElapsedSecs } from "../../../chat/lib/format";
 import { useClaudeLabIssue, type ClaudeLabRunStatus } from "../../hooks/use-claude-lab-issue";
 import { ArtifactInlineView, hasInlineView } from "./artifact-inline-view";
+import { ClaudeBrainCanvas } from "./claude-brain-canvas";
 import { useT } from "../../../i18n";
 
 const INLINE_PREVIEW_KINDS = new Set(["png", "svg", "jpg", "jpeg"]);
@@ -242,6 +243,12 @@ export function ClaudeIssueEmbed({
         )}
       </div>
       <RunStatusStrip status={status} />
+      {/* 0.5.132: brain neural view — collapsible, defaults open while a
+          run is live. Mounted after the strip so the brain is the first
+          thing under the header during a run, above the artifact list. */}
+      <div className="px-3 pt-2">
+        <ClaudeBrainCanvas wsId={wsId} issueId={issueId} variant="embed" />
+      </div>
       <div className="space-y-2 px-3 py-2">
         {hasLive && liveLabel && (
           <div className="flex items-center gap-2" data-testid="claude-embed-live-progress">
