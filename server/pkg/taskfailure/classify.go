@@ -16,6 +16,21 @@ import (
 // startup rather than per-call matters.
 var providerHTTP5xxRe = regexp.MustCompile(`(^|[^0-9])5[0-9][0-9]([^0-9]|$)`)
 
+// httpForbiddenCodeRe matches a bare HTTP 403 status code that isn't
+// surrounded by other digits (same anchoring as the 5xx detector
+// above, so "1.403.0"-style strings don't trip it).
+var httpForbiddenCodeRe = regexp.MustCompile(`(^|[^0-9])403([^0-9]|$)`)
+
+// isUsageLimit403 reports whether the error is a provider reporting an
+// exhausted usage window over HTTP 403 (e.g. Kimi Code files its
+// subscription-window exhaustion this way, and Claude Code may prefix
+// it with an access-token failure). The witness must beat both the
+// token-window rule (the text carries "token" and "limit") and the
+// bare 403 auth rule, or valid credentials get blamed.
+func isUsageLimit403(lower string) bool {
+	return httpForbiddenCodeRe.MatchString(lower) && strings.Contains(lower, "usage limit")
+}
+
 // Classify maps a free-form error string from the agent runtime / CLI
 // to one of the 14 agent_error.* sub-reasons. Always returns a valid
 // Reason; falls back to ReasonAgentUnknown when no rule matches and for
@@ -52,6 +67,13 @@ func Classify(rawError string) Reason {
 	lower := strings.ToLower(trimmed)
 
 	switch {
+	// 0. Usage-limit-over-403. Checked before everything else so a
+	//    quota message that mentions "token" / "limit" doesn't land in
+	//    context_overflow, and a 403-carrying one doesn't get blamed on
+	//    credentials by the auth rule below.
+	case isUsageLimit403(lower):
+		return ReasonAgentProviderQuotaLimit
+
 	// 1. Context / token window overflow. Checked early so "token
 	//    limit" doesn't get swallowed by the broader "limit" / "quota"
 	//    rule below.

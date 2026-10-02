@@ -193,6 +193,15 @@ func TestClassifyOrderingPriorities(t *testing.T) {
 		// — the upstream classification should win because the
 		// process_failure rule is checked last.
 		{"exit status with 401 upstream", "exit status 1: API Error: 401 Unauthorized", ReasonAgentProviderAuthOrAccess},
+
+		// Kimi Code reports an exhausted subscription window as HTTP 403.
+		// The usage-limit witness must beat both the token-window rule (the
+		// access-token prefix carries "token") and the bare 403 auth rule,
+		// while an unrelated 403 stays an auth failure.
+		{"403 usage limit beats auth", "API Error: 403 You've reached your 5-hour usage limit", ReasonAgentProviderQuotaLimit},
+		{"403 usage limit with prefix beats auth", "Failed to authenticate. API Error: 403 {\"error\":{\"message\":\"You've reached your 5-hour usage limit\"}}", ReasonAgentProviderQuotaLimit},
+		{"access token 403 usage limit beats context", "Failed to refresh access token. API Error: 403 You've reached your 5-hour usage limit", ReasonAgentProviderQuotaLimit},
+		{"plain 403 stays auth", "API Error: 403 Forbidden", ReasonAgentProviderAuthOrAccess},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
