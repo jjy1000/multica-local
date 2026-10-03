@@ -82,6 +82,23 @@ describe("CausalConstellationCanvas — 0.5.132", () => {
     await waitFor(() => {
       expect(document.querySelectorAll(".const-wave").length).toBeGreaterThan(0);
     }, { timeout: 2000 });
+    // 0.5.136: lit stars also carry the glow filter
+    expect(document.querySelectorAll(".const-star-lit").length).toBeGreaterThan(0);
+  });
+
+  it("0.5.136 ambience — deterministic starfield behind the map, focus star glows, teal stage wash", () => {
+    render(<CausalConstellationCanvas nodes={NODES} edges={EDGES} focusId="focus" />);
+    const field = screen.getByTestId("causal-constellation-starfield");
+    const first = field.querySelectorAll("circle").length;
+    expect(first).toBeGreaterThan(10);
+    expect(document.querySelector(".const-focus-glow")).toBeTruthy();
+    const stage = screen.getByTestId("causal-constellation-stage");
+    expect(stage.getAttribute("style") ?? "").toContain("var(--const-glow)");
+    // deterministic: same focus → identical star count and positions
+    cleanup();
+    render(<CausalConstellationCanvas nodes={NODES} edges={EDGES} focusId="focus" />);
+    const field2 = screen.getByTestId("causal-constellation-starfield");
+    expect(field2.innerHTML).toBe(field.innerHTML);
   });
 
   it("collapses via the header toggle", () => {

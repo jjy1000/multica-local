@@ -118,6 +118,7 @@ const BRAIN_STYLE = `
   --brain-sub:#71717a;
   --brain-grid:rgba(9,9,11,.055);
   --brain-core-fill:#f4f6f5;
+  --brain-glow:rgba(16,185,129,.06);
 }
 .dark .claude-brain{
   --brain-line:rgba(250,250,250,.15);
@@ -127,11 +128,18 @@ const BRAIN_STYLE = `
   --brain-sub:#8e8e96;
   --brain-grid:rgba(250,250,250,.05);
   --brain-core-fill:#101215;
+  --brain-glow:rgba(16,185,129,.05);
 }
 @keyframes brain-dashflow{to{stroke-dashoffset:-32}}
 .brain-edge-active{stroke-dasharray:7 9;stroke-width:2;animation:brain-dashflow .9s linear infinite}
 .brain-edge-done{stroke-dasharray:none;opacity:.45}
 .brain-edge-idle{stroke-dasharray:3 6;opacity:.8;animation:brain-dashflow 2.6s linear infinite}
+.brain-edge-ping{stroke-dasharray:5 7;stroke-width:2;animation:brain-dashflow .5s linear infinite}
+.brain-core-hot{filter:drop-shadow(0 0 18px rgba(16,185,129,.45))}
+@keyframes brain-bob{50%{transform:translateY(-2px)}}
+.brain-icon-bob{animation:brain-bob 1.6s ease-in-out infinite}
+@keyframes brain-shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+.brain-shake{animation:brain-shake .4s ease-in-out}
 @keyframes brain-idle-breathe{50%{opacity:.45}}
 .brain-node-idle-ring{animation:brain-idle-breathe 3.2s ease-in-out infinite}
 @keyframes brain-halo{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.85);opacity:0}}
@@ -150,6 +158,7 @@ const BRAIN_STYLE = `
 @media (prefers-reduced-motion: reduce){
   .brain-edge-active{animation:none;stroke-dasharray:7 9}
   .brain-edge-idle{animation:none}
+  .brain-edge-ping{animation:none;stroke-dasharray:5 7}
   .brain-node-idle-ring{animation:none}
   .brain-halo{display:none}
   .brain-arcspin{display:none}
@@ -157,6 +166,8 @@ const BRAIN_STYLE = `
   .brain-breathe{animation:none}
   .brain-spin{animation:none}
   .brain-ripple{display:none}
+  .brain-icon-bob{animation:none}
+  .brain-shake{animation:none}
 }`;
 
 // monotonic id for transient ripple elements (animation keying only)
@@ -245,12 +256,15 @@ function BrainNodeView({
       {/* outer <g> owns the attribute translate; the entrance animation
           lives on an inner motion.g because motion writes style.transform,
           which would override the positioning attribute (0.5.132 port
-          trap — nodes would all fly to the viewBox origin). */}
+          trap — nodes would all fly to the viewBox origin). The shake
+          wrapper sits one level deeper for the same reason: its CSS
+          keyframe transform must not fight the positioning attribute. */}
       <motion.g
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: Math.min(index * 0.06, 0.3), duration: 0.35 }}
       >
+      <g className={failed && !reduceMotion ? "brain-shake" : undefined}>
       {running && (
         <>
           <circle className="brain-halo" r={NODE_R + 3} fill="none" stroke="currentColor" strokeWidth={2} />
@@ -301,8 +315,10 @@ function BrainNodeView({
           <path d="M 7 -7 L -7 7" />
         </g>
       ) : (
-        <g transform="translate(-8 -8) scale(0.67)" opacity={dimmed ? 0.45 : 1}>
-          <Icon width={24} height={24} strokeWidth={1.8} />
+        <g className={running && !reduceMotion ? "brain-icon-bob" : undefined}>
+          <g transform="translate(-8 -8) scale(0.67)" opacity={dimmed ? 0.45 : 1}>
+            <Icon width={24} height={24} strokeWidth={1.8} />
+          </g>
         </g>
       )}
       <text
@@ -326,38 +342,67 @@ function BrainNodeView({
           ? `${brainStateLabel(t, "running")} ${runningElapsed}`
           : brainStateLabel(t, node.state)}
       </text>
+      </g>
       </motion.g>
     </g>
   );
 }
 
-function BrainEdge({ node }: { node: ClaudeBrainNode }) {
+function BrainEdge({
+  node,
+  ping,
+  reduceMotion,
+}: {
+  node: ClaudeBrainNode;
+  ping: boolean;
+  reduceMotion: boolean;
+}) {
+  const { t } = useT("claude-lab");
   const entry = CLAUDE_LAB_ROSTER.find((r) => r.key === node.key)!;
   const bendSign = CLAUDE_LAB_ROSTER.indexOf(entry) % 2 === 0 ? -1 : 1;
-  const cls =
-    node.state === "running"
-      ? "brain-edge-active"
+  const running = node.state === "running";
+  const cls = running
+    ? "brain-edge-active"
+    : ping
+      ? "brain-edge-ping"
       : node.state === "done"
         ? "brain-edge-done"
         : "brain-edge-idle";
+  const edgeId = `brain-edge-${node.key}`;
   return (
-    <path
-      className={`${cls} ${ROLE_HUE[node.key]}`}
-      style={{
-        fill: "none",
-        // inline style beats the stylesheet base, keyed by state (the
-        // presentation stroke attribute would lose to any CSS rule)
-        stroke:
-          node.state === "running" || node.state === "done"
-            ? "currentColor"
-            : "var(--brain-line)",
-        strokeWidth: 1.5,
-      }}
-      d={edgePath(entry.angle, bendSign)}
+    <g
+      className={ROLE_HUE[node.key]}
       data-testid="claude-brain-edge"
       data-key={node.key}
       data-state={node.state}
-    />
+      data-ping={ping ? "true" : "false"}
+      aria-label={`${brainRoleLabel(t, node.key)}: ${brainStateLabel(t, node.state)}`}
+    >
+      <path
+        id={edgeId}
+        className={cls}
+        style={{
+          fill: "none",
+          // inline style beats the stylesheet base, keyed by state (the
+          // presentation stroke attribute would lose to any CSS rule)
+          stroke:
+            running || node.state === "done" || ping
+              ? "currentColor"
+              : "var(--brain-line)",
+          strokeWidth: 1.5,
+        }}
+        d={edgePath(entry.angle, bendSign)}
+      />
+      {/* signal comet: rides a running edge at full strength, or the
+          pinged idle edge as a soft ambient pulse (prototype .comet) */}
+      {(running || ping) && !reduceMotion && (
+        <circle r={running ? 3 : 2.3} fill="currentColor" opacity={running ? 0.95 : 0.55}>
+          <animateMotion dur={running ? "1.15s" : "1.4s"} repeatCount="indefinite">
+            <mpath href={`#${edgeId}`} />
+          </animateMotion>
+        </circle>
+      )}
+    </g>
   );
 }
 
@@ -568,6 +613,41 @@ export function ClaudeBrainCanvas({
     prevStates.current = next;
   }, [nodes, reduceMotion]);
 
+  // 0.5.136 ambient ping: every few seconds one non-running edge lights
+  // up with a soft comet for ~1.6s — the idle brain keeps transmitting
+  // (the prototype's .edge.ping layer). Decorative only: it never alters
+  // node state or emits data. Zero rAF — a setTimeout chain over a nodes
+  // ref (so the 5s snapshot poll does not restart the rhythm).
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const [pingKey, setPingKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (reduceMotion) return;
+    let alive = true;
+    let offTimer: ReturnType<typeof setTimeout> | null = null;
+    let nextTimer: ReturnType<typeof setTimeout> | null = null;
+    const tick = () => {
+      if (!alive) return;
+      const candidates = nodesRef.current.filter(
+        (n) => n.state === "idle" || n.state === "queued" || n.state === "done",
+      );
+      if (candidates.length > 0) {
+        const pick = candidates[Math.floor(Math.random() * candidates.length)]!;
+        setPingKey(pick.key);
+        offTimer = setTimeout(() => {
+          if (alive) setPingKey(null);
+        }, 1600);
+      }
+      nextTimer = setTimeout(tick, 3400 + Math.random() * 1500);
+    };
+    nextTimer = setTimeout(tick, 1200);
+    return () => {
+      alive = false;
+      if (offTimer) clearTimeout(offTimer);
+      if (nextTimer) clearTimeout(nextTimer);
+    };
+  }, [reduceMotion]);
+
   const coreLabel =
     status === "running"
       ? t(($) => $.brain_core_running)
@@ -619,7 +699,10 @@ export function ClaudeBrainCanvas({
             className="relative"
             style={{
               height: variant === "workbench" ? 330 : 250,
-              backgroundImage: `radial-gradient(closest-side at 50% 46%, var(--brain-grid), transparent), linear-gradient(var(--brain-grid) 1px, transparent 1px), linear-gradient(90deg, var(--brain-grid) 1px, transparent 1px)`,
+              // 0.5.136: prototype-grade ambience — an emerald radial glow
+              // wash under the grid (the prototype's .brain-wrap layer),
+              // both tracking the theme through --brain-glow.
+              backgroundImage: `radial-gradient(closest-side at 50% 46%, var(--brain-glow), transparent 72%), linear-gradient(var(--brain-grid) 1px, transparent 1px), linear-gradient(90deg, var(--brain-grid) 1px, transparent 1px)`,
               backgroundSize: "100% 100%, 42px 42px, 42px 42px",
             }}
             data-testid="claude-brain-stage"
@@ -633,7 +716,12 @@ export function ClaudeBrainCanvas({
             >
               <g>
                 {nodes.map((n) => (
-                  <BrainEdge key={`edge-${n.key}`} node={n} />
+                  <BrainEdge
+                    key={`edge-${n.key}`}
+                    node={n}
+                    ping={pingKey === n.key}
+                    reduceMotion={reduceMotion}
+                  />
                 ))}
               </g>
               {/* orchestrator core */}
@@ -648,7 +736,7 @@ export function ClaudeBrainCanvas({
                 ))}
                 <circle className="brain-spin" r={CORE.r + 30} fill="none" stroke="currentColor" strokeWidth={1} strokeDasharray="3 12" opacity={0.5} />
                 <circle className="brain-breathe" r={CORE.r + 14} fill="none" stroke="currentColor" strokeWidth={1.4} opacity={0.35} />
-                <circle r={CORE.r} fill="var(--brain-core-fill)" stroke="currentColor" strokeWidth={1.5} opacity={0.9} />
+                <circle r={CORE.r} fill="var(--brain-core-fill)" stroke="currentColor" strokeWidth={1.5} opacity={0.9} className={hasLive ? "brain-core-hot" : undefined} />
                 <g transform="translate(-11 -20)" opacity={0.9}>
                   <BrainIcon width={22} height={22} strokeWidth={1.8} />
                 </g>

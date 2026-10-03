@@ -72,6 +72,21 @@ describe("PythiaCouncilCanvas — 0.5.132", () => {
     expect(screen.getByTestId("pythia-council-traj")).toBeTruthy();
   });
 
+  it("0.5.136 ambience — purple stage wash, glowing running arc, bidirectional standby rings", () => {
+    const { unmount } = render(
+      <PythiaCouncilCanvas envelopes={[withCouncil(0.62)]} totalRounds={3} running />,
+    );
+    const stage = screen.getByTestId("pythia-council-stage");
+    expect(stage.getAttribute("style") ?? "").toContain("var(--council-glow)");
+    expect(document.querySelector(".council-arc-hot")).toBeTruthy();
+    unmount();
+
+    render(<PythiaCouncilCanvas envelopes={[]} totalRounds={0} running={false} />);
+    // standby: outer clockwise ring + inner counter-rotating ring
+    expect(document.querySelector(".council-standby")).toBeTruthy();
+    expect(document.querySelector(".council-standby-rev")).toBeTruthy();
+  });
+
   it("completed run swaps the running badge for a verdict chip", () => {
     render(
       <PythiaCouncilCanvas envelopes={[withCouncil(0.72)]} totalRounds={1} running={false} />,

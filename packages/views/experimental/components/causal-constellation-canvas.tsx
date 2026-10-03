@@ -50,11 +50,17 @@ const CONSTELLATION_STYLE = `
   --const-node:#ffffff;
   --const-sub:#71717a;
   --const-label:#3f3f46;
+  --const-star:#52525b;
+  --const-glow:rgba(20,184,166,.08);
+  --const-grid:rgba(9,9,11,.06);
 }
 .dark .constellation-map{
   --const-node:#12161a;
   --const-sub:#8e8e96;
   --const-label:#d4d4d8;
+  --const-star:#d4d4d8;
+  --const-glow:rgba(20,184,166,.06);
+  --const-grid:rgba(250,250,250,.045);
 }
 @keyframes const-dashflow{to{stroke-dashoffset:-26}}
 .const-flow-line{animation:const-dashflow 1s linear infinite}
@@ -65,12 +71,46 @@ const CONSTELLATION_STYLE = `
 .const-qmark{animation:const-qblink 1.6s infinite}
 @keyframes const-spin{to{transform:rotate(360deg)}}
 .const-orbit{transform-box:fill-box;transform-origin:center;animation:const-spin 26s linear infinite}
+@keyframes const-twinkle{50%{opacity:.08}}
+.const-twinkle{animation:const-twinkle 3.6s ease-in-out infinite}
+.const-focus-glow{filter:drop-shadow(0 0 14px rgba(20,184,166,.7))}
+.const-star-lit{filter:drop-shadow(0 0 10px rgba(20,184,166,.5))}
 @media (prefers-reduced-motion: reduce){
   .const-flow-line{animation:none}
   .const-wave{display:none}
   .const-qmark{animation:none}
   .const-orbit{animation:none}
+  .const-twinkle{animation:none}
 }`;
+
+// deterministic background starfield: FNV-1a seed over the focus id →
+// xorshift stream, so the same graph always paints the same sky and a
+// focus change re-rolls it exactly once (never per-render jitter from
+// the graph poll).
+function backgroundStars(seed: string, count = 26): Array<{ x: number; y: number; r: number; delay: number; base: number }> {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const next = () => {
+    h ^= h << 13;
+    h ^= h >>> 17;
+    h ^= h << 5;
+    return ((h >>> 0) % 10000) / 10000;
+  };
+  const stars: Array<{ x: number; y: number; r: number; delay: number; base: number }> = [];
+  for (let i = 0; i < count; i++) {
+    stars.push({
+      x: 18 + next() * (VIEW_W - 36),
+      y: 14 + next() * (VIEW_H - 28),
+      r: 0.7 + next() * 0.9,
+      delay: next() * 3.2,
+      base: 0.25 + next() * 0.35,
+    });
+  }
+  return stars;
+}
 
 type CausalT = TFunction<"causal-graph">;
 
@@ -109,6 +149,11 @@ export function CausalConstellationCanvas({
     () => projectConstellation(nodes, edges, focusId),
     [nodes, edges, focusId],
   );
+
+  // starfield seed: the focus star's id (or the first node when no focus)
+  // — stable across graph polls, re-rolled only when the focus moves.
+  const starSeed = projection.focus?.id ?? nodes[0]?.id ?? "empty";
+  const starfield = useMemo(() => backgroundStars(starSeed), [starSeed]);
 
   // star geometry (per side)
   const positions = useMemo(() => {
@@ -195,9 +240,39 @@ export function CausalConstellationCanvas({
       </div>
 
       {open && (
-        <div className="relative" style={{ height: 280 }} data-testid="causal-constellation-stage">
-          <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="h-full w-full" role="img"
-              aria-label={t(($) => $.constellation_title)}>
+        <div
+          className="relative"
+          style={{
+            height: 280,
+            // 0.5.136: prototype-grade ambience — a teal radial glow wash
+            // under a faint grid (the prototype's --canvas-glow layer),
+            // both tracking the theme through --const-glow/--const-grid.
+            backgroundImage:
+              "radial-gradient(closest-side at 50% 46%, var(--const-glow), transparent 72%), linear-gradient(var(--const-grid) 1px, transparent 1px), linear-gradient(90deg, var(--const-grid) 1px, transparent 1px)",
+            backgroundSize: "100% 100%, 42px 42px, 42px 42px",
+          }}
+          data-testid="causal-constellation-stage"
+        >
+            <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="h-full w-full" role="img"
+                aria-label={t(($) => $.constellation_title)}>
+            {/* background starfield: faint deterministic stars with a slow
+                twinkle — the "sky" the constellation hangs in. Present in
+                the empty state too, so a fresh workspace reads as night
+                sky, not a blank card. */}
+            <g data-testid="causal-constellation-starfield" aria-hidden>
+              {starfield.map((s, i) => (
+                <circle
+                  key={i}
+                  cx={s.x.toFixed(1)}
+                  cy={s.y.toFixed(1)}
+                  r={s.r.toFixed(2)}
+                  fill="var(--const-star)"
+                  opacity={s.base.toFixed(2)}
+                  className={reduceMotion ? undefined : "const-twinkle"}
+                  style={{ animationDelay: `${s.delay.toFixed(2)}s` }}
+                />
+              ))}
+            </g>
             {/* 0.5.133 empty state: an animated placeholder (slowly orbiting
                 dashed ring + hint) so a fresh workspace still reads as a
                 live map rather than a blank box */}
@@ -272,7 +347,7 @@ export function CausalConstellationCanvas({
                   r={FOCUS.r + 12} fill="none" stroke="rgba(20,184,166,.35)" strokeWidth={1}
                   strokeDasharray="2 8" className={reduceMotion ? undefined : "const-orbit"}
                 />
-                <circle r={FOCUS.r} fill="var(--const-node)" stroke="var(--causal-edge-causes)" strokeWidth={2} />
+                <circle r={FOCUS.r} fill="var(--const-node)" stroke="var(--causal-edge-causes)" strokeWidth={2} className="const-focus-glow" />
                 <g transform="translate(-9 -9)">
                   <Compass width={18} height={18} strokeWidth={1.8} className="text-teal-600 dark:text-teal-300" />
                 </g>
@@ -311,6 +386,7 @@ export function CausalConstellationCanvas({
                       fill="var(--const-node)"
                       stroke={lit ? "var(--causal-edge-causes)" : "var(--const-line, rgba(148,163,184,.45))"}
                       strokeWidth={lit ? 2.4 : 1.6}
+                      className={lit ? "const-star-lit" : undefined}
                     />
                     <text y={4} textAnchor="middle" fontSize={10} fill="var(--const-sub)">
                       {star.side === "up" ? "◈" : "◇"}

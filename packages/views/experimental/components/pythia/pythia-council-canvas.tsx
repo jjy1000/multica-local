@@ -39,11 +39,15 @@ const COUNCIL_STYLE = `
   --council-track:rgba(9,9,11,.13);
   --council-sub:#71717a;
   --council-node:#ffffff;
+  --council-glow:rgba(168,85,247,.07);
+  --council-grid:rgba(9,9,11,.06);
 }
 .dark .council-chamber{
   --council-track:rgba(250,250,250,.13);
   --council-sub:#8e8e96;
   --council-node:#131316;
+  --council-glow:rgba(168,85,247,.06);
+  --council-grid:rgba(250,250,250,.045);
 }
 @keyframes council-dashflow{to{stroke-dashoffset:-28}}
 .council-vote.speaking{stroke-dasharray:6 8;animation:council-dashflow .7s linear infinite}
@@ -52,6 +56,9 @@ const COUNCIL_STYLE = `
 @keyframes council-spin{to{transform:rotate(360deg)}}
 .council-lock{transform-box:fill-box;transform-origin:center;animation:council-spin 14s linear infinite}
 .council-standby{transform-box:fill-box;transform-origin:center;animation:council-spin 30s linear infinite}
+@keyframes council-spin-rev{to{transform:rotate(-360deg)}}
+.council-standby-rev{transform-box:fill-box;transform-origin:center;animation:council-spin-rev 44s linear infinite}
+.council-arc-hot{filter:drop-shadow(0 0 10px rgba(168,85,247,.55))}
 @keyframes council-blink{50%{opacity:.3}}
 .council-qmark{animation:council-blink 1.6s infinite}
 @keyframes council-idle-breathe{50%{opacity:.5}}
@@ -61,6 +68,7 @@ const COUNCIL_STYLE = `
   .council-halo{display:none}
   .council-lock{animation:none}
   .council-standby{animation:none}
+  .council-standby-rev{animation:none}
   .council-qmark{animation:none}
   .council-seat-idle-ring{animation:none}
 }`;
@@ -175,7 +183,19 @@ export function PythiaCouncilCanvas({
       </button>
 
       {open && (
-        <div className="relative" style={{ height: 262 }} data-testid="pythia-council-stage">
+        <div
+          className="relative"
+          style={{
+            height: 262,
+            // 0.5.136: prototype-grade ambience — a purple radial glow wash
+            // under a faint grid (the prototype's --canvas-glow layer),
+            // both tracking the theme through --council-glow/--council-grid.
+            backgroundImage:
+              "radial-gradient(closest-side at 50% 42%, var(--council-glow), transparent 72%), linear-gradient(var(--council-grid) 1px, transparent 1px), linear-gradient(90deg, var(--council-grid) 1px, transparent 1px)",
+            backgroundSize: "100% 100%, 42px 42px, 42px 42px",
+          }}
+          data-testid="pythia-council-stage"
+        >
           <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="h-full w-full" role="img"
               aria-label={t(($) => $.pythia_lab.council_title)}>
             {/* vote edges + comets */}
@@ -209,15 +229,25 @@ export function PythiaCouncilCanvas({
 
             {/* consensus dial */}
             <g data-testid="pythia-council-dial" data-consensus={consensus ?? ""}>
-              {/* standby ring: slow dashed orbit while no votes have landed —
-                  the "in waiting" state stays visibly alive */}
+              {/* standby rings: slow dashed orbits while no votes have
+                  landed — outer clockwise, inner counter-rotating, so the
+                  "in waiting" state reads as a live instrument, not a
+                  stalled one */}
               {consensus == null && (
-                <circle
-                  cx={DIAL.cx} cy={DIAL.cy} r={DIAL.r + 22}
-                  fill="none" stroke="currentColor" strokeWidth={1.5}
-                  strokeDasharray="3 9" opacity={0.45}
-                  className="council-standby text-purple-500"
-                />
+                <>
+                  <circle
+                    cx={DIAL.cx} cy={DIAL.cy} r={DIAL.r + 22}
+                    fill="none" stroke="currentColor" strokeWidth={1.5}
+                    strokeDasharray="3 9" opacity={0.45}
+                    className="council-standby text-purple-500"
+                  />
+                  <circle
+                    cx={DIAL.cx} cy={DIAL.cy} r={DIAL.r - 16}
+                    fill="none" stroke="currentColor" strokeWidth={1}
+                    strokeDasharray="2 10" opacity={0.3}
+                    className="council-standby-rev text-purple-400"
+                  />
+                </>
               )}
               {!running && consensus != null && (
                 <circle
@@ -230,7 +260,7 @@ export function PythiaCouncilCanvas({
               <path
                 d={arcD(0, 1, DIAL.r)}
                 fill="none"
-                className="stroke-purple-500"
+                className={`stroke-purple-500${running ? " council-arc-hot" : ""}`}
                 strokeWidth={9}
                 strokeLinecap="round"
                 strokeDasharray={DIAL_ARC}

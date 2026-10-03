@@ -127,12 +127,40 @@ describe("ClaudeBrainCanvas — 0.5.132", () => {
     // live core + phase derived from the running research role
     expect(screen.getByTestId("claude-brain-core").getAttribute("data-live")).toBe("true");
     expect(screen.getByTestId("claude-brain-phases").getAttribute("data-phase")).toBe("1");
-    // the running edge animates; an idle edge does not
+    // the running edge animates; an idle edge does not (0.5.136: the
+    // testid sits on the wrapping <g> — the state class is on the path)
     const edges = screen.getAllByTestId("claude-brain-edge");
     const researchEdge = edges.find((e) => e.getAttribute("data-key") === "research")!;
-    expect(researchEdge.getAttribute("class")).toContain("brain-edge-active");
+    expect(researchEdge.querySelector("path")!.getAttribute("class")).toContain("brain-edge-active");
     const mlEdge = edges.find((e) => e.getAttribute("data-key") === "ml")!;
-    expect(mlEdge.getAttribute("class")).toContain("brain-edge-idle");
+    expect(mlEdge.querySelector("path")!.getAttribute("class")).toContain("brain-edge-idle");
+  });
+
+  it("0.5.136 ambience — running edge rides a comet, live core glows, stage carries the emerald wash", async () => {
+    hookState.status = "running";
+    hookState.liveTask = task("a-research", "running");
+    hookState.tasks = [hookState.liveTask];
+    renderBrain();
+    await waitFor(() =>
+      expect(nodeByKey("research").getAttribute("data-state")).toBe("running"),
+    );
+
+    const researchEdge = screen
+      .getAllByTestId("claude-brain-edge")
+      .find((e) => e.getAttribute("data-key") === "research")!;
+    expect(researchEdge.querySelector("animateMotion")).toBeTruthy();
+
+    const core = screen.getByTestId("claude-brain-core");
+    expect(core.querySelector(".brain-core-hot")).toBeTruthy();
+
+    const stage = screen.getByTestId("claude-brain-stage");
+    expect(stage.getAttribute("style") ?? "").toContain("var(--brain-glow)");
+
+    const style =
+      screen.getByTestId("claude-brain-canvas").querySelector("style")!.textContent ?? "";
+    expect(style).toContain(".brain-edge-ping");
+    expect(style).toContain(".brain-icon-bob");
+    expect(style).toContain(".brain-shake");
   });
 
   it("expands by default even when idle (0.5.133 — the idle brain IS the visual)", async () => {
