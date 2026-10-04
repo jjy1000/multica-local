@@ -1228,7 +1228,26 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 					r.Put("/metadata/{key}", h.SetIssueMetadataKey)
 					r.Delete("/metadata/{key}", h.DeleteIssueMetadataKey)
 					r.Get("/pull-requests", h.ListPullRequestsForIssue)
+					r.Get("/signatures", h.ListIssueSignatures)
+					r.Post("/signatures", h.SignIssue)
 				})
+			})
+
+			// Signature authorization (mig 294): watermark assets, signing
+			// ceremonies, verification. Asset/authorization IDs are opaque;
+			// handlers resolve the workspace from the row itself and re-check
+			// membership, so these stay safe under the member middleware.
+			r.Route("/api/signature-assets", func(r chi.Router) {
+				r.Get("/", h.ListSignatureAssets)
+				r.Post("/", h.UploadSignatureAsset)
+				r.Get("/{assetID}/image", h.GetSignatureAssetImage)
+				r.Post("/{assetID}/retire", h.RetireSignatureAsset)
+			})
+			r.Route("/api/signatures", func(r chi.Router) {
+				r.Get("/", h.ListWorkspaceSignatures)
+				r.Get("/by-fingerprint/{fingerprint}/verify", h.VerifySignatureByFingerprint)
+				r.Post("/{signatureID}/revoke", h.RevokeSignature)
+				r.Get("/{signatureID}/verify", h.VerifySignature)
 			})
 
 			// Task messages (user-facing, not daemon auth)
