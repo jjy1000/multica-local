@@ -1056,6 +1056,23 @@ type PythiaForecastRun struct {
 	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
 }
 
+type RiskSignature struct {
+	ID            pgtype.UUID        `json:"id"`
+	WorkspaceID   pgtype.UUID        `json:"workspace_id"`
+	IssueID       pgtype.UUID        `json:"issue_id"`
+	AssetID       pgtype.UUID        `json:"asset_id"`
+	SignedBy      pgtype.UUID        `json:"signed_by"`
+	Ops           []string           `json:"ops"`
+	Scope         []byte             `json:"scope"`
+	ContentSha256 string             `json:"content_sha256"`
+	Fingerprint   string             `json:"fingerprint"`
+	Signature     string             `json:"signature"`
+	SignedAt      pgtype.Timestamptz `json:"signed_at"`
+	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt     pgtype.Timestamptz `json:"revoked_at"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
 type RuntimeProfile struct {
 	ID             pgtype.UUID        `json:"id"`
 	WorkspaceID    pgtype.UUID        `json:"workspace_id"`
@@ -1078,6 +1095,20 @@ type SemanticaLocalDecisionAcl struct {
 	ActorID     string             `json:"actor_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	Visibility  string             `json:"visibility"`
+}
+
+type SignatureAsset struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Name        string             `json:"name"`
+	Mime        string             `json:"mime"`
+	Image       []byte             `json:"image"`
+	ImageSha256 string             `json:"image_sha256"`
+	Algorithm   string             `json:"algorithm"`
+	PublicKey   []byte             `json:"public_key"`
+	ActivatedAt pgtype.Timestamptz `json:"activated_at"`
+	RetiredAt   pgtype.Timestamptz `json:"retired_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type Skill struct {
