@@ -35,6 +35,7 @@ import type causalGraph from "../locales/en/causal-graph.json";
 // through the AssigneePicker, and its UI strings live in
 // issues.json under pickers.lab.*.
 import type experimental from "../locales/en/experimental.json";
+import type signature from "../locales/en/signature.json";
 
 // Module augmentation enables i18next v26 selector API across the monorepo:
 // `t($ => $.signin.title)` resolves to the value in en/auth.json.
@@ -71,6 +72,7 @@ declare global {
     chat: typeof chat;
     modals: typeof modals;
     runtimes: typeof runtimes;
+    signature: typeof signature;
     layout: typeof layout;
     usage: typeof usage;
     squads: typeof squads;

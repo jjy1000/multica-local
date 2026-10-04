@@ -226,6 +226,7 @@
       "preferences": "환경설정",
       "notifications": "알림",
       "tokens": "API 토큰",
+      "signature": "서명",
       "general": "일반",
       "repositories": "저장소",
       "github": "GitHub",

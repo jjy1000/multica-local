@@ -1,0 +1,218 @@
+"use client";
+
+// signature-tab — Settings → Signatures (mig 294): upload/retire the
+// watermark signature asset and browse the workspace's signing history.
+// Key custody is server-side (Ed25519, ~/.multica/signing/); the UI only
+// ever sees the public-key fingerprint.
+
+import { useRef, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { KeyRound, ShieldCheck, Stamp } from "lucide-react";
+import { toast } from "sonner";
+
+import { api } from "@multica/core/api";
+import { signatureFingerprintShort } from "@multica/core/types";
+import { signatureKeys, useInvalidateSignatures } from "@multica/core/signature/hooks";
+import { useWorkspaceId } from "@multica/core/hooks";
+
+import { Badge } from "@multica/ui/components/ui/badge";
+import { Button } from "@multica/ui/components/ui/button";
+
+import { useT } from "../../i18n";
+
+export function SignatureTab() {
+  const { t } = useT("signature");
+  const wsId = useWorkspaceId();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const invalidate = useInvalidateSignatures(wsId);
+  const [confirmRetireId, setConfirmRetireId] = useState<string | null>(null);
+  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
+
+  const assetsQuery = useQuery({
+    queryKey: signatureKeys.assets(wsId),
+    queryFn: () => api.listSignatureAssets(),
+    enabled: Boolean(wsId),
+  });
+  const historyQuery = useQuery({
+    queryKey: signatureKeys.workspaceHistory(wsId),
+    queryFn: () => api.listWorkspaceSignatures(),
+    enabled: Boolean(wsId),
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => api.uploadSignatureAsset(file),
+    onSuccess: () => {
+      toast.success(t(($) => $.toast_upload_ok));
+      invalidate();
+    },
+    onError: (err: Error) => toast.error(`${t(($) => $.toast_upload_failed)}: ${err.message}`),
+  });
+
+  const retireMutation = useMutation({
+    mutationFn: (id: string) => api.retireSignatureAsset(id),
+    onSuccess: () => {
+      toast.success(t(($) => $.toast_retired));
+      setConfirmRetireId(null);
+      invalidate();
+    },
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (id: string) => api.revokeSignature(id),
+    onSuccess: () => {
+      toast.success(t(($) => $.toast_revoked));
+      setConfirmRevokeId(null);
+      invalidate();
+    },
+  });
+
+  const assets = assetsQuery.data ?? [];
+  const history = historyQuery.data ?? [];
+
+  return (
+    <div className="space-y-8" data-testid="settings-signature-tab">
+      <section>
+        <h2 className="flex items-center gap-2 text-body font-semibold">
+          <Stamp className="size-4" aria-hidden />
+          {t(($) => $.asset_section)}
+        </h2>
+        <p className="mt-1 max-w-xl text-caption leading-relaxed text-muted-foreground">
+          {t(($) => $.tab_description)}
+        </p>
+
+        {assets.length === 0 ? (
+          <p className="mt-4 rounded-lg border border-dashed p-4 text-caption text-muted-foreground">
+            {t(($) => $.asset_empty)}
+          </p>
+        ) : (
+          <ul className="mt-4 space-y-2" data-testid="signature-asset-list">
+            {assets.map((asset) => (
+              <li
+                key={asset.id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border p-3"
+                data-testid="signature-asset-row"
+                data-retired={Boolean(asset.retired_at)}
+              >
+                <ShieldCheck
+                  className={`size-4 ${asset.retired_at ? "text-muted-foreground" : "text-emerald-600 dark:text-emerald-400"}`}
+                  aria-hidden
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-caption font-medium">
+                    {asset.name || asset.id.slice(0, 8)}
+                  </p>
+                  <p className="flex items-center gap-1 font-mono text-micro text-muted-foreground">
+                    <KeyRound className="size-3" aria-hidden />
+                    {t(($) => $.asset_key_fp)}: {asset.public_key_fingerprint}
+                  </p>
+                </div>
+                <Badge
+                  variant="outline"
+                  className={
+                    asset.retired_at
+                      ? "text-muted-foreground"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }
+                >
+                  {asset.retired_at ? t(($) => $.asset_retired) : t(($) => $.asset_active)}
+                </Badge>
+                {!asset.retired_at && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      confirmRetireId === asset.id
+                        ? retireMutation.mutate(asset.id)
+                        : setConfirmRetireId(asset.id)
+                    }
+                  >
+                    {confirmRetireId === asset.id ? t(($) => $.asset_retire_confirm) : t(($) => $.asset_retire)}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) uploadMutation.mutate(file);
+            e.target.value = "";
+          }}
+        />
+        <Button
+          className="mt-3"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadMutation.isPending}
+          data-testid="signature-upload-button"
+        >
+          <Stamp className="size-3.5" aria-hidden />
+          {uploadMutation.isPending ? t(($) => $.asset_uploading) : t(($) => $.asset_upload)}
+        </Button>
+      </section>
+
+      <section>
+        <h2 className="text-body font-semibold">{t(($) => $.history_section)}</h2>
+        {history.length === 0 ? (
+          <p className="mt-2 text-caption text-muted-foreground">{t(($) => $.history_empty)}</p>
+        ) : (
+          <ul className="mt-3 space-y-2" data-testid="signature-history-list">
+            {history.map((sig) => (
+              <li
+                key={sig.id}
+                className="flex flex-wrap items-center gap-3 rounded-lg border p-3"
+                data-status={sig.status}
+              >
+                <Badge
+                  variant="outline"
+                  className={
+                    sig.status === "active"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : sig.status === "revoked"
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-amber-600 dark:text-amber-400"
+                  }
+                >
+                  {sig.status === "active"
+                    ? t(($) => $.status_active)
+                    : sig.status === "revoked"
+                      ? t(($) => $.status_revoked)
+                      : t(($) => $.status_expired)}
+                </Badge>
+                <span className="font-mono text-micro text-muted-foreground">
+                  {t(($) => $.history_fp)}: {signatureFingerprintShort(sig.fingerprint)}
+                </span>
+                <span className="font-mono text-micro text-muted-foreground">
+                  {new Date(sig.signed_at).toLocaleString()}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-micro text-muted-foreground">
+                  {t(($) => $.history_scope)}: {sig.ops.join(", ")}
+                  {sig.issue_id ? ` · ${sig.issue_id.slice(0, 8)}` : ""}
+                </span>
+                {sig.status === "active" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      confirmRevokeId === sig.id
+                        ? revokeMutation.mutate(sig.id)
+                        : setConfirmRevokeId(sig.id)
+                    }
+                  >
+                    {confirmRevokeId === sig.id ? t(($) => $.history_revoke_confirm) : t(($) => $.history_revoke)}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </div>
+  );
+}

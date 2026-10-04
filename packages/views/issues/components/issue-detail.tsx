@@ -93,6 +93,8 @@ import { PythiaIssueEmbed } from "../../experimental/components/pythia/pythia-is
 import { PythiaHeaderPill } from "../../experimental/components/pythia/pythia-header-pill";
 import { ClaudeIssueEmbed } from "../../experimental/components/claude-lab/claude-issue-embed";
 import { ClaudeHeaderPill } from "../../experimental/components/claude-lab/claude-header-pill";
+import { SignatureHeaderPill } from "./signature-header-pill";
+import { SignatureCeremonyDialog } from "./signature-ceremony-dialog";
 import { ExecutionLogSection } from "./execution-log-section";
 import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
@@ -904,6 +906,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
     handleResize: handleDesktopSidebarResize,
   } = useAnimatedRightSidebarState(desktopSidebarInitialOpen);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [signatureCeremonyOpen, setSignatureCeremonyOpen] = useState(false);
 
   useEffect(() => {
     if (isMobile) {
@@ -2514,6 +2517,16 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             {issue.lab_source === "claude_science_lab" && wsId && (
               <ClaudeHeaderPill wsId={wsId} issueId={id} />
             )}
+            {/* mig 294: signed authorization pill — always present (the
+                ghost affordance is the ceremony entry point; see the pill
+                component comment). */}
+            {wsId && (
+              <SignatureHeaderPill
+                wsId={wsId}
+                issueId={id}
+                onOpen={() => setSignatureCeremonyOpen(true)}
+              />
+            )}
           </div>
 
           {parentIssue && (
@@ -2893,6 +2906,15 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           />
         )}
       </div>
+      {wsId && (
+        <SignatureCeremonyDialog
+          open={signatureCeremonyOpen}
+          onOpenChange={setSignatureCeremonyOpen}
+          wsId={wsId}
+          issueId={id}
+          issueTitle={issue.title}
+        />
+      )}
     </ImageSequenceProvider>
   );
 

@@ -25,6 +25,7 @@ import {
 } from "@multica/ui/components/ui/alert-dialog";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@multica/ui/components/ui/collapsible";
 import { ActorAvatar } from "../../common/actor-avatar";
+import { SignatureCommentCard } from "./signature-comment-card";
 import { ReactionBar } from "@multica/ui/components/common/reaction-bar";
 import { cn } from "@multica/ui/lib/utils";
 import { copyText } from "@multica/ui/lib/clipboard";
@@ -759,6 +760,16 @@ function CommentCardImpl({
   // the same offset would stack and hide one.
   const stickyHeader =
     open && !onCollapseResolved && !(replyResolutionId != null && threadExpanded);
+
+  // mig 294: signature markers are platform certificates, not conversation.
+  // Render the dedicated card and skip every comment affordance (replies,
+  // reactions, edit, delete). Kept AFTER all hooks — an early return here
+  // would violate rules-of-hooks for the hooks above. Signature rows are
+  // always top-level by construction — the server never writes them with
+  // a parent, so CommentRow never sees one.
+  if (entry.comment_type === "signature") {
+    return <SignatureCommentCard issueId={issueId} entry={entry} />;
+  }
 
   return (
     // overflow-clip (not -hidden) clips the rounded corners WITHOUT creating a

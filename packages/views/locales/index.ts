@@ -36,6 +36,7 @@ import enOnboarding from "./en/onboarding.json";
 import enProjects from "./en/projects.json";
 import enPythia from "./en/pythia.json";
 import enRuntimes from "./en/runtimes.json";
+import enSignature from "./en/signature.json";
 import enSearch from "./en/search.json";
 import enServerStatus from "./en/server-status.json";
 import enSettings from "./en/settings.json";
@@ -66,6 +67,7 @@ import jaOnboarding from "./ja/onboarding.json";
 import jaProjects from "./ja/projects.json";
 import jaPythia from "./ja/pythia.json";
 import jaRuntimes from "./ja/runtimes.json";
+import jaSignature from "./ja/signature.json";
 import jaSearch from "./ja/search.json";
 import jaServerStatus from "./ja/server-status.json";
 import jaSettings from "./ja/settings.json";
@@ -96,6 +98,7 @@ import koOnboarding from "./ko/onboarding.json";
 import koProjects from "./ko/projects.json";
 import koPythia from "./ko/pythia.json";
 import koRuntimes from "./ko/runtimes.json";
+import koSignature from "./ko/signature.json";
 import koSearch from "./ko/search.json";
 import koServerStatus from "./ko/server-status.json";
 import koSettings from "./ko/settings.json";
@@ -126,6 +129,7 @@ import zhHansOnboarding from "./zh-Hans/onboarding.json";
 import zhHansProjects from "./zh-Hans/projects.json";
 import zhHansPythia from "./zh-Hans/pythia.json";
 import zhHansRuntimes from "./zh-Hans/runtimes.json";
+import zhHansSignature from "./zh-Hans/signature.json";
 import zhHansSearch from "./zh-Hans/search.json";
 import zhHansServerStatus from "./zh-Hans/server-status.json";
 import zhHansSettings from "./zh-Hans/settings.json";
@@ -157,6 +161,7 @@ const en: LocaleResources = {
   projects: enProjects,
   pythia: enPythia,
   runtimes: enRuntimes,
+  signature: enSignature,
   search: enSearch,
   "server-status": enServerStatus,
   settings: enSettings,
@@ -189,6 +194,7 @@ const zhHans: LocaleResources = {
   projects: zhHansProjects,
   pythia: zhHansPythia,
   runtimes: zhHansRuntimes,
+  signature: zhHansSignature,
   search: zhHansSearch,
   "server-status": zhHansServerStatus,
   settings: zhHansSettings,
@@ -221,6 +227,7 @@ const ko: LocaleResources = {
   projects: koProjects,
   pythia: koPythia,
   runtimes: koRuntimes,
+  signature: koSignature,
   search: koSearch,
   "server-status": koServerStatus,
   settings: koSettings,
@@ -253,6 +260,7 @@ const ja: LocaleResources = {
   projects: jaProjects,
   pythia: jaPythia,
   runtimes: jaRuntimes,
+  signature: jaSignature,
   search: jaSearch,
   "server-status": jaServerStatus,
   settings: jaSettings,
