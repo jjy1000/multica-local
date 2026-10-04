@@ -101,6 +101,7 @@ func init() {
 	rootCmd.AddCommand(causalCmd)
 	rootCmd.AddCommand(claudeScienceCmd)
 	rootCmd.AddCommand(labCmd)
+	rootCmd.AddCommand(signatureCmd)
 	// 0.5.105 (audit H3): swarmCmd removed with the swarm_topology
 	// runtime retirement.
 
