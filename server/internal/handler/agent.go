@@ -381,6 +381,16 @@ type AgentTaskResponse struct {
 	// owning user; the daemon must not fall back to its own credential. See
 	// MUL-3292.
 	AuthToken string `json:"auth_token,omitempty"`
+	// AuthorizationAttestation (mig 294) is the run-scoped signed-
+	// authorization declaration, present ONLY when an active signature
+	// whose content snapshot still matches covers the issue. The daemon
+	// renders it into the brief's Authorization Constitution section and
+	// mirrors it to .agent_context/authorization.md. SignatureID /
+	// SignatureFingerprint link the run to risk_signature for audit (also
+	// stamped into agent_task_queue.context at claim).
+	AuthorizationAttestation string `json:"authorization_attestation,omitempty"`
+	SignatureID              string `json:"signature_id,omitempty"`
+	SignatureFingerprint     string `json:"signature_fingerprint,omitempty"`
 }
 
 // ChatAttachmentMeta is the structured attachment metadata embedded in

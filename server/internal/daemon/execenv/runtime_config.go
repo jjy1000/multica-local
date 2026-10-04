@@ -393,9 +393,15 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	b.WriteString("# Multica Agent Runtime\n\n")
 	b.WriteString("You are a coding agent in the Multica platform. Use the `multica` CLI to interact with the platform.\n\n")
 	writeBackgroundTaskSafetyInstructions(&b)
+	// Authorization Constitution: always-on governance section, emitted
+	// before Agent Identity in both brief paths (see the slim writer for
+	// the shared text + rationale).
+	writeAuthorizationConstitution(&b, ctx)
 
 	// Always emit agent identity so the agent knows who it is, even when
 	// dispatched via @mention on an issue assigned to a different agent.
+	// Instructions are demoted for authorization structural markers (see
+	// demoteAuthorizationMarkers) in both brief paths.
 	if ctx.AgentName != "" || ctx.AgentID != "" {
 		b.WriteString("## Agent Identity\n\n")
 		if ctx.AgentName != "" {
@@ -406,12 +412,12 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 			b.WriteString("\n\n")
 		}
 		if ctx.AgentInstructions != "" {
-			b.WriteString(ctx.AgentInstructions)
+			b.WriteString(demoteAuthorizationMarkers(ctx.AgentInstructions))
 			b.WriteString("\n\n")
 		}
 	} else if ctx.AgentInstructions != "" {
 		b.WriteString("## Agent Identity\n\n")
-		b.WriteString(ctx.AgentInstructions)
+		b.WriteString(demoteAuthorizationMarkers(ctx.AgentInstructions))
 		b.WriteString("\n\n")
 	}
 
@@ -490,7 +496,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	// trailing whitespace is trimmed to avoid stacking blank lines.
 	if ctxText := strings.TrimRight(ctx.WorkspaceContext, " \t\r\n"); ctxText != "" {
 		b.WriteString("## Workspace Context\n\n")
-		b.WriteString(ctxText)
+		b.WriteString(demoteAuthorizationMarkers(ctxText))
 		b.WriteString("\n\n")
 	}
 
@@ -714,7 +720,7 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 		}
 		if strings.TrimSpace(ctx.AutopilotDescription) != "" {
 			b.WriteString("\nAutopilot instructions:\n\n")
-			b.WriteString(ctx.AutopilotDescription)
+			b.WriteString(demoteAuthorizationMarkers(ctx.AutopilotDescription))
 			b.WriteString("\n\n")
 		}
 		if ctx.AutopilotID != "" {

@@ -112,6 +112,12 @@ type TaskContextForEnv struct {
 	InitiatorID    string
 	InitiatorName  string
 	InitiatorEmail string
+	// AuthorizationAttestation is the run-scoped signed-authorization
+	// declaration issued by the server at claim time (mig 294). Rendered
+	// into the brief's Authorization Constitution section and mirrored to
+	// `.agent_context/authorization.md`. Empty when no active signature
+	// covers the issue — the constitution preamble itself is always-on.
+	AuthorizationAttestation string
 }
 
 // SkillContextForEnv represents a skill to be written into the execution environment.

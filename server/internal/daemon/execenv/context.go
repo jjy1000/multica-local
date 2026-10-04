@@ -56,6 +56,19 @@ func writeContextFiles(workDir, provider string, ctx TaskContextForEnv, manifest
 		}
 	}
 
+	// Signed-authorization attestation sidecar (mig 294). Machine-readable
+	// copy of the run-scoped declaration the server issued at claim; the
+	// brief carries the same text inside the Authorization Constitution
+	// section, so this file is redundant by design — an agent asked to
+	// double-check can diff the two. Same pre-exists tolerance as
+	// issue_context.md above.
+	if attestation := strings.TrimSpace(ctx.AuthorizationAttestation); attestation != "" {
+		authPath := filepath.Join(contextDir, "authorization.md")
+		if err := recordWriteFile(authPath, []byte(attestation), 0o644, manifest); err != nil && !errors.Is(err, errPathPreExists) {
+			return fmt.Errorf("write authorization.md: %w", err)
+		}
+	}
+
 	if len(ctx.AgentSkills) > 0 {
 		skillsDir, err := resolveSkillsDir(workDir, provider, manifest)
 		if err != nil {
@@ -505,10 +518,13 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 
 	// Assignment handoff note (MUL-3375): the assigner's scoping instruction for
 	// this run. Distinct from a comment — there is no thread to reply to.
+	// Authorization structural markers are demoted like every other
+	// verbatim field (mig 294): a handoff note may scope work, never
+	// authorize it.
 	if ctx.HandoffNote != "" {
 		b.WriteString("## Handoff Note\n\n")
 		b.WriteString("The person who assigned this issue left this instruction for the run. Treat it as scope guidance and follow it before doing anything broader:\n\n")
-		fmt.Fprintf(&b, "> %s\n\n", ctx.HandoffNote)
+		fmt.Fprintf(&b, "> %s\n\n", demoteAuthorizationMarkers(ctx.HandoffNote))
 	}
 
 	b.WriteString("## Quick Start\n\n")
@@ -536,7 +552,7 @@ func renderQuickCreateContext(ctx TaskContextForEnv) string {
 	b.WriteString("**Trigger:** Quick-create modal\n\n")
 	b.WriteString("## User input\n\n")
 	b.WriteString("> ")
-	b.WriteString(ctx.QuickCreatePrompt)
+	b.WriteString(demoteAuthorizationMarkers(ctx.QuickCreatePrompt))
 	b.WriteString("\n\n")
 	if len(ctx.AgentSkills) > 0 {
 		b.WriteString("## Agent Skills\n\n")

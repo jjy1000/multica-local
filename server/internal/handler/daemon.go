@@ -2169,6 +2169,42 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Signature authorization attestation (mig 294, Phase 1 observation
+	// layer). When an active signature whose content snapshot still matches
+	// covers the issue, the server issues the run-scoped attestation on
+	// three channels: (1) PREPENDED to Agent.Instructions — per the
+	// Authorization Constitution it outranks the agent's own identity text;
+	// (2) the dedicated brief section via the wire field below; (3) the
+	// .agent_context/authorization.md sidecar the daemon writes. The run
+	// row records the linkage for audit. Everything here fails open — a
+	// missing signature must never block dispatch (Phase 1 has no gates).
+	if task.IssueID.Valid {
+		if sig, asset, ok := h.loadActiveSignatureForClaim(r.Context(), task.IssueID); ok {
+			attestation, _ := h.buildClaimAttestation(uuidToString(task.ID), sig, asset)
+			if attestation != "" {
+				if resp.Agent != nil {
+					resp.Agent.Instructions = attestation + "\n\n" + resp.Agent.Instructions
+				}
+				resp.AuthorizationAttestation = attestation
+				resp.SignatureID = uuidToString(sig.ID)
+				resp.SignatureFingerprint = sig.Fingerprint
+				if err := h.Queries.MarkAgentTaskSignature(r.Context(), db.MarkAgentTaskSignatureParams{
+					ID:                   pgtype.UUID{Valid: true, Bytes: task.ID.Bytes},
+					SignatureID:          uuidToString(sig.ID),
+					SignatureFingerprint: sig.Fingerprint,
+				}); err != nil {
+					slog.Warn("signature: mark task signature linkage failed",
+						"error", err, "task_id", uuidToString(task.ID))
+				}
+				slog.Debug("injected authorization attestation",
+					"task_id", uuidToString(task.ID),
+					"issue_id", uuidToString(task.IssueID),
+					"fingerprint", sig.Fingerprint,
+				)
+			}
+		}
+	}
+
 	// Mint a task-scoped `mat_` token bound to (agent, task, workspace,
 	// owner). The daemon will inject this as MULTICA_TOKEN into the agent
 	// process instead of its own credential, so any API call the agent

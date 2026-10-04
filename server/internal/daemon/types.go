@@ -125,6 +125,14 @@ type Task struct {
 	// Empty or non-task-scoped values are fatal for writable agent tasks; the
 	// daemon must not fall back to its own token. See MUL-3292.
 	AuthToken string `json:"auth_token,omitempty"`
+	// AuthorizationAttestation (mig 294): run-scoped signed-authorization
+	// declaration, empty when no active signature covers the issue. Flows
+	// into the brief's Authorization Constitution section and the
+	// .agent_context/authorization.md sidecar. SignatureID/Fingerprint are
+	// display + audit linkage only.
+	AuthorizationAttestation string `json:"authorization_attestation,omitempty"`
+	SignatureID              string `json:"signature_id,omitempty"`
+	SignatureFingerprint     string `json:"signature_fingerprint,omitempty"`
 }
 
 // ChatAttachmentMeta is the structured attachment metadata the daemon
