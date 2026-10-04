@@ -138,6 +138,9 @@ import type {
   CreateBillingPortalSessionResponse,
   PluginResourceOutcome,
   UserPluginReclaimPlan,
+  SignatureAsset,
+  RiskSignature,
+  SignatureVerifyResult,
 } from "../types";
 import type { OnboardingCompletionPath } from "../onboarding/types";
 import type {
@@ -150,6 +153,14 @@ import { createRequestId } from "../utils";
 import { getCurrentSlug } from "../platform/workspace-storage";
 import { parseWithFallback } from "./schema";
 import type { LabArtifactStub, BulkMoveAgentRuntimeResponse } from "./schemas";
+import {
+  IssueSignaturesSchema,
+  RiskSignatureListSchema,
+  RiskSignatureSchema,
+  SignatureAssetListSchema,
+  SignatureAssetSchema,
+  SignatureVerifyResultSchema,
+} from "./schemas";
 import {
   AgentTemplateSchema,
   AgentTemplateSummaryListSchema,
@@ -2088,6 +2099,108 @@ export class ApiClient {
 
   async revokePersonalAccessToken(id: string): Promise<void> {
     await this.fetch(`/api/tokens/${id}`, { method: "DELETE" });
+  }
+
+  // ── Signature authorization (mig 294) ────────────────────────────────────
+  // Watermark assets + signed risk authorizations. The watermark image is
+  // served authed-only; use rawRequest → blob URL for <img> display (the
+  // bare URL 401s in desktop, same law as lab artifacts).
+
+  async listSignatureAssets(): Promise<SignatureAsset[]> {
+    const raw = await this.fetch<unknown>("/api/signature-assets");
+    const parsed = parseWithFallback(
+      raw,
+      SignatureAssetListSchema,
+      { assets: [] },
+      { endpoint: "GET /api/signature-assets" },
+    );
+    return parsed.assets;
+  }
+
+  async uploadSignatureAsset(file: File, name?: string): Promise<SignatureAsset> {
+    const formData = new FormData();
+    formData.append("file", file);
+    // The server sniffs the multipart part header, which browsers set to
+    // application/octet-stream for arbitrary files — pass the File's own
+    // type explicitly.
+    formData.append("mime", file.type || "image/png");
+    if (name) formData.append("name", name);
+
+    const rid = createRequestId();
+    const start = Date.now();
+    this.logger.info("→ POST /api/signature-assets", { rid });
+    const credentialUsed = this.getToken();
+    const res = await fetch(`${this.baseUrl}/api/signature-assets`, {
+      method: "POST",
+      headers: this.authHeaders(),
+      body: formData,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      if (res.status === 401) this.handleUnauthorized(credentialUsed);
+      const message = await this.parseErrorMessage(res, `Upload failed: ${res.status}`);
+      this.logger.error(`← ${res.status} /api/signature-assets`, { rid, duration: `${Date.now() - start}ms`, error: message });
+      throw new Error(message);
+    }
+    this.logger.info(`← ${res.status} /api/signature-assets`, { rid, duration: `${Date.now() - start}ms` });
+    const raw = (await res.json()) as { asset?: unknown };
+    return parseWithFallback(raw?.asset ?? {}, SignatureAssetSchema, SignatureAssetSchema.parse({}), {
+      endpoint: "POST /api/signature-assets",
+    });
+  }
+
+  async retireSignatureAsset(id: string): Promise<void> {
+    await this.fetch(`/api/signature-assets/${encodeURIComponent(id)}/retire`, { method: "POST" });
+  }
+
+  async listWorkspaceSignatures(): Promise<RiskSignature[]> {
+    const raw = await this.fetch<unknown>("/api/signatures");
+    const parsed = parseWithFallback(
+      raw,
+      RiskSignatureListSchema,
+      { signatures: [] },
+      { endpoint: "GET /api/signatures" },
+    );
+    return parsed.signatures;
+  }
+
+  async listIssueSignatures(
+    issueId: string,
+  ): Promise<{ signatures: RiskSignature[]; active: RiskSignature | null }> {
+    return parseWithFallback(
+      await this.fetch<unknown>(`/api/issues/${encodeURIComponent(issueId)}/signatures`),
+      IssueSignaturesSchema,
+      { signatures: [], active: null },
+      { endpoint: "GET /api/issues/:id/signatures" },
+    );
+  }
+
+  async signIssue(
+    issueId: string,
+    input: { asset_id: string; ops: string[]; expires_days: number },
+  ): Promise<RiskSignature> {
+    const raw = await this.fetch<{ signature?: unknown }>(
+      `/api/issues/${encodeURIComponent(issueId)}/signatures`,
+      { method: "POST", body: JSON.stringify(input) },
+    );
+    return parseWithFallback(raw?.signature ?? {}, RiskSignatureSchema, RiskSignatureSchema.parse({}), {
+      endpoint: "POST /api/issues/:id/signatures",
+    });
+  }
+
+  async revokeSignature(id: string): Promise<void> {
+    await this.fetch(`/api/signatures/${encodeURIComponent(id)}/revoke`, { method: "POST" });
+  }
+
+  async verifySignatureByFingerprint(fingerprint: string): Promise<SignatureVerifyResult> {
+    return parseWithFallback(
+      await this.fetch<unknown>(
+        `/api/signatures/by-fingerprint/${encodeURIComponent(fingerprint)}/verify`,
+      ),
+      SignatureVerifyResultSchema,
+      SignatureVerifyResultSchema.parse({}),
+      { endpoint: "GET /api/signatures/by-fingerprint/:fp/verify" },
+    );
   }
 
   // File Upload & Attachments

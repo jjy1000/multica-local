@@ -103,6 +103,14 @@ export type {
 } from "./chat";
 export type { StorageAdapter } from "./storage";
 export type {
+  SignatureOp,
+  SignatureAsset,
+  RiskSignature,
+  RiskSignatureStatus,
+  SignatureVerifyResult,
+} from "./signature";
+export { SIGNATURE_OPS, signatureFingerprintShort } from "./signature";
+export type {
   ExperimentalFlag,
   ExperimentalFlagsList,
   LocalizedString,

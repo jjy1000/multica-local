@@ -2049,3 +2049,70 @@ export const UserPluginArtifactMetaSchema = z.object({
 export const UserPluginArtifactMetaListSchema = z.array(UserPluginArtifactMetaSchema);
 
 export type UserPluginArtifactMeta = z.infer<typeof UserPluginArtifactMetaSchema>;
+
+// ── Signature authorization (mig 294) ──────────────────────────────────────
+// Loose on purpose: the endpoints are additive and older installs may miss
+// fields; every consumer goes through parseWithFallback.
+
+export const SignatureAssetSchema = z
+  .object({
+    id: z.string().default(""),
+    workspace_id: z.string().default(""),
+    name: z.string().default(""),
+    mime: z.string().default("image/png"),
+    image_sha256: z.string().default(""),
+    algorithm: z.string().default("ed25519"),
+    public_key_fingerprint: z.string().default(""),
+    activated_at: z.string().default(""),
+    retired_at: z.string().nullable().default(null),
+    created_at: z.string().default(""),
+  })
+  .loose();
+
+export const SignatureAssetListSchema = z
+  .object({
+    assets: z.array(SignatureAssetSchema).default([]),
+  })
+  .loose();
+
+export const RiskSignatureSchema = z
+  .object({
+    id: z.string().default(""),
+    workspace_id: z.string().default(""),
+    issue_id: z.string().nullable().default(null),
+    asset_id: z.string().default(""),
+    signed_by: z.string().default(""),
+    ops: z.array(z.string()).default([]),
+    scope: z.record(z.string(), z.unknown()).default({}),
+    content_sha256: z.string().default(""),
+    fingerprint: z.string().default(""),
+    signature: z.string().default(""),
+    signed_at: z.string().default(""),
+    expires_at: z.string().nullable().default(null),
+    revoked_at: z.string().nullable().default(null),
+    status: z.enum(["active", "revoked", "expired"]).default("active"),
+  })
+  .loose();
+
+export const RiskSignatureListSchema = z
+  .object({
+    signatures: z.array(RiskSignatureSchema).default([]),
+  })
+  .loose();
+
+export const IssueSignaturesSchema = z
+  .object({
+    signatures: z.array(RiskSignatureSchema).default([]),
+    active: RiskSignatureSchema.nullable().default(null),
+  })
+  .loose();
+
+export const SignatureVerifyResultSchema = z
+  .object({
+    signature: RiskSignatureSchema.nullable().default(null),
+    valid: z.boolean().default(false),
+    checks: z.record(z.string(), z.boolean()).default({}),
+    reasons: z.array(z.string()).default([]),
+    verified_at: z.string().default(""),
+  })
+  .loose();
