@@ -43,7 +43,29 @@ const (
 	maxSignatureImageBytes = 2 << 20 // 2 MiB — watermarks are small; the handler rejects larger uploads
 	maxSignatureHistory    = 50
 	maxSignatureExpiryDays = 365
+
+	// signatureDisabledError is the message EVERY gate path returns. It is
+	// user-facing (Settings deep-link guidance) and asserted by tests.
+	signatureDisabledError = "signature authorization is not enabled; open Settings → Signatures, read the purpose and risk notice, and enable it yourself"
 )
+
+// requireSignatureArmed is the server-side enforcement of the feature's
+// default-OFF posture: every signature surface (upload, ceremony, verify,
+// claim-time attestation) refuses while the workspace has not armed the
+// switch via Settings. The FE hiding the UI is cosmetic only — this is the
+// actual gate.
+func (h *Handler) requireSignatureArmed(w http.ResponseWriter, r *http.Request, workspaceID string) bool {
+	ws, err := h.Queries.GetWorkspace(r.Context(), parseUUID(workspaceID))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "workspace not found")
+		return false
+	}
+	if !signing.EnabledFromSettings(ws.Settings) {
+		writeError(w, http.StatusForbidden, signatureDisabledError)
+		return false
+	}
+	return true
+}
 
 type SignatureAssetResponse struct {
 	ID          string  `json:"id"`
@@ -146,6 +168,9 @@ func (h *Handler) UploadSignatureAsset(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.requireSignatureArmed(w, r, workspaceID) {
+		return
+	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxSignatureImageBytes+64<<10)
 	if err := r.ParseMultipartForm(maxSignatureImageBytes); err != nil {
@@ -226,6 +251,9 @@ func (h *Handler) ListSignatureAssets(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.requireSignatureArmed(w, r, workspaceID) {
+		return
+	}
 	assets, err := h.Queries.ListSignatureAssets(r.Context(), workspaceUUID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list signature assets")
@@ -256,6 +284,11 @@ func (h *Handler) requireSignatureAssetWorkspace(w http.ResponseWriter, r *http.
 		return db.SignatureAsset{}, false
 	}
 	if _, ok := h.workspaceMember(w, r, uuidToString(asset.WorkspaceID)); !ok {
+		return db.SignatureAsset{}, false
+	}
+	// Image serve + retire ride the same arm switch: with the feature off,
+	// nothing about a watermark asset is reachable — even its bytes.
+	if !h.requireSignatureArmed(w, r, uuidToString(asset.WorkspaceID)) {
 		return db.SignatureAsset{}, false
 	}
 	return asset, true
@@ -303,6 +336,9 @@ func (h *Handler) ListWorkspaceSignatures(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if !h.requireSignatureArmed(w, r, workspaceID) {
+		return
+	}
 	rows, err := h.Queries.ListRiskSignaturesByWorkspace(r.Context(), db.ListRiskSignaturesByWorkspaceParams{
 		WorkspaceID: workspaceUUID,
 		Limit:       maxSignatureHistory,
@@ -334,6 +370,9 @@ func (h *Handler) SignIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	issue, ok := h.loadIssueForUser(w, r, chi.URLParam(r, "issueID"))
 	if !ok {
+		return
+	}
+	if !h.requireSignatureArmed(w, r, uuidToString(issue.WorkspaceID)) {
 		return
 	}
 
@@ -482,6 +521,9 @@ func (h *Handler) ListIssueSignatures(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !h.requireSignatureArmed(w, r, uuidToString(issue.WorkspaceID)) {
+		return
+	}
 	rows, err := h.Queries.ListRiskSignaturesByIssue(r.Context(), issue.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list signatures")
@@ -514,6 +556,13 @@ func (h *Handler) requireRiskSignatureWorkspace(w http.ResponseWriter, r *http.R
 		return db.RiskSignature{}, false
 	}
 	if _, ok := h.workspaceMember(w, r, uuidToString(row.WorkspaceID)); !ok {
+		return db.RiskSignature{}, false
+	}
+	// Verification rides the arm switch too: disabling the feature makes the
+	// whole authorization channel unreachable (stale rows cannot keep
+	// verifying). The constitution's "verify exits 0" contract only exists
+	// on an armed install.
+	if !h.requireSignatureArmed(w, r, uuidToString(row.WorkspaceID)) {
 		return db.RiskSignature{}, false
 	}
 	return row, true
@@ -618,13 +667,20 @@ func (h *Handler) VerifySignatureByFingerprint(w http.ResponseWriter, r *http.Re
 	if _, ok := h.workspaceMember(w, r, uuidToString(row.WorkspaceID)); !ok {
 		return
 	}
+	// CLI verify rides the same arm switch as every other surface (see
+	// requireRiskSignatureWorkspace) — a disarmed install has no verify
+	// contract, so stale rows cannot keep passing here either.
+	if !h.requireSignatureArmed(w, r, uuidToString(row.WorkspaceID)) {
+		return
+	}
 	h.verifySignature(w, r, row)
 }
 
 // loadActiveSignatureForClaim is the claim-time consumer: newest active
-// signature for the issue whose content snapshot still matches. A stale
-// hash returns ok=false — the authorization no longer covers the task as
-// edited, so no attestation is injected until the user re-signs.
+// signature for the issue whose content snapshot still matches, on a
+// workspace where the feature is ARMED. Any non-armed / stale / revoked /
+// expired state returns ok=false — no attestation is injected until the
+// user re-arms and re-signs.
 func (h *Handler) loadActiveSignatureForClaim(ctx context.Context, issueID pgtype.UUID) (db.RiskSignature, db.SignatureAsset, bool) {
 	row, err := h.Queries.GetActiveRiskSignatureForIssue(ctx, issueID)
 	if err != nil {
@@ -632,6 +688,10 @@ func (h *Handler) loadActiveSignatureForClaim(ctx context.Context, issueID pgtyp
 	}
 	issue, err := h.Queries.GetIssue(ctx, issueID)
 	if err != nil {
+		return db.RiskSignature{}, db.SignatureAsset{}, false
+	}
+	ws, err := h.Queries.GetWorkspace(ctx, issue.WorkspaceID)
+	if err != nil || !signing.EnabledFromSettings(ws.Settings) {
 		return db.RiskSignature{}, db.SignatureAsset{}, false
 	}
 	if row.ContentSha256 != signing.ContentHash(issue.Title, issue.Description.String) {

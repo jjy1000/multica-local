@@ -100,7 +100,8 @@ import { PullRequestList } from "./pull-request-list";
 import { useGitHubSettings } from "@multica/core/github";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@multica/core/auth";
-import { useWorkspacePaths } from "@multica/core/paths";
+import { useCurrentWorkspace, useWorkspacePaths } from "@multica/core/paths";
+import { useSignatureEnabled } from "@multica/core/signature/hooks";
 import { useActorName } from "@multica/core/workspace/hooks";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useRecentContextStore } from "@multica/core/chat";
@@ -855,6 +856,8 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
 
   // Issue navigation — read from TQ list cache
   const wsId = useWorkspaceId();
+  const currentWorkspace = useCurrentWorkspace();
+  const signatureArmed = useSignatureEnabled(currentWorkspace?.settings);
   const { data: members = [] } = useQuery(memberListOptions(wsId));
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
   // 0.3.49.1: server-derived flag catalog. Used by the timeline
@@ -2517,10 +2520,10 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
             {issue.lab_source === "claude_science_lab" && wsId && (
               <ClaudeHeaderPill wsId={wsId} issueId={id} />
             )}
-            {/* mig 294: signed authorization pill — always present (the
-                ghost affordance is the ceremony entry point; see the pill
-                component comment). */}
-            {wsId && (
+            {/* mig 294: signed authorization pill — only on an ARMED
+                workspace (default OFF; see Settings → Signatures). While
+                armed the ghost affordance is the ceremony entry point. */}
+            {wsId && signatureArmed && (
               <SignatureHeaderPill
                 wsId={wsId}
                 issueId={id}
@@ -2906,7 +2909,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
           />
         )}
       </div>
-      {wsId && (
+      {wsId && signatureArmed && (
         <SignatureCeremonyDialog
           open={signatureCeremonyOpen}
           onOpenChange={setSignatureCeremonyOpen}

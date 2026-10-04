@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -25,6 +26,28 @@ func withSignatureKeyDir(t *testing.T) string {
 	signing.KeyDirOverride = dir
 	t.Cleanup(func() { signing.KeyDirOverride = "" })
 	return dir
+}
+
+// withSignatureArmed flips the default-OFF arm switch on for the shared
+// test workspace and restores the previous settings on cleanup. Every
+// signature surface test needs it — the server rejects the whole feature
+// on a disarmed workspace even for fixtures with rows present.
+func withSignatureArmed(t *testing.T) {
+	t.Helper()
+	var prev []byte
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT settings FROM workspace WHERE id = $1`, testWorkspaceID).Scan(&prev); err != nil {
+		t.Fatalf("read workspace settings: %v", err)
+	}
+	if _, err := testPool.Exec(context.Background(),
+		`UPDATE workspace SET settings = COALESCE(settings, '{}'::jsonb) || '{"signature_authorization_enabled":true}'::jsonb WHERE id = $1`,
+		testWorkspaceID); err != nil {
+		t.Fatalf("arm signature feature: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(),
+			`UPDATE workspace SET settings = $2 WHERE id = $1`, testWorkspaceID, prev)
+	})
 }
 
 func uploadTestSignatureAsset(t *testing.T, name string) string {
@@ -98,6 +121,7 @@ func callSignIssue(t *testing.T, issueID, assetID string, ops []string, expiresD
 
 func TestSignatureUploadPersistsAssetAndKey(t *testing.T) {
 	keyDir := withSignatureKeyDir(t)
+	withSignatureArmed(t)
 	assetID := uploadTestSignatureAsset(t, "primary")
 
 	// Private key file exists under the override dir with 0600.
@@ -146,6 +170,7 @@ func TestSignatureUploadPersistsAssetAndKey(t *testing.T) {
 
 func TestSignIssueRecordsSignatureCommentAndVerifies(t *testing.T) {
 	withSignatureKeyDir(t)
+	withSignatureArmed(t)
 	assetID := uploadTestSignatureAsset(t, "primary")
 	issueID := createSignatureTestIssue(t, "红蓝对抗演练目标网段")
 
@@ -201,6 +226,7 @@ func TestSignIssueRecordsSignatureCommentAndVerifies(t *testing.T) {
 
 func TestSignatureTamperedRowFailsVerification(t *testing.T) {
 	withSignatureKeyDir(t)
+	withSignatureArmed(t)
 	assetID := uploadTestSignatureAsset(t, "primary")
 	issueID := createSignatureTestIssue(t, "tamper target")
 
@@ -236,6 +262,7 @@ func TestSignatureTamperedRowFailsVerification(t *testing.T) {
 
 func TestSignatureRevokeBlocksCoverage(t *testing.T) {
 	withSignatureKeyDir(t)
+	withSignatureArmed(t)
 	assetID := uploadTestSignatureAsset(t, "primary")
 	issueID := createSignatureTestIssue(t, "revoke target")
 
@@ -272,6 +299,7 @@ func TestSignatureRevokeBlocksCoverage(t *testing.T) {
 
 func TestSignatureStaleContentSnapshotSkipsClaimCoverage(t *testing.T) {
 	withSignatureKeyDir(t)
+	withSignatureArmed(t)
 	assetID := uploadTestSignatureAsset(t, "primary")
 	issueID := createSignatureTestIssue(t, "original title")
 
@@ -293,6 +321,7 @@ func TestSignatureStaleContentSnapshotSkipsClaimCoverage(t *testing.T) {
 
 func TestSignIssueRejectsBadScopes(t *testing.T) {
 	withSignatureKeyDir(t)
+	withSignatureArmed(t)
 	assetID := uploadTestSignatureAsset(t, "primary")
 	issueID := createSignatureTestIssue(t, "bad scopes")
 
@@ -317,6 +346,7 @@ func TestSignIssueRejectsBadScopes(t *testing.T) {
 // attestation at all.
 func TestClaimInjectsAuthorizationAttestation(t *testing.T) {
 	withSignatureKeyDir(t)
+	withSignatureArmed(t)
 	ctx := context.Background()
 
 	// Signed issue.
@@ -389,4 +419,128 @@ func TestClaimInjectsAuthorizationAttestation(t *testing.T) {
 	if strings.Contains(plainBody, signing.AttestationHeader) || strings.Contains(plainBody, `"authorization_attestation"`) {
 		t.Fatal("unsigned issue must claim with zero attestation content")
 	}
+}
+
+// TestSignatureDisarmedRejectsAllSurfaces pins the default-OFF posture:
+// with the workspace switch unarmed, every signature surface returns 403
+// with the guidance message — upload, list, ceremony, issue list. This is
+// the actual gate; the FE hiding the tab is cosmetic.
+func TestSignatureDisarmedRejectsAllSurfaces(t *testing.T) {
+	withSignatureKeyDir(t)
+	// NOTE: deliberately NOT calling withSignatureArmed here.
+
+	// Upload.
+	upBuf := &bytes.Buffer{}
+	mw := multipart.NewWriter(upBuf)
+	fw, _ := mw.CreateFormFile("file", "wm.png")
+	fw.Write([]byte("\x89PNG fake"))
+	_ = mw.WriteField("mime", "image/png")
+	_ = mw.Close()
+	upReq := httptest.NewRequest("POST", "/api/signature-assets", upBuf)
+	upReq.Header.Set("Content-Type", mw.FormDataContentType())
+	upReq.Header.Set("X-User-ID", testUserID)
+	upReq.Header.Set("X-Workspace-ID", testWorkspaceID)
+	upRec := httptest.NewRecorder()
+	testHandler.UploadSignatureAsset(upRec, upReq)
+	if upRec.Code != http.StatusForbidden || !strings.Contains(upRec.Body.String(), "not enabled") {
+		t.Fatalf("disarmed upload must 403 with guidance, got %d %s", upRec.Code, upRec.Body.String())
+	}
+
+	// Asset list.
+	listRec := httptest.NewRecorder()
+	testHandler.ListSignatureAssets(listRec, newRequest("GET", "/api/signature-assets", nil))
+	if listRec.Code != http.StatusForbidden {
+		t.Fatalf("disarmed asset list must 403, got %d", listRec.Code)
+	}
+
+	// Ceremony.
+	issueID := createSignatureTestIssue(t, "disarmed ceremony")
+	signReq := withURLParam(newRequest("POST", "/api/issues/"+issueID+"/signatures",
+		map[string]any{"asset_id": "00000000-0000-0000-0000-000000000000", "ops": []string{signing.OpOffensiveDrill}}), "issueID", issueID)
+	signRec := httptest.NewRecorder()
+	testHandler.SignIssue(signRec, signReq)
+	if signRec.Code != http.StatusForbidden {
+		t.Fatalf("disarmed ceremony must 403, got %d", signRec.Code)
+	}
+
+	// Issue signature list.
+	listIssueReq := withURLParam(newRequest("GET", "/api/issues/"+issueID+"/signatures", nil), "issueID", issueID)
+	listIssueRec := httptest.NewRecorder()
+	testHandler.ListIssueSignatures(listIssueRec, listIssueReq)
+	if listIssueRec.Code != http.StatusForbidden {
+		t.Fatalf("disarmed issue list must 403, got %d", listIssueRec.Code)
+	}
+}
+
+// TestSignatureDisarmSuspendsExistingCoverage proves arming is part of the
+// authorization lifecycle: a workspace with an ACTIVE signature stops
+// injecting attestations and stops VERIFYING the moment the switch goes
+// off — without touching the row. Re-arming restores both, since the row
+// and content snapshot are unchanged.
+func TestSignatureDisarmSuspendsExistingCoverage(t *testing.T) {
+	withSignatureKeyDir(t)
+	withSignatureArmed(t)
+	assetID := uploadTestSignatureAsset(t, "suspend")
+	issueID := createSignatureTestIssue(t, "disarm suspension target")
+	if rec, out := callSignIssue(t, issueID, assetID, []string{signing.OpOffensiveDrill}, 0); out == nil {
+		t.Fatalf("sign while armed: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var fingerprint string
+	if err := testPool.QueryRow(context.Background(),
+		`SELECT fingerprint FROM risk_signature WHERE issue_id = $1 ORDER BY signed_at DESC LIMIT 1`, issueID).Scan(&fingerprint); err != nil {
+		t.Fatal(err)
+	}
+
+	// Armed: coverage + verification both work.
+	if _, _, ok := testHandler.loadActiveSignatureForClaim(context.Background(), mustParseUUID(t, issueID)); !ok {
+		t.Fatal("armed workspace must see coverage")
+	}
+	if !verifyByFingerprintOK(t, fingerprint) {
+		t.Fatal("armed workspace must verify the signature")
+	}
+
+	// Disarm: same row, same content — no coverage, no verification.
+	disarmSignature(t)
+	if _, _, ok := testHandler.loadActiveSignatureForClaim(context.Background(), mustParseUUID(t, issueID)); ok {
+		t.Fatal("disarmed workspace must NOT inject attestations even with an active signature row")
+	}
+	if verifyByFingerprintOK(t, fingerprint) {
+		t.Fatal("disarmed workspace must refuse verification (403), not pass")
+	}
+
+	// Re-arm (the cleanup ordering means re-arming again is idempotent):
+	// everything comes back without re-signing.
+	withSignatureArmed(t)
+	if _, _, ok := testHandler.loadActiveSignatureForClaim(context.Background(), mustParseUUID(t, issueID)); !ok {
+		t.Fatal("re-armed workspace must restore coverage")
+	}
+}
+
+func disarmSignature(t *testing.T) {
+	t.Helper()
+	if _, err := testPool.Exec(context.Background(),
+		`UPDATE workspace SET settings = COALESCE(settings, '{}'::jsonb) || '{"signature_authorization_enabled":false}'::jsonb WHERE id = $1`,
+		testWorkspaceID); err != nil {
+		t.Fatalf("disarm: %v", err)
+	}
+}
+
+func verifyByFingerprintOK(t *testing.T, fingerprint string) bool {
+	t.Helper()
+	req := withURLParam(newRequest("GET", "/api/signatures/by-fingerprint/"+fingerprint+"/verify", nil), "fingerprint", fingerprint)
+	rec := httptest.NewRecorder()
+	testHandler.VerifySignatureByFingerprint(rec, req)
+	if rec.Code == http.StatusOK {
+		var verdict struct {
+			Valid bool `json:"valid"`
+		}
+		_ = json.NewDecoder(rec.Body).Decode(&verdict)
+		return verdict.Valid
+	}
+	if rec.Code == http.StatusForbidden {
+		return false
+	}
+	t.Fatalf("verify: unexpected status %d body %s", rec.Code, rec.Body.String())
+	return false
 }

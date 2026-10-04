@@ -1,18 +1,27 @@
 "use client";
 
-// signature-tab — Settings → Signatures (mig 294): upload/retire the
-// watermark signature asset and browse the workspace's signing history.
-// Key custody is server-side (Ed25519, ~/.multica/signing/); the UI only
-// ever sees the public-key fingerprint.
+// signature-tab — Settings → Signatures (mig 294): the default-OFF arm
+// switch with its purpose + risk declaration, then (once armed) the
+// watermark asset manager and signing history. The checkbox → enable flow
+// is the acknowledgment record; the server independently refuses every
+// signature surface on a disarmed workspace, so this UI is UX, not
+// security.
 
 import { useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { KeyRound, ShieldCheck, Stamp } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { KeyRound, ShieldAlert, ShieldCheck, Stamp } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@multica/core/api";
 import { signatureFingerprintShort } from "@multica/core/types";
-import { signatureKeys, useInvalidateSignatures } from "@multica/core/signature/hooks";
+import {
+  setSignatureEnabled,
+  signatureEnabledFromSettings,
+  signatureKeys,
+  useInvalidateSignatures,
+} from "@multica/core/signature/hooks";
+import { useCurrentWorkspace } from "@multica/core/paths";
+import { workspaceListOptions } from "@multica/core/workspace/queries";
 import { useWorkspaceId } from "@multica/core/hooks";
 
 import { Badge } from "@multica/ui/components/ui/badge";
@@ -23,20 +32,41 @@ import { useT } from "../../i18n";
 export function SignatureTab() {
   const { t } = useT("signature");
   const wsId = useWorkspaceId();
+  const workspace = useCurrentWorkspace();
+  const queryClient = useQueryClient();
+  const enabled = signatureEnabledFromSettings(workspace?.settings);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const invalidate = useInvalidateSignatures(wsId);
   const [confirmRetireId, setConfirmRetireId] = useState<string | null>(null);
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
+  const [ackChecked, setAckChecked] = useState(false);
+  const [confirmDisable, setConfirmDisable] = useState(false);
 
   const assetsQuery = useQuery({
     queryKey: signatureKeys.assets(wsId),
     queryFn: () => api.listSignatureAssets(),
-    enabled: Boolean(wsId),
+    enabled: Boolean(wsId) && enabled,
   });
   const historyQuery = useQuery({
     queryKey: signatureKeys.workspaceHistory(wsId),
     queryFn: () => api.listWorkspaceSignatures(),
-    enabled: Boolean(wsId),
+    enabled: Boolean(wsId) && enabled,
+  });
+
+  const armMutation = useMutation({
+    mutationFn: (next: boolean) => setSignatureEnabled(workspace!.id, workspace?.settings, next),
+    onSuccess: (_data, next) => {
+      if (!next) {
+        setConfirmDisable(false);
+        setAckChecked(false);
+      }
+      // Arm/disarm lives on the workspace object — refresh the workspace
+      // list cache so useCurrentWorkspace().settings (and everything gated
+      // on it, including the issue-header pill) reflects the new state.
+      void queryClient.invalidateQueries({ queryKey: workspaceListOptions().queryKey });
+      invalidate();
+    },
+    onError: (err: Error) => toast.error(err.message),
   });
 
   const uploadMutation = useMutation({
@@ -66,11 +96,73 @@ export function SignatureTab() {
     },
   });
 
+  // ── Disarmed: purpose + risk declaration + acknowledgment gate ──────────
+  if (!enabled) {
+    return (
+      <div className="space-y-5" data-testid="settings-signature-tab" data-armed="false">
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+          <h2 className="flex items-center gap-2 text-body font-semibold">
+            <ShieldAlert className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />
+            {t(($) => $.enable_title)}
+          </h2>
+          <p className="mt-2 text-caption leading-relaxed text-muted-foreground">
+            {t(($) => $.enable_purpose)}
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-caption leading-relaxed text-muted-foreground">
+            <li>{t(($) => $.enable_point_offensive)}</li>
+            <li>{t(($) => $.enable_point_agents)}</li>
+            <li>{t(($) => $.enable_point_tasks)}</li>
+          </ul>
+          <p className="mt-3 text-caption leading-relaxed text-amber-700 dark:text-amber-300">
+            {t(($) => $.enable_risk)}
+          </p>
+          <label className="mt-4 flex cursor-pointer items-start gap-2 text-caption">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={ackChecked}
+              onChange={(e) => setAckChecked(e.target.checked)}
+              data-testid="signature-ack-checkbox"
+            />
+            <span>{t(($) => $.enable_ack)}</span>
+          </label>
+          <Button
+            className="mt-3"
+            size="sm"
+            disabled={!ackChecked || armMutation.isPending}
+            onClick={() => armMutation.mutate(true)}
+            data-testid="signature-enable-button"
+          >
+            <ShieldCheck className="size-3.5" aria-hidden />
+            {t(($) => $.enable_button)}
+          </Button>
+        </div>
+        <p className="text-micro text-muted-foreground">{t(($) => $.enable_off_note)}</p>
+      </div>
+    );
+  }
+
   const assets = assetsQuery.data ?? [];
   const history = historyQuery.data ?? [];
 
+  // ── Armed: management surface ───────────────────────────────────────────
   return (
-    <div className="space-y-8" data-testid="settings-signature-tab">
+    <div className="space-y-8" data-testid="settings-signature-tab" data-armed="true">
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
+        <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />
+        <span className="text-caption font-medium">{t(($) => $.enable_armed_note)}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="ml-auto"
+          disabled={armMutation.isPending}
+          onClick={() => (confirmDisable ? armMutation.mutate(false) : setConfirmDisable(true))}
+          data-testid="signature-disable-button"
+        >
+          {confirmDisable ? t(($) => $.disable_confirm) : t(($) => $.disable_button)}
+        </Button>
+      </div>
+
       <section>
         <h2 className="flex items-center gap-2 text-body font-semibold">
           <Stamp className="size-4" aria-hidden />
