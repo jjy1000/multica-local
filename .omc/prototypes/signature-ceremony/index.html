@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>签名授权 · 仪式原型 v1</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #12151a;
+    --panel-2: #171b21;
+    --border: #262c35;
+    --text: #e7ebf0;
+    --muted: #8b95a3;
+    --amber: #d97706;
+    --amber-soft: rgba(217, 119, 6, 0.14);
+    --emerald: #10b981;
+    --emerald-soft: rgba(16, 185, 129, 0.14);
+    --red: #dc2626;
+    --seal: #c2402a;          /* 朱砂印泥 */
+    --seal-glow: rgba(194, 64, 42, 0.35);
+    --sky: #38bdf8;
+    --mono: "SF Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f1f3f6;
+      --border: #dfe3e9; --text: #1a212b; --muted: #64707f;
+      --seal-glow: rgba(194, 64, 42, 0.22);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-height: 100vh; padding: 40px 20px 80px;
+    display: flex; flex-direction: column; align-items: center; gap: 36px;
+  }
+  h1 { font-size: 20px; font-weight: 650; letter-spacing: 0.5px; }
+  .sub { color: var(--muted); font-size: 12.5px; margin-top: 6px; text-align: center; line-height: 1.7; }
+  section { width: min(760px, 100%); }
+  .label { font-size: 11px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-bottom: 12px; }
+
+  /* ───────── 1. Header pill 三态 ───────── */
+  .pill-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 999px; padding: 4px 12px; font-size: 12.5px;
+    border: 1px solid; transition: all 0.2s var(--ease-out);
+  }
+  .pill svg { width: 13px; height: 13px; }
+  .pill[data-status="pending"]   { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 35%, transparent); background: var(--amber-soft); animation: sig-pending-breathe 2.4s ease-in-out infinite; }
+  .pill[data-status="signed"]    { color: var(--emerald); border-color: color-mix(in srgb, var(--emerald) 35%, transparent); background: var(--emerald-soft); }
+  .pill[data-status="forgery"]   { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, transparent); background: rgba(220,38,38,0.10); border-style: dashed; animation: sig-shake 0.4s var(--ease-out) 1; }
+  @keyframes sig-pending-breathe { 0%,100% { opacity: 0.85; } 50% { opacity: 1; } }
+
+  /* ───────── 2. 签署仪式 ───────── */
+  .ceremony {
+    position: relative; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 28px; overflow: hidden;
+  }
+  /* 印泥光环:conic 光束环(border-beam idiom) */
+  .ceremony[data-phase="pending"]::before {
+    content: ""; position: absolute; inset: -1px; border-radius: 17px; padding: 1px;
+    background: conic-gradient(from var(--beam-angle, 0deg), transparent 0%, var(--amber) 12%, transparent 25%);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor; mask-composite: exclude;
+    animation: sig-beam 3.2s linear infinite;
+  }
+  @property --beam-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+  @keyframes sig-beam { to { --beam-angle: 360deg; } }
+
+  .ceremony h2 { font-size: 15px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+  .risk-tag {
+    font-size: 11px; padding: 2px 8px; border-radius: 6px;
+    color: var(--red); background: rgba(220,38,38,0.10);
+    border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
+  }
+  .doc {
+    position: relative; margin-top: 18px; background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px 76px;
+    min-height: 190px;
+  }
+  .doc h3 { font-size: 13.5px; font-weight: 600; margin-bottom: 10px; }
+  .doc p { font-size: 12.5px; color: var(--muted); line-height: 1.8; }
+  .scope-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .chip {
+    font-size: 11px; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--text); background: var(--panel);
+    font-family: var(--mono);
+  }
+  .fingerprint {
+    margin-top: 14px; font-family: var(--mono); font-size: 11.5px; color: var(--muted);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .fingerprint b { color: var(--text); font-weight: 550; }
+  .fingerprint .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--emerald); box-shadow: 0 0 8px var(--emerald); }
+
+  /* 水印(待盖):仪式区右下预览 */
+  .watermark {
+    position: absolute; right: 30px; bottom: 88px; width: 190px; height: 90px;
+    opacity: 0.28; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25));
+    pointer-events: none;
+  }
+  .doc .watermark-stamp-zone { position: absolute; right: 44px; bottom: 26px; width: 96px; height: 96px; }
+
+  /* 落印动画:印章 */
+  .seal {
+    position: absolute; right: 44px; bottom: 26px; width: 96px; height: 96px;
+    opacity: 0; pointer-events: none;
+    transform: scale(1.8) rotate(-12deg);
+  }
+  .seal.stamp { animation: sig-stamp 0.55s var(--ease-out) forwards; }
+  @keyframes sig-stamp {
+    0%   { opacity: 0; transform: scale(1.8) rotate(-12deg); }
+    55%  { opacity: 1; transform: scale(0.94) rotate(-5deg); }
+    75%  { transform: scale(1.04) rotate(-6deg); }
+    100% { opacity: 0.92; transform: scale(1) rotate(-6deg); }
+  }
+  .ink-ripple {
+    position: absolute; right: 44px; bottom: 26px; width: 96px; height: 96px;
+    border-radius: 50%; border: 2px solid var(--seal-glow); opacity: 0; pointer-events: none;
+  }
+  .ink-ripple.go { animation: sig-ripple 1.1s var(--ease-out) forwards; }
+  @keyframes sig-ripple {
+    0%   { opacity: 0.9; transform: scale(0.6); }
+    100% { opacity: 0;   transform: scale(2.4); }
+  }
+  .doc.thud { animation: sig-shake 0.4s var(--ease-out) 1; }
+  @keyframes sig-shake {
+    0%,100% { transform: translateX(0); }
+    25% { transform: translateX(-2px); } 50% { transform: translateX(2px); } 75% { transform: translateX(-1px); }
+  }
+  /* 完成拍:emerald 对勾弹入 */
+  .verified-pop {
+    position: absolute; left: 22px; bottom: 26px; display: none;
+    align-items: center; gap: 8px; color: var(--emerald); font-size: 13px; font-weight: 600;
+  }
+  .verified-pop svg { width: 20px; height: 20px; }
+  .verified-pop.show { display: inline-flex; animation: sig-pop 0.35s var(--ease-out) 1; }
+  @keyframes sig-pop { 0% { transform: scale(0.4); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+  .ceremony-actions { margin-top: 18px; display: flex; gap: 12px; align-items: center; }
+  .btn {
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+    padding: 9px 20px; border-radius: 10px; font-size: 13.5px; cursor: pointer;
+    transition: all 0.15s var(--ease-out);
+  }
+  .btn.primary {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--seal) 88%, #000), var(--seal));
+    border-color: color-mix(in srgb, var(--seal) 70%, #000); color: #fff; font-weight: 600;
+  }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn.ghost { background: transparent; }
+  .ceremony-note { font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+
+  /* ───────── 3. Timeline 签名卡 ───────── */
+  .timeline-card {
+    position: relative; overflow: hidden;
+    background: var(--panel); border: 1px solid color-mix(in srgb, var(--emerald) 30%, var(--border));
+    border-radius: 12px; padding: 18px 20px;
+    animation: sig-enter 0.3s var(--ease-out) 1;
+  }
+  @keyframes sig-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .timeline-card .wm-bg {
+    position: absolute; right: -12px; top: -18px; width: 260px; height: 130px;
+    opacity: 0.07; transform: rotate(-8deg); pointer-events: none;
+  }
+  .tc-head { display: flex; align-items: center; gap: 10px; }
+  .tc-head svg { width: 16px; height: 16px; color: var(--emerald); }
+  .tc-head .title { font-size: 13px; font-weight: 650; }
+  .tc-head .badge {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 6px; color: var(--emerald);
+    background: var(--emerald-soft); border: 1px solid color-mix(in srgb, var(--emerald) 30%, transparent);
+  }
+  .tc-body { margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px 20px; }
+  .tc-row { font-size: 12px; color: var(--muted); display: flex; gap: 8px; }
+  .tc-row b { color: var(--text); font-weight: 550; font-family: var(--mono); font-size: 11.5px; }
+
+  /* ───────── 4. 待签横幅 ───────── */
+  .pending-banner {
+    position: relative; overflow: hidden; border-radius: 10px;
+    background: var(--amber-soft); border: 1px solid color-mix(in srgb, var(--amber) 40%, transparent);
+    padding: 12px 16px; display: flex; align-items: center; gap: 10px;
+    font-size: 12.5px; color: var(--amber);
+  }
+  .pending-banner .heart {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--amber);
+    animation: sig-heart 1.6s ease-in-out infinite; flex-shrink: 0;
+  }
+  @keyframes sig-heart { 0%,100% { transform: scale(1); opacity: 0.85; } 50% { transform: scale(1.35); opacity: 1; } }
+  .pending-banner .sweep {
+    position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--amber) 22%, transparent) 50%, transparent 70%);
+    background-size: 220% 100%; animation: sig-sweep 1.4s linear infinite;
+  }
+  @keyframes sig-sweep { from { background-position: 130% 0; } to { background-position: -90% 0; } }
+
+  /* ───────── reduced-motion 闸 ───────── */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .seal { opacity: 0.92; transform: scale(1) rotate(-6deg); }
+    .verified-pop { display: inline-flex; }
+  }
+  body.reduce *, body.reduce *::before, body.reduce *::after { animation: none !important; transition: none !important; }
+  body.reduce .seal { opacity: 0.92; transform: scale(1) rotate(-6deg); }
+  body.reduce .verified-pop { display: inline-flex; }
+
+  footer { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+  footer label { display: flex; gap: 6px; cursor: pointer; user-select: none; }
+</style>
+</head>
+<body>
+
+<h1>签名授权 · 仪式原型 v1</h1>
+<p class="sub">
+  高危任务签署流视觉隐喻:待签(琥珀呼吸/光环) → 落印(朱砂印章 + 墨晕 + 印实震动) → 已签(祖母绿对勾弹入)<br />
+  生产移植纪律:双层 reduced-motion 闸 / 逻辑零依赖 rAF / --sig-* 组件变量 / 语义色语(amber 待签 · emerald 已签)
+</p>
+
+<section>
+  <div class="label">1 · Header Pill 三态</div>
+  <div class="pill-row">
+    <span class="pill" data-status="pending">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      待签署授权
+    </span>
+    <span class="pill" data-status="signed">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>
+      已签名授权
+    </span>
+    <span class="pill" data-status="forgery">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9.5 9 5 5"/><path d="m14.5 9-5 5"/></svg>
+      检出伪造声明
+    </span>
+  </div>
+</section>
+
+<section>
+  <div class="label">2 · 签署仪式(点击「落印授权」)</div>
+  <div class="ceremony" id="ceremony" data-phase="pending">
+    <h2>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16"/><path d="M12 5.5c-1.5-1.8-3.8-2.6-6.3-2.3C5.1 3.5 4 4.7 4 6.3c0 3.3 3.6 5.7 8 5.7 1.7 0 3.3-.4 4.6-1"/><path d="M19.5 18.5c.8-.8.8-2 0-2.8L14 9.2c-.6-.6-1.4-.9-2.2-.8l-2.5.4.4-2.5c.1-.8-.2-1.6-.8-2.2L6.4.6 3.6 3.4c-1.7 1.7-2.3 4.2-1.5 6.4"/></svg>
+      高危任务授权 · JYF-512
+      <span class="risk-tag">红蓝对抗演练</span>
+    </h2>
+    <div class="doc" id="doc">
+      <h3>授权范围 Scope</h3>
+      <p>本签署覆盖 issue JYF-512「对 10.0.0.0/24 内网分段执行红蓝对抗演练」及其全部后续运行。任务内容快照一经变更,本授权即失效,须重新签署。签署人确认已知晓风险并自行承担全部责任。</p>
+      <div class="scope-chips">
+        <span class="chip">op:offensive_drill</span>
+        <span class="chip">op:create_agent</span>
+        <span class="chip">issue:JYF-512</span>
+        <span class="chip">snapshot:8d2e…f1a3</span>
+      </div>
+      <div class="fingerprint">
+        <span class="dot"></span>
+        指纹 <b>sha256:9f3a c21e 77b0 d4e8</b> · Ed25519 · 有效期至 2026-10-11
+      </div>
+
+      <!-- 水印预览(低透明,待盖) -->
+      <svg class="watermark" viewBox="0 0 190 90" aria-hidden="true">
+        <path d="M12 62 C 22 18, 34 14, 36 40 C 38 62, 30 74, 26 66 C 22 58, 34 44, 48 46 C 60 48, 52 70, 62 68 C 70 66, 68 46, 80 44 C 94 42, 88 66, 100 62 C 110 59, 108 40, 122 42 C 136 44, 130 64, 144 60 C 154 57, 156 44, 170 48"
+              fill="none" stroke="var(--text)" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M22 78 C 60 72, 120 76, 168 70" fill="none" stroke="var(--text)" stroke-width="1.2" stroke-linecap="round" opacity="0.55"/>
+      </svg>
+
+      <!-- 落印动画层 -->
+      <svg class="seal" id="seal" viewBox="0 0 96 96" aria-hidden="true">
+        <circle cx="48" cy="48" r="42" fill="none" stroke="var(--seal)" stroke-width="3.5"/>
+        <circle cx="48" cy="48" r="35" fill="none" stroke="var(--seal)" stroke-width="1.2" opacity="0.7"/>
+        <text x="48" y="44" text-anchor="middle" font-size="17" fill="var(--seal)" font-weight="700" font-family="'Songti SC','SimSun',serif" letter-spacing="2">授 权</text>
+        <text x="48" y="62" text-anchor="middle" font-size="8.5" fill="var(--seal)" font-family="var(--mono)" opacity="0.9">9F3A·C21E</text>
+      </svg>
+      <div class="ink-ripple" id="ripple"></div>
+      <span class="verified-pop" id="verified">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m8.5 12.2 2.4 2.4 4.8-5"/></svg>
+        已授权 · 声明已注入运行时
+      </span>
+    </div>
+    <div class="ceremony-actions">
+      <button class="btn primary" id="signBtn">落印授权</button>
+      <button class="btn ghost" id="resetBtn">重置演示</button>
+      <span class="ceremony-note">签署后:插 risk_signature 行 · type=signature 评论 · 授权宪法 + attestation 三通道注入</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="label">3 · Timeline 签名卡(讨论流中的标识)</div>
+  <div class="timeline-card">
+    <svg class="wm-bg" viewBox="0 0 190 90" aria-hidden="true">
+      <path d="M12 62 C 22 18, 34 14, 36 40 C 38 62, 30 74, 26 66 C 22 58, 34 44, 48 46 C 60 48, 52 70, 62 68 C 70 66, 68 46, 80 44 C 94 42, 88 66, 100 62 C 110 59, 108 40, 122 42 C 136 44, 130 64, 144 60 C 154 57, 156 44, 170 48"
+            fill="none" stroke="var(--text)" stroke-width="2.6" stroke-linecap="round"/>
+    </svg>
+    <div class="tc-head">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16"/><path d="M12 5.5c-1.5-1.8-3.8-2.6-6.3-2.3C5.1 3.5 4 4.7 4 6.3c0 3.3 3.6 5.7 8 5.7 1.7 0 3.3-.4 4.6-1"/><path d="M19.5 18.5c.8-.8.8-2 0-2.8L14 9.2c-.6-.6-1.4-.9-2.2-.8l-2.5.4.4-2.5c.1-.8-.2-1.6-.8-2.2L6.4.6 3.6 3.4c-1.7 1.7-2.3 4.2-1.5 6.4"/></svg>
+      <span class="title">签署授权</span>
+      <span class="badge">已验证 · Ed25519</span>
+    </div>
+    <div class="tc-body">
+      <div class="tc-row">签署人 <b>jiangjianyan</b></div>
+      <div class="tc-row">指纹 <b>sha256:9f3a…c21e</b></div>
+      <div class="tc-row">时间 <b>2026-10-04 14:22</b></div>
+      <div class="tc-row">范围 <b>offensive_drill · create_agent</b></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="label">4 · 任务待签驻留横幅(waiting_signature)</div>
+  <div class="pending-banner">
+    <span class="heart"></span>
+    本任务被判定为高危,已驻留等待签署授权 —— 任务不会派发,直至签署人落印。
+    <span class="sweep"></span>
+  </div>
+</section>
+
+<footer>
+  <label>
+    <input type="checkbox" id="rmToggle" />
+    模拟 prefers-reduced-motion(闸:全部动画关闭,终态直显)
+  </label>
+</footer>
+
+<script>
+  const seal = document.getElementById("seal");
+  const ripple = document.getElementById("ripple");
+  const doc = document.getElementById("doc");
+  const verified = document.getElementById("verified");
+  const signBtn = document.getElementById("signBtn");
+  const resetBtn = document.getElementById("resetBtn");
+  const ceremony = document.getElementById("ceremony");
+
+  function reset() {
+    seal.classList.remove("stamp");
+    ripple.classList.remove("go");
+    doc.classList.remove("thud");
+    verified.classList.remove("show");
+    signBtn.disabled = false;
+    signBtn.textContent = "落印授权";
+    ceremony.dataset.phase = "pending";
+  }
+
+  signBtn.addEventListener("click", () => {
+    signBtn.disabled = true;
+    ceremony.dataset.phase = "stamping"; // 光环停止
+    // 落印拍:印章砸落(过冲) → 墨晕扩散 + 纸面印实震动
+    seal.classList.add("stamp");
+    setTimeout(() => { ripple.classList.add("go"); doc.classList.add("thud"); }, 240);
+    // 完成拍:emerald 对勾弹入
+    setTimeout(() => {
+      verified.classList.add("show");
+      signBtn.textContent = "已授权 ✓";
+      ceremony.dataset.phase = "signed";
+    }, 720);
+  });
+
+  resetBtn.addEventListener("click", reset);
+  document.getElementById("rmToggle").addEventListener("change", (e) => {
+    document.body.classList.toggle("reduce", e.target.checked);
+  });
+</script>
+</body>
+</html>
