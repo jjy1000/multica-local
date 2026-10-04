@@ -103,3 +103,12 @@ apps/desktop/vendor/timesfm-src/wheelhouse/
 # "uncommitted file" listings + agent invoke/complete telemetry, zero decision
 # context. Ship logs and audit reports live under .omc/, not here.
 production/
+
+# Mimosa agent-tool scratch — per-worktree local state (hook-state, hook-status,
+# reports/, history/, finding-ledger). Pure runtime scratch, no repo value; it
+# appears in every subdirectory the tool touches, so ignore it by name anywhere.
+.mimosa/
+
+# Hand-made CLAUDE.md snapshots taken before trimming the constitution. Local
+# rollback fodder only; the live file is tracked, the .bak never should be.
+CLAUDE.md.bak-*
